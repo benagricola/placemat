@@ -9,9 +9,10 @@ net's type, fields, interfaces and differential pairs in `nets.layout.json`.
 **Architecture:** Three repositories change, in this order (D1): the Zener fork gains a `clearance` field and the
 `nets.layout.json` sidecar (stage 1); the KRT fork gains the board floors, `--connections` and `--bus-nets`; placemat
 gains the phase form, a sidecar reader, phase selection, a phase engine that replaces `_route_board`'s stages (one chain
-of kept results, a DRC per phase), per-phase reports, `route --phase/--only` and `explore --route-rank`; then Zener
-stage 2 (interfaces, `DiffPair`) and the placemat selectors that need it. The last placemat task removes the step's
-removal-ledger rows; the release follows.
+of kept results, a DRC per phase), a run whose route fails keeping its placed board (Task 14), per-phase reports,
+`route --phase/--only` and `explore --route-rank`; then Zener stage 2 (interfaces, `DiffPair`), the placemat selectors
+that need it, and the circuit-capture rules. The reference set's skill gaps are fixed in both skills (Task 24); the
+last placemat task removes the step's removal-ledger rows; the release follows. 26 tasks.
 
 **Tech Stack:** Python 3.12 (placemat, KRT), pcbnew and kicad-cli (KiCad 10), Rust 1.98 (Zener fork `pcb`, Starlark),
 pytest with xdist, KRT's standalone test scripts (`tests/run_all.py`), cargo test with insta.
@@ -20,7 +21,7 @@ pytest with xdist, KRT's standalone test scripts (`tests/run_all.py`), cargo tes
 `docs/superpowers/specs/2026-10-06-roadmap-0.100.md` ("Removal ledger", "Keeping dead code out", "Attribution"),
 `docs/superpowers/research/2026-10-07/krt-connections-design.md` and
 `docs/superpowers/research/2026-10-07/zener-stage2-trace.md`. Every file:line cited below was read at placemat
-175358af, KRT c98d38eb, pcb d2b9f749.
+175358af, KRT c98d38eb, pcb d2b9f749, except Tasks 14 and 24, read at placemat 55f9005b and circuit-capture bdcca59.
 
 ## Global Constraints
 
@@ -68,16 +69,17 @@ pytest with xdist, KRT's standalone test scripts (`tests/run_all.py`), cargo tes
 
 ## Decisions (to confirm)
 
-Each is applied in the plan as written; the alternative is what changes if the user picks it.
+Each is applied in the plan as written; the alternative is what changes if the user picks it. D3, D8 and the approval
+of Task 23 were confirmed by the user on 2026-10-07; the rest are unchanged.
 
 - D1 Order: Zener stage 1 and the KRT fork first, then the placemat engine, Zener stage 2 last. Alt: Zener stage 2 before the engine.
 - D2 `--connections` JSON ends are `{net, from: {ref, pad}, to: {ref, pad}, widths: {layer: mm}}`; the spec is amended in Task 5. Alt: the spec's "REF.PAD" strings.
-- D3 A task joined by copper narrower than its asked width on any layer is `joined_narrow` and routed; at or above width it is `joined_before`. Alt: report `joined_narrow` and do not route (Task 5 step 3 stops if KRT cannot route it within the planned size).
+- D3 A task joined by copper narrower than its asked width on any layer is `joined_narrow` and routed; at or above width it is `joined_before`. Confirmed 2026-10-07, with this fallback: if KRT cannot route such a task within the planned size (Task 5 step 3), the task is reported `joined_narrow` with its narrowest width, counted joined and not routed, and the phase's width judgement (Task 15) raises `route.width` on it.
 - D4 Same-net pads of an end's footprint that are not task ends are obstacles (moved to the private net). Alt: put them in the view so the call joins them too.
 - D5 Different widths on one net: one router call per distinct width map, widest first. Alt: one call and KRT's `deferred` loop alone.
 - D6 KRT floors: clearance floored at the board's `min_clearance`; every neck floored at the board's `min_track_width`; both documented fork divergences. Alt: leave KRT as upstream and record the errors.
 - D7 An interface instance is selected by its module-level variable name (`DISP`), an io() instance by `<module path>.<io name>`; `name=` is not used; an unbound instance has no record. Alt: also record `name=` instances.
-- D8 The Zener fork's four commits on `feat/netclass-nets-field-0.4.52` are pushed to `origin` before work starts; Task 1 stops for approval. Alt: keep them local and push only the new branch.
+- D8 The Zener fork's four commits on `feat/netclass-nets-field-0.4.52` are pushed to `origin` (benagricola/pcb, never `upstream`) before work starts. Confirmed 2026-10-07; Task 1 pushes without stopping.
 - D9 The KRT fork is not rebased onto upstream (110 commits behind) in step 1. Alt: rebase first, re-baselining test (a).
 - D10 `nets.layout.json` carries `generator` (name, version, git sha) and `netlist.sha256`; placemat refuses a sidecar whose digest does not match `default.net` beside it. Alt: compare file times.
 - D11 The sidecar lists what it exports (`"exports": ["types", "fields"]`, stage 2 adds `"interfaces"`); a physical field is `{"value": number, "unit": ...}`, lengths in mm. Alt: unit-suffixed keys.
@@ -89,7 +91,7 @@ Each is applied in the plan as written; the alternative is what changes if the u
 - D17 Width judgement for a phase is made on the routed board, on the copper each router call of the phase added, against that call's asked width per layer, with the neck allowance unless `neckdown = false`. Alt: KRT's per-task narrowest width.
 - D18 Test (a) boards have no capture: `route_ref.py` writes the board's default phases (no pair or interface phase), so usb-c's USB class and pic_programmer's POWER class route single-ended; the manifest's `islands` becomes `phases`. Alt: a pair selector by net names for boards without a capture.
 - D19 `pairs.board_pairs` (net-class pairs) stays for placement scoring (score.py, pinmap.py, occupancy.py) in step 1; only route selection moves to `DiffPair`. Alt: move placement to `DiffPair` now (changes test (b) inside a routing step).
-- D20 From Task 13 a route refuses `[route] islands`, `pair_layers` and `net_halos`; Task 23 deletes the fields and moves the refusal to settings load. Alt: delete them in Task 13.
+- D20 From Task 13 a route refuses `[route] islands`, `pair_layers` and `net_halos`; Task 25 deletes the fields and moves the refusal to settings load. Alt: delete them in Task 13.
 - D21 The live router and pcb move only in the Release task; gate runs use `KRT_DIR=$KW` and `PATH=$ZW/bin:$PATH`. Alt: move them when each fork task lands.
 - D22 `net_halos*` report keys and the `setup.net_halo` finding become `net_clearances*` and `setup.net_clearance`. Alt: keep the old names.
 - D23 `--route-rank` is a `run` flag with no setting. Alt: also an `[explore] route_rank` setting.
@@ -98,6 +100,14 @@ Each is applied in the plan as written; the alternative is what changes if the u
 - D26 `--only`: an earlier phase "has no copper" when no net it selects has a track on the input board. Alt: by the kept chain's records.
 - D27 A selector that names a net, class, part, instance, type or layer the board lacks, or a glob that matches nothing, refuses the route naming it. Alt: a warning finding and an empty phase.
 - D28 The spec's real-board check (the power legs as a `current_paths` phase) runs on a scratch copy under the lock in the Release task; numbers go to the user, not into commits. Alt: skip it.
+- Task 23, the circuit-capture skill change its charter puts under "ask first", is approved. Confirmed 2026-10-07.
+
+Decided by the user on 2026-10-07, beyond the list above:
+- `capture:` stays a basis prefix of a reference script's `why=` (a fact read from the capture's own annotations); the
+  roadmap's rules and fixtures/reference/README.md say so, as lint.py does.
+- A route that fails after a good placement keeps the placed, unrouted board in the layout folder and says so; other
+  failures still restore the folder (Task 14).
+- The skill gaps the reference set recorded are fixed in step 1 (Task 24).
 
 ## Review Focus
 
@@ -143,18 +153,23 @@ placemat (`$WT`):
 - Create `src/placemat/kicad/phase_select.py`: what a phase routes on a board, and at what width.
 - Create `src/placemat/kicad/phase_run.py`: the router calls of one phase and the phase's own judgement.
 - Modify `src/placemat/kicad/route.py`: `_route_board` runs phases; `router_command` gains connections, buses,
-  neck-down and phase flags; the stage code goes in Task 23.
+  neck-down and phase flags; the stage code goes in Task 25.
 - Modify `src/placemat/kicad/route_state.py`: the kept-result chain over phase names.
 - Modify `src/placemat/kicad/route_widths.py`: per-layer asks, judged on a call's added copper.
-- Rename `src/placemat/kicad/net_halos.py` to `src/placemat/kicad/net_clearance.py` (Task 15).
-- Modify `src/placemat/settings.py`, `src/placemat/cli.py`, `src/placemat/runner.py`, `src/placemat/explore.py`,
-  `src/placemat/route_progress.py`, `src/placemat/channel.py`, `src/placemat/detach.py`, `src/placemat/findings.py`.
+- Rename `src/placemat/kicad/net_halos.py` to `src/placemat/kicad/net_clearance.py` (Task 16).
+- Modify `src/placemat/settings.py`, `src/placemat/cli.py`, `src/placemat/runner.py` (also a route failure keeps the
+  placed board, Task 14), `src/placemat/explore.py`, `src/placemat/route_progress.py`, `src/placemat/channel.py`,
+  `src/placemat/detach.py`, `src/placemat/findings.py`.
+- Modify `src/placemat/checks.py` (`carriers_of`: `Pm.I` by a net's last part, Task 24), `BACKLOG.md`, and the
+  reference boards' `NOTES.md` (Task 24).
 - Modify `fixtures/reference/route_ref.py`, `fixtures/reference/manifest.json`, `fixtures/reference/README.md`,
   the reference boards' `placemat.toml`, `fixtures/fairing/*/placemat.toml`; create `fixtures/mnb/placemat.toml`.
-- Create `tests/surface/{cli.txt,settings.txt,removed.txt}`, `tools/release/vulture_allow.py`.
+- Create `tests/surface/{cli.txt,settings.txt,removed.txt}`, `tools/release/vulture_allow.py`,
+  `tests/test_route_failure_layout.py`.
 - Docs: `skills/placemat/SKILL.md`, `skills/placemat/references/{api.md,capture.md,migration.md}`.
 
-circuit-capture (`/home/ben/work/circuit-capture`): `skills/circuit-capture/SKILL.md`, `.claude-plugin/plugin.json`.
+circuit-capture (`/home/ben/work/circuit-capture`): `skills/circuit-capture/SKILL.md`, `.claude-plugin/plugin.json`
+(Task 23: 0.1.7; Task 24: 0.1.8).
 
 ---
 
@@ -166,16 +181,21 @@ circuit-capture (`/home/ben/work/circuit-capture`): `skills/circuit-capture/SKIL
 - Consumes: nothing.
 - Produces: `$WT`, `$KW`, `$ZW` as in Global Constraints; `origin/feat/netclass-nets-field-0.4.52` holding d2b9f749.
 
-- [ ] **Step 1: Stop for the user's approval of D8**
+- [ ] **Step 1: Check the Zener fork's remotes**
 
-Ask the user (AskUserQuestion, yes/no): "Push the Zener fork's four local commits (199fb5e7, e2cdbac6, 6357045a,
-d2b9f749 on feat/netclass-nets-field-0.4.52) to origin (benagricola/pcb) as that branch?" Do not continue past this
-step without a yes. On a no, skip step 2 and record that only the new branch will be pushed.
+The user approved the push on 2026-10-07 (D8): the four local commits (199fb5e7, e2cdbac6, 6357045a, d2b9f749 on
+feat/netclass-nets-field-0.4.52) go to `origin` (benagricola/pcb), never to `upstream` (diodeinc).
+
+```bash
+git -C /home/ben/work/pcb remote get-url origin    # expect github.com:benagricola/pcb or github.com/benagricola/pcb
+git -C /home/ben/work/pcb status --short           # expect nothing
+```
+
+If `origin` is not benagricola/pcb, stop and tell the user what it is; push nothing.
 
 - [ ] **Step 2: Push the existing branch**
 
 ```bash
-git -C /home/ben/work/pcb status --short          # expect nothing
 git -C /home/ben/work/pcb push origin feat/netclass-nets-field-0.4.52
 git -C /home/ben/work/pcb branch -r --contains d2b9f749   # expect origin/feat/netclass-nets-field-0.4.52
 ```
@@ -200,7 +220,7 @@ git -C /home/ben/work/KRT-phases log -1 --format=%H     # c98d38eb4fab1581bd3dde
 python3 -c "import json;d=json.load(open('/home/ben/work/placemat/fixtures/reference/results.json'));print({b:{w:r['closure_clean'] for w,r in e.items()} for b,e in d['a'].items()})"
 ```
 
-Expected: the closures in "Gates" of Task 24 (chainlinkDriver 1.0, usb-c 1.0, pic_programmer 1.0, lora-v3 1.0,
+Expected: the closures in "Gates" of Task 26 (chainlinkDriver 1.0, usb-c 1.0, pic_programmer 1.0, lora-v3 1.0,
 esp-rust 1.0, ir-probe 0.8861, spimux 0.8649, watchy 0.8582 at class widths).
 
 ---
@@ -880,9 +900,23 @@ D3 routes a task whose ends are joined by narrow copper. KRT treats a net whose 
 (routing_common.py:505-640, `filter_already_routed`), so the narrow joining copper must leave the net's view without
 becoming an obstacle that touches the end pads. Find where obstacle stamping skips the copper of the net being routed
 (grep `obstacle` builders in py_router for the net-id test that skips own-net copper). If one net-id set decides it,
-the plan below adds a second private net, the "passable" one, to that set. If no such single place exists, stop and
-tell the user: D3's routing does not fit this task; ask whether to take the alternative (report `joined_narrow`, do
-not route, let placemat's width judgement flag it).
+the plan below adds a second private net, the "passable" one, to that set.
+
+If no such single place exists, do not stop: take the fallback the user confirmed on 2026-10-07 (D3), and say in the
+task's report that it was taken and why (the obstacle builders that test own-net copper, by file:line). Under the
+fallback:
+- `judge_joined` still sets `joined_narrow`, with `min_width_mm` the narrowest width per layer of the joining path;
+- a `joined_narrow` task is not routed: `choose_groups` and `split_nets` take only open tasks (`t.status is None`), and
+  the passable private net in step 4 is not built;
+- its record has `"joined": true` and `"status": "joined_narrow"`, so placemat counts it joined, and one more key,
+  `"path"`: the joining path's segments, each `{"layer": str, "start": [x, y], "end": [x, y], "width": mm}` in the
+  board's mm, from `judge_joined`'s `path` (`[{"layer": s.layer, "start": [s.start_x, s.start_y], "end": [s.end_x,
+  s.end_y], "width": s.width} for s in path]`); every other record has `"path": null`;
+- `docs/connections.md` says a `joined_narrow` task is reported, not routed;
+- the third case of step 6 expects `joined_narrow`, `joined` true, `min_width_mm` 0.2 on the stub's layer, a `path`
+  of the stub's segments and no new copper between A and B.
+placemat's phase width judgement then judges that path against the task's widths and raises `route.width` on it
+(Task 15, `narrow_join_widths`).
 
 - [ ] **Step 4: Implement `connections.py`**
 
@@ -1734,7 +1768,7 @@ git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
 - Create: `$WT/tests/test_capture_nets.py`
 
 **Interfaces:**
-- Consumes: the sidecar format of Task 3 (stage 1) and Task 20 (stage 2: `"interfaces"` in `exports`, per-net
+- Consumes: the sidecar format of Task 3 (stage 1) and Task 21 (stage 2: `"interfaces"` in `exports`, per-net
   `interfaces`, top-level `interfaces` and `pairs`).
 - Produces:
 
@@ -2328,7 +2362,7 @@ def select(phase, geometry, capture, *, open_nets, excluded, pour_nets, route_la
         if short:
             raise PhaseError("no_current", name=phase.name, connections=short)
         return Selection(tasks=tuple(tasks), **base)
-    raise PhaseError("needs_capture", name=phase.name, selector=phase.selector, generator=None)   # pairs, interfaces: Task 21
+    raise PhaseError("needs_capture", name=phase.name, selector=phase.selector, generator=None)   # pairs, interfaces: Task 22
 ```
 
 Add to `route_phase._TEXT`:
@@ -2680,7 +2714,7 @@ def test_without_resume_everything_is_dropped(tmp_path):
     assert not (tmp_path / "p0_0.kicad_pcb").exists()
 ```
 
-Delete `test_the_pairs_outcome_survives_the_state_file` here (Task 23 deletes `Pairs.to_dict` with the stage code if
+Delete `test_the_pairs_outcome_survives_the_state_file` here (Task 25 deletes `Pairs.to_dict` with the stage code if
 nothing else uses it). The rig tests below it (`rig`, :93 on) are rewritten in Task 13.
 
 - [ ] **Step 2: Run them to see them fail**
@@ -2829,8 +2863,8 @@ git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
 - Modify (migrate to phases, Interfaces below): `tests/test_route_resume.py` (rig tests from :93),
   `tests/test_route_events.py`, `tests/test_route_class_stages.py` (rig tests deleted; the `clearance_groups` unit
   test stays), `tests/test_route_islands.py` (route-driven tests become pour-net phase tests; parsing tests stay for
-  Task 23), `tests/test_pair_layers.py` (route-driven tests deleted), `tests/test_route_pairs.py` (route-driven tests
-  deleted; Task 21 adds capture-based ones), `tests/test_net_halos.py` (rig tests replaced by one refusal test; Task 15
+  Task 25), `tests/test_pair_layers.py` (route-driven tests deleted), `tests/test_route_pairs.py` (route-driven tests
+  deleted; Task 22 adds capture-based ones), `tests/test_net_halos.py` (rig tests replaced by one refusal test; Task 16
   adds capture-based ones), `tests/test_route_footprint_copper.py`, `tests/test_route_breakout.py`,
   `tests/test_route_pours.py`, `tests/test_explore_route.py`
 - Create: `$WT/tests/phase_helpers.py`
@@ -3290,7 +3324,7 @@ class RouteRefused(ValueError):
 
 `route_pairs(..., stem: str = "pairs")`: every `work / "pairs..."` name becomes `work / (stem + "...")`
 (`pairs_in`, the output, logs `<stem>.log` and `<stem>_<i>.log`, the project copies). Its `pair_layers` and
-`halos` parameters stay until Tasks 15 and 23.
+`halos` parameters stay until Tasks 16 and 25.
 
 `route_pour_net(ctx, board, out, net, width, layers, stem, pours)`: the body of one iteration of `route_islands`
 (route.py:961-989) with `inp = work/(stem+"_in.kicad_pcb")`, the other pour nets' partial pours guarded
@@ -3411,7 +3445,7 @@ track in `geometry.copper`; the names of those with none.
 
 Delete from `_route_board` the pairs, islands, classes and main blocks (:1130-1277). The functions they called
 (`route_islands`, `route_class_stages`, `resolve_pair_layers`, `pair_layer_groups`, `islands_on_board`,
-`island_layers_on_board`) stay defined until Task 23 deletes them; nothing calls them now.
+`island_layers_on_board`) stay defined until Task 25 deletes them; nothing calls them now.
 
 `route_progress.py`: drop `STAGES`; in `_forward` and `end`, rename by `self.names` whenever it is non-empty (the
 pair router's aliases, set by `route_pairs` for its call and cleared after it) instead of testing `stage == "pairs"`.
@@ -3434,7 +3468,7 @@ For each file in "Files", a test that called `route_board` without phases now pa
 alone) or the phases it means: an islands test becomes `phases({"name": "pour", "nets": [NET], "width": W},
 {"name": "signals"})` with `pour_nets={NET}`; a class-stage rig test is deleted (its rule is
 `test_the_rest_routes_wide_clearances_by_name_then_everything_else` in Task 11); a pair or halo rig test is deleted
-here and its replacement is written in Task 21 or 15; `FAKE` routers that branch on `"*" in nets` treat a call with
+here and its replacement is written in Task 22 or 16; `FAKE` routers that branch on `"*" in nets` treat a call with
 `--connections` or explicit `--nets` as a phase call. Each deleted test is named in the commit message.
 
 - [ ] **Step 7: Run the tests**
@@ -3481,7 +3515,222 @@ git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
 
 ---
 
-## Task 14: placemat: width judgement per phase
+## Task 14: placemat: a route that fails keeps the placed board
+
+The user decided on 2026-10-07: when a run's placement succeeded and its route then fails, the layout folder keeps the
+placed, unrouted board and the run's output says so; every other failure still puts the folder back as the last run
+left it. Today every `RunFailure` without an `item` restores the folder from `before` (runner.py:815-823 at
+55f9005b), so a route failure throws away a good placement. This is the user's standing rule for long commands: a
+failed command keeps its work, and a rerun continues from it. The route's own work already carries over:
+`keep_route` (runner.py:293-312) moves `route/` into a rerun of the same run id, and Task 13's kept-result chain
+reuses each phase whose key holds.
+
+**Files:**
+- Modify: `$WT/src/placemat/runner.py` (the `except RunFailure` branch of `_run`, runner.py:815-831 at 55f9005b;
+  after Task 13 it is a few lines lower)
+- Create: `$WT/tests/test_route_failure_layout.py`
+- Docs: `skills/placemat/references/api.md` (a paragraph after "**Stopping.**", api.md:4566-4577),
+  `skills/placemat/references/migration.md` ("## Unreleased", "### Changed")
+
+**Interfaces:**
+- Consumes: Task 13's `RouteRefused(code, **facts)` and the runner's mapping of `RouterFailed`, `RouteRefused` and
+  any other route exception to `RunFailure("route", ...)`.
+- Produces: `run.json`'s `failure.layout`, one of `"placed_unrouted"` (a route failure: the layout folder holds the
+  placed board), `"restored"` (the folder was put back from `before`), `"as_written"` (a critical item's failure, or a
+  first run with no earlier folder: the folder is as the run left it). Read by nothing in placemat yet; the studio and
+  `watch` may show it later.
+
+- [ ] **Step 1: Write the failing tests**
+
+`tests/test_route_failure_layout.py`:
+
+```python
+"""A route that fails after a good placement keeps the placed, unrouted board in the layout folder, says so, and
+keeps the route's work for the rerun; a failure before the board is written puts the folder back as the last run
+left it."""
+import shutil
+from pathlib import Path
+
+import pytest
+
+from placemat.project import find_board
+
+
+@pytest.fixture
+def staged(tmp_path, monkeypatch):
+    pytest.importorskip("pcbnew")
+    from placemat import runner
+    from placemat.console import configure, console as sink
+    from tests import real_modules as rm
+    script = rm.stage(tmp_path, "usb5v")
+    src = find_board(script)
+    src.layout_dir.mkdir(parents=True, exist_ok=True)
+    (src.layout_dir / "earlier.txt").write_text("the folder as the last run left it\n")
+
+    def cached(src, run_dir, fresh, quiet, timeout=900, keep_renders=False):
+        shutil.rmtree(src.layout_dir, ignore_errors=True)
+        shutil.copytree(runner.cached_generation(src), src.layout_dir)
+        return False
+    monkeypatch.setattr(runner, "generate", cached)
+    said = []
+    real = sink.say
+    monkeypatch.setattr(sink, "say", lambda stage, message="", **kw: (said.append((stage, message)),
+                                                                       real(stage, message, **kw))[1])
+
+    class Staged:
+        pass
+    s = Staged()
+    s.src, s.said = src, said
+
+    def run():
+        try:
+            return runner.run(script, render=False, quiet=True, route=True)
+        finally:
+            configure(quiet=False)
+    s.run = run
+    return s
+
+
+def _failing(monkeypatch, exc, seen):
+    """route_board stood in for: it records the board it was given and whether its work folder held an earlier
+    route's work, leaves work of its own, and raises `exc`."""
+    import placemat.kicad.route as route_mod
+
+    def route(pcb, work, *a, **kw):
+        seen.append({"placed": Path(pcb).read_bytes(), "kept_before": (Path(work) / "kept.txt").exists()})
+        Path(work).mkdir(parents=True, exist_ok=True)
+        (Path(work) / "kept.txt").write_text("a phase this route finished\n")
+        raise exc
+    monkeypatch.setattr(route_mod, "route_board", route)
+
+
+def _router_failed():
+    from placemat.kicad.route import RouterFailed
+    return RouterFailed("the router exited 3 routing phase signals", 3, "router.log", "tail")
+
+
+def _refused():
+    from placemat.kicad.route import RouteRefused
+    return RouteRefused("no_phases")
+
+
+@pytest.mark.parametrize("exc", [_router_failed, _refused])
+def test_a_failed_route_keeps_the_placed_board_and_says_so(staged, monkeypatch, exc):
+    seen = []
+    _failing(monkeypatch, exc(), seen)
+    result = staged.run()
+    assert result.status == "failed" and result.record.failure["kind"] == "route"
+    assert result.record.failure["layout"] == "placed_unrouted"
+    assert staged.src.pcb.read_bytes() == seen[0]["placed"]
+    assert not (staged.src.layout_dir / "earlier.txt").exists()
+    assert any(stage == "fail" and "holds the placed board, unrouted" in text for stage, text in staged.said)
+
+
+def test_a_rerun_after_a_failed_route_finds_its_work(staged, monkeypatch):
+    seen = []
+    _failing(monkeypatch, _router_failed(), seen)
+    staged.run()
+    staged.run()
+    assert [s["kept_before"] for s in seen] == [False, True]
+
+
+def test_a_failure_before_the_board_is_written_still_restores_the_folder(staged, monkeypatch):
+    from placemat import runner
+
+    def broken(src, run_dir, fresh, quiet, timeout=900, keep_renders=False):
+        shutil.rmtree(src.layout_dir, ignore_errors=True)
+        src.layout_dir.mkdir(parents=True)
+        raise runner.RunFailure("generation", "Schematic generation failed", {"exit_code": 1})
+    monkeypatch.setattr(runner, "generate", broken)
+    result = staged.run()
+    assert result.status == "failed" and result.record.failure["layout"] == "restored"
+    assert (staged.src.layout_dir / "earlier.txt").exists()
+```
+
+- [ ] **Step 2: Run them to see them fail**
+
+Run: `cd /home/ben/work/placemat/.claude/worktrees/routing-phases && PYTHONPATH=$PWD/src /home/ben/work/placemat/.venv/bin/python -m pytest tests/test_route_failure_layout.py -p no:cacheprovider`
+Expected: FAIL: the route tests find `earlier.txt` put back and no `layout` in `failure`; the restore test fails on
+`failure["layout"]` (KeyError). The rerun test passes already (keep_route); it stays as the guard on the rule.
+
+- [ ] **Step 3: Implement**
+
+In runner.py, beside `_KICAD_LOCKS`:
+
+```python
+# What a failed run's last lines say of the layout folder, by `failure.layout` ("as_written" says nothing)
+_LAYOUT_SAID = {
+    "placed_unrouted": "the layout folder holds the placed board, unrouted; run the same command again to route it: "
+                       "the route's work is kept in %(route)s",
+    "restored": "the layout folder is as the last run left it",
+}
+```
+
+The `except RunFailure` branch, from `kept = run_dir / "before"` to the restore's `say`, becomes:
+
+```python
+        kept = run_dir / "before"
+        if e.kind == "route":
+            # the placement finished and the board is written: keep it, unrouted, with the route's work in
+            # run_dir/route for the rerun (a failed long command keeps its work)
+            layout = "placed_unrouted"
+        elif kept.exists() and "item" not in e.details:     # a critical item's failure writes the board as it stood
+            shutil.rmtree(src.layout_dir, ignore_errors=True)
+            shutil.copytree(kept, src.layout_dir, ignore=_KICAD_LOCKS)
+            layout = "restored"
+        else:
+            layout = "as_written"
+        rec.failure["layout"] = layout
+        if layout in _LAYOUT_SAID:
+            say("fail", _LAYOUT_SAID[layout] % {"route": run_dir / "route"})
+```
+
+The `stop.Stopped` branch is unchanged: a stop still puts the folder back.
+
+- [ ] **Step 4: Run the tests and the neighbours**
+
+```bash
+cd /home/ben/work/placemat/.claude/worktrees/routing-phases
+PYTHONPATH=$PWD/src /home/ben/work/placemat/.venv/bin/python -m pytest tests/test_route_failure_layout.py tests/test_route_nothing_to_route.py tests/test_present.py -n 2 -p no:cacheprovider
+PYTHONPATH=$PWD/src /home/ben/work/placemat/.venv/bin/python -m pytest -n 2 -p no:cacheprovider
+```
+
+Expected: PASS.
+
+- [ ] **Step 5: Docs**
+
+api.md, a paragraph after "**Stopping.**":
+
+```markdown
+**A failed run.** A run that fails records `status: "failed"` and `failure: {kind, message, ..., layout}`. `layout`
+says what the layout folder holds: `placed_unrouted` when the route failed or was refused after the placement was
+written (the folder keeps the placed board, and the run's last lines say so; run the same command again to route it,
+and the route takes the phases the failed one finished), `restored` when the folder was put back as the last run left
+it (a failure before the board was written), `as_written` when a critical item's failure wrote the board as it stood.
+```
+
+migration.md "## Unreleased", under "### Changed" (Task 13 made the heading):
+
+```markdown
+- **A route that fails keeps the placed board.** When `run --route` places the board and the route then fails or is
+  refused, the layout folder keeps the placed, unrouted board instead of going back to the last run's, and the run
+  says so; `run.json`'s `failure.layout` is `placed_unrouted`. Run the same command again to route it: the route
+  takes the phases the failed one finished. A failure before the board is written still puts the folder back
+  (`failure.layout` `restored`). Scripts need no change.
+```
+
+- [ ] **Step 6: Commit**
+
+```bash
+cd /home/ben/work/placemat/.claude/worktrees/routing-phases
+git add src/placemat/runner.py tests/test_route_failure_layout.py skills/placemat/references/api.md skills/placemat/references/migration.md
+git commit -m "Run: a route that fails after a good placement keeps the placed, unrouted board and says so"
+git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
+```
+
+---
+
+## Task 15: placemat: width judgement per phase
 
 **Files:**
 - Modify: `$WT/src/placemat/kicad/route_widths.py:65-84` (`read_widths`), `:155-212` (`board_widths`), `:215-218`
@@ -3502,6 +3751,9 @@ def board_widths(geometry, asks: dict, stage: str, rise_c=None, copper_oz=None, 
     # each record as today plus "stage" = the phase name and per layer {"layer", "need_mm", "by", "under_mm", "min_mm"}
 def read_widths(summaries: list, judged: set) -> list      # summaries: [(phase name, call index, path)]
 def phase_widths(phase, calls, cfg) -> list                  # in phase_run.py: board_widths over each call with a width
+def narrow_join_widths(phase, sel, connections, routed_pcb, cfg) -> list
+    # in phase_run.py: D3's fallback (Task 5 step 3) only; the joining path of each `joined_narrow` record that carries
+    # a `path`, judged against its task's asked widths
 ```
 
   `by` is `"current"` for a task call whose tasks carry `amps`, else `"asked"`. A phase with `neckdown = false` is
@@ -3538,12 +3790,36 @@ def test_copper_at_its_width_is_not_recorded():
     j1 = footprint("J1", 5, 10, nets=("VB", "GND"))
     wide = track("VB", 8, 10, 20, 10, w=1.0)
     assert board_widths(board_geometry([j1], copper=[wide]), {"VB": {F: 1.0}}, "legs", only=[wide]) == []
+
+
+def test_a_task_left_joined_narrow_is_judged_on_its_joining_path(monkeypatch):
+    """D3's fallback: KRT reports a task joined by narrower copper and does not route it; the phase judges the
+    path the record names, and only that path, against the task's widths."""
+    from types import SimpleNamespace as N
+    from placemat.kicad import phase_run
+    from placemat.route_phase import parse_phases
+    from placemat.settings import Settings
+    j1 = footprint("J1", 5, 10, nets=("VB", "GND"))
+    q1 = footprint("Q1", 25, 10, nets=("VB", "OUT"))
+    stub = track("VB", 8, 10, 20, 10, w=0.2)
+    sense = track("VB", 8, 14, 20, 14, w=0.15)               # the same net, not on the path: not judged
+    g = board_geometry([j1, q1], copper=[stub, sense])
+    monkeypatch.setattr("placemat.kicad.read.read_board", lambda path: g)
+    (phase,) = parse_phases(({"name": "legs", "width": 1.0, "connections": [
+        {"from": {"part": "J1", "pad": "1"}, "to": {"part": "Q1", "pad": "1"}}]},))
+    task = N(net="VB", start=("J1", "1"), end=("Q1", "1"), widths=(("F.Cu", 1.0),), amps=None)
+    rec = {"net": "VB", "from": {"ref": "J1", "pad": "1"}, "to": {"ref": "Q1", "pad": "1"}, "status": "joined_narrow",
+           "joined": True, "min_width_mm": {"F.Cu": 0.2},
+           "path": [{"layer": "F.Cu", "start": [8, 10], "end": [20, 10], "width": 0.2}]}
+    (r,) = phase_run.narrow_join_widths(phase, N(tasks=(task,)), [rec], "routed.kicad_pcb", Settings())
+    assert r["stage"] == "legs" and r["net"] == "VB" and r["length_under_mm"] == 12.0
+    assert phase_run.narrow_join_widths(phase, N(tasks=(task,)), [dict(rec, path=None)], "x", Settings()) == []
 ```
 
 - [ ] **Step 2: Run it to see it fail**
 
 Run: `cd /home/ben/work/placemat/.claude/worktrees/routing-phases && PYTHONPATH=$PWD/src /home/ben/work/placemat/.venv/bin/python -m pytest tests/test_phase_widths.py -p no:cacheprovider`
-Expected: FAIL, `board_widths` takes `islands`.
+Expected: FAIL, `board_widths` takes `islands`, and `phase_run` has no `narrow_join_widths`.
 
 - [ ] **Step 3: Implement**
 
@@ -3585,7 +3861,43 @@ def phase_widths(phase, calls, cfg) -> list:
     return out
 ```
 
-`run_phase` sets `out.record["widths"] = phase_widths(phase, out.calls, ctx.cfg)` after the phase DRC.
+`phase_run.narrow_join_widths` (D3's fallback, Task 5 step 3; a record without `path` returns nothing, so this is
+inert when KRT routes `joined_narrow` tasks):
+
+```python
+def narrow_join_widths(phase, sel, connections, routed_pcb, cfg) -> list:
+    """A task KRT reported `joined_narrow` and left unrouted (D3's fallback): the joining path its record names is
+    judged against the task's asked widths, so the phase raises route.width on it. The path is matched to the routed
+    board's tracks of the net by layer and both ends (to the micrometre)."""
+    from ..values import CopperLayer
+    from .read import read_board
+    from .route_widths import board_widths, neck_allowance
+    narrow = [r for r in connections if r.get("status") == "joined_narrow" and r.get("path")]
+    if not narrow:
+        return []
+    tasks = {(t.net, tuple(t.start), tuple(t.end)): t for t in sel.tasks}
+    routed = read_board(str(routed_pcb))
+    neck = neck_allowance(tuple(cfg.route_router_args) + tuple(phase.router_args)) if phase.neckdown else 0.0
+    out = []
+    for r in narrow:
+        t = tasks.get((r["net"], (r["from"]["ref"], r["from"]["pad"]), (r["to"]["ref"], r["to"]["pad"])))
+        if t is None:
+            continue
+        path = {(CopperLayer.of(s["layer"]), _ends(s["start"], s["end"])) for s in r["path"]}
+        only = [c for c in routed.copper if c.kind == "track" and c.net == t.net and len(c.anchors) == 2
+                and any((layer, _ends(*c.anchors)) in path for layer in c.layers)]
+        asks = {t.net: {CopperLayer.of(layer): w for layer, w in t.widths}}
+        out += board_widths(routed, asks, phase.name, cfg.check_rise_c, None, neck, only=only,
+                            by="current" if t.amps is not None else "asked")
+    return out
+
+
+def _ends(a, b) -> frozenset:
+    return frozenset((round(p[0], 3), round(p[1], 3)) for p in (a, b))
+```
+
+`run_phase` sets `out.record["widths"] = phase_widths(phase, out.calls, ctx.cfg) + narrow_join_widths(phase, sel,
+connections, board, ctx.cfg)` after the phase DRC.
 `_route_board` sets `report.widths = [w for p in records for w in p["widths"]] + read_widths(summaries, judged)`
 where `judged` is the nets of those records, and sends `route_width` events as today (route.py:1323-1325).
 
@@ -3605,7 +3917,7 @@ git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
 
 ---
 
-## Task 15: placemat: net clearance from the capture
+## Task 16: placemat: net clearance from the capture
 
 **Files:**
 - Rename: `$WT/src/placemat/kicad/net_halos.py` -> `$WT/src/placemat/kicad/net_clearance.py` (`git mv`)
@@ -3627,7 +3939,7 @@ git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
 
 `tests/test_net_clearance.py` keeps the pure tests of `merged`, `ceiling`, `trapped` (renaming `halos` to
 `clearances`) and the router-args refusal of `--net-clearances`, deletes the `[route] net_halos` setting tests
-(Task 23 removes the setting; the route refuses it since Task 13), and adds:
+(Task 25 removes the setting; the route refuses it since Task 13), and adds:
 
 ```python
 @needs_kicad
@@ -3682,7 +3994,7 @@ capture"); delete `on_board` (a sidecar is keyed by the board's own names and it
 ```
 
 and pass `clearances_file` in `PhaseContext`; the pairs call passes the stated clearances to `route_pairs` as its
-`halos` argument (renamed `clearances` in Task 23). `FindingCause.SETUP_NET_CLEARANCE = "setup.net_clearance"` and its
+`halos` argument (renamed `clearances` in Task 25). `FindingCause.SETUP_NET_CLEARANCE = "setup.net_clearance"` and its
 text in finding_text.py name the net, its clearance and the trapped pad, as the halo finding did.
 
 - [ ] **Step 4: Run the tests**
@@ -3705,7 +4017,7 @@ git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
 
 ---
 
-## Task 16: placemat: fixtures and the reference set on phases
+## Task 17: placemat: fixtures and the reference set on phases
 
 **Files:**
 - Modify: `$WT/fixtures/reference/route_ref.py:184-216` (`_route`, `run_a`), `$WT/fixtures/reference/fetch.py`
@@ -3718,7 +4030,7 @@ git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
 
 **Interfaces:**
 - Consumes: `route_phase.parse_phases` (Task 8), `kicad.read.read_board`.
-- Produces: `route_phase.default_phases` and `phases_toml` (used again by Task 18):
+- Produces: `route_phase.default_phases` and `phases_toml` (used again by Task 19):
 
 ```python
 def default_phases(*, pairs: bool, interface_types: list, wide_classes: list, currents: bool) -> list[dict]
@@ -3823,7 +4135,7 @@ pic_programmer's is `[{"name": "vcc", "nets": ["VCC"]}]` (its pour does not reac
 `phases` (a tuple of dicts). README: the manifest key row and the pic_programmer line.
 
 The two reference boards' placemat.toml: append `phases_toml(default_phases(...))` for what each capture has (both:
-currents true; pairs per their captures, false until Task 21 regenerates them with the fork), keeping their comment
+currents true; pairs per their captures, false until Task 22 regenerates them with the fork), keeping their comment
 that every setting is at its default and adding "Routing: the default phases (`placemat settings --example`)".
 
 `fixtures/fairing/{keep_out,mcu_fan,via_clearance}/placemat.toml`: the `islands = [...]` line becomes
@@ -3856,7 +4168,7 @@ flock /tmp/claude-1000/-home-ben-work-placemat/5d67ca9e-2758-4c31-8023-db2f60969
 ```
 
 Expected: the tests PASS; pic_programmer routes through phases `vcc`, `wide-clearance`, `signals` and its line
-compares with the recorded entry (do not `--update` here; the gate run is Task 24).
+compares with the recorded entry (do not `--update` here; the gate run is Task 26).
 
 - [ ] **Step 5: Commit**
 
@@ -3869,7 +4181,7 @@ git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
 
 ---
 
-## Task 17: placemat: `route --phase/--only`, and what a route reports per phase
+## Task 18: placemat: `route --phase/--only`, and what a route reports per phase
 
 **Files:**
 - Modify: `$WT/src/placemat/cli.py:79-102` (route parser), `:703-770` (`cmd_route`), `$WT/src/placemat/kicad/route.py`
@@ -3958,7 +4270,7 @@ def phase_lines(phases: list, without_copper=()) -> list:
     return out
 ```
 
-`RouteReport.summary` drops the pairs/islands/class-stage segments' use (their fields stay empty until Task 23
+`RouteReport.summary` drops the pairs/islands/class-stage segments' use (their fields stay empty until Task 25
 deletes them) and adds `"  phases: " + ", ".join("%s %.0f%%" % (p["name"], 100 * p["closure_clean"]) for p in self.phases)`.
 `as_dict` gains `"phases"` and `"phases_without_copper"`. `RouteEvents.begin(stage, nets=None, phase=None, of=None)`
 puts `phase`/`of` on the `route_stage` event; `_route_board` passes `i + 1, len(run_list)`. channel.py:615:
@@ -3986,7 +4298,7 @@ git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
 
 ---
 
-## Task 18: placemat: the default phases in `settings --example`
+## Task 19: placemat: the default phases in `settings --example`
 
 **Files:**
 - Modify: `$WT/src/placemat/settings.py:1062-1091` (`example_toml(phases_block=None)`), `$WT/src/placemat/cli.py:339-346, 426-432`
@@ -3994,7 +4306,7 @@ git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
 - Create: `$WT/tests/test_settings_example_phases.py`
 
 **Interfaces:**
-- Consumes: `default_phases`, `phases_toml` (Task 16); `capture_beside` (Task 9); `checks.carriers_of`.
+- Consumes: `default_phases`, `phases_toml` (Task 17); `capture_beside` (Task 9); `checks.carriers_of`.
 - Produces: `example_toml(phases_block: str | None = None) -> str`: every setting as today, `route.phase` left out of
   the `[route]` key list, and the phase block at the end of the file (D24: without a board, `signals` alone).
   `placemat settings <script|board dir|layout.kicad_pcb> --example` writes the board's defaults:
@@ -4092,7 +4404,7 @@ git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
 
 ---
 
-## Task 19: placemat: `run --route-rank`
+## Task 20: placemat: `run --route-rank`
 
 **Files:**
 - Modify: `$WT/src/placemat/cli.py:59-64` (a `--route-rank` option after `--route-best`), `_explore_options`
@@ -4190,7 +4502,7 @@ git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
 
 ---
 
-## Task 20: Zener: interface membership and `DiffPair`, stage 2
+## Task 21: Zener: interface membership and `DiffPair`, stage 2
 
 **Files:**
 - Modify: `$ZW/crates/pcb-zen-core/src/lang/module.rs:68-73, 461-463, 585` (a `bound_interfaces` registry)
@@ -4376,7 +4688,7 @@ git push origin feat/nets-layout-json
 
 ---
 
-## Task 21: placemat: pairs and interfaces from the capture
+## Task 22: placemat: pairs and interfaces from the capture
 
 **Files:**
 - Modify: `$WT/src/placemat/kicad/phase_select.py` (the `pairs` and `interfaces` selectors)
@@ -4386,7 +4698,7 @@ git push origin feat/nets-layout-json
 - Modify: `$WT/tests/test_route_pairs.py` (the route-driven pair tests, now from a sidecar)
 
 **Interfaces:**
-- Consumes: `Capture.instances`, `Capture.pairs` (Task 9), the stage-2 sidecar (Task 20).
+- Consumes: `Capture.instances`, `Capture.pairs` (Task 9), the stage-2 sidecar (Task 21).
 - Produces: `pairs = true` selects each `DiffPair` instance's (P, N) whose nets are open, as `Selection.pairs`
   ((p, n) with P first); `interfaces = [...]` selects every instance whose type is named, or whose path is named
   (D7), each one bus of its member nets that are open and routable (nets with two pads or more); an instance of
@@ -4487,7 +4799,7 @@ In `select`, replacing the final `raise` for pairs and interfaces:
 ```
 
 `phase_run.run_phase`'s pairs call passes `list(sel.pairs)`; `route_pairs` keeps renaming them to suffix aliases for
-the pair router (route.py:678-686). The pair call's clearances are the capture's (Task 15).
+the pair router (route.py:678-686). The pair call's clearances are the capture's (Task 16).
 
 `tests/test_route_pairs.py`: the route-driven tests deleted in Task 13 come back with a sidecar beside the board and a
 `{"name": "dp", "pairs": True}` phase, checking that the pair router is called with the aliases and the outcome is in
@@ -4526,24 +4838,24 @@ git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
 
 ---
 
-## Task 22: circuit-capture skill: buses as interfaces, pairs as `DiffPair`, a net's clearance on the net
+## Task 23: circuit-capture skill: buses as interfaces, pairs as `DiffPair`, a net's clearance on the net
 
 **Files:**
 - Modify: `/home/ben/work/circuit-capture/skills/circuit-capture/SKILL.md:62-90, 138-150`
 - Modify: `/home/ben/work/circuit-capture/.claude-plugin/plugin.json` (0.1.6 -> 0.1.7)
 
 **Interfaces:**
-- Consumes: the Zener fork's stdlib `clearance` field (Task 2) and its export (Tasks 3, 20).
+- Consumes: the Zener fork's stdlib `clearance` field (Task 2) and its export (Tasks 3, 21).
 - Produces: the skill's rules, per the ledger row: a bus is a stdlib interface and that alone reaches the board (no
   `NetClass` per bus); a differential pair is a `DiffPair` instance; a net's electrical clearance is its `clearance`
   field; net classes keep width, clearance and impedance only; "Where a fact lives" and "A net-level fact with no
   class does not reach the board" rewritten. The skill names no tool or project (its charter, "Ask first").
 
-- [ ] **Step 1: Read the skill's charter and confirm the change is in scope**
+- [ ] **Step 1: Read the skill's charter**
 
 Run: `sed -n 1,60p /home/ben/work/circuit-capture/CHARTER.md`. The change reverses a rule ("a NetClass per bus"),
-which its charter puts under "ask first"; the user decided it in the 0.100 roadmap's removal ledger, so cite that in
-the commit message. If the charter's text says otherwise than this plan reads it, stop and ask.
+which its charter puts under "ask first". The user decided it in the 0.100 roadmap's removal ledger and approved this
+task on 2026-10-07, so it goes ahead without stopping; cite that approval in the commit message.
 
 - [ ] **Step 2: Rewrite the sections**
 
@@ -4584,13 +4896,260 @@ its `clearance`." Note in the rules that `clearance=` needs the stdlib that has 
 cd /home/ben/work/circuit-capture
 sed -i 's/"version": "0.1.6"/"version": "0.1.7"/' .claude-plugin/plugin.json
 git add skills/circuit-capture/SKILL.md .claude-plugin/plugin.json
-git commit -m "Buses are interface instances, pairs are DiffPair, a net's clearance is on the net; net classes keep width, clearance and impedance"
+git commit -m "Buses are interface instances, pairs are DiffPair, a net's clearance is on the net; net classes keep width, clearance and impedance" \
+  -m "Reverses the rule of a NetClass per bus (charter: ask first). Approved by the user on 2026-10-07, as decided in the placemat 0.100 roadmap's removal ledger."
 git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
 ```
 
 ---
 
-## Task 23: Remove
+## Task 24: Skill gaps from the reference set
+
+The reference boards' NOTES.md record 19 skill gaps under "Skill gaps" (roadmap, "Keeping them current": a gap is
+fixed in the skill, not worked round in the script). Two are fixed already: `overhang=` (07e13341) and a firm
+courtyard over a hole following the board's severity (04d3a2aa). Five are recorded on both boards. That leaves 12
+gaps. Each goes to the skill it belongs to: placemat's (this repo) or circuit-capture's (its own repo and charter; a
+Zener capture convention goes there). A gap that needs a new form or a code change is filed in placemat's BACKLOG.md,
+not built here; a released form doing the wrong thing is a bug fix with a failing test first. No skill text names a
+project, board, part or net of a project (placemat charter, "A project-agnostic tool"; circuit-capture charter,
+principles 1 and 2: it also names no layout tool).
+
+| Gap | NOTES.md | Goes to |
+|---|---|---|
+| A. An imported sheet becomes a rigid cell | pic_programmer 2, usb-c-power-adapter 2 | placemat capture.md "Cells for placement" and SKILL.md; circuit-capture "Modules for placement"; BACKLOG (a finding) |
+| B. `Pm.I` matches a net's whole name only | pic_programmer 3 | bug fix in `checks.carriers_of`; capture.md |
+| C. An imported class carries pair figures | pic_programmer 4, usb-c-power-adapter 3 | placemat capture.md "Net classes"; circuit-capture "Net classes and interfaces" |
+| D. No form for swapping a multi-gate part's gates | pic_programmer 5 | BACKLOG (a new form) |
+| E. An imported capture has no part numbers | pic_programmer 6, usb-c-power-adapter 4 | placemat api.md (`# placemat generate:` takes any `pcb layout` argument); circuit-capture "Writing the capture" |
+| F. `Pm.I` at full load when no load is documented | pic_programmer 7 | placemat capture.md |
+| G. The hot loop is described for a buck only | pic_programmer 8 | placemat capture.md |
+| H. Furniture on a board with no enclosure | pic_programmer 9, usb-c-power-adapter 8 | placemat SKILL.md |
+| I. Facts read from the board's own files still need the user | pic_programmer 10, usb-c-power-adapter 9 | BACKLOG (the user's call) |
+| J. A current that pours carry, not tracks | usb-c-power-adapter 5 | circuit-capture "Net classes and interfaces"; placemat capture.md |
+| K. Marking only the switch and the inductor misses a switch node | usb-c-power-adapter 6 | placemat capture.md |
+| L. Which end of a run `along=` counts from | usb-c-power-adapter 7 | placemat api.md |
+
+B is a bug, not a doc gap: capture.md says annotations name nets as the capture does, and `Pm.KeepOut`, `Pm.PinAllow`
+and `Pm.PinDeny` match the last part of a net's path (`checks._net_named`, checks.py:478-484), but `carriers_of`
+(checks.py:1682-1694) looks a per-net `Pm.I` up by the whole name, so a module's `Pm.I` is dropped without a word in a
+board that stamps the module, and `current-path` does not judge it.
+
+**Files:**
+- Modify: `$WT/src/placemat/checks.py:1682-1694` (`carriers_of`)
+- Modify: `$WT/tests/test_checks.py` (one test)
+- Docs (placemat): `$WT/skills/placemat/SKILL.md`, `$WT/skills/placemat/references/capture.md`,
+  `$WT/skills/placemat/references/api.md`, `$WT/skills/placemat/references/migration.md` ("## Unreleased", "### Fixed")
+- Modify: `$WT/BACKLOG.md` ("## Open": three entries)
+- Modify: `$WT/fixtures/reference/boards/pic_programmer/NOTES.md`, `$WT/fixtures/reference/boards/usb-c-power-adapter/NOTES.md`
+  ("Skill gaps": where each went)
+- Modify (circuit-capture): `/home/ben/work/circuit-capture/skills/circuit-capture/SKILL.md`,
+  `/home/ben/work/circuit-capture/.claude-plugin/plugin.json` (0.1.7 -> 0.1.8)
+
+**Interfaces:**
+- Consumes: Task 23's circuit-capture "Net classes and interfaces" list; Task 13's api.md "Routing phases".
+- Produces: `checks.carriers_of(geometry) -> {net: {ref: amps}}` unchanged in shape; a per-net `Pm.I` entry now
+  names a net as `_net_named` does.
+
+- [ ] **Step 1: Write the failing test for B**
+
+Append to `tests/test_checks.py`:
+
+```python
+def test_a_per_net_current_names_its_net_by_the_last_part_of_the_path():
+    """`Pm.I` names nets as `Pm.KeepOut` does (`_net_named`): a module's annotation reads in a parent that stamps it."""
+    from placemat.checks import carriers_of
+    u = footprint("U1", 2, 2, nets=("/sheet/VCC", "GND"), fields={"Pm.I": "vcc:0.5A"})
+    c = footprint("C1", 6, 2, nets=("CELL.VCC", "GND"), fields={"Pm.I": "VCC:0.5A"})
+    w = footprint("W1", 10, 2, nets=("XVCC", "GND"), fields={"Pm.I": "vcc:0.5A"})
+    assert carriers_of(board_geometry([u, c, w])) == {"/sheet/VCC": {"U1": 0.5}, "CELL.VCC": {"C1": 0.5}}
+```
+
+- [ ] **Step 2: Run it to see it fail**
+
+Run: `cd /home/ben/work/placemat/.claude/worktrees/routing-phases && PYTHONPATH=$PWD/src /home/ben/work/placemat/.venv/bin/python -m pytest tests/test_checks.py::test_a_per_net_current_names_its_net_by_the_last_part_of_the_path -p no:cacheprovider`
+Expected: FAIL, `carriers_of` returns `{}`.
+
+- [ ] **Step 3: Fix `carriers_of`**
+
+In checks.py `carriers_of`, the line `amps = fact.current_a if fact.currents is None else fact.currents.get(p.net.lower())`
+becomes:
+
+```python
+            if fact.currents is None:
+                amps = fact.current_a
+            else:                                   # named as Pm.KeepOut names a net: the whole name or its last part
+                amps = next((a for name, a in fact.currents.items() if _net_named(name, p.net)), None)
+```
+
+Run step 2's command and `PYTHONPATH=$PWD/src /home/ben/work/placemat/.venv/bin/python -m pytest tests/test_checks.py tests/test_current_path*.py -n 2 -p no:cacheprovider`.
+Expected: PASS.
+
+- [ ] **Step 4: placemat's skill**
+
+capture.md, the annotations table:
+- the `Pm.Loop` row's values become: "a loop's name: the parts that share one form one loop; `hot` by convention for
+  the fast-current loop, which the converter's topology decides (a buck's input caps and switch; a boost's switch,
+  output diode and output caps): take it from the datasheet's layout section" (G);
+- the `Pm.I` row's values become: "amps at full load per net the part's pads carry: `vin:3A sw:3A`; a bare `3A` means
+  every pad. A net is named as for `Pm.KeepOut`: the last part of its path matches" (B).
+
+capture.md, after the paragraph that starts "Name the net `Pm.Sensitive` protects", a new paragraph (F):
+
+```markdown
+Where no document gives the full load, give the bound the circuit guarantees instead (a converter's switch current
+limit, a fuse's or a connector's rating), and say in the comment beside it that the figure is a bound, not a load.
+```
+
+capture.md, "How the checks find their nets": the switch-node item becomes (K):
+
+```markdown
+- A switch node is a net on two or more parts whose every pad belongs to a
+  `Pm.Aggressor` part: mark every part with a pad on the node - the switch
+  and the inductor, and a bootstrap capacitor, a snubber or a ripple-injection
+  part on it as well. One unmarked part on the node hides it.
+```
+
+and after "A net-level fact with no part to carry it does not reach the board: state a current on the parts that
+carry it (`Pm.I`)." add (J):
+
+```markdown
+A current that pours or planes carry, rather than tracks, is stated the same way and needs no class width: the route
+carries it by a phase with `width = "current"` or `current_paths = true`, or the script declares the pour
+(`references/api.md`, "Routing phases").
+```
+
+capture.md, "Net classes", after "Default never makes pairs." add (C):
+
+```markdown
+A class brought in from another tool's project may carry pair figures on every class (KiCad stores them on each):
+take `diff_pair_width` and `diff_pair_gap` off a class whose nets are not a pair, or placemat pairs its nets.
+```
+
+capture.md, "Annotating a capture", step 1: "the switch and its input caps (`Pm.Loop`), the switch and the inductor
+(`Pm.Aggressor`)" becomes "the hot loop's parts as the datasheet's layout section names them for its topology
+(`Pm.Loop`), every part with a pad on the switch node (`Pm.Aggressor`)" (G, K).
+
+capture.md, "Cells for placement", after its first paragraph (A):
+
+```markdown
+A sheet the capture imported from another tool (`pcb import`) is a module like any other: `pcb layout` stamps it as a
+group and placemat places it as one rigid cell, in the arrangement the generator gave it unless the module has a
+layout script of its own. `placemat parts` lists it as `cell <name>`. Flatten such a sheet into its parent in the
+capture when its parts must sit apart.
+```
+
+SKILL.md (H, A): "Furniture (test points, LEDs, buttons) is `OnEdge(edge)` alone and slides to the room left; `along=`
+is a mechanical fact, never spacing." becomes "Furniture (test points, LEDs, buttons) is `OnEdge(edge)` alone where an
+enclosure gives it an edge (a window, a cut-out), and slides to the room left; on a board with no enclosure, leave it
+searched. `along=` is a mechanical fact, never spacing." The bullet "Cells are rigid on the board: ..." gains a last
+sentence: "A sheet imported into the capture is a cell too (capture.md, \"Cells for placement\")."
+
+api.md (E), "**Modules.**": after "the script's first line `# placemat generate: --config key=value` tells the
+generator which." add "The line passes any `pcb layout` arguments: `# placemat generate: -S bom.unspecified` lets a
+capture whose parts have no part numbers yet generate."
+
+api.md (L), "**A run**": after "On a run, `along` is length from the run's start: a number in mm,
+`Along.START/MID/END`, `Fraction(f)` of it, or a reference, which lands at the nearest place on the run." add "The start
+is the end the board's path reaches first, walked in the order the outline was declared (for an outline read from a
+board, the order its edges chain); `run.at(0)[0]` is that point." (outline.py:243-300: `Outline.runs` walks the
+loop in path order and a run's points keep that order.)
+
+migration.md "## Unreleased", under "### Fixed":
+
+```markdown
+- **`Pm.I` names a net by the last part of its path.** A per-net current (`Pm.I: vcc:0.5A`) matched only a net whose
+  whole name was `VCC`, so on a board that stamps the module, where the net is `/sheet/VCC` or `CELL.VCC`, the part
+  carried no current and `current-path` did not judge it. It now matches as `Pm.KeepOut`, `Pm.PinAllow` and
+  `Pm.PinDeny` do. Captures need no change.
+```
+
+- [ ] **Step 5: BACKLOG.md**
+
+Under "## Open", at the top (newest source first):
+
+```markdown
+- **Swapping the gates of a multi-gate part** (the reference set's skill gaps, 2026-10-07): a logic part's
+  interchangeable gates (each a set of pins, such as A, Y and /OE) cannot be swapped by the pin map study.
+  `Pm.PinPool` moves single nets, and a hard `Pm.PinGroup` moves a block to any run of consecutive pins in pool
+  order; nothing restricts a block to the other gates' pin sets. A new form: not before 1.0 (consolidation phase).
+
+- **Facts read from a board's own files still need the user** (the reference set's skill gaps, 2026-10-07):
+  `placemat facts --confirm` asks the user to confirm layer roles, weights and fab minimums. Where every fact is
+  read from the board's project files, the `facts` finding stays on every run and nothing lets a script's author
+  confirm them. Whether such a fact needs the user's confirmation is the user's call.
+
+- **A cell with no layout of its own is placed as generated, and nothing says so** (the reference set's skill gaps,
+  2026-10-07): a sheet imported into the capture becomes a module, which placemat places as a rigid cell in the
+  generator's arrangement; it shows only as `cell <name>` in `placemat parts`. A finding naming such a cell would
+  tell the agent before it reads the placement.
+```
+
+- [ ] **Step 6: circuit-capture's skill**
+
+Run `sed -n 1,60p /home/ben/work/circuit-capture/CHARTER.md`. These are rules sharpened within its principles
+("decide alone": wording and sharpening; the patch bump), and none names a tool or a project. If one would reverse a
+rule Task 23 left in place, stop and ask.
+
+`skills/circuit-capture/SKILL.md`:
+- "Net classes and interfaces" (as Task 23 left it) gains two bullets (C, J):
+
+```markdown
+- A class imported from another tool may carry pair figures (`diff_pair_width`, `diff_pair_gap`) on every class;
+  keep them only on a class whose nets are a pair.
+- The current a net carries is a fact of the parts that carry it ("Where a fact lives"). Give the net a class with a
+  track width only where tracks will carry that current; a net that pours or planes carry needs no width class.
+```
+
+- "Modules for placement", after its first paragraph (A):
+
+```markdown
+A sheet imported from another tool (`pcb import`) becomes a module, and a module is laid out as one piece. Test
+each imported sheet as a module (below), and flatten it into its parent when its parts must sit in different places.
+```
+
+- "Writing the capture", step 5 (E): after "`pcb build -D warnings` must pass." add "A capture imported without part
+  numbers fails it on `bom.unspecified`: choose each part, with its component-choice record, before the capture is
+  complete. Until then that one warning may be suppressed (`-S bom.unspecified`) where the suppression is stated with
+  its reason."
+
+```bash
+cd /home/ben/work/circuit-capture
+sed -i 's/"version": "0.1.7"/"version": "0.1.8"/' .claude-plugin/plugin.json
+git add skills/circuit-capture/SKILL.md .claude-plugin/plugin.json
+git commit -m "Imported captures: a sheet is a module, pair figures stay only on a pair's class, parts without numbers; a current that pours carry needs no width class"
+git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
+git log -1 --format=%h
+```
+
+- [ ] **Step 7: NOTES.md, where each gap went**
+
+Append to each gap in "Skill gaps" one line, `Went to: ...`, naming the skill, file and section (and the BACKLOG
+entry by its title); "circuit-capture <short hash>" is the hash step 6 printed; "this step's placemat commit" is
+written as "placemat (step 1, skill gaps)". For the two already fixed: "Went to: placemat 07e13341 (`overhang=`)."
+and "Went to: placemat 04d3a2aa (courtyard over a hole follows the board's severity)." For a gap recorded on both
+boards, both get the same line. For example, pic_programmer 4:
+
+```markdown
+   Went to: placemat capture.md "Net classes" (placemat, step 1, skill gaps); circuit-capture SKILL.md "Net classes
+   and interfaces" (circuit-capture <short hash>).
+```
+
+- [ ] **Step 8: Check and commit**
+
+```bash
+cd /home/ben/work/placemat/.claude/worktrees/routing-phases
+grep -rniE "pic_programmer|usb-c-power-adapter|lt1373|74hc125|vcc_pic" skills/ /home/ben/work/circuit-capture/skills/   # expect nothing
+PYTHONPATH=$PWD/src /home/ben/work/placemat/.venv/bin/python -m pytest -n 2 -p no:cacheprovider
+git add src/placemat/checks.py tests/test_checks.py skills BACKLOG.md fixtures/reference/boards/pic_programmer/NOTES.md fixtures/reference/boards/usb-c-power-adapter/NOTES.md
+git commit -m "Skill gaps from the reference set: imported sheets and classes, Pm.I by a net's last part, hot loops and switch nodes by topology, furniture with no enclosure, a run's start"
+git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
+```
+
+Expected: the grep prints nothing, the suite passes, the commit check prints nothing.
+
+---
+
+## Task 25: Remove
 
 The removal-ledger rows step 1 owns (roadmap, "Removal ledger"):
 
@@ -4600,7 +5159,7 @@ The removal-ledger rows step 1 owns (roadmap, "Removal ledger"):
 | `[route] islands`, `[route] pair_layers`, `route --islands` | the settings fields, `_island_entry`, `parse_islands`, `parse_island_layers`, the `route.pair_layers` sub-table, their `_validate` branches, `FindingCause.SETUP_PAIR_LAYERS`, the `--islands` option |
 | `[route] net_halos` | the field, the `route.net_halos` sub-table, its `_validate` branch, `route_pairs`' `halos` name (now `clearances`) |
 | Pairs derived from net-class patterns (`pairs.board_pair_list` for selection) | `board_pair_list` (route selection only; `board_pairs` stays for placement scoring, D19) |
-| circuit-capture skill: a `NetClass` per bus, pairs by `*_P`/`*_N` class patterns, net facts only through classes | done in Task 22; checked here |
+| circuit-capture skill: a `NetClass` per bus, pairs by `*_P`/`*_N` class patterns, net facts only through classes | done in Task 23; checked here |
 
 **Files:**
 - Modify: `$WT/src/placemat/kicad/route.py`, `$WT/src/placemat/settings.py`, `$WT/src/placemat/cli.py`,
@@ -4775,7 +5334,7 @@ git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
 
 ---
 
-## Task 24: Gate, merge and release 0.100.0
+## Task 26: Gate, merge and release 0.100.0
 
 **Files:**
 - Modify: `$WT/fixtures/reference/results.json` (by the runners' `--update`), `$WT/skills/placemat/references/migration.md`
@@ -4876,7 +5435,7 @@ step 2); vulture and the native build report nothing.
 
 - [ ] **Step 7: Release**
 
-- migration.md: "## Unreleased" becomes "## To 0.100.0", with the "Changed", "New" and "Removed" entries of Tasks 13-23
+- migration.md: "## Unreleased" becomes "## To 0.100.0", with the "Changed", "New", "Fixed" and "Removed" entries of Tasks 13-25
   and a "New" list of what an upgrading agent can use (phases, `current_paths` for power legs in place of declared
   copper, `--phase`, `--only`, `--route-rank`, capture-selected pairs, interfaces and net types, the `clearance` field),
   and the coordinate-to-intent example: a declared power-leg `board.track(...)` with points beside the phase that
@@ -4891,7 +5450,7 @@ step 2); vulture and the native build report nothing.
 - [ ] **Step 8: Notify and bench**
 
 Send fairing-instrument-pcb and fairing-instrument-electronics a notice: placemat 0.100.0; reload the placemat skill
-and the circuit-capture skill (0.1.7); update only the env your session owns; a route now needs `[[route.phase]]`
+and the circuit-capture skill (0.1.8); update only the env your session owns; a route now needs `[[route.phase]]`
 (start from `placemat settings <board> --example`); `[route] islands`/`pair_layers`/`net_halos` are refused, with
 what replaces each; regenerate boards with the updated `pcb` so `nets.layout.json` is written (pairs, interfaces and
 net clearances come from it); declared power-leg copper can become a `current_paths` phase. Then
