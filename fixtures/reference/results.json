@@ -709,6 +709,95 @@
       "vias": 97
     }
   },
+  "fixtures": {
+    "obstructed-route": {
+      "detail": "",
+      "drc_new": 0,
+      "failure": "",
+      "fixture": "obstructed-route",
+      "passed": true,
+      "phases": [
+        {
+          "asked": 1,
+          "closure_clean": 0.0,
+          "final_asked": 1,
+          "final_closure_clean": 0.0,
+          "final_joined": 0,
+          "final_open": [
+            {
+              "blockers": [],
+              "diagnosis": null,
+              "from": {
+                "pad": "1",
+                "ref": "J1"
+              },
+              "net": "VB",
+              "outcome": null,
+              "to": {
+                "pad": "1",
+                "ref": "J2"
+              },
+              "under": {
+                "F.Cu": 0.2
+              },
+              "width_unknown": true,
+              "widths": {
+                "B.Cu": 1.367,
+                "F.Cu": 1.367
+              }
+            }
+          ],
+          "joined": 0,
+          "name": "legs",
+          "open": [
+            {
+              "blockers": [
+                "U1"
+              ],
+              "diagnosis": "unknown",
+              "from": {
+                "pad": "1",
+                "ref": "J1"
+              },
+              "net": "VB",
+              "outcome": "failed",
+              "to": {
+                "pad": "1",
+                "ref": "J2"
+              },
+              "widths": {
+                "B.Cu": 1.367,
+                "F.Cu": 1.367
+              }
+            }
+          ]
+        },
+        {
+          "asked": 0,
+          "closure_clean": 1.0,
+          "final_asked": 1,
+          "final_closure_clean": 1.0,
+          "final_joined": 1,
+          "final_open": [],
+          "joined": 0,
+          "name": "signals",
+          "open": []
+        }
+      ],
+      "protocol": {
+        "KICAD_NET_RESCUE": "0"
+      },
+      "seconds": 15.0,
+      "track_mm": 24.994,
+      "versions": {
+        "krt": "44dd47917f92535e2048197a8a1bb067d739bc29",
+        "pcb": "318b4b0d19ce55bc032c70941a2559b9b7728404",
+        "placemat": "3cc6d2b996140835d891c10aff7c1785ee81a9e3"
+      },
+      "vias": 0,
+      "widths_failed": 1
+    }
+  },
   "modules": {
     "fairing/GnssAntenna": {
       "area_mm2": 24.75,
