@@ -1959,8 +1959,9 @@ class Occupancy:
         found: the same refusal in parts rather than prose, so a scan can
         count who was in the way rather than only how often. `board=False`
         judges `others` alone: not the edge, not the reservations.
-        `decided` marks a place the script itself states (a fixed or edge
-        place, a Beside at its stated offset, a rider of such an item): there
+        `decided` marks a place the script itself states (a fixed place, an
+        edge place with a position along it, a Beside at its stated offset, a
+        rider of such an item): there
         a courtyard may stand over another part's hole whose rule the board's
         severities set below error (`_hole_waived`). A place placemat chose -
         a search's, a Beside stepped out, a rider of a searched host - keeps
