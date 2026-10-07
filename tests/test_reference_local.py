@@ -55,6 +55,21 @@ def test_router_resolution_failure_is_recorded_not_raised(tmp_path, monkeypatch)
     assert not got.passed and got.failure == "RuntimeError" and got.versions["krt"] == "unknown"
 
 
+def test_later_phase_break_is_recorded_and_compared_on_the_final_board(tmp_path, monkeypatch):
+    monkeypatch.setattr(route_ref, "_krt_version", lambda path: "router")
+    opened = {"net": "VB", "from": {"ref": "J1", "pad": "1"}, "to": {"ref": "J2", "pad": "1"}}
+    phase = {"name": "legs", "asked": 1, "joined": 1, "closure_clean": 1.0, "open": [],
+             "final_asked": 1, "final_joined": 0, "final_closure_clean": 0.0, "final_open": [opened]}
+    monkeypatch.setattr(route_ref, "_route", lambda *args: {"phases": [phase], "drc_new": 0})
+    got = route_ref.run_local("obstructed-route", tmp_path, {})
+    assert got.passed and got.phases[0]["open"] == []
+    assert got.phases[0]["final_asked"] == 1 and got.phases[0]["final_open"][0]["net"] == "VB"
+    assert "legs final open VB" in route_ref.local_line(got, route_ref.Comparison("new", []))
+    old = route_ref.asdict(got)
+    old["phases"][0]["final_open"] = []
+    assert route_ref.compare_local(old, got, set()).status == "changed"
+
+
 def test_main_runs_only_the_named_local_fixture_under_the_shared_lock(tmp_path, monkeypatch, capsys):
     events = []
     @contextlib.contextmanager

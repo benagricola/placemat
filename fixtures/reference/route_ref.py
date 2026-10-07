@@ -191,6 +191,13 @@ def _blockers(evidence) -> list[str]:
     return names
 
 
+def _local_open(opened: dict) -> dict:
+    evidence = opened.get("evidence") or {}
+    return dict(net=opened["net"], **{"from": opened["from"], "to": opened["to"]},
+                outcome=opened.get("outcome"), diagnosis=evidence.get("diagnosis"), blockers=_blockers(evidence),
+                **{key: opened[key] for key in ("widths", "under", "violated", "width_unknown") if key in opened})
+
+
 def run_local(name: str, work: pathlib.Path, versions: dict | None = None) -> FResult:
     """Route a local board unchanged, retaining phase closure and router failure evidence."""
     src, work = LOCAL[name], pathlib.Path(work)
@@ -207,11 +214,11 @@ def run_local(name: str, work: pathlib.Path, versions: dict | None = None) -> FR
         phases = [{"name": phase["name"], "asked": phase["asked"], "joined": phase["joined"],
                    "closure_clean": phase["closure_clean"],
                    "final_closure_clean": phase.get("final_closure_clean"),
-                   "open": [{"net": opened["net"], "from": opened["from"], "to": opened["to"],
-                             "outcome": opened.get("outcome"),
-                             "diagnosis": (opened.get("evidence") or {}).get("diagnosis"),
-                             "blockers": _blockers(opened.get("evidence"))}
-                            for opened in phase.get("open") or ()]}
+                   "open": [_local_open(opened) for opened in phase.get("open") or ()],
+                   **({"final_asked": phase["final_asked"]} if "final_asked" in phase else {}),
+                   **({"final_joined": phase["final_joined"]} if "final_joined" in phase else {}),
+                   **({"final_open": [_local_open(opened) for opened in phase["final_open"]]}
+                      if "final_open" in phase else {})}
                   for phase in report.get("phases") or ()]
     except Exception as error:   # like a failed reference board, keep the failure for inspection
         return FResult(name, [], 0, None, 0, 0.0, False, 0.0, versions, type(error).__name__, str(error))
@@ -230,12 +237,18 @@ def compare_local(old: dict | None, new: FResult, changing: set[str]) -> Compari
 
 
 def local_line(result: FResult, comparison: Comparison) -> str:
-    opened = ["%s %s %s" % (phase["name"], entry["outcome"] or "open",
-                             "/".join(entry["blockers"]) or "nothing named")
-              for phase in result.phases for entry in phase["open"]]
+    def entry_line(phase, entry, stage):
+        status = ("DRC" if entry.get("violated") else "width unproven" if entry.get("width_unknown") else
+                  "under width" if entry.get("under") else entry["outcome"] or "open")
+        return "%s %s %s %s" % (phase["name"], stage, status, "/".join(entry["blockers"]) or entry["net"])
+    opened = [entry_line(phase, entry, "final" if "final_open" in phase else "")
+              for phase in result.phases for entry in phase.get("final_open", phase["open"])]
+    initial = [entry_line(phase, entry, "initial") for phase in result.phases if "final_open" in phase
+               for entry in phase["open"]]
     return "%-22s %s widths failed %d new DRC %s  %s  %s%s" % (
         result.fixture, "ran" if result.passed else "FAIL", result.widths_failed,
-        "-" if result.drc_new is None else result.drc_new, "; ".join(opened) or "nothing open", said(comparison),
+        "-" if result.drc_new is None else result.drc_new,
+        "; ".join(opened + initial) or "nothing open", said(comparison),
         "  FAILED %s: %s" % (result.failure, result.detail[:200]) if result.failure else "")
 
 
