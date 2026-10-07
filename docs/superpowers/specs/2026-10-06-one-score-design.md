@@ -46,9 +46,20 @@ indirectly from short wires. The score gains an **area** term:
 - **Incremental form:** the bounding box recomputed from the moved items' boxes against the others' running extents.
 - **Weight:** `score.area`, per mm2. It is zero on a board with a fixed outline, and on by default for a fitted frame.
 
-**Ranking order:**
-- **Board:** the phases' closures in order, then the clean closure, then the run score.
-- **Module:** the phases' closures (100% expected), then the area, then the rest of the run score.
+**Ranking order** (amended 2026-10-07 with the user, twice):
+1. **Validity:** a buildable board beats one that is not. Counted, never priced: unplaced parts (by priority), DRC
+   errors beyond the board's baseline (errors only; a warning such as silkscreen clipped by copper does not make a board
+   unbuildable), required widths not met on the final board, critical findings (fixed, copper clash, walled pad). An
+   invalid board never replaces a valid one.
+2. **The phases' closures** in order, judged on the final board over each phase's fixed asked set.
+3. **The clean closure.**
+4. **The router's quality key,** when both boards are valid and fully routed: fewer vias, then less copper, then fewer
+   segments, lexicographic, as KRT's own board score ranks them (py_tools/board_score.py, py_router/ledger_score.py).
+5. **The run score:** placement quality. A fitted module's area is a term of it, not a tier.
+Ties within the run score's noise keep the incumbent. Boards and modules rank the same way.
+
+The hard terms leave the run score (`unplaced`, `drc`, `fixed`, `copper`, `escape_walled` and their settings): each
+has one home, the validity tier.
 
 The loop, restarts and refine all use the order for the script's context, as one function in `score.py`.
 
@@ -85,7 +96,7 @@ change: it moves placements. It is measured on the bench before it is adopted (s
 ## Who changes
 
 - **Search** (`Scorer` and the native scorer): it scores a candidate by the incremental run-score change of putting
-  the item there. Pruning stays: a candidate whose wire change alone exceeds the best total seen is dropped.
+  the item there. Pruning stays, on proved lower bounds only (amendment below): a candidate is dropped when the terms computed so far plus a lower bound of each term not yet computed reach the best total seen.
 - **Refine:** it scores a move by the same incremental change. It is built on this, never on its own formula.
 - **The turn check** (turn.better): it reports a turn when the incremental change of turning is below zero by
   `place.turn_gain_*`. Its own wire and crossing terms are removed.
@@ -124,3 +135,43 @@ now). The native ratsnest and a spatial index of edges are the means. This is me
 
 - New score terms. This is a unification, not a new objective.
 - The routing score itself, which is the router's.
+
+## Amendments, 2026-10-07
+
+Decided with the user while planning step 2 (docs/superpowers/plans/2026-10-07-one-score.md, "Decisions"):
+- The airwire term counts nets that pull only: plane and free nets leave it, as the search's clique skips them.
+- A declared link's weight is carried by a new `link` term (weight x length, at `score.link`), since an MST has no
+  per-pair weight.
+- Crossings are priced by net kind at the pin study's values (`score.crossing_pair_net` 5, `score.impedance` 3), a
+  crossing of two kinds at the dearer price; an impedance net's airwire length also counts `score.impedance` times.
+- Escapes are a new judgement by surface lanes (2026-10-07-surface-escapes-design.md), in place of today's corridors
+  and confirmed findings.
+- `score.area`'s default is chosen from a sweep on the fitted reference modules.
+- The speed limit is about 5 us a candidate for parts; a cell's candidate is no slower than today's scorer.
+- The new definition lands first with the clique search, the baselines are re-recorded on it, and clique and MST are
+  compared on it.
+
+These add terms the "Out of scope" section excluded; the user approved each.
+
+Amended 2026-10-07, from a review of the plan: **the incremental changes are signed, and pruning needs a proved lower
+bound.** Adding pads can shorten a net's tree (three pads on a 1 mm equilateral triangle have an MST of 2.0 mm; a pad
+at the centre makes it 1.732 mm, checked with `ratsnest.mst`), and the dropped airwires can take crossings with them.
+A new pad can also become a nearer target for a pad of its net and open its escape, and re-adding a net's grown box can
+lower a congestion cell. So no term's change is assumed non-negative except where it is proved:
+- wire and crossings are computed together, exactly, from the MST change;
+- each later term carries a lower bound (link, link_over, push and area cannot fall on the lifted board; escapes and
+  congestion carry the bounds their sections give);
+- a candidate is pruned only when the exact terms so far plus the remaining lower bounds reach the best total;
+- a test holds the pruned search's choice equal to the exhaustive one on adversarial scenes, beside the
+  incremental-against-whole test.
+
+Amended 2026-10-07, from an outside review: **the exceptions are named.** One objective does not mean every decision
+optimises the whole of it. These differ, on purpose:
+- the pin study keeps its bend and group terms, which have no run-score term; it generates maps with its own scorer,
+  and its finalists are rescored by the run-score change before a gain is reported or a map chosen;
+- findings other than escapes are judged only on the finished board (after a construction or refine), not per
+  candidate;
+- give-way, back-face and arrangement costs are added by the scan at the action or face a candidate takes;
+- an item with a push or a declared escape lane is scored in Python, with the same terms.
+The speed gate is also measured end to end (lift, setup, commit, Python share, the resolve's time and result), not only
+per candidate.

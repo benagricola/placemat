@@ -1572,11 +1572,13 @@ class Occupancy:
         if self.edge_margin is not None and not past_edge:
             why = self._item_edge_why(geom, placement)
             if why and by_corners and self.board_shape is not None:
-                # a decided part turned off the axes, or a member drawn as an arc: its box's corner passes a
-                # round rim, the part does not. Only for a place the script decided: a scan judges by boxes,
+                # a decided part turned off the axes, a member drawn as an arc, a ring of copper round a bore: its
+                # box passes the rim or reaches over the bore, the part may not. Judged by its shapes, whose
+                # refusal names what they cross. Only for a place the script decided: a scan judges by boxes,
                 # natively and in Python alike
-                if self._corners_inside(geom, placement):
-                    why = None
+                judged, by_shape = self._shapes_edge_why(geom, placement)
+                if judged:
+                    why = _edge_said(why, by_shape)
             if why and overhang:
                 why = self._overhang_edge_why(geom, placement, overhang, by_corners)
             if why is None and not by_corners:
@@ -1759,15 +1761,18 @@ class Occupancy:
         None. The courtyard and body are judged by how far the points of
         their shapes lie outside the outer edge (`outside_by`), which is at
         most `overhang`; the cutouts and a disc's bore by the courtyard and
-        body box as without an overhang (by their shapes' points on a placed
-        part of a shaped board, as `_corners_inside`); the copper by its box
-        at the keep-in, as without one."""
+        body box as without an overhang (by their shapes on a placed part of
+        a shaped board, as `_shapes_edge_why`); the copper by its box at the
+        keep-in, as without one. A part that draws no courtyard and no body
+        is its copper (`_edge_shapes`)."""
         flat, flat_parts, copper, copper_parts = self._shifted_edge_boxes(geom, placement)
         t = self._transform(geom, placement)
-        points = [pt for s in geom.shapes if s.kind in ("courtyard", "body") for pt in transform_polygon(s.poly, t)]
-        if not points:
-            points = [(x, y) for x in (flat.left, flat.right) for y in (flat.top, flat.bottom)]
-        past = max(self._outside_by(x, y) for x, y in points)
+        shapes = self._edge_shapes(geom)
+        polys = [transform_polygon(s.poly, t) for s in shapes if s.kind in ("courtyard", "body")]
+        if not polys and not any(s.kind in _COPPERISH for s in shapes):
+            polys = [box_polygon(flat)]
+        points = [pt for poly in polys for pt in poly]
+        past = max((self._outside_by(x, y) for x, y in points), default=0.0)
         if past > overhang + FLAT_EDGE_MARGIN:
             fault = self.board_why(flat, self.flat_edge_margin)
             return Refusal(Code.EDGE, what="body", box=[flat.left, flat.top, flat.right, flat.bottom],
@@ -1777,7 +1782,7 @@ class Occupancy:
         if why and geom.parts:
             why = next((w for w in (self._cutouts_why(b) for b in flat_parts) if w), None)
         if why and by_corners and self.board_shape is not None and all(
-                self._cutouts_why(Box(x, y, x, y), 0.0) is None for x, y in points):
+                self.board_shape.cutouts_poly_why_not(poly, 0.0) is None for poly in polys if len(poly) >= 3):
             why = None
         if why or copper is None:
             return why
@@ -1785,8 +1790,10 @@ class Occupancy:
         if why and geom.parts:
             why = next((w for w in (self._edge_why(b, what="copper") for b in copper_parts if b is not None)
                         if w), None)
-        if why and by_corners and self.board_shape is not None and self._corners_inside(geom, placement, copper_only=True):
-            why = None
+        if why and by_corners and self.board_shape is not None:
+            judged, by_shape = self._shapes_edge_why(geom, placement, copper_only=True)
+            if judged:
+                why = _edge_said(why, by_shape)
         return why
 
     def _outside_by(self, x: float, y: float) -> float:
@@ -1918,28 +1925,52 @@ class Occupancy:
             cache[key] = hit
         return hit[1]
 
-    def _corners_inside(self, geom: ItemGeometry, placement: Placement, copper_only: bool = False) -> bool:
-        """Every corner of every shape the part is made of - pads, body,
-        courtyard, as the envelope claims them - inside the board's shape: a
-        pad or copper with the keep-in to spare, the rest inside the edge
-        itself. On a round board a convex shape whose corners are inside is
-        inside.
+    def _edge_shapes(self, geom: ItemGeometry) -> tuple:
+        """The shapes the edge judges a placed part by: every shape it is made of but an unplated hole. A
+        footprint that draws no courtyard and no body claims its physical box as a courtyard (read.py
+        `courtyard_box`, `_fp_shapes`); that box is not a shape it has, so where the footprint has pads or copper
+        graphics, they are its envelope here."""
+        hit = geom.__dict__.get("_edge_shapes")
+        if hit is None:
+            def stand_in(s) -> bool:
+                if s.kind != "courtyard" or not self.geometry.has_footprint(s.owner):
+                    return False
+                fp = self.geometry.footprint(s.owner)
+                return not fp.courtyard_drawn and not fp.fab and bool(fp.pads or fp.copper)
+            hit = tuple(s for s in geom.shapes if s.kind != "npth" and not stand_in(s))
+            geom.__dict__["_edge_shapes"] = hit
+        return hit
+
+    def _shapes_edge_why(self, geom: ItemGeometry, placement: Placement, copper_only: bool = False) -> tuple:
+        """(whether there were shapes to judge, the refusal or None): every shape the part is made of
+        (`_edge_shapes`) against the board's shape - its outline, a disc's rim and bore, its cutouts - as the
+        polygon it is, not its box: a pad or copper with the keep-in to spare, the rest inside the edge itself.
 
         Copper is read as a polygon a few microns outside the arc it is drawn
         as, and an outline's curves are flattened with chords inside the real
         edge, so the keep-in is eased by those errors: KiCad measures the
-        drawn copper to the real edge. `copper_only` judges the copper's
-        corners alone (`_overhang_edge_why` judges the rest)."""
+        drawn copper to the real edge. `copper_only` judges the copper alone
+        (`_overhang_edge_why` judges the rest)."""
         t = self._transform(geom, placement)
         slack = self.settings.geometry_arc_error_nm * 1e-6
         if isinstance(self.board_shape, Outline):
             slack += self.settings.geometry_arc_sag
         copper = max(self.edge_margin - slack, 0.0)
-        corners = [(pt, copper if s.kind in _COPPERISH else 0.0)
-                   for s in geom.shapes if s.kind != "npth" and (not copper_only or s.kind in _COPPERISH)
-                   for pt in transform_polygon(s.poly, t)]
-        return bool(corners) and all(self.board_shape.why_not(Box(x, y, x, y), margin) is None
-                                     for (x, y), margin in corners)
+        judged = False
+        for s in self._edge_shapes(geom):
+            cu = s.kind in _COPPERISH
+            if copper_only and not cu:
+                continue
+            poly = transform_polygon(s.poly, t)
+            if len(poly) < 3:
+                continue
+            judged = True
+            verdict = self.board_shape.poly_why_not(poly, copper if cu else 0.0)
+            if verdict is not None:
+                b = Box.of_points(poly)
+                return True, Refusal(Code.EDGE, what="copper" if cu else "body", box=[b.left, b.top, b.right, b.bottom],
+                                     verdict=verdict, margin_mm=self.edge_margin if cu else self.flat_edge_margin)
+        return judged, None
 
     def _shifted_parts(self, geom: ItemGeometry, placement: Placement) -> "_ShiftedBoxes":
         dx, dy = placement.location.x, placement.location.y
@@ -3086,6 +3117,21 @@ def _blocker_kind(kind: str) -> str:
     """A shape kind as a Blocker counts it: a yard is a courtyard."""
     return "courtyard" if kind == "yard" else kind
 _COPPERISH = frozenset(("pad", "through", "copper"))
+_INWARD = frozenset((EdgeWhy.IN_CUTOUT, EdgeWhy.PAST_CUTOUT, EdgeWhy.INTO_BORE))
+
+
+def _edge_said(by_box: Refusal, by_shape: Refusal | None) -> Refusal | None:
+    """The refusal of a part its boxes refused and its shapes were judged for: None when the shapes pass; the boxes'
+    sentence when it names what the shapes are refused for - the same copper or body, at the outer edge or at a
+    hole - which says it of the whole; else the shapes', since the box named something the part does not have
+    (the box a footprint with no courtyard claims, past a rim its copper keeps inside) or the wrong edge (a ring's
+    box past the rim where its copper reaches into the bore)."""
+    if by_shape is None:
+        return None
+    a, b = by_box.facts, by_shape.facts
+    if a.get("what") == b.get("what") and (EdgeWhy(a["verdict"]) in _INWARD) == (EdgeWhy(b["verdict"]) in _INWARD):
+        return by_box
+    return by_shape
 _HOLES = frozenset(("hole", "npth"))
 # A hole's polygon lies inside its circle, by up to 1 - cos(pi/16) of the
 # radius between vertices, and a turned one's box with it: the box prefilter

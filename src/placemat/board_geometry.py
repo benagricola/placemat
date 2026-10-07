@@ -85,6 +85,7 @@ class Footprint:
     net_tie_pads: frozenset = field(default=frozenset(), compare=False)   # pad numbers in a net-tie group (FOOTPRINT::GetNetTiePads)
     net_tie_groups: tuple = field(default=(), compare=False)   # the groups, each its pad numbers (FOOTPRINT::MapPadNumbersToNetTieGroups); () reads net_tie_pads as one
     models: tuple = field(default=(), compare=False)   # ((file, offset xyz, rotation xyz, scale xyz, shown, opacity), ...): its 3D models
+    courtyard_drawn: bool = field(default=True, compare=False)   # False when it draws none: courtyard_box is then its physical box (kicad/read.py courtyard_box)
 
     @property
     def box(self) -> Box:

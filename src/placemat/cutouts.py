@@ -347,6 +347,56 @@ def _loop_gap_py(a, b) -> float:
     return 0.0 if best is math.inf else best
 
 
+def in_poly(poly, x: float, y: float) -> bool:
+    """Whether a point is inside a polygon of (x, y) pairs, by the crossing rule."""
+    hit = False
+    for (x1, y1), (x2, y2) in zip(poly, poly[1:] + poly[:1]):
+        if (y1 > y) != (y2 > y) and x < x1 + (y - y1) / (y2 - y1) * (x2 - x1):
+            hit = not hit
+    return hit
+
+
+def poly_gap_to_point(poly, x: float, y: float) -> float:
+    """How far a point lies from a polygon: 0 inside it, else the distance to its nearest leg."""
+    if in_poly(poly, x, y):
+        return 0.0
+    return min(point_segment(x, y, x1, y1, x2, y2) for (x1, y1), (x2, y2) in zip(poly, poly[1:] + poly[:1]))
+
+
+def poly_loops_why(where: "Where", loops, poly, margin: float, board: bool, holes_only: bool = False) -> EdgeWhy | None:
+    """What a set of loops says of a polygon held `margin` clear of each of them, or None: the polygon itself, not
+    the box round it, so a shape that bends round a cutout or along a curved outline is judged as it is drawn.
+    `board` reads loop 0 as the board's own path, which the polygon must lie inside; every other loop is a hole it
+    must keep out of. A corner outside the board or inside a hole, a hole wholly inside the polygon, or a leg of
+    the polygon nearer a loop than the margin says which. `holes_only` asks of the holes alone, the board's path
+    not judged."""
+    own = {0} if board else set()
+    for x, y in poly:
+        around = where.loops_around(x, y)
+        if board and not holes_only and 0 not in around:
+            return EdgeWhy.OUTSIDE
+        if around - own:
+            return EdgeWhy.IN_CUTOUT
+    for n, loop in enumerate(loops):
+        if n not in own and loop and in_poly(poly, loop[0][0], loop[0][1]):
+            return EdgeWhy.IN_CUTOUT
+    xs, ys = [p[0] for p in poly], [p[1] for p in poly]
+    left, top, right, bottom = min(xs) - margin, min(ys) - margin, max(xs) + margin, max(ys) + margin
+    legs = list(zip(poly, poly[1:] + poly[:1]))
+    for x1, y1, x2, y2, n, lo_x, lo_y, hi_x, hi_y in where.near(left, top, right, bottom):
+        if hi_x < left or lo_x > right or hi_y < top or lo_y > bottom or (holes_only and n in own):
+            continue                    # too far to matter, or not asked of
+        for (ax, ay), (bx, by) in legs:
+            if max(ax, bx) < lo_x - margin or min(ax, bx) > hi_x + margin or \
+               max(ay, by) < lo_y - margin or min(ay, by) > hi_y + margin:
+                continue
+            if crosses(ax, ay, bx, by, x1, y1, x2, y2) or min(
+                    point_segment(ax, ay, x1, y1, x2, y2), point_segment(bx, by, x1, y1, x2, y2),
+                    point_segment(x1, y1, ax, ay, bx, by), point_segment(x2, y2, ax, ay, bx, by)) < margin - NM:
+                return EdgeWhy.PAST_BOARD if board and n == 0 else EdgeWhy.PAST_CUTOUT
+    return None
+
+
 class Where:
     """Where a set of loops' segments are, so a box can find the ones near it.
 
@@ -505,3 +555,9 @@ class Cutouts:
             if segment_box(x1, y1, x2, y2, box) < margin - NM:
                 return EdgeWhy.PAST_CUTOUT
         return None
+
+    def poly_why_not(self, poly, margin: float) -> EdgeWhy | None:
+        """`why_not` of a polygon, by its own legs (`poly_loops_why`)."""
+        if not self.loops:
+            return None
+        return poly_loops_why(self._index(), self.loops, poly, margin, board=False)
