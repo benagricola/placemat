@@ -130,43 +130,72 @@ as on the human board). Beyond the fixed parts:
 
 ## Skill gaps
 
+
 1. **A fixed part whose courtyard crosses the board edge could not be placed (placemat). Fixed by `overhang=` on a
    firm placement, commit 07e13341.** The six mounting holes sit 3.81 mm from the edges; their M4 courtyards cross the
    edge by 0.74 mm, as on the human board. `Location` was refused ("body box ... crosses the board edge"), and
    `OnEdge(edge, overhang=)` covers one edge only, where a corner hole crosses two. The holes now take
    `overhang=0.74` with a `mechanical:` why.
+   Went to: placemat 07e13341 (`overhang=`).
+
 2. **Nothing says an imported sheet becomes a cell (placemat, circuit-capture).** The sockets sheet came out of
    `pcb import` as a module, which `pcb layout` stamps as a group and placemat places as one rigid cell. SKILL.md says
    cells are rigid, but neither skill says that an imported sheet, with no layout script of its own, becomes such a
    cell, and no finding says so: it showed only as `cell PIC_SOCKETS` in `placemat parts`. Fixed in the capture by
    flattening (above).
+   Went to: placemat capture.md "Cells for placement" and SKILL.md cells rule (placemat, step 1, skill
+   gaps); circuit-capture SKILL.md "Modules for placement" (circuit-capture 1475634); BACKLOG.md "A cell
+   with no layout of its own is placed as generated, and nothing says so".
+
 3. **`Pm.I` names nets exactly; capture.md does not say so.** capture.md says the last part of a net's path matches for
    `Pm.KeepOut`, `Pm.PinAllow` and `Pm.PinDeny`, and says only "give `Pm.I` per net". `checks.py` looks `Pm.I` up by
    the whole net name (`currents.get(p.net.lower())`), so `VCC_PIC` does not name `/pic_sockets/VCC_PIC`. Written as
    the full name.
+   Went to: placemat checks.py `carriers_of` and capture.md "Annotating a capture" (`Pm.I`) (placemat, step
+   1, skill gaps).
+
 4. **A two-net class from an import is a differential pair (placemat capture.md, circuit-capture).** capture.md:
    "a class other than Default that sets `diff_pair_width` and `diff_pair_gap` pairs its nets, exactly two outright".
    KiCad stores pair figures on every class and `pcb import` writes them into every `NetClass`, so POWER (GND, VCC)
    would pair. Neither skill warns that an imported class must lose them. Removed from POWER. Test (a) shows the
    effect on the original project: its manifest note records GND and VCC routed as a coupled pair.
+   Went to: placemat capture.md "Net classes" (placemat, step 1, skill gaps); circuit-capture SKILL.md "Net
+   classes and interfaces" (circuit-capture 1475634).
+
 5. **No form for swapping the gates of a multi-gate logic part (placemat pin pools).** U2's four 74HC125 buffers are
    interchangeable (each gate is A, Y and /OE). `Pm.PinPool` moves single nets, and a hard `Pm.PinGroup` moves a block
    to any run of consecutive pins in pool order, so it can shift a gate by one pin; nothing restricts a block to the
    other gates' pin sets. Left without a pin pool.
+   Went to: BACKLOG.md "Swapping the gates of a multi-gate part"; deferred until after the consolidation
+   phase.
+
 6. **Imported captures fail `pcb layout` on part numbers (placemat, circuit-capture).** An imported part has no MPN,
    so every part is a `bom.unspecified` error and placemat's generation stops. circuit-capture says `pcb build -D
    warnings` must pass; neither skill says what to do with a capture whose parts have no numbers. Used the script's
    `# placemat generate: -S bom.unspecified` line (api.md documents the line for `--config` only).
+   Went to: placemat api.md "Modules" (placemat, step 1, skill gaps); circuit-capture SKILL.md "Writing the
+   capture", step 5 (circuit-capture 1475634).
+
 7. **`Pm.I` "at full load" when no load is documented (capture.md).** capture.md asks for amps at full load. For this
    board no document gives the load, and for the boost converter the guaranteed bound is the switch current limit,
    which is an overload figure. capture.md does not say whether to use a part's limiting rating; the rating was used
    and said so above.
+   Went to: placemat capture.md "Annotating a capture", documented guaranteed bounds when full load is
+   unavailable (placemat, step 1, skill gaps).
+
 8. **The hot loop is described for a buck only (capture.md).** "the switch and its input caps (`Pm.Loop`)" is a buck's
    loop; a boost's is the switch, the output diode and the output capacitor (LT1373 Figure 3). Annotated from the
    datasheet.
+   Went to: placemat capture.md `Pm.Loop` annotation and "Annotating a capture", topology-specific datasheet
+   hot loops (placemat, step 1, skill gaps).
+
 9. **Furniture on an open board (SKILL.md).** "Furniture (test points, LEDs, buttons) is `OnEdge(edge)` alone" assumes
    an enclosure edge. These indicator LEDs have no window and the human placed them mid-board; the skill gives no rule
    for a board with no case. Left searched.
+   Went to: placemat SKILL.md furniture rule (placemat, step 1, skill gaps).
+
 10. **Facts need the user.** `placemat facts --confirm` asks the user to confirm layer roles, weights and fab
     minimums; here every fact is read from the human board's own files, but the rule leaves no way for a reference
     script's author to confirm them. Left unconfirmed (a `facts` finding on every run).
+   Went to: BACKLOG.md "Facts read from a board's own files still need the user"; confirmation remains the
+   user's call.
