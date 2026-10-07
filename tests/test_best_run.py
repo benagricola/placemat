@@ -12,7 +12,7 @@ def _rec(run_id="a1", placed=4, drc=9, findings=15, airwire=5790.0, items=ITEMS,
     unplaced = max(0, len(items) - placed) if unplaced is None else unplaced
     measures = {"v": score.MEASURES_VERSION, "unplaced": {"default": unplaced} if unplaced else {}, "drc": drc, "link_excess": 0.0,
                 "findings": {"label": findings} if findings else {}, "airwire_mm": airwire,
-                "crossings": {"plain": crossings, "plane": 0}}
+                "crossings": {"plain+plain": crossings, "plane": 0}}
     return RunRecord(run_id=run_id, board="b", status=status,
                      placements={i: {"x": 0, "y": 0} for i in landed},
                      steps=[{"item": i} for i in items],

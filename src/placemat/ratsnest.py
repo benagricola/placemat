@@ -151,6 +151,26 @@ KIND_PLAIN, KIND_IMPEDANCE, KIND_PAIR, KIND_PLANE = 0, 1, 2, 3     # pinmap_inpu
 CLASS_NAMES = ("plain", "impedance", "pair_net", "plane", "pair")     # the classes a crossing is priced in, `prices`' order
 
 
+def prices_of(s) -> tuple:
+    """The crossing prices of settings `s`, in crossings (the run score multiplies by score.crossing), in
+    `CLASS_NAMES` order: plain, impedance, pair net, plane, a pair crossing itself."""
+    return (1.0, s.score_impedance, s.score_crossing_pair_net, s.score_crossing_plane,
+            s.score_pair_crossing / s.score_crossing if s.score_crossing > 0 else 1.0)
+
+
+def crossing_key(kinds, partners, a, b) -> str:
+    """The measure key of a crossing of nets `a` and `b`, which does not depend on any price: "plane" when either net
+    is quiet, "pair" for a differential pair's two halves, else its two nets' kinds, the lower first
+    ("plain+plain", "impedance+pair_net")."""
+    ka, kb = kinds.get(a, KIND_PLAIN), kinds.get(b, KIND_PLAIN)
+    if ka == KIND_PLANE or kb == KIND_PLANE:
+        return "plane"
+    if partners and partners.get(a) == b:
+        return "pair"
+    lo, hi = sorted((ka, kb))
+    return "%s+%s" % (CLASS_NAMES[lo], CLASS_NAMES[hi])
+
+
 def crossing_class(kinds, partners, prices, a, b) -> int:
     """The class (an index into `prices`, `CLASS_NAMES`) a crossing of nets `a` and `b` is priced in: plane when either
     net is quiet; a differential pair's two halves crossing each other, the pair's own; else the dearer of the two
@@ -171,9 +191,9 @@ def crossing_price(kinds, partners, prices, a, b) -> float:
 
 
 def crossings(edges, kinds=None, partners=None, prices=(1.0, 1.0, 1.0, 1.0, 1.0)) -> tuple:
-    """(priced count, crossings per net, crossings per class) over `edges`: each crossing of two different nets
+    """(priced count, crossings per net, crossings per key) over `edges`: each crossing of two different nets
     counts `crossing_price` (`kinds`, net -> kind, plain when absent; `partners`, net -> its pair's other half); per
-    net counts every crossing; per class (`CLASS_NAMES`) counts each crossing once, in the class that priced it."""
+    net counts every crossing; per key (`crossing_key`) counts each crossing once, whatever it is priced at."""
     kinds = kinds or {}
     grid: dict = {}
     for k, e in enumerate(edges):
@@ -181,7 +201,7 @@ def crossings(edges, kinds=None, partners=None, prices=(1.0, 1.0, 1.0, 1.0, 1.0)
             grid.setdefault(c, []).append(k)
     seen = set()
     total, per_net = 0.0, {}
-    per_class = dict.fromkeys(CLASS_NAMES, 0)
+    per_class: dict = {}
     for bucket in grid.values():
         for x in range(len(bucket)):
             for y in range(x + 1, len(bucket)):
@@ -195,7 +215,8 @@ def crossings(edges, kinds=None, partners=None, prices=(1.0, 1.0, 1.0, 1.0, 1.0)
                 if segments_cross(*_ends(e), *_ends(f)):
                     k = crossing_class(kinds, partners, prices, e.net, f.net)
                     total += prices[k]
-                    per_class[CLASS_NAMES[k]] += 1
+                    key = crossing_key(kinds, partners, e.net, f.net)
+                    per_class[key] = per_class.get(key, 0) + 1
                     for n in (e.net, f.net):
                         per_net[n] = per_net.get(n, 0) + 1
     return total, dict(sorted(per_net.items(), key=lambda kv: (-kv[1], kv[0]))), per_class

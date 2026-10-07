@@ -15,11 +15,13 @@ measures:
     link_excess  the sum over links past their limit of (mm past it x the link's weight)
     link_mm      the sum over declared links with both pads placed of the link's weight x its pad-to-pad length
     findings     {kind: count} of the other findings (findings.KINDS)
-    crossings    {"plain", "impedance", "pair_net", "plane", "pair"}: ratsnest crossings, each counted once in the
-                 class that priced it (ratsnest.crossing_class): "plane" when either net is a plane's or free
-                 net, "pair" between a differential pair's two halves, else the dearer kind of the two nets
-    airwire_mm   the ratsnest's length over the nets that pull (not planes or free nets), a controlled-impedance
-                 net's length counted score.impedance times
+    crossings    {key: n}: ratsnest crossings by what crosses, whatever they are priced at
+                 (ratsnest.crossing_key): "plane" when either net is a plane's or free net, "pair" between a
+                 differential pair's two halves, else the two nets' kinds, the lower first ("plain+plain",
+                 "impedance+plain", "pair_net+plain", ...); `terms` prices each at the dearer kind
+    airwire_mm   the ratsnest's length over the nets that pull (not planes or free nets), each net once
+    airwire_impedance_mm  the part of airwire_mm that is controlled-impedance nets (`terms` counts it
+                 score.impedance times in all)
     area_mm2     a fitted frame's area (`board.rect(fit=...)`), 0.0 on a fixed outline
     giveway      the sum of the costs of the carried vias' actions (giveway.Action.cost: share, move,
                  leave, route, shorten, drop, and a field relay's once), as the search priced them
@@ -58,13 +60,14 @@ def terms(m: dict, cfg) -> dict:
     }
     for kind, setting in _FINDING_WEIGHTS.items():
         out[kind] = getattr(cfg, setting) * found.get(kind, 0)
-    out["crossings"] = (cfg.score_crossing * (cross.get("plain", 0)
-                                              + cfg.score_impedance * cross.get("impedance", 0)
-                                              + cfg.score_crossing_pair_net * cross.get("pair_net", 0)
-                                              + cfg.score_crossing_plane * cross.get("plane", 0))
-                        + cfg.score_pair_crossing * cross.get("pair", 0))
+    from .ratsnest import CLASS_NAMES, prices_of
+    price = dict(zip(CLASS_NAMES, prices_of(cfg)))
+    out["crossings"] = cfg.score_pair_crossing * cross.get("pair", 0) + cfg.score_crossing * sum(
+        n * (price["plane"] if key == "plane" else max(price[k] for k in key.split("+")))
+        for key, n in cross.items() if key != "pair")
     out["escape_via"] = 0.0     # no measure yet: the surface-lane judgement (a later task) counts the vias it needs
-    out["airwire"] = float(m.get("airwire_mm") or 0.0)
+    out["airwire"] = float(m.get("airwire_mm") or 0.0) \
+        + (cfg.score_impedance - 1.0) * float(m.get("airwire_impedance_mm") or 0.0)
     out["link"] = cfg.score_link * float(m.get("link_mm") or 0.0)
     out["area"] = cfg.score_area * float(m.get("area_mm2") or 0.0)
     out["giveway"] = float(m.get("giveway") or 0.0)         # costs already weighed by the search's score_via_* settings
@@ -198,17 +201,17 @@ def _incremental(board, occ, plan) -> dict:
     from .ratsnest import KIND_IMPEDANCE
     cfg = board.settings
     edges, quiet, kinds, partners = _signal_edges(board, occ)
-    prices = (1.0, cfg.score_impedance, cfg.score_crossing_pair_net, cfg.score_crossing_plane,
-              cfg.score_pair_crossing / cfg.score_crossing if cfg.score_crossing > 0 else 1.0)
     from .ratsnest import crossings
     # a quiet net's edges are counted whatever score.crossing_plane is, so a changed weight re-ranks recorded runs
-    _, _, per_class = crossings(edges, kinds=kinds, partners=partners, prices=prices)
-    wire = 0.0
+    _, _, per_class = crossings(edges, kinds=kinds, partners=partners)
+    wire = impedance = 0.0
     for e in edges:
         if e.net in quiet:
             continue
-        wire += ((e.a.x - e.b.x) ** 2 + (e.a.y - e.b.y) ** 2) ** 0.5 \
-            * (cfg.score_impedance if kinds.get(e.net) == KIND_IMPEDANCE else 1.0)
+        d = ((e.a.x - e.b.x) ** 2 + (e.a.y - e.b.y) ** 2) ** 0.5
+        wire += d
+        if kinds.get(e.net) == KIND_IMPEDANCE:
+            impedance += d
     link_mm, excess = _links_mm(board, occ, plan)
     # a push is placed once per item, but the same Push object may be recorded again by a re-settle
     pushes, seen = 0.0, set()
@@ -222,7 +225,8 @@ def _incremental(board, occ, plan) -> dict:
         kind = f.kind if isinstance(f, Finding) else "setup"
         if kind in _ESCAPE_KINDS:
             found[kind] = found.get(kind, 0) + 1
-    out = {"crossings": per_class, "airwire_mm": round(wire, 3), "link_mm": round(link_mm, 6),
+    out = {"crossings": per_class, "airwire_mm": round(wire, 3),
+           "airwire_impedance_mm": round(impedance, 3), "link_mm": round(link_mm, 6),
            "link_excess": round(excess, 6), "pushes": round(pushes, 6), "findings": found,
            "area_mm2": round(_frame_area(board, occ, plan), 3)}
     if cfg.score_congestion_step:

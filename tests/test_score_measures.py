@@ -16,7 +16,7 @@ CFG = Settings()
 
 
 def M(**kw):
-    base = {"unplaced": {}, "drc": 0, "link_excess": 0.0, "findings": {}, "crossings": {"signal": 0, "plane": 0},
+    base = {"unplaced": {}, "drc": 0, "link_excess": 0.0, "findings": {}, "crossings": {"plain+plain": 0, "plane": 0},
             "airwire_mm": 0.0}
     base.update(kw)
     return base
@@ -214,7 +214,8 @@ def test_the_airwire_is_the_signal_nets_alone_and_an_impedance_net_counts_thrice
     b2.place(Part("u1"), at=Location(10, 10))
     b2.place(Part("c1"), at=Location(30, 30))
     m2 = score.plan_measures(b2, b2.resolve())
-    assert m2["airwire_mm"] == pytest.approx(d * b2.settings.score_impedance, abs=1e-2)
+    assert m2["airwire_mm"] == pytest.approx(d, abs=1e-2) and m2["airwire_impedance_mm"] == pytest.approx(d, abs=1e-2)
+    assert score.terms(m2, b2.settings)["airwire"] == pytest.approx(d * b2.settings.score_impedance, abs=1e-2)
 
 
 def test_a_declared_link_is_measured_at_its_weight_times_the_pads_distance():
@@ -262,3 +263,16 @@ def test_whole_prices_the_incremental_terms_of_the_board_as_it_stands():
     for k, v in w.items():
         assert v == pytest.approx(t[k]), k
     assert {"airwire", "crossings", "link", "link_over", "push", "congestion", "area"} <= set(w)
+
+
+def test_a_board_resolved_twice_keeps_no_stale_link_length():
+    from placemat.values import LinkWeight
+    b = _two_part_board(keep_going=True)
+    b.place(Part("u1"), at=Location(10, 10))
+    b.place(Part("c1"), at=Location(30, 30))
+    b.link(PadRef(Part("c1"), 1), PadRef(Part("u1"), 1), weight=LinkWeight.SHORT)
+    b.resolve()
+    b._links[0].b = ("NOPE", 1)             # one end no longer on the board
+    plan = b.resolve()
+    assert plan.links[0].achieved_mm is None
+    assert score.plan_measures(b, plan)["link_mm"] == 0.0

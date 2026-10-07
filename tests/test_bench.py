@@ -14,7 +14,7 @@ def row(placed, findings=0, hpwl=100.0, crossings=0, parts=5):
     return {"placed": placed, "findings": findings, "hpwl": hpwl, "crossings": crossings,
             "measures": {"unplaced": {"default": parts - placed} if parts > placed else {}, "drc": 0,
                          "link_excess": 0.0, "findings": {"label": findings} if findings else {},
-                         "crossings": {"plain": crossings, "plane": 0}, "airwire_mm": hpwl}}
+                         "crossings": {"plain+plain": crossings, "plane": 0}, "airwire_mm": hpwl}}
 
 
 def test_the_verdict_is_the_run_score():

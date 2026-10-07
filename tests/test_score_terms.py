@@ -146,9 +146,11 @@ from placemat.settings import Settings  # noqa: E402
 
 
 def test_link_and_area_are_priced():
-    m = {"v": 2, "link_mm": 12.5, "area_mm2": 100.0, "airwire_mm": 10.0, "crossings": {}, "rudy_steps": 2}
+    m = {"v": 2, "link_mm": 12.5, "area_mm2": 100.0, "airwire_mm": 10.0, "airwire_impedance_mm": 4.0, "crossings": {},
+         "rudy_steps": 2}
     s = Settings()
     t = score.terms(m, s)
+    assert t["airwire"] == 10.0 + (s.score_impedance - 1.0) * 4.0
     assert t["link"] == s.score_link * 12.5
     assert t["area"] == s.score_area * 100.0
     assert t["congestion"] == s.score_congestion * 2
@@ -156,8 +158,9 @@ def test_link_and_area_are_priced():
 
 def test_crossings_by_kind():
     s = Settings()
-    m = {"v": 2, "crossings": {"plain": 2, "impedance": 1, "pair_net": 1, "plane": 3, "pair": 1}}
-    want = s.score_crossing * (2 + s.score_impedance + s.score_crossing_pair_net
+    m = {"v": 2, "crossings": {"plain+plain": 2, "impedance+plain": 1, "pair_net+plain": 1, "impedance+pair_net": 1,
+                               "plane": 3, "pair": 1}}
+    want = s.score_crossing * (2 + s.score_impedance + 2 * s.score_crossing_pair_net
                                + s.score_crossing_plane * 3) + s.score_pair_crossing
     assert abs(score.terms(m, s)["crossings"] - want) < 1e-9
 
@@ -184,7 +187,16 @@ def test_crossings_are_tallied_in_the_class_that_priced_them():
     kinds = {"P": KIND_PAIR, "N": KIND_PAIR, "Z": KIND_IMPEDANCE, "G": KIND_PLANE}
     partners = {"P": "N", "N": "P"}
     prices = (1.0, 3.0, 5.0, 0.0, 25.0)
-    for a, b, want in (("P", "S", "pair_net"), ("Z", "S", "impedance"), ("S", "T", "plain"), ("P", "G", "plane"),
-                       ("P", "N", "pair"), ("P", "Z", "pair_net")):
+    for a, b, want in (("P", "S", "plain+pair_net"), ("Z", "S", "plain+impedance"), ("S", "T", "plain+plain"),
+                       ("P", "G", "plane"), ("P", "N", "pair"), ("P", "Z", "impedance+pair_net")):
         total, _, tally = crossings(_x(a, b), kinds=kinds, partners=partners, prices=prices)
-        assert tally[want] == 1 and sum(tally.values()) == 1, (a, b)
+        assert tally == {want: 1}, (a, b)
+    # the key does not move with the prices
+    assert crossings(_x("P", "Z"), kinds=kinds, partners=partners, prices=(1, 9, 0, 0, 1))[2] == {"impedance+pair_net": 1}
+
+
+def test_the_prices_of_settings_are_in_class_order():
+    from placemat.ratsnest import prices_of
+    s = Settings()
+    assert prices_of(s) == (1.0, s.score_impedance, s.score_crossing_pair_net, s.score_crossing_plane,
+                            s.score_pair_crossing / s.score_crossing)

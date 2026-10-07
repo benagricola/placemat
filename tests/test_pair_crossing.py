@@ -71,7 +71,7 @@ def test_the_weighted_search_keeps_a_pair_uncrossed_where_wire_alone_crosses_it(
     b, plan = _forced(score_pair_crossing=0.0, score_crossing=0.0)
     assert score.plan_measures(b, plan)["crossings"]["pair"] == 1       # wire alone: the pair crosses
     b, plan = _forced()
-    assert score.plan_measures(b, plan)["crossings"]["pair"] == 0
+    assert score.plan_measures(b, plan)["crossings"].get("pair", 0) == 0
 
 
 def test_the_search_turns_a_part_to_uncross_a_pair():
@@ -110,5 +110,5 @@ def test_a_board_with_no_pair_class_weighs_no_pair_crossing():
     for ref, at in (("u1", (10, 30)), ("r1", (25, 32)), ("r2", (25, 28))):
         b.place(Part(ref), at=Location(*at))
     plan = b.resolve()
-    assert score.plan_measures(b, plan)["crossings"]["pair"] == 0
+    assert score.plan_measures(b, plan)["crossings"].get("pair", 0) == 0
     assert not [f for f in plan.findings if f.kind == "pair_crossed"]

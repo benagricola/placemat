@@ -100,16 +100,15 @@ def resolve_run(runs_dir, ref: str) -> Path:
     raise ValueError("%r matches %d runs in %s: %s" % (ref, len(matches), runs_dir, ", ".join(m.name for m in matches)))
 
 
-def airwires_from_drc(drc: dict, quiet=(), partners: dict | None = None, kinds: dict | None = None,
-                      prices: tuple = (1.0, 1.0, 1.0, 1.0, 1.0)) -> dict:
+def airwires_from_drc(drc: dict, quiet=(), partners: dict | None = None, kinds: dict | None = None) -> dict:
     """The ratsnest KiCad reports as unconnected items: count, straight-line
     length, crossings between different nets, and length per net.
     `crossings_quiet` counts the crossings with a `quiet` net's airwire (a
     plane's or a free net's), and `crossings_pair` those between a
     differential pair's two halves (`partners`, from pairs.board_pairs),
-    which the score weighs apart. `classes` counts each crossing once in the class `ratsnest.crossing_class` prices
-    it in (`kinds`, net -> kind, as `occupancy.net_kinds`; `prices` as `Ratsnest` takes them)."""
-    from .ratsnest import CLASS_NAMES, KIND_PLANE, crossing_class
+    which the score weighs apart. `classes` counts the crossings by `ratsnest.crossing_key` (`kinds`, net -> kind, as
+    `occupancy.net_kinds`), the shape of the run score's `crossings` measure."""
+    from .ratsnest import KIND_PLANE, crossing_key
     edges = []
     for u in drc.get("unconnected_items", []):
         items = u.get("items", [])
@@ -127,13 +126,14 @@ def airwires_from_drc(drc: dict, quiet=(), partners: dict | None = None, kinds: 
     quiet = set(quiet)
     partners = partners or {}
     kinds = {**(kinds or {}), **{n: KIND_PLANE for n in quiet}}
-    classes = dict.fromkeys(CLASS_NAMES, 0)
+    classes: dict = {}
     crossings_per_net: dict = {}
     for i in range(len(edges)):
         for j in range(i + 1, len(edges)):
             if edges[i][0] != edges[j][0] and cross(edges[i], edges[j]):
                 crossings += 1
-                classes[CLASS_NAMES[crossing_class(kinds, partners, prices, edges[i][0], edges[j][0])]] += 1
+                key = crossing_key(kinds, partners, edges[i][0], edges[j][0])
+                classes[key] = classes.get(key, 0) + 1
                 if edges[i][0] in quiet or edges[j][0] in quiet:
                     quiet_crossings += 1
                 elif partners.get(edges[i][0]) == edges[j][0]:

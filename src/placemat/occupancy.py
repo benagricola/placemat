@@ -1295,15 +1295,14 @@ class Occupancy:
         rn = self.__dict__.get("_ratsnest")
         if rn is None:
             from .pairs import board_pairs
-            from .ratsnest import Ratsnest
+            from .ratsnest import Ratsnest, prices_of
             s = self.settings
             kinds = net_kinds(self.geometry, self.quiet_nets)
             # a pair crossing itself weighs score.pair_crossing; the search
             # prices the ratsnest's count at score.crossing
             partners = {n: m for n, m in board_pairs(self.geometry.netclasses).items()
                         if n not in self.quiet_nets and m not in self.quiet_nets}
-            prices = (1.0, s.score_impedance, s.score_crossing_pair_net, s.score_crossing_plane,
-                      s.score_pair_crossing / s.score_crossing if s.score_crossing > 0 else 1.0)
+            prices = prices_of(s)
             native = _geometry_module._native
             mirror = native.NativeRatsnest() if native is not None and hasattr(native, "NativeRatsnest") else None
             rn = Ratsnest(kinds, mirror=mirror, partners=partners, prices=prices)

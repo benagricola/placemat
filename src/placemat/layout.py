@@ -5731,6 +5731,8 @@ class Board:
                 if not l.within_limit:
                     plan.findings.append(self._finding(C.LINK_OVER, self._link_over_facts(l)))
                     self._late_suggestions.append((plan.findings[-1], lambda f, l=l: self._measure_link_over(occ, plan, l, f)))
+            else:
+                l.achieved_mm = None            # a board resolved again keeps no length from the last resolve
             plan.links.append(l)
 
     def _link_over_facts(self, l) -> dict:
