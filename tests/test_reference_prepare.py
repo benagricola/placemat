@@ -149,3 +149,48 @@ def test_a_board_whose_file_leaves_ids_out_is_prepared_with_the_same_ids_every_t
     ids = [[[i.get("uuid") for i in v["items"] if i.get("description") != "PCB"] for v in json.loads((r.test.parent / prepare.BASELINE).read_text())["violations"]]
            for r in runs]
     assert ids[0] and ids[0] == ids[1]
+
+
+def test_regenerated_reference_uses_pinned_import_and_reports_failures(tmp_path, monkeypatch):
+    import pathlib
+    import subprocess
+    calls = []
+    src = tmp_path / 'src'
+    src.mkdir()
+    (src / 'tiny.kicad_pro').write_text('{}')
+
+    def run(command, **kwargs):
+        calls.append((command, kwargs.get('cwd')))
+        out = tmp_path / 'work' / prepare.REGENERATED
+        if command[1] == 'import':
+            (out / 'layout').mkdir(parents=True)
+        else:
+            (out / 'layout' / 'tiny.kicad_pcb').write_text('generated')
+        return subprocess.CompletedProcess(command, 0, '', '')
+
+    monkeypatch.setattr(prepare.subprocess, 'run', run)
+    result = prepare.regenerate(BOARD, src, tmp_path / 'work')
+    assert result.read_text() == 'generated'
+    assert calls == [(['pcb', 'import', str(src / 'tiny.kicad_pro'), str(tmp_path / 'work' / 'regenerated')], None),
+                     (['pcb', 'layout', '-S', 'errors', 'tiny.zen'], tmp_path / 'work' / 'regenerated')]
+    monkeypatch.setattr(prepare.subprocess, 'run', lambda command, **kw: subprocess.CompletedProcess(command, 1, '', 'bad project'))
+    with pytest.raises(RuntimeError, match='pcb import failed .*bad project'):
+        prepare.regenerate(BOARD, src, tmp_path / 'work')
+    monkeypatch.setattr(prepare.subprocess, 'run', lambda command, **kw: subprocess.CompletedProcess(command, 0, '', ''))
+    with pytest.raises(RuntimeError, match='pcb layout wrote no'):
+        prepare.regenerate(BOARD, src, tmp_path / 'work')
+
+
+def test_prepare_regenerated_reference_preserves_generated_rules(tmp_path, monkeypatch):
+    made = tmp_path / 'generated' / 'tiny.kicad_pcb'
+    made.parent.mkdir()
+    made.write_text('generated board')
+    made.with_suffix('.kicad_pro').write_text('{"generated_rules": true}')
+    monkeypatch.setattr(prepare, 'regenerate', lambda *args: made)
+    monkeypatch.setattr(prepare, 'strip', lambda src, dst: dst.write_text(src.read_text()))
+    monkeypatch.setattr(prepare, '_upgrade', lambda pcb: None)
+    monkeypatch.setattr(prepare, 'measure', lambda pcb: (2, prepare.HumanCopper(1, 2.0)))
+    monkeypatch.setattr(prepare, 'run_drc', lambda pcb, out, refill_zones: out.write_text('{"violations": []}'))
+    got = prepare.prepare(BOARD, tmp_path / 'missing-source', tmp_path / 'work', regenerated=True)
+    assert got.ref.read_text() == 'generated board'
+    assert json.loads(got.test.with_suffix('.kicad_pro').read_text()) == {"generated_rules": True}

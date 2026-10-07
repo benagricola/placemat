@@ -284,3 +284,32 @@ def test_manifest_named_pairs_and_buses_are_written_before_defaults(tmp_path, mo
     assert [p.name for p in phases] == ["usb", "i2c", "wide-clearance", "signals"]
     assert phases[0].pairs == (("USB_D+", "USB_D-"),)
     assert phases[1].buses == (("SDA", "SCL"),)
+
+
+def test_pcb_version_follows_executable_symlink_and_marks_checkout_dirty(tmp_path, monkeypatch):
+    import os
+    import subprocess
+    repo = tmp_path / 'pcb'
+    binary = repo / 'target' / 'release' / 'pcbc'
+    binary.parent.mkdir(parents=True)
+    binary.write_text('#!/bin/sh\necho pcbc 0.4.52\n')
+    binary.chmod(0o755)
+    subprocess.run(['git', 'init', '-q', str(repo)], check=True)
+    tracked = repo / 'source'
+    tracked.write_text('source')
+    subprocess.run(['git', '-C', str(repo), 'add', 'source'], check=True)
+    subprocess.run(['git', '-C', str(repo), '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'source'], check=True)
+    links = tmp_path / 'bin'
+    links.mkdir()
+    (links / 'pcb').symlink_to(binary)
+    monkeypatch.setenv('PATH', str(links) + os.pathsep + os.environ['PATH'])
+    head = subprocess.run(['git', '-C', str(repo), 'rev-parse', 'HEAD'], capture_output=True, text=True, check=True).stdout.strip()
+    assert route_ref.pcb_version() == head
+    tracked.write_text('changed')
+    assert route_ref.pcb_version() == head + '-dirty'
+    (links / 'pcb').unlink()
+    (links / 'pcb').write_text('#!/bin/sh\necho pcbc 0.4.52\n')
+    (links / 'pcb').chmod(0o755)
+    assert route_ref.pcb_version() == 'pcbc 0.4.52'
+    monkeypatch.setenv('PATH', str(tmp_path / 'absent'))
+    assert route_ref.pcb_version() == 'unknown'

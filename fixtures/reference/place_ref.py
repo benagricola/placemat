@@ -168,14 +168,12 @@ def _failure(record: dict | None) -> tuple[str, str]:
 
 def run_b(board: fetch.Board, ref_dir: pathlib.Path, work: pathlib.Path, *, prepared: prepare.Prepared | None = None,
           versions: dict | None = None, a_closure_clean: float | None = None) -> BResult:
-    """Test (b) of one board: lint the script in `ref_dir` (fixtures/reference/boards/<name>/), run it from a clean copy in
-    `work` and judge the routed board against the human board. `prepared` is prepare.prepare's of the board, which gives the
-    human copper and the baseline DRC the violations are judged against; it is made in work/human when not given.
-    The human board here is the manifest's original board, fetched and stripped as for test (a), not the board `pcb
-    layout` generates from the imported capture: prepare works on the original, and the generated board has the standard
-    library's footprints, not the human's. So ref_vias, ref_track_mm and the baseline DRC are the original board's.
-    A DRC error counts as new unless the stripped human board has one of its type and nets where it is, so the violations of
-    the fixed parts' own places are not counted. The runner does not take the lock; main does."""
+    """Run the placement script and judge against a fresh import of the pinned source.
+
+    The regenerated reference uses the same library footprints as the script.
+    Its stripped copper supplies the baseline DRC, so generation differences
+    are measured consistently. The runner does not take the lock; main does.
+    """
     work = pathlib.Path(work)
     versions = dict(versions if versions is not None else route_ref.current_versions())
     human = prepared.human if prepared is not None else prepare.HumanCopper(0, 0.0)
@@ -193,7 +191,7 @@ def run_b(board: fetch.Board, ref_dir: pathlib.Path, work: pathlib.Path, *, prep
         detail = "; ".join("line %d %s %s" % (p.line, p.rule, p.ref) for p in report.problems)
         return result(failure=LINT, detail=detail)
     if prepared is None:   # after the lint: a refused script costs no fetch or DRC
-        prepared = prepare.prepare(board, fetch.fetch(board), work / "human")
+        prepared = prepare.prepare(board, fetch.fetch(board), work / "reference", regenerated=True)
         human = prepared.human
     folder = work / "board"
     _copy_folder(ref_dir, folder)
@@ -399,7 +397,7 @@ def _run_boards(boards, root, recorded, versions, changing, results, comparisons
         ref_dir = lint.BOARDS_DIR / board.name
         a = recorded.get("a", {}).get(board.name, {}).get("class", {}).get("closure_clean")
         try:
-            prepared = prepare.prepare(board, fetch.fetch(board), work / "human")
+            prepared = prepare.prepare(board, fetch.fetch(board), work / "reference", regenerated=True)
             r = run_b(board, ref_dir, work, prepared=prepared, versions=versions, a_closure_clean=a)
         except Exception as e:   # a failed result, so the other boards still run and are kept
             r = BResult(board.name, NOT_RUN, 0, [], 0, 0.0, 0.0, 0, 0.0, a, 0.0, _failed_versions(versions, ref_dir),

@@ -298,7 +298,7 @@ def test_a_lower_module_of_another_version_is_held_back():
     assert place_ref.compare_module(old, lower, {"placemat", "krt"}).status == "worse"
 
 
-def _prepared_or_raise(board, src, work):
+def _prepared_or_raise(board, src, work, *, regenerated=False):
     if board.name == "bad":
         raise RuntimeError("DRC failed")
     return PREPARED
@@ -336,3 +336,16 @@ def test_a_module_that_raises_is_a_failed_result_and_the_others_run(tmp_path, mo
 def dataclasses_replace(obj, **over):
     import dataclasses
     return dataclasses.replace(obj, **over)
+
+
+def test_test_b_prepares_the_regenerated_reference(tmp_path, monkeypatch):
+    folder = _folder(tmp_path, 'board.place(Part("J1"), at=Location(1, 2), why="mechanical: connector")\n')
+    seen = []
+    monkeypatch.setattr(place_ref.prepare, 'prepare', lambda board, src, work, *, regenerated=False: seen.append(regenerated) or PREPARED)
+    monkeypatch.setattr(place_ref.fetch, 'fetch', lambda board: tmp_path)
+    monkeypatch.setattr(place_ref, 'placemat_run', lambda *args, **kw: (None, 1.0))
+    monkeypatch.setattr(place_ref, 'krt_version', lambda folder: 'k')
+    place_ref.run_b(BOARD, folder, tmp_path / 'work', versions=VERSIONS)
+    monkeypatch.setattr(place_ref, 'run_b', lambda *args, **kw: _b())
+    place_ref._run_boards([BOARD], tmp_path / 'root', {}, VERSIONS, {'placemat'}, [], [], lambda: None)
+    assert seen == [True, True]

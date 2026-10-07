@@ -18,12 +18,11 @@ human actually used (`human_track_mm` in the manifest). Vias and track length ar
 1. The board's mechanical parts (connectors, holes, edge parts) are held where the original put them (`fixed` in the
    manifest).
 2. placemat places everything else and routes it.
-3. The result is compared with the human board, and with placemat's own test (a) route of the human placement.
+3. The result is compared with the regenerated reference, and with placemat's test (a) route of the original placement.
 
-The human board in test (b) is the manifest's original board, fetched and stripped as for test (a): its vias, track
-length and stripped DRC are what the routed board's are judged against. It is not the board `pcb layout` generates from
-the imported capture, because the preparation works on the original and the generated board has the standard library's
-footprints rather than the human's.
+Test (b) regenerates its reference with `pcb import` followed by `pcb layout`, using the pinned source project.
+Its vias, track length and stripped DRC are judged against that regenerated board. Both reference and placement
+run use the imported capture's library footprints. The original human placement remains test (a)'s reference.
 
 Test (a) runs on all eight boards. Test (b) needs the board to import with `pcb import`, so it runs on the boards
 listed with `b` in `tests`.

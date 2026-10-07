@@ -25,6 +25,8 @@ from placemat.kicad.route import router_dir
 
 from . import fetch
 
+REGENERATED = "regenerated"
+PCB_TIMEOUT_S = 900
 REF = "ref.kicad_pcb"
 TEST = "test.kicad_pcb"
 BASELINE = "baseline-drc.json"
@@ -118,12 +120,29 @@ def strip(src: pathlib.Path, dst: pathlib.Path) -> None:
         raise RuntimeError("strip_copper_only failed (rc %d): %s" % (proc.returncode, proc.stderr.strip()[-500:]))
 
 
-def prepare(board: fetch.Board, src: pathlib.Path, work: pathlib.Path) -> Prepared:
+def regenerate(board: fetch.Board, src: pathlib.Path, work: pathlib.Path) -> pathlib.Path:
+    """Generate test (b)'s reference from the pinned source import, in work."""
+    project = (pathlib.Path(src) / board.board).with_suffix(".kicad_pro")
+    out = pathlib.Path(work) / REGENERATED
+    shutil.rmtree(out, ignore_errors=True)
+    for command, cwd in ((["pcb", "import", str(project), str(out)], None),
+                         (["pcb", "layout", "-S", "errors", project.stem + ".zen"], out)):
+        proc = subprocess.run(command, capture_output=True, text=True, cwd=cwd, timeout=PCB_TIMEOUT_S)
+        if proc.returncode != 0:
+            raise RuntimeError("pcb %s failed (rc %d): %s" % (
+                command[1], proc.returncode, (proc.stderr or proc.stdout).strip()[-500:]))
+    pcb = out / "layout" / (project.stem + ".kicad_pcb")
+    if not pcb.exists():
+        raise RuntimeError("pcb layout wrote no %s" % pcb)
+    return pcb
+
+
+def prepare(board: fetch.Board, src: pathlib.Path, work: pathlib.Path, *, regenerated: bool = False) -> Prepared:
     work.mkdir(parents=True, exist_ok=True)
-    original = pathlib.Path(src) / board.board
+    original = regenerate(board, src, work) if regenerated else pathlib.Path(src) / board.board
     ref, test = work / REF, work / TEST
     shutil.copy(original, ref)
-    if board.kicad5:
+    if board.kicad5 and not regenerated:
         _upgrade(ref)   # writes the .kicad_pro; a project file copied from the source would replace it
     else:
         _copy_project(original, ref, PROJECT_SUFFIXES)

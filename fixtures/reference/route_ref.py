@@ -270,11 +270,23 @@ def _krt_version(board_pcb: pathlib.Path) -> str:
     return _git_head(router_dir(load(pathlib.Path(board_pcb).parent)))
 
 
+def pcb_version() -> str:
+    """Commit of the checkout containing the resolved executable, else its version."""
+    binary = shutil.which("pcb")
+    if binary is None:
+        return "unknown"
+    executable = pathlib.Path(binary).resolve()
+    for parent in executable.parents:
+        if (parent / ".git").exists() and _git(str(parent), "rev-parse", "HEAD"):
+            return _git_head(str(parent))
+    proc = subprocess.run([binary, "--version"], capture_output=True, text=True, timeout=GIT_TIMEOUT_S)
+    return proc.stdout.strip() or "unknown"
+
+
 def current_versions() -> dict:
     """The placemat checkout's commit and zener's version; "krt" is the router a route used (run_a)."""
     import placemat
-    pcb = subprocess.run(["pcb", "--version"], capture_output=True, text=True, timeout=GIT_TIMEOUT_S).stdout.strip()
-    return {"placemat": _git_head(str(pathlib.Path(placemat.__file__).resolve().parent)), "pcb": pcb or "unknown"}
+    return {"placemat": _git_head(str(pathlib.Path(placemat.__file__).resolve().parent)), "pcb": pcb_version()}
 
 
 def _route(pcb: pathlib.Path, work: pathlib.Path, toml: str | None) -> dict:
