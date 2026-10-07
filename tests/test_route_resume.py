@@ -79,6 +79,17 @@ def test_a_reordered_or_renamed_phase_list_keeps_only_the_common_head(tmp_path):
     assert again.finished == ["a"]
 
 
+def test_the_same_order_again_leaves_every_file_in_place(tmp_path):
+    s = RouteState(tmp_path)
+    s.set_order(["a", "b"])
+    s.record("a", "d", {})
+    names = ["p0_0.kicad_pcb", "p1_0.kicad_pcb", "routed.kicad_pcb", "router_out.kicad_pcb", "pairs.kicad_pcb"]
+    for n in names:
+        (tmp_path / n).write_text("x")
+    RouteState(tmp_path).set_order(["a", "b"])
+    assert all((tmp_path / n).exists() for n in names)
+
+
 def test_a_state_file_of_the_old_stages_is_no_state(tmp_path):
     (tmp_path / "state.json").write_text(json.dumps({"version": 1, "stages": {"pairs": {"digest": "d", "result": {}}}}))
     s = RouteState(tmp_path)

@@ -76,7 +76,8 @@ class RouteState:
         for name in list(self.phases):
             if name not in keep:
                 self.phases.pop(name)
-        self._delete_from(head)
+        if head < len(self._saved_order):                     # something saved is dropped
+            self._delete_from(head)
         self._saved_order = list(self.order)
         self._save()
 
@@ -94,7 +95,7 @@ class RouteState:
         self._save()
 
     def _delete_from(self, index: int) -> None:
-        last = len(self._saved_order) + len(self.order)       # every index either phase list used
+        last = max(len(self._saved_order), len(self.order))       # every index either phase list used
         patterns = [p for i in range(index, max(index, last)) for p in files_of(i)] + list(FINAL)
         # Transitional, until the phase engine replaces the fixed-stage route (Task 13): the files of its stages.
         for name in self.order[index:] + self._saved_order[index:]:
