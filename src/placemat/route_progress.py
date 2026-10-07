@@ -110,13 +110,14 @@ class RouteEvents:
         """What the router's process is given so its hooks write to this stage's pipe."""
         return {"PLACEMAT_ROUTE_EVENTS_FD": str(self._w)} if self._w is not None else {}
 
-    def begin(self, stage: str, nets: int | None = None) -> None:
+    def begin(self, stage: str, nets: int | None = None, phase=None, of=None) -> None:
         """A stage starts. `nets`: how many nets it will take up when that is known before the router says (a stage that launches the router
         once a net, as the islands do): the stage's count of nets is then this, not what each launch's queue adds up to."""
         global _active
         self.names = {}                       # a pair call sets its aliases (kicad/route.py route_pairs) within its stage
         if self.send is not None:
-            self.send(dict({"ev": "route_stage", "stage": stage, "resumed": False}, **({"nets": nets} if nets is not None else {})))
+            self.send(dict({"ev": "route_stage", "stage": stage, "resumed": False}, **({"nets": nets} if nets is not None else {}),
+                           **({"phase": phase, "of": of} if phase is not None else {})))
         self._t0 = time.time()
         if enabled():
             r, self._w = os.pipe()
@@ -171,7 +172,7 @@ def write_record(work, board: dict, stages: list, report: dict, complete: bool =
     """`route_record.json`: the board a route was made on, each stage's events in laid order and the report's result. Written whole. `complete`:
     the route ran to its end; a record written when a stage ends, for a route that may be stopped, is not."""
     path = Path(work) / RECORD
-    doc = {"version": 1, "complete": bool(complete), "board": board, "stages": stages, "report": {k: report[k] for k in ("closure", "closure_clean", "open_before", "open_after", "open_nets", "shorted", "violations", "seconds", "quick", "resumed", "widths", "dangling_removed") if k in report}}
+    doc = {"version": 1, "complete": bool(complete), "board": board, "stages": stages, "report": {k: report[k] for k in ("closure", "closure_clean", "open_before", "open_after", "open_nets", "shorted", "violations", "seconds", "quick", "resumed", "widths", "dangling_removed", "phases", "phases_without_copper", "widths_failed", "drc_new", "vias", "track_mm", "segments") if k in report}}
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(doc, separators=(",", ":"), default=str))
     os.replace(tmp, path)
@@ -181,6 +182,8 @@ def write_record(work, board: dict, stages: list, report: dict, complete: bool =
     summary = {"complete": bool(complete), "dropped": lost, "nets": len(laid["order"]), "routed": sum(1 for n in laid["order"] if laid["result"][n] == "routed"),
                "failed": sum(1 for n in laid["order"] if laid["result"][n] in ("no route found", "ripped")), "closure": doc["report"].get("closure_clean", doc["report"].get("closure")),
                "seconds": doc["report"].get("seconds"), "run": board.get("run", ""), "script": board.get("script", ""), "pcb": board.get("pcb", ""),
+               "phases": [{k: p[k] for k in ("name", "asked", "joined", "closure_clean", "final_closure_clean", "reused") if k in p}
+                          for p in doc["report"].get("phases", [])],
                "under_width": doc["report"].get("widths", []), "at": round(time.time(), 1)}
     (Path(work) / SUMMARY).write_text(json.dumps(summary, separators=(",", ":")))
     return path

@@ -1073,7 +1073,7 @@ def docs_table() -> str:
     return "\n".join(rows)
 
 
-def example_toml() -> str:
+def example_toml(phases_block=None) -> str:
     """A complete placemat.toml: every section and setting with its default, unit and meaning, grouped by section.
     It loads to the defaults. A setting whose default is no TOML value (unset) is a commented line."""
     import textwrap
@@ -1090,6 +1090,8 @@ def example_toml() -> str:
         out += ["# " + "-" * 76, "# %s: %s" % (section, SECTIONS[section]), "# " + "-" * 76, "[%s]" % section, ""]
         subtables = []
         for f in fs:
+            if f.name == "route_phase":
+                continue
             key = split_key(f.name)[1]
             default = _default_of(f)
             head = textwrap.wrap(describe(f.name), 108, initial_indent="# ", subsequent_indent="# ")
@@ -1102,4 +1104,7 @@ def example_toml() -> str:
             out.append("")
         for f, head, note in subtables:
             out += head + [note, "[%s]" % f.name.replace("_", ".", 1), ""]
+    from .route_phase import default_phases, phases_toml
+    out += ["# " + "-" * 76, "# route.phase: routing phases in order", phases_block or phases_toml(
+        default_phases(pairs=False, interface_types=[], wide_classes=[], currents=False))]
     return "\n".join(out).rstrip("\n") + "\n"

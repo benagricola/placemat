@@ -12,7 +12,7 @@ from placemat.kicad.route import RouteRefused, RouterFailed, route_board
 from placemat.settings import Settings, bind
 from tests.conftest import needs_kicad
 from tests.phase_helpers import fake_capabilities, phases
-from tests.test_net_halos import _two_part_board
+from tests.test_net_clearance import _two_part_board
 
 FAKE = textwrap.dedent('''
     import json, os, shutil, sys
@@ -104,7 +104,7 @@ def test_each_phase_asks_what_the_input_board_has_open_and_is_judged_again_on_th
     report = rig.route(FB, {"name": "signals"})
     assert [(p["asked"], p["joined"]) for p in report.phases] == [(1, 0), (1, 0)]     # FB; then VIN, not FB again
     assert [p["final_closure_clean"] for p in report.phases] == [0.0, 0.0]
-    assert report.phases[1]["final_open"][0]["net"] == "VIN"
+    assert {o["net"] for o in report.phases[1]["final_open"]} == {"FB", "VIN"}  # final rest contract covers all nets
     assert (report.vias, report.track_mm, report.segments, report.drc_new) == (0, 0.0, 0, 0)
 
 
@@ -408,3 +408,42 @@ def test_a_negative_number_in_a_pair_phases_router_args_is_a_value_not_a_flag():
     caps = {"flags": {"route_diff.py": ["--track-width", "--via-cost"]}}
     (pair,) = phases({"name": "usb", "pairs": [["P", "N"]], "router_args": ["--track-width", "-1", "--via-cost=9"]})
     assert pair_flags_refused(caps, [pair]) == []
+
+
+@needs_kicad
+def test_capture_clearance_reaches_every_phase_call_and_setup_report(rig):
+    from tests.test_capture_nets import write
+    write(rig.pcb.parent, nets={"SW": {"type": "Power", "fields": {"clearance": {"value": 2.0, "unit": "mm"}}}})
+    said = []
+    report = rig.route(FB, {"name": "signals"}, on_setup=said.extend)
+    calls = rig.calls()
+    assert calls and all("--net-clearances" in c for c in calls)
+    path = calls[0][calls[0].index("--net-clearances") + 1]
+    assert json.loads(open(path).read())["SW"] == 2.0
+    assert report.net_clearances == {"SW": 2.0}
+    assert said and all(f.cause.value == "setup.net_clearance" for f in said)
+    assert report.as_dict()["net_clearance_trapped"]
+
+
+@needs_kicad
+def test_width_findings_survive_a_judge_only_resume(rig, monkeypatch):
+    original = phase_run.judge_phase
+    failed = [False]
+    record = {"net": "VIN", "stage": "vin", "requested_mm": 0.5, "delivered_min_mm": 0.2,
+              "length_under_mm": 1.0, "length_mm": 1.0, "share": 1.0, "declared": True,
+              "max_a": None, "bottleneck_mm": None}
+    monkeypatch.setattr(phase_run, "phase_widths", lambda *a: [record])
+
+    def stop_once(*args):
+        if not failed[0]:
+            failed[0] = True
+            raise RuntimeError("judge failed")
+        return original(*args)
+
+    monkeypatch.setattr(phase_run, "judge_phase", stop_once)
+    with pytest.raises(RuntimeError, match="judge failed"):
+        rig.route(LEG)
+    calls = len(rig.calls())
+    report = rig.route(LEG)
+    assert len(rig.calls()) == calls
+    assert report.phases[0]["widths"] == [record] and report.widths == [record]

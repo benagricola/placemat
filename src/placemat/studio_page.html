@@ -2765,10 +2765,29 @@ function renderSteps() {
 const SEVERITIES = ["critical", "warning", "notice"];
 // A finding that names an item with a declaring line links to it.
 const srcLink = (f, p) => { const it = f.item && itemMap(p).get(f.item); return it && it.file ? ' <a class="srcl" data-act="src" data-file="' + esc(it.file) + '" data-line="' + it.line + '">' + esc(it.file + ":" + it.line) + "</a>" : ""; };
+// Each routing phase of the route shown (route.json's `phases`, kicad/route.py phase_record): what it joined of what it
+// asked, its time, whether it was reused, its width findings and each connection it left open, named as the console's
+// phase lines name them (kicad/route.py phase_lines).
+const phaseEnd = e => e.ref ? e.ref + "." + e.pad : (e.at || []).map(v => v.toFixed(2)).join(",");
+function phasesHTML(phases) {
+  if (!phases || !phases.length) return "";
+  return phases.map(p => {
+    const pct = (100 * p.closure_clean).toFixed(1) + "%", w = (p.widths || []).length;
+    const open = (p.open || []).map(o => o.violated ? o.net + " has a DRC error" : o.net + " " + phaseEnd(o.from) + "-" + phaseEnd(o.to));
+    return '<div class="row"><span class="n wrap"><b>' + esc(p.name) + "</b> " + esc(p.selector + ": " + p.joined + " of " + p.asked + " joined clean, ") +
+      (p.closure_clean < 1 ? pill(pct, "warn") : esc(pct)) + esc(", " + fmtDur(1000 * p.seconds) + (p.reused ? ", reused" : "")) +
+      (w ? " " + pill(w + (w === 1 ? " width finding" : " width findings"), "bad") : "") +
+      (open.length ? "<div>" + esc("open: " + open.join(", ")) + "</div>" : "") + "</span></div>";
+  }).join("");
+}
+const routePhases = V => (V && V.report && V.report.phases) ||
+  (V && V.summary && V.summary.record && V.summary.record.metrics && V.summary.record.metrics.route && V.summary.record.metrics.route.phases) || [];
+
 function renderFindings() {
   const p = plan(), el = $("#tab-findings");
   const all = (p && p.findings) || [];
-  if (!all.length) { el.innerHTML = '<div class="empty">No findings</div>'; return; }
+  const ph = phasesHTML(routePhases(S.cmdView)), head = ph ? sect("Routing phases", ph) : "";
+  if (!all.length) { el.innerHTML = head + '<div class="empty">No findings</div>'; return; }
   const bySev = SEVERITIES.map(s => [s, all.filter(f => sevOf(f) === s).length]).filter(x => x[1]);
   const hasSev = all.some(f => f.severity);
   const area = S.fsel && S.fsel.size ? all.filter((f, i) => S.fsel.has(i)) : null;
@@ -2778,7 +2797,7 @@ function renderFindings() {
   const order = hasSev ? SEVERITIES.filter(k => groups.has(k)) : [...groups.keys()];
   const filters = area ? '<div class="filters"><span class="dim">' + area.length + ' findings in the selected area</span><button data-sev="" data-all="1">all ' + all.length + "</button></div>" :
     bySev.length > 1 ? '<div class="filters"><button data-sev=""' + (S.sevFilter ? "" : ' class="on"') + ">all " + all.length + "</button>" + bySev.map(([s, n]) => '<button data-sev="' + s + '"' + (S.sevFilter === s ? ' class="on"' : "") + ">" + s + " " + n + "</button>").join("") + "</div>" : "";
-  el.innerHTML = filters + order.map(kind => {
+  el.innerHTML = head + filters + order.map(kind => {
     const list = groups.get(kind), closed = S.closedKinds.has(kind), worst = hasSev ? kind : list.some(([f]) => sevOf(f) === "critical") ? "critical" : list.some(([f]) => sevOf(f) === "notice") && !list.some(([f]) => sevOf(f) === "warning") ? "notice" : "warning";
     return '<div class="gh" data-kind="' + esc(kind) + '"><span class="dim">' + (closed ? "&#9656;" : "&#9662;") + "</span>" + esc(kind) + '<span class="ct">' + list.length + "</span></div>" +
       (closed ? "" : list.map(([f, i]) => '<div class="row" data-i="' + i + '"><span class="sev ' + sevOf(f) + '">' + sevOf(f) + '</span><span class="n wrap" style="color:var(--ink)">' + (hasSev && f.kind ? pill(f.kind.replace(/_/g, " ")) + " " : "") + (isUnplacedFinding(f) ? unplacedInline(f) : esc(f.text)) + srcLink(f, p) + sgHTML(f) + pinRotsHTML(f) + '</span><span class="fixslot" data-fix="' + i + '"></span></div>').join(""));
@@ -3220,7 +3239,7 @@ function routeEvent(V, P, ev) {
       if (!V.fitted) { V.fitted = true; S.view = null; lay = null; }
     }
   }
-  else if (ev.ev === "route_stage") { R.stage = ev.stage; R.total = ev.nets || 0; R.fixed = ev.nets != null; R.seen = 0; R.inStage = new Set(); }          // the counts are of the stage
+  else if (ev.ev === "route_stage") { R.stage = ev.stage; R.phase = ev.phase; R.of = ev.of; R.total = ev.nets || 0; R.fixed = ev.nets != null; R.seen = 0; R.inStage = new Set(); }          // the counts are of the stage
   else if (ev.ev === "route_queue") { if (!R.fixed) R.total += (ev.nets || []).length; }
   else if (ev.ev === "route_net_begin") { R.current = net; routeStep(P, V, net); }
   else if (ev.ev === "route_commit") {
@@ -3313,7 +3332,7 @@ async function openRoute(file, run) {
     const d = await getJSON(run ? "/build?run=" + encodeURIComponent(run) : "/route?f=" + encodeURIComponent(file));
     if (my !== S.openSeq) return;
     const sc = (d.board && d.board.script) || "";
-    S.cmdView = {id: "route:" + (run || file), plan: d.doc, summary: {command: run ? "build replay" : "route replay", kind: run ? "run" : "route", script: sc, pid: "", run: run || ""}, next: 0, fitted: false, replay: true, route: routeOf(d.doc.route)};
+    S.cmdView = {id: "route:" + (run || file), plan: d.doc, report: d.summary, summary: {command: run ? "build replay" : "route replay", kind: run ? "run" : "route", script: sc, pid: "", run: run || ""}, next: 0, fitted: false, replay: true, route: routeOf(d.doc.route)};
     S.xv = null; looking();
     renderCmdBar(); schedule("all");
   } catch (e) { toast("could not open the route: " + e.message); }

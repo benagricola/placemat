@@ -34,6 +34,7 @@ _TEXT = {
     "bad_pairs": "route.phase %(name)r: pairs is true or a list of pairs of two net names, P first, not %(value)r",
     "bad_buses": "route.phase %(name)r: buses is a list of buses, each a list of net names or globs, not %(value)r",
     "bad_connection": "route.phase %(name)r: connection %(index)d: from and to are each {part = \"...\", pad = \"...\"}",
+    "pair_width": "route.phase %(name)r: a pair phase takes its width from the net class; omit width",
     "bad_width": "route.phase %(name)r: width is a number in mm above 0 or \"current\", not %(value)r",
     "bad_layers": "route.phase %(name)r: layers: %(value)r is not a copper layer (F, In1 to In30, B, or their .Cu names)",
     "bad_neckdown": "route.phase %(name)r: neckdown is true or false, not %(value)r",
@@ -174,6 +175,8 @@ def _one(t, index: int, seen: set) -> Phase:
                                              _end(c.get("to") if isinstance(c, dict) else None, name, i))
                                   for i, c in enumerate(v))
     width = t.get("width")
+    if selector == "pairs" and width is not None:
+        raise PhaseError("pair_width", name=name)
     if width is not None and not (width == CURRENT or (isinstance(width, (int, float)) and not isinstance(width, bool)
                                                          and math.isfinite(width) and width > 0)):
         raise PhaseError("bad_width", name=name, value=width)
@@ -205,3 +208,36 @@ def parse_phases(raw) -> tuple:
 
 def phases_of(cfg) -> tuple:
     return parse_phases(cfg.route_phase)
+
+
+def default_phases(*, pairs: bool, interface_types: list, wide_classes: list, currents: bool) -> list:
+    out = []
+    if pairs:
+        out.append({"name": "diff-pairs", "pairs": True})
+    if interface_types:
+        out.append({"name": "buses", "interfaces": sorted(interface_types)})
+    if wide_classes:
+        out.append({"name": "wide-clearance", "net_classes": sorted(wide_classes)})
+    if currents:
+        out.append({"name": "current", "current_paths": True, "width": "current"})
+    out.append({"name": "signals"})
+    return out
+
+
+_NOTES = {"diff-pairs": "the capture's DiffPair instances, routed as pairs",
+          "buses": "each interface instance of these types routed together as one bus",
+          "wide-clearance": "the net classes whose clearance is above the Default's",
+          "current": "each pair of parts that carry current (Pm.I), at the width the lesser current needs",
+          "signals": "every connection still open, at the net classes' widths"}
+
+
+def phases_toml(phases: list, notes: dict | None = None) -> str:
+    import json
+    notes = dict(_NOTES, **(notes or {}))
+    blocks = []
+    for p in phases:
+        lines = ["# " + notes[p["name"]]] if p["name"] in notes else []
+        lines.append("[[route.phase]]")
+        lines += ["%s = %s" % (k, json.dumps(v)) for k, v in p.items()]
+        blocks.append("\n".join(lines))
+    return "\n\n".join(blocks) + "\n"

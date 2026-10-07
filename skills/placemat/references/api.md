@@ -145,7 +145,7 @@ request (SKILL.md, "When no form says it").
 | a coupled differential pair, its centreline found | `board.pair(p, n, [(padP, padN), (padP2, padN2)], layer=)` | Copper calls (Pairs) |
 | two nets pairing whatever they are called | a net class of exactly two nets with `diff_pair_width`/`diff_pair_gap` set, in the board's .zen | Copper calls (Pairs) |
 | silk text on a connector, jumper, switch or LED | `board.label(item, text, side=)` | Labels |
-| a routed net kept, relative to its pads | `placemat route <script> --adopt NET` | Commands (Keeping routed copper) |
+| a routed net kept, relative to its pads | `placemat route <script> [--phase NAME [--only]] --adopt NET` | Commands (Keeping routed copper) |
 
 ## Read the board
 
@@ -5075,7 +5075,7 @@ its kind.
 | `setup` (a web round a cutout under the minimum; a net class that does not fit the pads' pitch) | critical | the board cannot be milled, or the router cannot escape the pads |
 | `setup` (an undeclared part, a lane reserved that no track uses, a part outside its frame's declared reach, an `accept` that matched no verdict, the native module not in use: `setup.native`, a `[route] pair_layers` entry that names no pair or a layer the board lacks: `setup.pair_layers`, a pin annotation the pin map study runs without or a present map that breaks its own rule: `setup.pins`) | warning | the script is incomplete or wrong |
 | `setup` (a layer a keepout or rule names that the board lacks, a rule not carried to this board, a look-ahead dropped for want of room, an `accept` that was not needed, a search that spent its budget and took the best spot so far) | notice | placemat carried on without it |
-| `setup` (`setup.net_halo`: a pad of another net inside a `[route] net_halos` halo whose own copper ends inside it, a key that names no net) | warning | the router cannot lead the pad out; the entry is not used |
+| `setup` (`setup.net_clearance`: a pad trapped by another net's capture clearance) | warning | the router cannot lead the pad out |
 | `route` (`route.dropped`) | notice | an adopted route dropped because a part it joins moved; the router routes it again |
 | `route` (`route.width`: a net's copper delivered under the width asked) | critical when the net's phase sets a width (it carries current), or when the current its narrowest copper carries is under the current the parts state for it (`Pm.I`); warning otherwise | the net is narrower than declared where it carries current; facts `net`, `stage`, `requested_mm`, `delivered_min_mm`, `length_under_mm`, `length_mm`, `share`, `declared`, `max_a`, `bottleneck_mm`, `stated_a` |
 | `vias` (shared, moved, re-routed, left its pad, shortened, a field re-laid) | notice | carried vias gave way as designed |
@@ -5625,3 +5625,19 @@ Three kinds of constant are NOT settable, because they are not behaviour: the
 grid epsilons (ten KiCad units, the file format's resolution), the physical
 constants (IPC-2221 and unit conversions), and the tables that map placemat's
 words onto KiCad's layers and flags.
+
+### Routing phase results
+
+`route --phase NAME` routes through NAME, reusing matching earlier phase results. `--only` routes NAME against
+the existing copper and lists earlier phases without copper. Each phase reports its asked and clean joined
+connections, elapsed time, reused status, width findings and structured router evidence for open connections.
+The studio shows those records at the head of the Findings tab.
+
+Final phase comparison uses stable selected pad membership, independent of the placement's airwire topology.
+The report retains diagnostic airwire pairs separately. Required widths are checked on joining paths, including
+intermediate pads and filled copper. An unsupported path has `width_unknown` and cannot count as clean.
+A pair phase takes its width from the net class; an explicit phase width is refused.
+
+`settings <board> --example` writes default phases for capture pairs, interfaces, wide-clearance classes,
+current paths and remaining signals. Without a board it writes the signals phase.
+`run --explore SECONDS --route-best --route-rank PHASE[,PHASE...]` prioritises those phases' final clean closure.

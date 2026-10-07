@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import json
+import math
 from pathlib import Path
 
 SIDECAR = "nets.layout.json"
@@ -41,7 +42,13 @@ class NetRecord:
     @property
     def clearance_mm(self) -> float | None:
         f = self.fields.get("clearance")
-        return float(f["value"]) if isinstance(f, dict) and f.get("unit") == "mm" else None
+        if f is None:
+            return None
+        value = f.get("value") if isinstance(f, dict) else None
+        if (not isinstance(f, dict) or f.get("unit") != "mm" or isinstance(value, bool)
+                or not isinstance(value, (float, int)) or not math.isfinite(value) or value <= 0):
+            raise CaptureError("invalid_clearance", net=self.name, field="clearance", value=f)
+        return float(value)
 
 
 @dataclass(frozen=True)
@@ -71,7 +78,10 @@ class Capture:
 
 def read_capture(path) -> Capture:
     path = Path(path)
-    raw = path.read_bytes()
+    try:
+        raw = path.read_bytes()
+    except OSError as exc:
+        raise CaptureError("unreadable", path=str(path), error=str(exc)) from None
     try:
         doc = json.loads(raw)
     except ValueError:
@@ -83,14 +93,22 @@ def read_capture(path) -> Capture:
         name, digest = doc["netlist"]["file"], doc["netlist"]["sha256"]
     except (KeyError, TypeError):
         raise CaptureError("unreadable", path=str(path), missing="netlist") from None
+    if not isinstance(name, str) or not name or Path(name).name != name:
+        raise CaptureError("unreadable", path=str(path), field="netlist.file", value=name)
     netlist = path.parent / name
     if not netlist.is_file():
         raise CaptureError("no_netlist", path=str(path), file=name)
-    if hashlib.sha256(netlist.read_bytes()).hexdigest() != digest:
+    try:
+        actual_digest = hashlib.sha256(netlist.read_bytes()).hexdigest()
+    except OSError as exc:
+        raise CaptureError("unreadable", path=str(netlist), error=str(exc)) from None
+    if actual_digest != digest:
         raise CaptureError("stale", path=str(path), file=name, generator=doc.get("generator"))
     try:
         return _capture(path, raw, doc)
-    except (KeyError, TypeError, AttributeError):
+    except CaptureError:
+        raise
+    except (KeyError, TypeError, AttributeError, ValueError):
         raise CaptureError("unreadable", path=str(path), missing="nets") from None
 
 
@@ -98,6 +116,8 @@ def _capture(path, raw, doc) -> Capture:
     nets = {name: NetRecord(name, r["type"], dict(r.get("fields") or {}),
                             tuple(Membership(m["instance"], m["type"], m["member"]) for m in r.get("interfaces") or ()))
             for name, r in doc["nets"].items()}
+    for record in nets.values():
+        record.clearance_mm
     instances = {p: Instance(p, r["type"], dict(r["members"])) for p, r in (doc.get("interfaces") or {}).items()}
     pairs = tuple((p["instance"], p["p"], p["n"]) for p in doc.get("pairs") or ())
     return Capture(str(path), hashlib.sha256(raw).hexdigest(), dict(doc.get("generator") or {}),

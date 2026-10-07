@@ -59,6 +59,7 @@ def parser() -> argparse.ArgumentParser:
     run.add_argument("--accept", action="store_true",
                      help="with --explore: write the best variant's decisions to the lock and use them (with --route-best, "
                           "the best route closure's)")
+    run.add_argument("--route-rank", metavar="PHASE[,PHASE...]", help="rank routed variants by named phases in order")
     run.add_argument("--route-best", action="store_true", default=None,
                      help="with --explore: quick-route the plain placement and each new best as the search finds it, "
                           "in a routing worker that takes one of the jobs, report each closure as it comes, and with "
@@ -82,6 +83,8 @@ def parser() -> argparse.ArgumentParser:
     rt.add_argument("--islands", nargs="*", default=[], metavar="NET[=WIDTH][@LAYER,...]",
                     help="replaced by routing phases: a [[route.phase]] with `nets` and `width` routes a poured net "
                          "alone; a route given --islands is refused")
+    rt.add_argument("--phase", metavar="NAME", help="route up to this phase, reusing matching earlier results")
+    rt.add_argument("--only", action="store_true", help="with --phase: route just that phase against existing copper")
     rt.add_argument("--layers", nargs="*", help="copper layers to route on (default: all)")
     rt.add_argument("--full", action="store_true", help="the router's full run, not one round")
     rt.add_argument("--iterations", type=int, help="cap the router's search per net (default: the router's own)")
@@ -426,7 +429,18 @@ def cmd_settings(args) -> int:
     from .settings import load, Settings, split_key
     if getattr(args, "example", False) or getattr(args, "markdown", False):
         from .settings import docs_table, example_toml
-        console.data((example_toml() if args.example else docs_table() + "\n").rstrip("\n"))
+        phases_block = None
+        if args.example:
+            from .route_phase import phases_toml
+            from .project import find_board
+            p = Path(args.where)
+            try:
+                pcb = p if p.suffix == ".kicad_pcb" else find_board(p).pcb
+            except (ValueError, FileNotFoundError):
+                pcb = None
+            if pcb is not None and pcb.is_file():
+                phases_block = phases_toml(board_default_phases(pcb))
+        console.data((example_toml(phases_block) if args.example else docs_table() + "\n").rstrip("\n"))
         return 0
     from .project import find_board
     p = Path(args.where)
@@ -446,7 +460,7 @@ def cmd_settings(args) -> int:
 def _explore_options(args):
     """The ExploreOptions --explore and its flags ask for, or None."""
     if getattr(args, "explore", None) is None:
-        if any(getattr(args, k, None) for k in ("focus", "focus_after", "focus_box", "accept", "resume")) or \
+        if any(getattr(args, k, None) for k in ("focus", "focus_after", "focus_box", "accept", "resume", "route_rank")) or \
                 getattr(args, "route_best", None) is not None or getattr(args, "rank_remapped", None) is not None:
             raise SystemExit("--focus, --focus-after, --focus-box, --accept, --route-best, --rank-remapped and --resume go with "
                              "--explore SECONDS")
@@ -462,9 +476,18 @@ def _explore_options(args):
         box = Box(min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1))
     if args.resume and args.no_resume:
         raise SystemExit("--resume and --no-resume say opposite things")
+    rank = ()
+    if getattr(args, "route_rank", None):
+        from .project import find_board
+        from .settings import load
+        src = find_board(args.script)
+        cfg = load(src.board_dir, script=args.script)
+        if not (args.route_best if args.route_best is not None else cfg.explore_route_best):
+            raise SystemExit("--route-rank requires --route-best")
+        rank = _route_rank(args.route_rank, [p["name"] for p in cfg.route_phase])
     return ExploreOptions(args.explore, tuple(args.focus), args.focus_after, box, args.jobs, args.accept,
                           "yes" if args.resume else "no" if args.no_resume else "auto",
-                          getattr(args, "route_best", None))
+                          getattr(args, "route_best", None), rank)
 
 
 def cmd_lock(args) -> int:
@@ -702,6 +725,9 @@ def cmd_drc(args) -> int:
 def cmd_route(args) -> int:
     from .kicad.route import route_board
     from .project import find_board
+    if args.only and not args.phase:
+        console.say("route", "--only routes the phase --phase names: give --phase NAME", level="fail")
+        return 2
     _net_names(args.exclude, "--exclude")
     p = Path(args.pcb)
     if getattr(args, "partial", False) and not (args.adopt or args.adopt_all):
@@ -735,7 +761,7 @@ def cmd_route(args) -> int:
             report = route_board(pcb, work, exclude_nets=set(args.exclude), pour_nets=planes, layers=args.layers,
                                  quick=not args.full, iterations=args.iterations,
                                  resume=not args.no_resume, board_info={"script": str(p)} if src is not None else {},
-                                 on_setup=said)
+                                 on_setup=said, upto=args.phase, only=args.only)
         except (RouterMissing, RouteRefused) as e:
             channel.error("route_refused", **e.record())
             if args.json:
@@ -764,6 +790,9 @@ def cmd_route(args) -> int:
         console.data(json.dumps(dict(report.as_dict(), missing_rules=missing, finding_details=[f.detail() for f in short]), indent=2))
     else:
         console.say("route", report.summary())
+        from .kicad.route import phase_lines
+        for line in phase_lines(report.phases, report.phases_without_copper):
+            console.say("route", line)
         if report.resumed:
             console.say("route", "took %s from an earlier route of the same inputs (--no-resume routes again)" %
                         ", ".join(report.resumed))
@@ -771,7 +800,7 @@ def cmd_route(args) -> int:
             console.say("route", breach)
         from .findings import FindingCause
         for f in short:
-            if f.cause is not FindingCause.SETUP_NET_HALO:        # said before the route started
+            if f.cause is not FindingCause.SETUP_NET_CLEARANCE:        # said before the route started
                 console.finding(f, "route")
         for net, n in sorted(report.open_nets.items(), key=lambda kv: -kv[1])[:15]:
             console.say("route", "%-20s %d open" % (net, n))
@@ -1834,3 +1863,31 @@ def _dispatch(args) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
+def board_default_phases(pcb) -> list:
+    """The default phases for a board (spec "No phases"): its differential pairs and its interface types when the
+    capture exports them, its net classes above the Default's clearance, current paths when any part states a current,
+    then the rest."""
+    from .capture_nets import capture_beside
+    from .checks import carriers_of
+    from .kicad.read import read_board
+    from .route_phase import default_phases
+    g = read_board(str(pcb))
+    cap = capture_beside(pcb)
+    interfaces = "interfaces" in cap.exports if cap else False
+    default = [nc.clearance for nc in g.netclasses.values() if nc.name == "Default"]
+    base = min(default) if default else g.default_clearance
+    return default_phases(pairs=bool(interfaces and cap.pairs),
+                          interface_types=sorted({i.type for i in cap.instances.values() if i.type != "DiffPair"})
+                          if interfaces else [],
+                          wide_classes=sorted({nc.name for nc in g.netclasses.values() if nc.clearance > base + 1e-9}),
+                          currents=any(len(on) >= 2 for on in carriers_of(g).values()))
+
+
+def _route_rank(text: str, names) -> tuple:
+    wanted = tuple(x.strip() for x in text.split(",") if x.strip())
+    bad = [w for w in wanted if w not in names]
+    if bad:
+        raise SystemExit("--route-rank: no phase %s; the phases are %s" % (", ".join(bad), ", ".join(names)))
+    return wanted

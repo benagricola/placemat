@@ -3801,3 +3801,24 @@ out.files = els["#file"].innerHTML;
     assert [d for h, d, t in out["chosen"]] == [False, False, False, False]
     assert out["foreign"][0] is True and "it is of B_layout.py, not the script this studio watches" in out["foreign"][1] and out["own"] is True
     assert ">helper.py - imported<" in out["files"] and "(" not in out["files"]
+
+
+@needs_node
+def test_a_route_view_shows_each_phase_with_what_it_left_open(tmp_path):
+    out = run_more(tmp_path, r"""
+full([item("a", 1)], [st("a")]);
+const phases = [{name: "legs", selector: "current_paths", asked: 4, joined: 3, closure_clean: 0.75, seconds: 12, reused: false,
+                 open: [{net: "VB", from: {ref: "J1", pad: "2"}, to: {ref: "Q1", pad: "1"}}, {net: "SW", violated: true}],
+                 widths: [{net: "VB"}]},
+                {name: "signals", selector: "rest", asked: 40, joined: 40, closure_clean: 1, seconds: 80, reused: true, open: [], widths: []}];
+out.html = ev("phasesHTML(" + JSON.stringify(phases) + ")");
+out.none = ev("phasesHTML([])");
+ev("S.cmdView = {id: 'route:/p/r.json', plan: plan(), summary: {command: 'route replay', kind: 'route'}, report: {phases: " + JSON.stringify(phases) + "}, next: 0, replay: true, route: null}");
+out.view = ev("routePhases(S.cmdView).length");
+ev("renderFindings()"); out.tab = els["#tab-findings"].innerHTML;
+""")
+    assert "legs" in out["html"] and "3 of 4 joined clean, " in out["html"] and "75.0%" in out["html"]
+    assert "open: VB J1.2-Q1.1, SW has a DRC error" in out["html"]
+    assert "1 width finding" in out["html"] and "reused" in out["html"]
+    assert out["none"] == "" and out["view"] == 2
+    assert "Routing phases" in out["tab"] and "signals" in out["tab"]

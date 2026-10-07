@@ -613,6 +613,9 @@ def describe(ev: dict) -> str:
     if kind in ("route_commit", "route_rip", "route_net_begin", "route_board"):
         return ""                                          # the copper itself: the studio draws it, `watch` says each net's result
     if kind == "route_stage":
+        if ev.get("phase") is not None:
+            return "route phase %d of %d, %s%s" % (ev["phase"], ev["of"], ev["stage"],
+                    " (taken from an earlier route)" if ev.get("resumed") else "")
         return "route %s%s" % (ev.get("stage", ""), " (taken from an earlier route)" if ev.get("resumed") else "")
     if kind == "route_queue":
         return "route: %d nets to route" % len(ev.get("nets", ()))

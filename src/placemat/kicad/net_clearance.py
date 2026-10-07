@@ -1,17 +1,17 @@
-"""`[route] net_halos`: a net given a halo (mm) keeps other nets' new copper that far from its own, to keep coupling off
+"""A net's capture clearance (mm) keeps other nets' new copper that far from its own, to keep coupling off
 a switch node.
 
 The router takes a per-net clearance map (route.py and route_diff.py `--net-clearances`, a JSON object of net name to
 mm) and judges a pair of nets at the larger of the two nets' values. Without one it builds the map itself from the
 board's net classes (list_nets.net_clearance_map_by_id: every net in a non-Default class at its strictest class
-clearance). With a halo on the board placemat writes the map instead: the router's own class map, built by the
-router's own function, with each halo net at the larger of its class clearance and its halo.
+clearance). With a clearance on the board placemat writes the map instead: the router's own class map, built by the
+router's own function, with each clearance net at the larger of its class clearance and its clearance.
 
 Given a map, the router uses it as it stands and does not cap it at `--clearance-ceiling` as it caps its own; placemat
-caps the class entries at the ceiling the router args set, and leaves the halos as declared.
+caps the class entries at the ceiling the router args set, and leaves the clearances as declared.
 
-Before the route, a pad of another net within a halo net's halo can be left only if its own copper already leads out
-past the halo: `trapped` judges the ends of that copper."""
+Before the route, a pad of another net within a clearance net's clearance can be left only if its own copper already leads out
+past the clearance: `trapped` judges the ends of that copper."""
 from __future__ import annotations
 
 import json
@@ -26,12 +26,6 @@ MAP_NAME = "net_clearances.json"            # in the route's work folder; the pa
 PAIR_MAP_NAME = "pairs_net_clearances.json"
 _TOUCH_MM = 1e-4                            # copper this close is joined
 _EPS = 1e-6
-
-
-def on_board(halos: dict, nets) -> tuple:
-    """The halo entries whose net the board has, and the names of those it does not: ({net: mm}, [name, ...])."""
-    names = set(nets)
-    return ({n: float(h) for n, h in halos.items() if n in names}, sorted(n for n in halos if n not in names))
 
 
 def ceiling(args, env) -> float | None:
@@ -53,11 +47,11 @@ def ceiling(args, env) -> float | None:
     return None
 
 
-def merged(classes: dict, halos: dict, ceiling: float | None = None) -> dict:
+def merged(classes: dict, clearances: dict, ceiling: float | None = None) -> dict:
     """The map the router is given: {net: mm}, the class map (capped at `ceiling`, as the router caps its own) with each
-    halo net at the larger of its class clearance and its halo."""
+    clearance net at the larger of its class clearance and its clearance."""
     out = {n: (min(c, ceiling) if ceiling is not None else c) for n, c in classes.items()}
-    for n, h in halos.items():
+    for n, h in clearances.items():
         out[n] = max(out.get(n, 0.0), float(h))
     return out
 
@@ -74,7 +68,12 @@ def class_clearances(rpy, router_dir, pcb, names, env=None) -> dict:
     proc = subprocess.Popen([str(rpy), "-c", _CLASS_MAP, str(Path(pcb).resolve())], cwd=str(Path(router_dir) / "py_router"),
                             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
                             env=dict(env) if env else None)
-    out, err = proc.communicate(json.dumps(sorted(names)), timeout=120)
+    try:
+        out, err = proc.communicate(json.dumps(sorted(names)), timeout=120)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.communicate()
+        raise RuntimeError("the router's net class map timed out for %s" % pcb) from None
     for line in reversed(out.splitlines()):
         if line.startswith("PLACEMAT_CLASS_MAP "):
             return {str(k): float(v) for k, v in json.loads(line[len("PLACEMAT_CLASS_MAP "):]).items()}
@@ -82,10 +81,10 @@ def class_clearances(rpy, router_dir, pcb, names, env=None) -> dict:
     raise RuntimeError("the router's net class map could not be read for %s (exit %s)\n%s" % (pcb, proc.returncode, tail))
 
 
-def write_map(rpy, router_dir, pcb, names, halos: dict, path, ceiling: float | None = None, env=None) -> Path:
+def write_map(rpy, router_dir, pcb, names, clearances: dict, path, ceiling: float | None = None, env=None) -> Path:
     """Write the router's clearance map for `pcb` to `path` and return its absolute path."""
     path = Path(path).resolve()
-    path.write_text(json.dumps(merged(class_clearances(rpy, router_dir, pcb, names, env), halos, ceiling),
+    path.write_text(json.dumps(merged(class_clearances(rpy, router_dir, pcb, names, env), clearances, ceiling),
                                indent=1, sort_keys=True) + "\n")
     return path
 
@@ -139,17 +138,17 @@ def _ends(pad, own) -> list:
     return out
 
 
-def trapped(geometry, halos: dict, judged=None) -> list:
-    """Every pad of another net inside a halo whose own copper ends inside it too, as records (the facts of its
-    `setup.net_halo` finding): the halo net and its halo; the pad (ref, number, its net); `gap_mm`, the pad's own gap
-    to the halo net's copper; `reach_mm`, the farthest any end of the pad's copper lies from the halo net's copper on a
-    layer they share; `needed_mm`, the halo plus half the pad net's class track width, which a track leaving an end
-    needs between its centre and the halo net's copper; `short_mm`, needed less reach. A pad is inside the halo when its copper comes nearer the
-    halo net's copper (pads, tracks, vias, drawn copper and pours) than the halo on a layer they share. `judged`: the
+def trapped(geometry, clearances: dict, judged=None) -> list:
+    """Every pad of another net inside a clearance whose own copper ends inside it too, as records (the facts of its
+    `setup.net_clearance` finding): the clearance net and its clearance; the pad (ref, number, its net); `gap_mm`, the pad's own gap
+    to the clearance net's copper; `reach_mm`, the farthest any end of the pad's copper lies from the clearance net's copper on a
+    layer they share; `needed_mm`, the clearance plus half the pad net's class track width, which a track leaving an end
+    needs between its centre and the clearance net's copper; `short_mm`, needed less reach. A pad is inside the clearance when its copper comes nearer the
+    clearance net's copper (pads, tracks, vias, drawn copper and pours) than the clearance on a layer they share. `judged`: the
     nets to judge (the ones the route routes and has open), None for every net."""
     out = []
-    for net, halo in sorted(halos.items()):
-        halo = float(halo)
+    for net, clearance in sorted(clearances.items()):
+        clearance = float(clearance)
         theirs = [c for c in geometry.copper if c.net == net]
         if not theirs:
             continue
@@ -157,9 +156,9 @@ def trapped(geometry, halos: dict, judged=None) -> list:
             for pad in fp.pads:
                 if not pad.net or pad.net == net or pad.no_connect or (judged is not None and pad.net not in judged):
                     continue
-                near = [c for c in theirs if c.layers & pad.layers and _near(pad.box, c.box, halo)]
+                near = [c for c in theirs if c.layers & pad.layers and _near(pad.box, c.box, clearance)]
                 gap = min((_gap(pad.outlines, c.outlines) for c in near), default=math.inf)
-                if gap >= halo - _EPS:
+                if gap >= clearance - _EPS:
                     continue
                 own = _component(pad, [c for c in geometry.copper if c.net == pad.net and c.kind in ("track", "via", "poly")])
                 reach = 0.0
@@ -167,18 +166,16 @@ def trapped(geometry, halos: dict, judged=None) -> list:
                     reach = max(reach, min((_point_distance(pt, c.outlines) for c in theirs if c.layers & layers),
                                            default=math.inf))
                 cls = geometry.netclasses.get(pad.net)
-                needed = halo + (cls.track_width if cls is not None else 0.0) / 2.0
+                needed = clearance + (cls.track_width if cls is not None else 0.0) / 2.0
                 if reach >= needed - _EPS:
                     continue
-                out.append({"variant": "trapped", "net": net, "halo_mm": halo, "ref": fp.ref, "number": pad.number,
+                out.append({"variant": "trapped", "net": net, "clearance_mm": clearance, "ref": fp.ref, "number": pad.number,
                             "pad_net": pad.net, "gap_mm": round(gap, 3), "reach_mm": round(reach, 3),
                             "needed_mm": round(needed, 3), "short_mm": round(needed - reach, 3)})
     return out
 
 
-def findings(trapped_records: list, missing: list, halos: dict) -> list:
-    """The `setup.net_halo` findings: an entry naming no net on the board, then each trapped pad. A halo net with open
-    connections routes in the class stage of its halo (kicad/route.py clearance_groups), alone with nets of the same clearance."""
+def findings(trapped_records) -> list:
+    """Setup findings for pads trapped by a net's stated clearance."""
     from ..findings import Finding, FindingCause as C
-    return ([Finding(C.SETUP_NET_HALO, {"variant": "no_net", "net": n, "halo_mm": float(halos[n])}) for n in missing]
-            + [Finding(C.SETUP_NET_HALO, dict(r)) for r in trapped_records])
+    return [Finding(C.SETUP_NET_CLEARANCE, dict(r)) for r in trapped_records]

@@ -208,3 +208,7 @@ watch --format
 watch --json
 watch --output
 watch --summary
+
+route --phase
+route --only
+run --route-rank

@@ -80,5 +80,33 @@ def test_a_sidecar_missing_its_netlist_or_nets_is_refused(tmp_path):
 
 
 def test_a_ohm_field_is_not_a_clearance(tmp_path):
-    cap = read_capture(write(tmp_path, nets={"Z": {"type": "Net", "fields": {"clearance": {"value": 5, "unit": "Ohm"}}}}))
+    cap = read_capture(write(tmp_path, nets={"Z": {"type": "Net", "fields": {"impedance": {"value": 5, "unit": "Ohm"}}}}))
     assert cap.nets["Z"].clearance_mm is None and cap.clearances() == {}
+
+
+@pytest.mark.parametrize("value", [0, -1, True, "2mm", float("nan"), float("inf")])
+def test_invalid_clearance_is_a_structured_capture_error(tmp_path, value):
+    side = write(tmp_path, nets={"V": {"type": "Power", "fields": {"clearance": {"value": value, "unit": "mm"}}}})
+    with pytest.raises(CaptureError) as err:
+        read_capture(side)
+    assert err.value.code == "invalid_clearance" and err.value.facts["net"] == "V"
+
+
+def test_unreadable_sidecar_and_netlist_paths_are_structured(tmp_path):
+    with pytest.raises(CaptureError) as err:
+        read_capture(tmp_path / "missing.json")
+    assert err.value.code == "unreadable"
+    for name in ("../default.net", "/tmp/default.net", 7):
+        side = write(tmp_path)
+        doc = json.loads(side.read_text())
+        doc["netlist"] = {"file": name, "sha256": "wrong"}
+        side.write_text(json.dumps(doc))
+        with pytest.raises(CaptureError) as err:
+            read_capture(side)
+        assert err.value.code == "unreadable"
+
+
+def test_malformed_field_records_are_structured(tmp_path):
+    with pytest.raises(CaptureError) as err:
+        read_capture(write(tmp_path, nets={"V": {"type": "Power", "fields": [1, 2]}}))
+    assert err.value.code == "unreadable"

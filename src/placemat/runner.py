@@ -788,6 +788,9 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
                 metrics["closure_clean"] = report.closure_clean
                 rec.timing_s["route"] = round(time.time() - t0, 1)
                 say("route", "%s  (%.0fs)" % (report.summary(), rec.timing_s["route"]))
+                from .kicad.route import phase_lines
+                for line in phase_lines(report.phases, report.phases_without_copper):
+                    say("route", line)
                 for breach in report.keepout_breaches:
                     say("route", breach, level="finding")
                 if report.has_findings():
@@ -796,7 +799,7 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
                     short = report.findings(stated_currents(read_board(src.pcb)) if report.widths else {})
                     plan.findings.extend(short)
                     for f in short:
-                        if f.cause is not FindingCause.SETUP_NET_HALO:    # said before the route started
+                        if f.cause is not FindingCause.SETUP_NET_CLEARANCE:    # said before the route started
                             console.finding(f, "route")
                 if report.open_nets:
                     worst = sorted(report.open_nets.items(), key=lambda kv: -kv[1])[:8]

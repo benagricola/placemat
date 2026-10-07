@@ -469,18 +469,12 @@ def _setup_pair_layers(f):
         f["key"], ", ".join(f["missing"]), ", ".join(f["board_layers"]))
 
 
-@renders(C.SETUP_NET_HALO, "variant", "net", "halo_mm")
-def _setup_net_halo(f):
-    if f["variant"] == "no_net":
-        return "route.net_halos %s: no net of that name on this board; the entry is not used" % f["net"]
-    if f["variant"] == "open":            # a past run's: a halo net the main pass routed, before the class stages
-        return ("%s is open (%d item(s)) and routed with the other nets: the router spaces every net of that pass %.2f mm "
-                "from all copper, not only from %s; draw %s whole in the module, or route it alone as a `[route] islands` "
-                "net" % (f["net"], f["open_items"], f["halo_mm"], f["net"], f["net"]))
-    return ("%s pad %s.%s is inside %s's %.2f mm halo; its copper ends %.2f mm away where a track leaving it needs %.2f mm, "
-            "%.2f mm short: draw its escape out past the halo in the module (a longer run= on its board.escape), or give %s "
-            "a smaller halo" % (f["pad_net"], f["ref"], f["number"], f["net"], f["halo_mm"], f["reach_mm"], f["needed_mm"],
-                                f["short_mm"], f["net"]))
+@renders(C.SETUP_NET_CLEARANCE, "variant", "net", "clearance_mm")
+def _setup_net_clearance(f):
+    return ("%s pad %s.%s is inside %s's %.2f mm clearance; its copper ends %.2f mm away where a track leaving it needs %.2f mm, "
+            "%.2f mm short: draw its escape out past the clearance in the module (a longer run= on its board.escape), or give %s "
+            "a smaller clearance" % (f["pad_net"], f["ref"], f["number"], f["net"], f["clearance_mm"], f["reach_mm"], f["needed_mm"],
+                                     f["short_mm"], f["net"]))
 
 
 @renders(C.SETUP_ACCEPT, "variant", "check", "subject")
@@ -1039,12 +1033,17 @@ def _route_dropped(f):
 
 @renders(C.ROUTE_WIDTH, "net", "stage", "requested_mm", "delivered_min_mm", "length_under_mm")
 def _route_width(f):
+    if f.get("source") == "router":
+        needs = "; ".join("%s needs %g mm, narrowest %g mm" % (d["layer"], d["need_mm"], d["min_mm"])
+                          for d in f["layers"])
+        return "net %s: %s.%s-%s.%s in phase %s is under its width: %s" % (
+            f["net"], f["from"]["ref"], f["from"]["pad"], f["to"]["ref"], f["to"]["pad"], f["stage"], needs)
     of = " of %.1f mm (%.0f%%)" % (f["length_mm"], 100 * (f.get("share") or 0.0)) if f.get("length_mm") is not None else " mm"
     if f.get("layers"):         # judged on the routed board, per layer (route_widths.board_widths)
         text = "net %s: %.1f%s of its routed copper is under what it needs: %s" % (f["net"], f["length_under_mm"], of, "; ".join(
             "%s %.1f mm under %s, narrowest %g mm" % (
                 d["layer"], d["under_mm"],
-                "the %g mm it was asked" % d["need_mm"] if d["by"] == "asked" else "%.2f mm for %g A on %s copper" % (
+                "the %g mm it was asked" % d["need_mm"] if d["by"] == "asked" or f.get("stated_a") is None else "%.2f mm for %g A on %s copper" % (
                     d["need_mm"], f["stated_a"], "outer" if d["layer"] in ("F.Cu", "B.Cu") else "inner"),
                 d["min_mm"]) for d in f["layers"]))
         if f.get("max_a") is not None and f.get("stated_a") is not None:

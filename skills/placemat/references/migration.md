@@ -9,6 +9,18 @@ section for each hand-written pattern a newer form replaces.
 
 ### New
 
+- Routing phases expose `route --phase NAME [--only]`, per-phase reports in the console, watch and studio,
+  and `run --route-rank PHASE[,PHASE...]` for routed explore variants.
+- `settings <board> --example` writes the board's default routing phases; without a board it writes signals.
+
+### Changed
+
+- Net clearance comes from the capture's clearance field. Trapped-pad findings are `setup.net_clearance`.
+- Required-width paths that cannot be proved are explicitly unproven and never counted as clean joins.
+- Pair phase widths come from net classes; omit an explicit phase width.
+
+### New
+
 - **A firm placement may state `overhang=` with a why.** `board.place(item, at=..., overhang=0.8, why=...)` lets the
   item's courtyard and body reach up to 0.8 mm past the board's outer edge, on any side, where the script puts it; it
   does not move the item, a cutout or a bore is judged as without it, and its pads and copper are still held to
