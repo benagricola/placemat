@@ -447,3 +447,18 @@ def test_width_findings_survive_a_judge_only_resume(rig, monkeypatch):
     report = rig.route(LEG)
     assert len(rig.calls()) == calls
     assert report.phases[0]["widths"] == [record] and report.widths == [record]
+
+
+@needs_kicad
+def test_phase_clearance_ceiling_uses_full_arg_order_and_preserves_capture_floor(rig):
+    from tests.test_capture_nets import write
+    krt = rig.pcb.parent.parent / "krt"
+    (krt / "py_router/list_nets.py").write_text(
+        'def net_clearance_map_by_id(pcb_path, nets, design_rules=None):\n    return {n: 0.8 for n in nets}\n')
+    write(rig.pcb.parent, nets={"SW": {"type": "Power", "fields": {"clearance": {"value": 2.0, "unit": "mm"}}}})
+    rig.route(dict(FB, router_args=["--clearance-ceiling", "0.4"]),
+              {"name": "signals", "router_args": ["--clearance-ceiling=0.2"]},
+              settings={"route_router_args": ("--clearance-ceiling", "0.5")})
+    maps = [json.loads(open(c[c.index("--net-clearances") + 1]).read()) for c in rig.calls()]
+    assert maps and {m["FB"] for m in maps} == {0.4, 0.2}
+    assert all(m["SW"] == 2.0 for m in maps)

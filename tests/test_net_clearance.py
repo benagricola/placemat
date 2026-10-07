@@ -163,7 +163,8 @@ def test_the_pair_stage_carries_a_map_of_its_renamed_nets(tmp_path, monkeypatch)
     work = tmp_path / "work"
     work.mkdir()
     route_mod.route_pairs("py", _router(tmp_path), pcb, work, [("A_P", "A_N"), ("B_P", "B_N")], ["F.Cu", "B.Cu"],
-                          Settings(), None, None, 60, {}, clearances={"SIG": 1.5, "A_P": 1.0})
+                          Settings(), None, None, 60, {}, clearances={"SIG": 1.5, "A_P": 1.0},
+                          extra_args=("--clearance-ceiling", "0.1"))
     from placemat.pairs import pair_aliases
     renamed = {}
     for base, p, n in pair_aliases([("A_P", "A_N"), ("B_P", "B_N")], ("A_P", "A_N", "B_P", "B_N", "SIG")):
@@ -172,7 +173,7 @@ def test_the_pair_stage_carries_a_map_of_its_renamed_nets(tmp_path, monkeypatch)
     path = Path(calls[0][calls[0].index("--net-clearances") + 1])
     assert path == work.resolve() / "pairs_net_clearances.json"
     got = json.loads(path.read_text())
-    assert got[renamed["A_P"]] == 1.0 and got["SIG"] == 1.5 and got[renamed["B_P"]] == 0.2 and "A_P" not in got
+    assert got[renamed["A_P"]] == 1.0 and got["SIG"] == 1.5 and got[renamed["B_P"]] == 0.1 and "A_P" not in got
 
 
 # ---------------------------------------------------------------- the trapped-terminal check

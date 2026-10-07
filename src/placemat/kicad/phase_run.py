@@ -6,7 +6,7 @@ because KRT spaces a whole call at the largest clearance among its nets (py_rout
 set_net_clearances)."""
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import json
 from pathlib import Path
 import shutil
@@ -115,6 +115,8 @@ class PhaseContext:
     excluded: set
     pour_nets: set
     events: object
+    class_clearances: dict = field(default_factory=dict)
+    stated_clearances: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -599,6 +601,17 @@ def route_calls(ctx, index, phase, sel, board) -> PhaseOutcome:
     locked. The outcome's `routed` is what judge_phase needs. A task the router refuses stops the route (RouteRefused
     "router_refused"); a call that fails raises RouterFailed."""
     t0 = time.time()
+    from . import net_clearance
+    from .route import routing_clearance
+    args = tuple(ctx.cfg.route_router_args) + tuple(phase.router_args)
+    phase_map = net_clearance.merged(ctx.class_clearances, ctx.stated_clearances,
+                                    net_clearance.ceiling(args, ctx.env))
+    phase_file = None
+    if ctx.stated_clearances:
+        phase_file = ctx.work / ("p%d_net_clearances.json" % index)
+        phase_file.write_text(json.dumps(phase_map, sort_keys=True) + "\n")
+    ctx = replace(ctx, clearance_map=phase_map, clearances_file=phase_file,
+                  base_clearance=routing_clearance(ctx.geometry.default_clearance, args, ctx.env))
     calls = plan_calls(sel, ctx.clearance_map, ctx.base_clearance, set(ctx.excluded) | set(ctx.pour_nets))
     layers = list(sel.layers)
     out = PhaseOutcome(board, {}, {})
@@ -616,7 +629,7 @@ def route_calls(ctx, index, phase, sel, board) -> PhaseOutcome:
             got, found = route_pairs(ctx.rpy, ctx.router_dir, board, ctx.work, list(sel.pairs), layers, ctx.cfg,
                                      ctx.iterations, ctx.probe, ctx.timeout, ctx.env, events=ctx.events, stem=stem,
                                      extra_args=tuple(phase.router_args),
-                                     clearances=ctx.clearance_map if ctx.clearances_file else None)
+                                     clearances=ctx.stated_clearances or None)
             pairs = found.as_dict()
             if Path(got) != nxt:
                 shutil.copy(got, nxt)

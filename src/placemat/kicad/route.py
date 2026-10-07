@@ -809,7 +809,7 @@ def route_pairs(rpy, router_dir_path, pcb_in: Path, work: Path, pairs, layers, c
         from . import net_clearance
         clearances = net_clearance.write_map(rpy, router_dir_path, router_in, sorted(renames.get(n, n) for n in names),
                                          {renames.get(n, n): h for n, h in stated_clearances.items()}, work / net_clearance.PAIR_MAP_NAME,
-                                         net_clearance.ceiling(active_settings().route_pair_router_args, env), env)
+                                         net_clearance.ceiling(tuple(active_settings().route_pair_router_args) + tuple(extra_args), env), env)
     back = {new: old for old, new in renames.items()}
     back.update({base: "%s/%s" % (p, n) for base, p, n in aliases})
     if events is not None:
@@ -1493,6 +1493,7 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     clearance_findings = net_clearance.findings(trapped)
     if clearance_findings and on_setup is not None:
         on_setup(clearance_findings)
+    class_clearances = net_clearance.class_clearances(rpy, router_dir_path, pcb_in, geometry.nets, env)
     ceiling = net_clearance.ceiling(cfg.route_router_args, env)
     clearances_file = net_clearance.write_map(rpy, router_dir_path, pcb_in, geometry.nets, stated,
                                             work / net_clearance.MAP_NAME, ceiling, env) if stated else None
@@ -1512,7 +1513,8 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     state.set_order(["only:" + run_list[0].name] if only else [p.name for p in run_list])
     script = str(ONE_ROUND) if quick else str(route_py)
     ctx = PhaseContext(rpy, script, router_dir_path, work, layers, iterations, probe, quick, timeout, env, cfg,
-                       geometry, clearance_map, base_clearance, clearances_file, excluded, pours, rev)
+                       geometry, clearance_map, base_clearance, clearances_file, excluded, pours, rev,
+                       class_clearances, stated)
     pcb_out = work / "routed.kicad_pcb"
     raw_out = work / "router_out.kicad_pcb"      # the last phase's board: post-processing is made on a copy
     board, prev, records, summaries, spent, resumed = pcb_in, base, [], [], 0.0, []
@@ -1681,7 +1683,7 @@ def phase_lines(phases: list, without_copper=()) -> list:
         if final is not None and final != p["closure_clean"]:
             line += ", final %.1f%%" % (100 * final)
         opened, said = [], set()
-        for o in p.get("open") or ():
+        for o in p.get("final_open", p.get("open")) or ():
             if o.get("violated"):
                 if o["net"] not in said:
                     said.add(o["net"])
