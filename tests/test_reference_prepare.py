@@ -126,3 +126,22 @@ def test_a_kicad5_board_is_upgraded_and_its_kicad_pro_holds_its_net_classes(tmp_
     project = json.loads((work / "ref.kicad_pro").read_text())
     assert [c["name"] for c in project["net_settings"]["classes"]] == ["Default", "save"]
     assert len(_loaded(prepared.ref).GetTracks()) == 1 and len(_loaded(prepared.test).GetTracks()) == 0
+
+
+def test_a_board_whose_file_leaves_ids_out_is_prepared_with_the_same_ids_every_time(tmp_path):
+    """The source's pads and track carry no uuid (an older format leaves them out). The stripped board gets ids from
+    a generator seeded by the file, so two preparations write the same board, and their baseline DRC names the same
+    items. The board's own id is not in its file, so kicad-cli makes a new one each time: an item "PCB" is left out."""
+    import re
+    src = tmp_path / "src"
+    src.mkdir()
+    _two_layer_board(src / "tiny.kicad_pcb")
+    board = src / "tiny.kicad_pcb"
+    board.write_text(re.sub(r'^\s*\(uuid "[^"]*"\)\n', "", board.read_text(), flags=re.M)
+                     .replace("(at 20 10)", "(at 10.6 10)"))   # R2's pad over R1's: a violation naming both pads
+    runs = [prepare.prepare(BOARD, src, tmp_path / ("work%d" % i)) for i in (1, 2)]
+    texts = [r.test.read_text() for r in runs]
+    assert "(uuid" in texts[0] and texts[0] == texts[1]
+    ids = [[[i.get("uuid") for i in v["items"] if i.get("description") != "PCB"] for v in json.loads((r.test.parent / prepare.BASELINE).read_text())["violations"]]
+           for r in runs]
+    assert ids[0] and ids[0] == ids[1]

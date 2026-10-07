@@ -66,8 +66,9 @@ SHIFT = """
 import sys
 sys.path.insert(0, %r)
 from placemat.kicad.quiet import import_pcbnew
+from placemat.kicad.write import load_board
 p = import_pcbnew()
-b = p.LoadBoard(sys.argv[1])
+b = load_board(sys.argv[1])
 b.Move(p.VECTOR2I(p.FromMM(float(sys.argv[3])), p.FromMM(float(sys.argv[4]))))
 p.SaveBoard(sys.argv[2], b)
 """ % str(ROOT / "src")

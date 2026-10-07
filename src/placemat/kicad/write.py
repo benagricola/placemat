@@ -8,6 +8,7 @@ board the plan was resolved against. KiCad's UUID generator is seeded before new
 created, so an unchanged plan writes an unchanged file."""
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 from pathlib import Path
@@ -42,6 +43,25 @@ def seed_uuids(seed: int = 0x5EED):
     """New board items draw their UUIDs from a seeded generator, so a plan
     applied twice writes the same file."""
     pcbnew.KIID.SeedGenerator(seed)
+
+
+SEED_BYTES = 4   # KIID::SeedGenerator takes an unsigned int
+
+
+def file_seed(data: bytes) -> int:
+    """The UUID generator seed for a board file's bytes."""
+    return int.from_bytes(hashlib.blake2b(data, digest_size=SEED_BYTES).digest(), "little")
+
+
+def load_board(path):
+    """`pcbnew.LoadBoard(path)` with `seed_uuids` seeded from the file's bytes first. pcbnew gives an item the file
+    names no id (a board in an older KiCad format leaves many out) a new one from the generator as the board loads, and
+    the generator is seeded randomly per process: a board loaded and saved twice would hold different ids each time,
+    and KiCad orders items and breaks ties by id, and its DRC names a violation's items by them. Seeded from the file,
+    the same input gives the same ids and a different input a different sequence. The Zener fork seeds the same
+    generator for the boards it writes (update_layout_file.py, `pcbnew.KIID.SeedGenerator`)."""
+    seed_uuids(file_seed(Path(path).read_bytes()))
+    return pcbnew.LoadBoard(str(path))
 
 
 def _place_footprint(fp, current: Placement, target: Placement):
@@ -893,7 +913,7 @@ def finish_board(pcb_path, fab, refs_to_fab_layer: bool = True, refs_to_fab=None
         refs_to_fab = refs_to_fab_layer
     if refs_to_fab:
         with quiet_stderr():
-            board = pcbnew.LoadBoard(pcb_path)
+            board = load_board(pcb_path)
         seed_uuids()
         globals()["refs_to_fab"](board)
         save(board, pcb_path)
@@ -960,7 +980,7 @@ def apply_plan(pcb_path, plan: Plan, out_path=None) -> str:
         from ..rules import write_rules
         write_rules(pcb_path, list(plan.rules))
     with quiet_stderr():
-        board = pcbnew.LoadBoard(pcb_path)
+        board = load_board(pcb_path)
     seed_uuids()
     _drop_stamped_notes(board, plan)
     groups = {g.GetName(): g for g in board.Groups()}
@@ -1068,7 +1088,7 @@ def strip_stamped_notes(pcb_path, keep_loose_faces: bool = False) -> int:
     the facts the notes carry, so the generated board it leaves in the layout folder while it works
     does not show them. Returns how many were taken off."""
     with quiet_stderr():
-        board = pcbnew.LoadBoard(str(pcb_path))
+        board = load_board(str(pcb_path))
         notes = [d for d in board.GetDrawings() if _is_note(d) and not (keep_loose_faces and _loose_faces(d))]
         if not notes:
             return 0
@@ -1159,7 +1179,7 @@ def _extract_item(pcb_path: str, name: str, scratch: str) -> None:
     """Save a board that holds only the group (or footprint) called `name`:
     the kept items are duplicated into a fresh board. Nothing is removed
     from the loaded one, which pcbnew's Python proxies do not survive."""
-    src = pcbnew.LoadBoard(pcb_path)
+    src = load_board(pcb_path)
     keep = set()
     for g in src.Groups():
         if g.GetName() == name:
@@ -1255,7 +1275,7 @@ def write_faces(pcb_path, faces: dict) -> str:
     words = ["%s=%s" % (k, Edge(v).value) for k, v in faces.items() if v]
     text = "placemat faces " + " ".join(words)
     with quiet_stderr():
-        board = pcbnew.LoadBoard(str(pcb_path))
+        board = load_board(str(pcb_path))
         for d in list(board.GetDrawings()):
             if isinstance(d, pcbnew.PCB_TEXT) and d.GetText().startswith("placemat faces "):
                 board.Delete(d)

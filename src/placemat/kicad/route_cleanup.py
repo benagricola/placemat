@@ -102,6 +102,13 @@ class Cleanup:
                 "vias_kept_close": [dict(k) for k in self.vias_kept_close]}
 
 
+def _load_board(path):
+    """A board loaded with KiCad's UUID generator seeded from its file (write.load_board): the same input gives the
+    same item ids in every run."""
+    from .write import load_board
+    return load_board(path)
+
+
 def _key(t) -> tuple:
     """A track's or via's identity across two boards: its kind, net, layers and geometry, to the nanometre."""
     if t.GetClass() == "PCB_VIA":
@@ -484,8 +491,8 @@ def remove_dangling_router_copper(pcb_path: str, given_path: str) -> Cleanup:
     from .quiet import import_pcbnew, quiet_stderr
     pcbnew = import_pcbnew()
     with quiet_stderr():
-        given = pcbnew.LoadBoard(given_path)
-        board = pcbnew.LoadBoard(pcb_path)
+        given = _load_board(given_path)
+        board = _load_board(pcb_path)
     ours = {t.m_Uuid.AsString() for t in board.GetTracks()}
     mine = ours - given_copper(board, given)
     if not mine:
@@ -509,7 +516,7 @@ def remove_dangling_router_copper(pcb_path: str, given_path: str) -> Cleanup:
         kept_close += [dict(m, reason="clearance", other_net=clash[m["net"]]) for m in close_merges if m["net"] in clash]
         kept_close += [k for k in kept if k["net"] in undone]
         with quiet_stderr():
-            board = pcbnew.LoadBoard(pcb_path)
+            board = _load_board(pcb_path)
     kept_close += kept
     vias_merged = dict(Counter(m["net"] for m in close_merges))
     if close_merges:
@@ -526,7 +533,7 @@ def remove_dangling_router_copper(pcb_path: str, given_path: str) -> Cleanup:
             break
         refused |= parted                 # those nets as the router wrote them: start over from the file
         with quiet_stderr():
-            board = pcbnew.LoadBoard(pcb_path)
+            board = _load_board(pcb_path)
     kept_unrouted = sorted(kept & unrouted)
     kept_close.sort(key=lambda k: (k["net"], k["at_mm"]))
     if not (tracks or vias or vias_merged):

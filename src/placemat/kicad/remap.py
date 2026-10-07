@@ -15,6 +15,7 @@ pose, with the remap's nets on their pads, and are named in `not_turned`."""
 from __future__ import annotations
 
 from .quiet import import_pcbnew, quiet_stderr
+from .write import load_board
 
 pcbnew = import_pcbnew()
 
@@ -65,7 +66,7 @@ def apply_remap(pcb_path, groups) -> dict:
     given a new net, "tracks": tracks and vias given their pad's new net, "deleted": tracks and vias deleted, "turned":
     parts turned, "not_turned": parts whose pose is not made}."""
     with quiet_stderr():
-        board = pcbnew.LoadBoard(str(pcb_path))
+        board = load_board(pcb_path)
     by_ref = {fp.GetReference(): fp for fp in board.GetFootprints()}
     nets = {n: board.FindNet(n) for m in (m for g in groups for m in g["map"]) for n in (m["net"],)}
     counts = {"pads": 0, "tracks": 0, "deleted": 0, "turned": [], "not_turned": []}

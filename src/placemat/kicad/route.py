@@ -42,6 +42,13 @@ HOOKED = Path(__file__).with_name("route_hooked.py")     # runs a router entry s
 _HOOK = False                                             # set by route_board while it routes with progress events
 
 
+def _load_board(path):
+    """A board loaded with KiCad's UUID generator seeded from its file (write.load_board): the same input gives the
+    same item ids in every run."""
+    from .write import load_board
+    return load_board(path)
+
+
 def _launch(python, script) -> list:
     """The start of a router command: the interpreter and the script, behind the hooking wrapper when this route reports progress (the quick
     route's own wrapper is hooked already)."""
@@ -244,7 +251,7 @@ def plane_nets_of(pcb) -> set:
     from .read import is_pour
     pcbnew = import_pcbnew()
     with quiet_stderr():
-        board = pcbnew.LoadBoard(str(pcb)) if Path(pcb).stat().st_size else None
+        board = _load_board(str(pcb)) if Path(pcb).stat().st_size else None
     if board is None:
         return set()
     grouped = {it.m_Uuid.AsString() for g in board.Groups() for it in g.GetItems()}
@@ -269,7 +276,7 @@ def guard_footprint_copper(pcb_path: str) -> int:
     from .read import CLEAR_ERR_NM
     pcbnew = import_pcbnew()
     with quiet_stderr():
-        board = pcbnew.LoadBoard(pcb_path)
+        board = _load_board(pcb_path)
     n = 0
     for fp in board.GetFootprints():
         for d in fp.GraphicalItems():
@@ -329,7 +336,7 @@ def guard_partial_pours(pcb_path: str, nets, layers, share: float) -> list:
     from .read import is_pour, standard_layer_name
     pcbnew = import_pcbnew()
     with quiet_stderr():
-        board = pcbnew.LoadBoard(pcb_path)
+        board = _load_board(pcb_path)
     outline = pcbnew.SHAPE_POLY_SET()
     board.GetBoardPolygonOutlines(outline, False)
     board_area = outline.Area()
@@ -370,7 +377,7 @@ def remove_guards(pcb_path: str) -> int:
     from .quiet import import_pcbnew, quiet_stderr
     pcbnew = import_pcbnew()
     with quiet_stderr():
-        board = pcbnew.LoadBoard(pcb_path)
+        board = _load_board(pcb_path)
     guards = [z for z in board.Zones() if z.GetZoneName().startswith((GUARD, POUR_GUARD))]
     for z in guards:
         board.Delete(z)
@@ -385,7 +392,7 @@ def lock_copper(pcb_path: str) -> int:
     from .quiet import import_pcbnew, quiet_stderr
     pcbnew = import_pcbnew()
     with quiet_stderr():
-        board = pcbnew.LoadBoard(pcb_path)
+        board = _load_board(pcb_path)
     n = 0
     for t in board.GetTracks():
         t.SetLocked(True)
@@ -406,7 +413,7 @@ def fill_zones(pcb_path: str) -> None:
     from .quiet import import_pcbnew, quiet_stderr
     pcbnew = import_pcbnew()
     with quiet_stderr():
-        board = pcbnew.LoadBoard(pcb_path)
+        board = _load_board(pcb_path)
         pcbnew.ZONE_FILLER(board).Fill(board.Zones())
         board.Save(pcb_path)
 
@@ -416,7 +423,7 @@ def _copper_layers(pcb_path: str) -> list:
     from .read import standard_layer_name
     pcbnew = import_pcbnew()
     with quiet_stderr():
-        board = pcbnew.LoadBoard(pcb_path)
+        board = _load_board(pcb_path)
     return [standard_layer_name(l) for l in board.GetEnabledLayers().CuStack()]
 
 
@@ -605,7 +612,7 @@ def _net_names(pcb) -> set:
     from .quiet import import_pcbnew, quiet_stderr
     pcbnew = import_pcbnew()
     with quiet_stderr():
-        board = pcbnew.LoadBoard(str(pcb))
+        board = _load_board(str(pcb))
     return {str(n) for n in board.GetNetsByName().keys() if str(n)}
 
 
@@ -618,7 +625,7 @@ def rename_nets(pcb_path: str, names: dict) -> None:
     from .quiet import import_pcbnew, quiet_stderr
     pcbnew = import_pcbnew()
     with quiet_stderr():
-        board = pcbnew.LoadBoard(pcb_path)
+        board = _load_board(pcb_path)
     by_name = board.GetNetsByName()
     for old, new in names.items():
         by_name[old].SetNetname(new)
@@ -755,7 +762,7 @@ def islands_on_board(pcb, islands: dict) -> tuple:
     from .quiet import import_pcbnew, quiet_stderr
     pcbnew = import_pcbnew()
     with quiet_stderr():
-        board = pcbnew.LoadBoard(str(pcb))
+        board = _load_board(str(pcb))
     names = {str(n) for n in board.GetNetsByName().keys()}
     return {n: w for n, w in islands.items() if n in names}, sorted(n for n in islands if n not in names)
 
@@ -778,7 +785,7 @@ def drop_pour_guards(pcb_path: str, nets) -> None:
     from .quiet import import_pcbnew, quiet_stderr
     pcbnew = import_pcbnew()
     with quiet_stderr():
-        board = pcbnew.LoadBoard(pcb_path)
+        board = _load_board(pcb_path)
     names = tuple("%s %s " % (POUR_GUARD, n) for n in nets)
     guards = [z for z in board.Zones() if z.GetIsRuleArea() and z.GetZoneName().startswith(names)]
     for z in guards:
@@ -809,7 +816,7 @@ def pours_as_zones(pcb_path: str, net: str) -> int:
     from .read import CLEAR_ERR_NM
     pcbnew = import_pcbnew()
     with quiet_stderr():
-        board = pcbnew.LoadBoard(pcb_path)
+        board = _load_board(pcb_path)
     shapes = [d for d in board.GetDrawings() if isinstance(d, pcbnew.PCB_SHAPE) and d.GetNetname() == net
               and d.IsOnCopperLayer() and d.IsSolidFill()]
     ds = board.GetDesignSettings()
@@ -851,12 +858,12 @@ def pours_back(pcb_path: str, given: str) -> int:
     from .quiet import import_pcbnew, quiet_stderr
     pcbnew = import_pcbnew()
     with quiet_stderr():
-        board = pcbnew.LoadBoard(pcb_path)
+        board = _load_board(pcb_path)
     zones = [z for z in board.Zones() if z.GetZoneName().startswith(POUR_ZONE + " ")]
     if not zones:
         return 0
     with quiet_stderr():
-        before = pcbnew.LoadBoard(str(given))
+        before = _load_board(str(given))
     by_uuid = {d.m_Uuid.AsString(): d for d in before.GetDrawings()}
     n = 0
     for z in zones:

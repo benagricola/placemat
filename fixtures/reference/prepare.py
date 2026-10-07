@@ -6,7 +6,8 @@
 copper, loaded and saved with pcbnew for a KiCad 5 board, which writes the
 .kicad_pro with its net classes from the legacy .pro beside it), test.kicad_pcb
 (the same with its tracks, arcs, vias and zone fills stripped by the router's
-strip_copper_only.py, zone definitions kept) and baseline-drc.json (kicad-cli
+strip_copper_only.py, zone definitions kept, then loaded and saved with pcbnew
+so every item has an id, the same in every run) and baseline-drc.json (kicad-cli
 DRC of test.kicad_pcb). Copper layers keep their names: placemat reads them by
 the standard ones.
 """
@@ -93,8 +94,12 @@ def measure(pcb: pathlib.Path) -> tuple[int, HumanCopper]:
 
 
 def _upgrade(pcb: pathlib.Path) -> None:
+    """Load and save a board with pcbnew: the current format, and an id on every item, the same ids in every run
+    (write.load_board seeds them from the file). kicad-cli would give an item with none a new random id at every DRC,
+    and KiCad's DRC names a violation's items by id."""
     import pcbnew
-    pcbnew.SaveBoard(str(pcb), pcbnew.LoadBoard(str(pcb)))
+    from placemat.kicad.write import load_board
+    pcbnew.SaveBoard(str(pcb), load_board(pcb))
 
 
 def _copy_project(src_board: pathlib.Path, dst_board: pathlib.Path, suffixes) -> None:
@@ -123,7 +128,8 @@ def prepare(board: fetch.Board, src: pathlib.Path, work: pathlib.Path) -> Prepar
     else:
         _copy_project(original, ref, PROJECT_SUFFIXES)
     strip(ref, test)
-    _copy_project(ref, test, PROJECT_SUFFIXES)
+    _upgrade(test)   # the stripped board is the source's text, and an older format leaves ids out
+    _copy_project(ref, test, PROJECT_SUFFIXES)   # after: the save writes a project of its own
     layers, human = measure(ref)
     run_drc(test, work / BASELINE, refill_zones=True)
     return Prepared(ref, test, violations(work / BASELINE), layers, human)

@@ -15,7 +15,7 @@ from ..values import CopperLayer
 from .read import standard_layer_name
 from .write import (ARRANGEMENT_NOTES_MM, NOTE_PITCH_MM, RULE_NOTES_MM, _delete_note, _draw_pour, _draw_text, _draw_track, _draw_via,
                     _draw_zone, _keepout_admits, _keepout_admits_text, _keepout_zone_name, _place_footprint, add_notes_below,
-                    keepout_drawing, rule_area, save, seed_uuids)
+                    keepout_drawing, load_board, rule_area, save, seed_uuids)
 
 
 def _texts(board, prefix) -> list:
@@ -28,7 +28,7 @@ def write_notes(pcb_path, texts) -> list:
     texts."""
     texts = list(texts)
     with quiet_stderr():
-        board = pcbnew.LoadBoard(str(pcb_path))
+        board = load_board(pcb_path)
         had = _texts(board, ARRANGEMENT_PREFIX)
         if not texts and not had:
             return []
