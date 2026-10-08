@@ -156,7 +156,7 @@ class FinalCopperGrader:
         evidence.write_text(json.dumps(receipt, sort_keys=True, indent=2) + '\n')
         result = FinalCopperResult(report, receipt)
         self._minted[id(result)] = (result, deepcopy(receipt), destination, raw_board, candidate_summary,
-                                   file_hash(evidence))
+                                   file_hash(evidence), deepcopy(report))
         return result
 
     def verify(self, result):
@@ -169,10 +169,12 @@ class FinalCopperGrader:
         owned = self._minted.get(id(result))
         if owned is None or owned[0] is not result:
             raise ProofUnavailable('foreign_physical_grade')
-        _, receipt, destination, raw_board, summary, evidence_hash = owned
+        _, receipt, destination, raw_board, summary, evidence_hash, report_snapshot = owned
         evidence = destination / 'physical_grade.json'
         if not evidence.is_file() or file_hash(evidence) != evidence_hash:
             raise ProofUnavailable('physical_grade_evidence_changed')
+        if result.report != report_snapshot:
+            raise ProofUnavailable('physical_grade_report_changed')
         if result.receipt != receipt:
             raise ProofUnavailable('physical_grade_receipt_changed')
         for name, expected in receipt['outputs'].items():

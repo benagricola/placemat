@@ -10,6 +10,37 @@ from placemat.route_phase import parse_phases
 from placemat.settings import Settings
 
 
+def _observed_pid_state(pid):
+    from pathlib import Path
+    try:
+        stat = Path('/proc/%d/stat' % pid).read_text()
+    except FileNotFoundError:
+        return 'gone'
+    # A process command name may contain spaces or parentheses.
+    return stat.rpartition(')')[2].split()[0]
+
+
+def test_unreaped_zombie_is_terminated_despite_existing_pid():
+    import subprocess
+    import sys
+    import time
+    from placemat.stop import pid_alive
+    child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])
+    try:
+        assert _observed_pid_state(child.pid) not in ('gone', 'Z', 'X')
+        child.kill()  # only this directly owned process; deliberately do not reap yet
+        until = time.monotonic() + 2.0
+        state = _observed_pid_state(child.pid)
+        while state != 'Z' and time.monotonic() < until:
+            time.sleep(.01)
+            state = _observed_pid_state(child.pid)
+        assert state == 'Z'
+        assert pid_alive(child.pid)  # the production utility correctly reports PID existence
+    finally:
+        child.kill()
+        child.wait()
+
+
 def selected(name='signals', **kwargs):
     return Selection(name, 'rest', nets=('VB',), layers=('F.Cu', 'B.Cu'), rest=True, **kwargs)
 
@@ -105,10 +136,10 @@ def test_policy_authority_invalidates_unknown_to_known_and_changed_source():
     assert width_policy.authority(base) != width_policy.authority(known) != width_policy.authority(changed)
 
 
-def test_policy_timeout_reaps_its_child_group_and_preserves_unrelated_process(tmp_path):
+def test_policy_timeout_terminates_its_child_group_and_preserves_unrelated_process(tmp_path):
     import subprocess
     import sys
-    from placemat.stop import pid_alive
+    import time
     script = tmp_path / 'py_router' / 'nominal_width_policy.py'; script.parent.mkdir()
     pidfile = tmp_path / 'child.pid'
     script.write_text("import subprocess, sys, time\n"
@@ -121,7 +152,18 @@ def test_policy_timeout_reaps_its_child_group_and_preserves_unrelated_process(tm
         result = width_policy.resolve(sys.executable, tmp_path, tmp_path / 'b.kicad_pcb', [phase], [selected()],
                                        Settings(), timeout=0.5)
         assert result['failure']['code'] == 'timeout'
-        assert pidfile.exists() and not pid_alive(int(pidfile.read_text()))
+        assert pidfile.exists()
+        child_pid = int(pidfile.read_text())
+        observations = []
+        until = time.monotonic() + 2.0
+        while True:
+            state = _observed_pid_state(child_pid)
+            observations.append({'elapsed': 2.0 - (until - time.monotonic()), 'state': state})
+            if state in ('gone', 'Z', 'X') or time.monotonic() >= until:
+                break
+            time.sleep(.01)
+        (tmp_path / 'child-states.json').write_text(json.dumps(observations, indent=2))
+        assert state in ('gone', 'Z', 'X'), observations
         assert sentinel.poll() is None
     finally:
         sentinel.kill(); sentinel.wait()

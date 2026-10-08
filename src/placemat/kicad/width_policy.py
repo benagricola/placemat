@@ -142,15 +142,35 @@ def resolve(rpy, router_dir, pcb, phases, selections, cfg, env=None, *, timeout=
         return unknown('invalid width policy timeout', 'invalid_deadline')
     if budget <= 0:
         return unknown('shared router deadline expired before width policy', 'deadline')
-    try:
-        proc = subprocess.Popen([str(rpy), str(script)], cwd=str(router_dir), env=dict(env) if env else None,
-                                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-                                start_new_session=True)
-    except OSError as error:
-        return unknown('nominal width policy unavailable: ' + str(error))
+    import threading
+    from .. import stop
+    proc, pending = None, None
+    previous = ({sig: signal.getsignal(sig) for sig in stop.SIGNALS}
+                if threading.current_thread() is threading.main_thread() else {})
+
+    def interrupted(sig, frame):
+        nonlocal pending
+        if proc is None:
+            if pending is None:
+                pending = sig, frame
+            return
+        handler = previous[sig]
+        if callable(handler):
+            handler(sig, frame)
+        elif handler != signal.SIG_IGN:
+            raise stop.Stopped(sig)
+
+    def deliver_pending():
+        if pending is not None:
+            interrupted(*pending)
+
     def terminate():
-        # This read-only policy owns a separate process group. Kill its pipe
-        # holders too, so a timed-out helper cannot leave communicate blocked.
+        if proc is None:
+            return
+        # Ignore further stops while reaping this known owned group; all
+        # original handlers are restored by finally, even on a launch failure.
+        for sig in previous:
+            signal.signal(sig, signal.SIG_IGN)
         try:
             os.killpg(proc.pid, signal.SIGKILL)
         except ProcessLookupError:
@@ -158,14 +178,30 @@ def resolve(rpy, router_dir, pcb, phases, selections, cfg, env=None, *, timeout=
         try:
             proc.communicate(timeout=_REAP_SECONDS)
         except subprocess.TimeoutExpired:
-            # A separately sessioned writer is outside this group's ownership.
-            # Close our pipes rather than wait indefinitely for its EOF.
             for stream in (proc.stdin, proc.stdout, proc.stderr):
                 if stream is not None:
                     stream.close()
             proc.wait(timeout=_REAP_SECONDS)
 
     try:
+        for sig, handler in previous.items():
+            if handler != signal.SIG_IGN:
+                signal.signal(sig, interrupted)
+        try:
+            proc = subprocess.Popen([str(rpy), str(script)], cwd=str(router_dir), env=dict(env) if env else None,
+                                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                                    start_new_session=True)
+        except OSError as error:
+            # No child was returned, but an actual stop during the failed
+            # launch must still unwind rather than become an unknown receipt.
+            if pending is not None:
+                handler = previous[pending[0]]
+                if callable(handler):
+                    handler(*pending)
+                elif handler != signal.SIG_IGN:
+                    raise stop.Stopped(pending[0])
+            return unknown('nominal width policy unavailable: ' + str(error))
+        deliver_pending()
         if (env or {}).get('KRT_ROUTE_DEADLINE_UTC'):
             budget = min(budget, float(env['KRT_ROUTE_DEADLINE_UTC']) - time.time())
         if budget <= 0:
@@ -178,6 +214,9 @@ def resolve(rpy, router_dir, pcb, phases, selections, cfg, env=None, *, timeout=
     except BaseException:
         terminate()
         raise
+    finally:
+        for sig, handler in previous.items():
+            signal.signal(sig, handler)
     if proc.returncode:
         return unknown('nominal width policy exited %d: %s' % (proc.returncode, stderr[-500:]), 'failed')
     try:

@@ -169,6 +169,19 @@ def test_retained_grader_snapshots_contract_and_reports_each_private_candidate(t
     second = grader.regrade(raw, tmp_path / 'second')
     assert grader.verify(first) == first.receipt
     assert grader.verify(second) == second.receipt
+    # These private measurements are deliberately absent from public as_dict.
+    # Changing them must still invalidate authority before a final adapter reads them.
+    original_public = first.report.as_dict()
+    from copy import deepcopy
+    for name, replacement in (('asked', [[{'net': 'FORGED'}]]),
+                              ('final_judged', [[{'joined': True, 'width_unknown': False}]])):
+        original_value = deepcopy(getattr(first.report, name))
+        setattr(first.report, name, replacement)
+        assert first.report.as_dict() == original_public
+        with pytest.raises(ProofUnavailable, match='physical_grade_report_changed'):
+            grader.verify(first)
+        setattr(first.report, name, original_value)
+        assert grader.verify(first) == first.receipt
     evidence = tmp_path / 'first/physical_grade.json'
     evidence_bytes = evidence.read_bytes()
     evidence.write_text('{}')
