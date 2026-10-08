@@ -124,9 +124,15 @@ def contract_record(board, plan, proof, phase_scopes, original_requests, origina
     if type(proof) is not LogicalTerminals:
         _refuse('logical_proof_missing', 'logical packet requires the exact minted role proof')
     proof.verify(board, plan, settings)
+    return _contract_data([[net, list(old), list(new)] for net, old, new in proof.roles],
+                          phase_scopes, original_requests, original_policy,
+                          candidate_requests, candidate_policy)
+
+
+def _contract_data(roles, phase_scopes, original_requests, original_policy,
+                   candidate_requests, candidate_policy):
     if type(phase_scopes) is not list:
         _refuse('logical_packet_malformed', 'complete original phase scopes are missing')
-    roles = [[net, list(old), list(new)] for net, old, new in proof.roles]
     phases, names = [], set()
     for scope in phase_scopes:
         if type(scope) is not dict or set(scope) != {'definition', 'nets', 'tasks', 'asked', 'asked_sha256'}:
@@ -229,3 +235,35 @@ def contract_record(board, plan, proof, phase_scopes, original_requests, origina
               'candidate_receipt_sha256': _hash(candidate_policy),
               'requests_sha256': _hash(original_requests)}
     return json.loads(_json(record))
+
+
+def verify_contract_record(record, original_pads, candidate_pads, phase_scopes,
+                           original_requests, original_policy, candidate_requests, candidate_policy):
+    """Owned-child verification against independently read physical identities.
+
+    Source-bound selector/receipt and permitted readback verification precede
+    this call. It reconstructs role identities only, never a RemapProof or any
+    executor capability. Exact source and final land membership is mandatory.
+    """
+    from .pinmap_logical import _terminals
+    if type(record) is not dict or set(record) != {'schema', 'roles', 'phases', 'widths',
+            'original_receipt_sha256', 'candidate_receipt_sha256', 'requests_sha256'} or type(record['schema']) is not int or record['schema'] != 1:
+        _refuse('logical_packet_malformed', 'logical projection record has unsupported fields')
+    source, source_lands = _terminals(original_pads)
+    final, final_lands = _terminals(candidate_pads)
+    if source_lands != final_lands:
+        _refuse('logical_land_membership_changed', 'written candidate changes source physical lands')
+    moving = {pin for pin in source if source[pin] != final[pin]}
+    roles = [[net, list(pin), list(pin)] for pin, net in source.items() if pin not in moving]
+    for net in sorted(set(source.values()) | set(final.values())):
+        old = sorted(pin for pin in moving if source[pin] == net)
+        new = sorted(pin for pin in moving if final[pin] == net)
+        if len(old) != len(new):
+            _refuse('logical_terminal_multiplicity', 'written candidate changes original logical role counts')
+        roles.extend([net, list(a), list(b)] for a, b in zip(old, new))
+    roles.sort()
+    expected = _contract_data(roles, phase_scopes, original_requests, original_policy,
+                              candidate_requests, candidate_policy)
+    if _json(record) != _json(expected):
+        _refuse('logical_projection_changed', 'logical projection differs from independently verified original and written contexts')
+    return expected

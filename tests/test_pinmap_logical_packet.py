@@ -207,3 +207,30 @@ def test_ask_on_genuinely_proved_but_unselected_net_is_structurally_refused(tmp_
     with pytest.raises(CandidateRefused) as error:
         contract_record(*args)
     assert error.value.code == 'logical_membership_unproved'
+
+
+def test_owned_data_verifier_reconstructs_roles_without_reconstructing_authority(tmp_path):
+    from placemat.pinmap_logical_packet import verify_contract_record
+    args = context(tmp_path)
+    proof = args[2].physical
+    record = contract_record(*args)
+    assert verify_contract_record(record, proof.source_pads, proof.final_pads, *args[3:]) == record
+
+
+@pytest.mark.parametrize('change', ['role', 'held', 'duplicate', 'asked_count', 'width', 'receipt'])
+def test_owned_data_verifier_rejects_changed_projected_evidence(tmp_path, change):
+    from placemat.pinmap_logical_packet import verify_contract_record
+    args = context(tmp_path)
+    physical = args[2].physical
+    record = contract_record(*args)
+    if change == 'role': record['roles'][0][2] = ['UNKNOWN', '1']
+    elif change == 'held':
+        held = next(role for role in record['roles'] if role[1] == role[2])
+        held[2] = ['UNKNOWN', '1']
+    elif change == 'duplicate': record['roles'].append(deepcopy(record['roles'][0]))
+    elif change == 'asked_count': record['phases'][0]['asked_count'] += 1
+    elif change == 'width': record['phases'][0]['asks'][0]['candidate']['widths']['F.Cu'] = .1
+    else: record['original_receipt_sha256'] = 'forged'
+    with pytest.raises(CandidateRefused) as error:
+        verify_contract_record(record, physical.source_pads, physical.final_pads, *args[3:])
+    assert error.value.code == 'logical_projection_changed'
