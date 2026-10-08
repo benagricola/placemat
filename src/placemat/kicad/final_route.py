@@ -103,6 +103,12 @@ class FinalCopperGrader:
                 raise ProofUnavailable('original_grading_input_changed', path=raw)
 
     def regrade(self, raw_board, destination, *, candidate_summary=None):
+        """Use retained original settings for physical helpers and restore the caller."""
+        from ..settings import bind
+        with bind(self._cfg):
+            return self._regrade(raw_board, destination, candidate_summary=candidate_summary)
+
+    def _regrade(self, raw_board, destination, *, candidate_summary=None):
         """Finalize a fresh owned artifact and remeasure every original physical obligation."""
         from . import route
         self._unchanged()

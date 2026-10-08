@@ -222,3 +222,55 @@ def test_reused_work_companions_cannot_inherit_absent_source_rules(tmp_path, cop
     source.with_suffix('.kicad_pro').unlink()
     copy(source, owned)
     assert not owned.with_suffix('.kicad_pro').exists()
+
+@pytest.mark.parametrize('fails', [False, True])
+def test_retained_physical_settings_drive_real_drc_parser_and_restore_caller(tmp_path, monkeypatch, fails):
+    from placemat.kicad.final_route import FinalCopperGrader
+    from placemat.kicad import drc
+    from pathlib import Path
+    from placemat.settings import Settings, active, bind
+    original, raw, rules, baseline = [tmp_path / name for name in
+        ('original.kicad_pcb', 'raw.kicad_pcb', 'rules.kicad_pcb', 'baseline.json')]
+    original.write_text('fixed copper'); raw.write_text('candidate')
+    rules.with_suffix('.kicad_pro').write_text('original rules')
+    baseline.write_text('{"violations": []}')
+    template = route.RouteReport(True, 0, 0, 1, 1, {}, [], [], ['F.Cu'], 1, 'router', {},
+                                 raw, baseline, tmp_path, phases=[], asked=[])
+    retained = Settings(drc_refill_zones=False, drc_real_kinds=('proof_issue',),
+                        drc_outstanding_kinds=('proof_issue',))
+    grader = FinalCopperGrader(original=original, cleanup_input=original, rules=rules,
+        baseline_drc=baseline, obligations=[], phases=[], width_receipt={'policies': []},
+        cfg=retained, counted=set(), open_before={}, chosen_pours=set(), template=template)
+    calls = []
+    def subprocess_drc(cmd, **kwargs):
+        # The stand-in consumes the actual issued refill policy. The real DRC
+        # parser then classifies the result under the retained original kinds.
+        calls.append(cmd)
+        kind = 'wrong_refill_policy' if '--refill-zones' in cmd else 'proof_issue'
+        out = Path(cmd[cmd.index('--output') + 1])
+        out.write_text(json.dumps({'violations': [{'type': kind, 'severity': 'error',
+                                                'description': 'controlled proof', 'items': []}]}))
+        return SimpleNamespace(returncode=0, stderr='')
+    def finalize(source, output, fixed, source_rules, drc_path):
+        output.write_bytes(source.read_bytes())
+        output.with_suffix('.kicad_pro').write_bytes(source_rules.with_suffix('.kicad_pro').read_bytes())
+        measured = drc.run_drc(output, drc_path, run=subprocess_drc)
+        if fails:
+            raise RuntimeError('controlled finalizer failure')
+        return SimpleNamespace(record=lambda: {}), measured
+    monkeypatch.setattr(route, 'finalize_copper', finalize)
+    monkeypatch.setattr(route, 'router_breaches', lambda *args: [])
+    monkeypatch.setattr(route, 'routed_copper', lambda *args: (0, 0., 0))
+    caller = Settings(drc_refill_zones=True, drc_real_kinds=('caller_only',),
+                      drc_outstanding_kinds=('proof_issue',))
+    with bind(caller):
+        if fails:
+            with pytest.raises(RuntimeError, match='controlled finalizer failure'):
+                grader.regrade(raw, tmp_path / 'result')
+        else:
+            result = grader.regrade(raw, tmp_path / 'result')
+            assert result.report.drc_after == {'proof_issue': 1}
+            assert result.report.drc_new == 1
+            assert grader.verify(result) == result.receipt
+        assert active() is caller
+    assert len(calls) == 1 and '--refill-zones' not in calls[0]
