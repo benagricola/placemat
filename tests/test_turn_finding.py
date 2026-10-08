@@ -438,3 +438,122 @@ def test_shared_pair_net_price_changes_actionable_turn_advice(tmp_path):
     assert finding.suggestions
     assert finding.facts['change']['crossings'] == -162.0
     assert finding.facts['gain'] > 150.0
+
+
+def test_outline_free_decided_fragment_resolves_and_judges_turns(tmp_path):
+    """A module can declare all poses without declaring a physical board edge."""
+    body = BODY.replace('at=Near(Location(25, 25)), radius=3.0, rotations=(0, 180)',
+                        'at=Location(25, 25), rotation=180')
+    path = script(tmp_path, body, imports=IMPORTS.replace('(board, ', '(board, Cell, '))
+    geometry = dataclasses.replace(board_geometry(parts(), cells=['term']), outline=())
+    b = Board(geometry, edge_margin=1.0, keep_going=True,
+              settings=dataclasses.replace(Settings(), cleanup_enabled=False))
+    b.script_file = str(path)
+    run_script(path, b)
+    plan = b.resolve()
+    assert plan.occupancy.board_box is None
+    assert turns(plan, 'term'), 'outline-free turn advice must still be judged'
+
+
+def test_outline_free_turns_share_nonzero_congestion_domain_and_restore_it(tmp_path, monkeypatch):
+    from placemat import prepared_escape, score, score_delta
+    body = BODY.replace('at=Near(Location(25, 25)), radius=3.0, rotations=(0, 180)',
+                        'at=Location(25, 25), rotation=180')
+    b, _ = board(tmp_path, body)
+    plan = b.resolve()
+    occ = plan.occupancy
+    occ.board_box = None
+    original_grid = occ.congestion()
+    original_pads = occ.__dict__['_congestion_pads']
+    real_delta = score_delta.Delta
+    domains, changes, congestion = [], [], []
+    class CheckedDelta(real_delta):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            domains.append(self.grid.board)
+            assert self.occ.board_box is None
+            congestion.append(self.grid.steps())
+        def __call__(self, placement, *args, **kwargs):
+            before = score.whole(self.board, self.occ, self.plan)
+            view, _, _ = self._view(placement)
+            after = score.whole(self.board, view, self.plan)
+            congestion.append(after['congestion'])
+            result = super().__call__(placement, *args, **kwargs)
+            assert result.terms == pytest.approx({k: after[k] - before[k] for k in result.terms}, abs=1e-6)
+            changes.append(result.terms['congestion'])
+            return result
+    monkeypatch.setattr(score_delta, 'Delta', CheckedDelta)
+    monkeypatch.setattr(prepared_escape, 'prepare', lambda *args: (None, 'independent Python oracle'))
+    plan.findings = []
+    b._report_turns(occ, plan)
+    assert domains and len(set(domains)) == 1
+    assert any(value != 0 for value in changes)
+    assert any(value > 0 for value in congestion), 'congestion must be measured, not disabled'
+    assert turns(plan, 'term')
+    assert occ.board_box is None and '_congestion_frame' not in occ.__dict__
+    assert occ.__dict__['_congestion'] is original_grid
+    assert occ.__dict__['_congestion_pads'] is original_pads
+
+
+def test_outline_free_turn_exception_restores_scoring_domain_and_lifts(tmp_path, monkeypatch):
+    b, _ = board(tmp_path)
+    plan = b.resolve()
+    occ = plan.occupancy
+    occ.board_box = None
+    grid = occ.congestion()
+    pads = occ.__dict__['_congestion_pads']
+    before = (dict(occ.items), tuple(occ.copper), frozenset(occ.pending))
+    class Failing:
+        def evaluate(self, *args):
+            raise RuntimeError('outline-free candidate failure')
+    monkeypatch.setattr('placemat.prepared_escape.prepare', lambda *args: (Failing(), None))
+    with pytest.raises(RuntimeError, match='outline-free candidate failure'):
+        b._report_turns(occ, plan)
+    assert (dict(occ.items), tuple(occ.copper), frozenset(occ.pending)) == before
+    assert occ.board_box is None and '_congestion_frame' not in occ.__dict__
+    assert occ.__dict__['_congestion'] is grid and occ.__dict__['_congestion_pads'] is pads
+
+
+def test_outline_free_turn_native_and_python_share_frozen_domain(tmp_path, monkeypatch):
+    from placemat import prepared_escape
+    body = BODY.replace('at=Near(Location(25, 25)), radius=3.0, rotations=(0, 180)',
+                        'at=Location(25, 25), rotation=180')
+    b, _ = board(tmp_path, body)
+    plan = b.resolve()
+    plan.occupancy.board_box = None
+    real_prepare = prepared_escape.prepare
+    supported = []
+    def observed(*args):
+        result = real_prepare(*args)
+        supported.append(result[0] is not None)
+        return result
+    monkeypatch.setattr(prepared_escape, 'prepare', observed)
+    plan.findings = []
+    b._report_turns(plan.occupancy, plan)
+    native_facts = [finding.facts for finding in turns(plan, 'term')]
+    assert native_facts and any(supported), 'must exercise the actual complete native evaluator'
+    monkeypatch.setattr(prepared_escape, 'prepare', lambda *args: (None, 'forced Python oracle'))
+    plan.findings = []
+    b._report_turns(plan.occupancy, plan)
+    assert [finding.facts for finding in turns(plan, 'term')] == native_facts
+
+
+def test_delta_refuses_changed_scoring_domain_without_changing_physical_edge(tmp_path):
+    from placemat.score_delta import Delta
+    b, _ = board(tmp_path)
+    plan = b.resolve()
+    occ = plan.occupancy
+    item = b.geometry.cells['term']
+    physical = occ.board_box
+    with occ.congestion_domain(physical.inflate(1)):
+        occ.lift({'R1', 'R2'})
+        try:
+            delta = Delta(b, occ, item, plan.links, plan=plan)
+            occ.__dict__['_congestion_frame'] = physical.inflate(2)
+            with pytest.raises(ValueError, match='frame changed'):
+                delta(occ._geometry(item).reference)
+            with pytest.raises(ValueError, match='frame changed'):
+                delta.native([0], Face.FRONT)
+            assert occ.board_box == physical
+        finally:
+            occ.unlift({'R1', 'R2'})

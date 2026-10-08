@@ -5610,6 +5610,42 @@ class Board:
         return ""
 
     def _report_turns(self, occ: Occupancy, plan: Plan) -> None:
+        if occ.congestion_frame() is not None or not self.settings.score_congestion_step:
+            self._report_turns_in_frame(occ, plan)
+            return
+        # A fragment has no physical edge. Freeze the scoring domain around
+        # its complete finite turn set before lifting any item; candidates
+        # never resize this grid, and legality still sees no board boundary.
+        boxes = [shape.box for ref, geom in occ.items.items() if ref not in occ.pending
+                 for shape in geom.shapes if shape.kind in ('pad', 'through')]
+        last = {step.item: step for step in plan.steps if step.placement is not None}
+        study_turned = self._pin_study_turned(plan)
+        for intent in self._placements():
+            if intent.kind not in ('part', 'cell') or intent.key not in last or intent.tangent is not None or intent.outward:
+                continue
+            if self._place_calls.get(intent.key, (None, None, {}, ''))[3] == 'ring':
+                continue
+            item = self.geometry.cells[intent.key] if intent.kind == 'cell' else intent.item
+            own = frozenset(fp.ref for fp in members_of(item))
+            if own & study_turned or occ._lift_owners(own) & occ.pending:
+                continue
+            base = occ._geometry(item).reference
+            centre = occ.body_box(item, base).center
+            here = last[intent.key].placement.rotation % 360.0
+            others, _ = self._turn_choices(intent, here)
+            for rotation in others:
+                turn = dataclasses.replace(base, rotation=base.rotation + rotation - here)
+                turned = occ.body_box(item, turn).center
+                candidate = dataclasses.replace(turn, location=Location(
+                    base.location.x + centre.x - turned.x, base.location.y + centre.y - turned.y))
+                geometries, _ = occ.placed_geometries(item, candidate)
+                boxes.extend(shape.box for geom in geometries.values() for shape in geom.shapes
+                             if shape.kind in ('pad', 'through'))
+        frame = Box.union(boxes) if boxes else Box(0.0, 0.0, 0.0, 0.0)
+        with occ.congestion_domain(frame):
+            self._report_turns_in_frame(occ, plan)
+
+    def _report_turns_in_frame(self, occ: Occupancy, plan: Plan) -> None:
         """Each placed part or cell that another turn would serve better where it stands: the turn held at the same body
         centre, legal there, judged on the common objective's exact signed change (`Delta`). Its gain must reach
         `place.turn_gain_mm` and `place.turn_gain_share` of its own wire/link contribution, without increasing walled pads.

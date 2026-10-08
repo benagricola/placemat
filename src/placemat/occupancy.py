@@ -1312,10 +1312,29 @@ class Occupancy:
         if self.__dict__.get("_congestion") is not None:
             self._congestion_refresh(refs)
 
+    def congestion_frame(self):
+        """The fixed scoring domain, separately from the physical board edge."""
+        return self.__dict__.get('_congestion_frame', self.board_box)
+
+    @contextmanager
+    def congestion_domain(self, frame):
+        """Judge a finite diagnostic candidate set on one shared grid."""
+        keys = ('_congestion_frame', '_congestion', '_congestion_pads')
+        saved = {key: self.__dict__[key] for key in keys if key in self.__dict__}
+        for key in keys:
+            self.__dict__.pop(key, None)
+        self.__dict__['_congestion_frame'] = frame
+        try:
+            yield
+        finally:
+            for key in keys:
+                self.__dict__.pop(key, None)
+            self.__dict__.update(saved)
+
     def congestion(self):
         """Live placed-pad RUDY demand on a fixed occupancy frame."""
         grid = self.__dict__.get("_congestion")
-        frame = self.board_box or Box(0.0, 0.0, 0.0, 0.0)
+        frame = self.congestion_frame() or Box(0.0, 0.0, 0.0, 0.0)
         if grid is None or grid.board != frame:
             from .congestion import RudyGrid
             classes = self.geometry.netclasses.values()

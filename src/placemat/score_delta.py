@@ -36,6 +36,7 @@ class Delta:
         self._metadata = board.settings, occ.settings, occ.geometry, occ.rules, occ.quiet_nets
         self._revision = occ.__dict__.get('_score_revision', 0)
         self._pending, self._frame = frozenset(occ.pending), occ.board_box
+        self._congestion_frame = occ.congestion_frame()
         self.links, self.pushes, self.lanes = tuple(links), tuple(pushes), lanes
         self.has_push = bool(self.pushes) or any(i.pushes for i in board._placements()) or bool(board._annotations)
         self.own = frozenset(fp.ref for fp in members_of(item))
@@ -54,7 +55,7 @@ class Delta:
         self.base_lane = board._declared_lanes_blocked(occ, plan)
         self.others_box = score._placed_content(occ, plan)
         self.base_area = score._frame_area(board, occ, plan)
-        if board.settings.score_congestion_step and occ.board_box is None:
+        if board.settings.score_congestion_step and self._congestion_frame is None:
             raise ValueError("Delta requires a fixed search frame for congestion")
         self.grid = occ.congestion() if board.settings.score_congestion_step else None
         self._native = {}
@@ -162,13 +163,13 @@ class Delta:
             raise ValueError('Delta occupancy changed; rebuild the lifted snapshot')
         if frozenset(self.occ.pending) != self._pending:
             raise ValueError('Delta pending geometry changed; rebuild the lifted snapshot')
-        if self.occ.board_box != self._frame:
+        if self.occ.board_box != self._frame or self.occ.congestion_frame() != self._congestion_frame:
             raise ValueError('Delta frame changed; rebuild the lifted snapshot')
 
     def __call__(self, placement, prune_above=math.inf):
         self._check_snapshot()
         cfg = self.board.settings
-        if self.grid is not None and self.grid.board != (self.occ.board_box or Box(0, 0, 0, 0)):
+        if self.grid is not None and self.grid.board != (self.occ.congestion_frame() or Box(0, 0, 0, 0)):
             raise ValueError("Delta frame changed; rebuild the lifted snapshot")
         view, geometries, copper = self._view(placement)
         named = self.occ.candidate_named_anchors(self.item, placement, geometries=geometries)
@@ -273,7 +274,7 @@ class Delta:
     def native(self, rots, face):
         """Six non-escape terms for prepared turns; no sweep adoption yet."""
         self._check_snapshot()
-        if self.grid is not None and self.grid.board != (self.occ.board_box or Box(0, 0, 0, 0)):
+        if self.grid is not None and self.grid.board != (self.occ.congestion_frame() or Box(0, 0, 0, 0)):
             raise ValueError("Delta frame changed; rebuild the lifted snapshot")
         if self.has_push or self.lanes is not None or self.rn.mirror is None:
             return None
