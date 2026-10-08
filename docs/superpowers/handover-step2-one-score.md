@@ -106,3 +106,20 @@ and fixed copper, rejudge final critical checks, and withhold adoption for
 unknown required-width evidence. A descriptor alone cannot enable it.
 Root owns combined integration; no main merge or optional routing activation
 has occurred.
+
+The earlier timing counter interpretation is corrected: `common_python_evaluation_share=0`
+means no Python fallback, not no native scoring. At native c200, instrumented
+Backlight/Gnss/InputPower ran 224/1855/4913 legal NativeDeltaScoring candidates
+respectively, with no Python common calls. The generated-core instrumented row
+was absent after timeout, so actual production free-core native coverage remains
+open. Direct four-pose native197f correctness does not fill that production gap.
+
+Final-check context and worker composition are narrow, unactivated transports.
+The owned process supervisor, original selection/width binding, private evidence
+import and retained full authority remain required. The writer physical gate now
+contains nine saved cases: fixed copper/project/capture plus part/cell front/back
+poses at 90 and 37 degrees. A 37-degree serialization mismatch must explicitly
+refuse without publication; no tolerance is authorized. These saved tests have
+not yet run. D3 comparative performance and D4 responsive area weighting remain
+open, default clique and area 0.25 remain provisional, and no user decision has
+been inferred.

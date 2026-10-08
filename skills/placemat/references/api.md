@@ -4531,8 +4531,9 @@ the current common placement context. Independent group gains are not summed:
 Records include `scope="placement"`, signed `gain`, `actionable`, `reason`,
 `groups` and stable refusal codes. The temporary scalar `score_remapped` shortcut
 uses a saving only within the same validity tier; a validity repair keeps its
-signed gain visible and is not represented as a positive soft saving. Full
-virtual-candidate validity ranking is still pending integration.
+signed gain visible and is not represented as a positive soft saving. Versioned placement comparison records bind candidate and baseline validity
+to the current context; unknown or stale virtual proof ranks behind measured
+proposals and cannot inherit source validity.
 
 Routed comparison of a changed pinout requires a validated logical-terminal
 bijection, exact written-board readback and fresh phase/width-policy receipts.
@@ -4543,6 +4544,20 @@ the unchanged source for diagnostics; that route cannot certify the virtual
 remap or be selected as its routed evidence. Requested acceptance refuses with
 `routed_remap_comparison_unsupported`. Generic phase contracts remain strict.
 A board with no `Pm.PinPool` part explores as without this setting.
+
+
+**Proved placement writer (internal).** `placemat.pinmap_written.mint` binds a
+complete supported pool permutation and all selected poses to the current
+combined evaluator. `write_proved` writes a fresh bundle and rereads exact pad
+nets, poses, manufacturing attributes, collision geometry, fixed copper and
+original project/capture intent before publication. Public or stale records
+cannot substitute for a privately minted proof. Fixed-copper pose changes and
+unsupported cell rule-area transforms refuse before publication. Arbitrary
+angles are supported only when KiCad readback exactly matches the proved
+geometry; serialization changes produce `proof_readback_geometry_changed` or
+`proof_readback_collision_changed`, with no numeric tolerance or published
+bundle. This is placement evidence; fresh routed role/phase/width/electrical
+proof is still required for routed adoption.
 
 
 **Routing as it searches.** The run score's ratsnest crossings do not reliably predict how well a board routes, so a
