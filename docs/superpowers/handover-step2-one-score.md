@@ -85,7 +85,7 @@ task-owned `placemat-review-scratch-20261007/step2` directory. These are
 correctness proofs, not performance measurements.
 
 Earlier bounded timing at native `c200` showed substantial measured regressions:
-generated free-core resolve 355.91 seconds versus clique 32.06, and InputPower
+generated free-core resolve 355.91 seconds versus clique 32.06, and the third measured module
 29.32 seconds versus 2.37. The 600-second diagnostic timed out before complete
 instrumented core counters; its external end-identity audit is recorded. No
 native `197f` speed improvement or adoption decision has been established.
@@ -108,8 +108,8 @@ Root owns combined integration; no main merge or optional routing activation
 has occurred.
 
 The earlier timing counter interpretation is corrected: `common_python_evaluation_share=0`
-means no Python fallback, not no native scoring. At native c200, instrumented
-Backlight/Gnss/InputPower ran 224/1855/4913 legal NativeDeltaScoring candidates
+means no Python fallback, not no native scoring. At native c200, the first/second/third instrumented module rows ran
+224/1855/4913 legal NativeDeltaScoring candidates
 respectively, with no Python common calls. The generated-core instrumented row
 was absent after timeout, so actual production free-core native coverage remains
 open. Direct four-pose native197f correctness does not fill that production gap.
@@ -123,3 +123,18 @@ refuse without publication; no tolerance is authorized. These saved tests have
 not yet run. D3 comparative performance and D4 responsive area weighting remain
 open, default clique and area 0.25 remain provisional, and no user decision has
 been inferred.
+
+At frozen 767/dev93/native197f, a bounded actual free-core production scan
+used one legal complete NativeDeltaScoring candidate with no refusal. The
+wall tier, complete total and six raw terms matched forced Python; source and
+all runtime/input identities were restored/unchanged. This is one-pose usage
+evidence, not whole-core throughput. Receipt: task scratch
+`step2/free-core-production-receipt.json`.
+
+The first nine-case saved writer gate failed before useful proof: eight cases
+used a nonexistent KiCad footprint-shape class, and the map fixture used a
+one-pad series-prefixed endpoint collapsed by generator following. The fixes
+use the existing PCB_SHAPE footprint API and identify that endpoint as a test
+point before the initial immutable fixture snapshot. No evaluator/writer
+contract is relaxed. The original failed receipt/log remains preserved;
+a fresh saved gate is still required.

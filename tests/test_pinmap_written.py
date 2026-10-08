@@ -115,6 +115,9 @@ def test_saved_map_preserves_fixed_track_via_zone_and_original_project_capture(t
         pcb = pcbnew.LoadBoard(str(source))
         u1 = next(fp for fp in pcb.GetFootprints() if fp.GetReference() == 'U1')
         u1.SetField('Pm.PinPool', '1-4')
+        # The one-pad endpoint is a test point, not a series resistor.
+        # Series-following intentionally collapses passives in the generator.
+        next(fp for fp in pcb.GetFootprints() if fp.GetReference() == 'R1').SetReference('TP1')
         # Even an unfilled zone's complete definition must survive unchanged.
         zone = pcbnew.ZONE(pcb)
         zone.SetNet(pcb.FindNet('D'))
@@ -178,7 +181,8 @@ def test_saved_supported_pose_matches_every_member_pad_and_full_front_back_pose(
             pcb.Delete(track)
         u1 = next(fp for fp in pcb.GetFootprints() if fp.GetReference() == 'U1')
         u1.SetField('Pm.PinPool', '1-4')
-        courtyard = pcbnew.FP_SHAPE(u1)
+        next(fp for fp in pcb.GetFootprints() if fp.GetReference() == 'R1').SetReference('TP1')
+        courtyard = pcbnew.PCB_SHAPE(u1)
         courtyard.SetShape(pcbnew.SHAPE_T_RECT)
         courtyard.SetLayer(pcbnew.F_CrtYd)
         courtyard.SetStart(pcbnew.VECTOR2I(pcbnew.FromMM(7), pcbnew.FromMM(7)))
