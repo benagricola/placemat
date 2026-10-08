@@ -137,3 +137,15 @@ def test_malformed_nested_intent_refuses_before_final_judge(tmp_path, monkeypatc
     with pytest.raises(ContextRefused) as refused:
         judge(record, source)
     assert refused.value.code == 'final_check_context_unsupported'
+
+
+def test_known_preservation_refusal_becomes_optional_context_refusal(tmp_path, monkeypatch):
+    from placemat.pinmap_common import CandidateRefused
+    board, plan, source, measures = context(tmp_path)
+    def refuse(*args):
+        raise CandidateRefused('unsupported_physical_role', 'unknown original role', role='future')
+    monkeypatch.setattr('placemat.final_preservation.manifest', refuse)
+    with pytest.raises(ContextRefused) as error:
+        encode(board, plan, measures, source, source_geometry=plan.geometry)
+    assert error.value.facts == {'preservation_code': 'unsupported_physical_role',
+                                 'preservation_facts': {'role': 'future'}}

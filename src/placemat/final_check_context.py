@@ -191,7 +191,11 @@ def encode(board, plan, measures, source_pcb, *, source_geometry=None):
     result['source_physical'] = None
     if source_geometry is not None:
         from .final_preservation import manifest
-        result['source_physical'] = manifest(source_geometry, source)
+        try:
+            result['source_physical'] = manifest(source_geometry, source)
+        except CandidateRefused as error:
+            _refuse('original physical preservation context cannot be transported',
+                    preservation_code=error.code, preservation_facts=error.facts)
     return _plain(result)
 
 
