@@ -533,3 +533,25 @@ def test_shared_pair_net_price_changes_actual_scan_winner(monkeypatch, native):
     assert winners[1][0].location == Location(25.0, 15.0)
     assert winners[0][1]['airwire'] < winners[1][1]['airwire']
     assert winners[0][1]['crossings'] > winners[1][1]['crossings'] == 0.0
+
+
+def test_actual_area_prices_trade_fitted_size_for_wire_length():
+    rows = []
+    for weight in (0, .1, .25):
+        cfg = replace(Settings(), place_search_wire='mst', cleanup_enabled=False,
+                      score_area=weight, score_congestion=0)
+        parts = (footprint('H', 3, 20, nets=('Q', 'Q')),
+                 footprint('A', 20, 20, nets=('S', 'Q')),
+                 footprint('M', 25, 24, w=20, nets=('S', 'Q')))
+        board = Board(board_geometry(parts, width=70, height=60), keep_going=True, settings=cfg)
+        board.rect(fit=True)
+        board.plane(Net('Q'), [CopperLayer.B])
+        board.place(Part('h'), at=Location(3, 20))
+        board.place(Part('a'), at=Location(20, 20))
+        board.place(Part('m'), at=Near(Location(25, 24)), radius=5, rotations=(0,))
+        plan = board.resolve()
+        measures = score.plan_measures(board, plan)
+        rows.append((plan.placement('m'), measures['area_mm2'], measures['airwire_mm']))
+    assert len({pose for pose, _, _ in rows}) == 3
+    assert rows[0][1] > rows[1][1] > rows[2][1]
+    assert rows[0][2] < rows[1][2] < rows[2][2]
