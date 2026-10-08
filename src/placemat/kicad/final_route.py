@@ -64,7 +64,7 @@ class FinalCopperGrader:
                                      for ext in ('.kicad_pro', '.kicad_dru')}}
         self._semantic_contract = {'obligations': json.loads(self._obligations),
                                               'width_authority': json.loads(self._widths),
-                                              'phases': [phase.key() for phase in self._phases],
+                                              'phases': json.loads(json.dumps([phase.key() for phase in self._phases], allow_nan=False)),
                                               'settings': json.loads(self._cfg.json()),
                                               'source_inputs': source_contract,
                                               'counted': sorted(self._counted), 'open_before': self._open_before,

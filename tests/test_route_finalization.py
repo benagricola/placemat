@@ -274,3 +274,28 @@ def test_retained_physical_settings_drive_real_drc_parser_and_restore_caller(tmp
             assert grader.verify(result) == result.receipt
         assert active() is caller
     assert len(calls) == 1 and '--refill-zones' not in calls[0]
+
+
+def test_actual_phase_key_tuple_fields_match_retained_json_invocation(tmp_path):
+    from placemat.kicad.final_route import FinalCopperGrader
+    from placemat.kicad.final_call import record_digest
+    from placemat.route_phase import Phase
+    from placemat.settings import Settings
+    original = tmp_path / 'original.kicad_pcb'
+    baseline = tmp_path / 'baseline.json'
+    original.write_text('original')
+    original.with_suffix('.kicad_pro').write_text('original rules')
+    baseline.write_text('{}')
+    phase = Phase('signals', 'rest', width=.3, layers=('F.Cu', 'B.Cu'), neckdown=False,
+                  router_args=('--track-width', '.3'))
+    invocation = {'phases': json.loads(json.dumps([phase.key()]))}
+    grader = FinalCopperGrader(original=original, cleanup_input=original, rules=original,
+                              baseline_drc=baseline, obligations=[[]], phases=[phase],
+                              width_receipt={'policies': []}, cfg=Settings(), counted=set(),
+                              open_before={}, chosen_pours=set(), invocation=invocation)
+    binding = grader.binding()
+    assert binding['contract']['phases'] == binding['contract']['invocation']['phases']
+    old_representation = dict(binding['contract'], phases=[phase.key()])
+    assert record_digest(old_representation) == binding['contract_sha256']
+    binding['contract']['phases'][0]['router_args'].append('--changed')
+    assert grader.binding()['contract']['phases'] == invocation['phases']
