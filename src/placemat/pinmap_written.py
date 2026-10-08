@@ -83,12 +83,20 @@ def _shapes(occ):
                          for ref, item in occ.items.items() for shape in item.shapes), key=repr))
 
 
-def _semantics(geometry):
+def _semantics(geometry, faces=None):
     names = ('ref', 'inst', 'cell', 'value', 'lib_id', 'dnp', 'bom_excluded',
              'board_only', 'net_tie_pads', 'net_tie_groups', 'models', 'courtyard_drawn')
     pad_names = ('number', 'through', 'drill_mm', 'mask_paste', 'custom', 'no_connect')
+    def value(fp, pad, name):
+        value = getattr(pad, name)
+        if name == 'mask_paste':
+            flip = faces is not None and faces.get(fp.ref, fp.face) != fp.face
+            opposite = {'F.Mask': 'B.Mask', 'B.Mask': 'F.Mask',
+                        'F.Paste': 'B.Paste', 'B.Paste': 'F.Paste'}
+            value = tuple(sorted(opposite.get(layer, layer) if flip else layer for layer in value))
+        return repr(value)
     return tuple((tuple((name, repr(getattr(fp, name))) for name in names),
-                  tuple(sorted(tuple((name, repr(getattr(pad, name))) for name in pad_names)
+                  tuple(sorted(tuple((name, value(fp, pad, name)) for name in pad_names)
                                for pad in fp.pads)))
                  for fp in sorted(geometry.footprints, key=lambda fp: fp.ref))
 
@@ -149,6 +157,7 @@ class RemapProof:
     rules: tuple
     properties: tuple
     semantics: tuple
+    final_semantics: tuple
     source_collision: tuple
     final_collision: tuple
     candidate_record: str
@@ -205,6 +214,7 @@ def mint(board, plan, inp, groups, source_pcb, *, settings=None, context_files=(
                       _poses(original), _poses(candidate), _shapes(original), _shapes(candidate),
                       _fixed_copper(original), _rules(original.geometry), properties,
                       _semantics(original.geometry),
+                      _semantics(original.geometry, dict((ref, pose.face) for ref, pose in _poses(candidate))),
                       _collision_shapes(original), _collision_shapes(candidate),
                       json.dumps(final.record(), sort_keys=True, allow_nan=False), _SEAL)
     _MINTED[id(proof)] = proof
@@ -329,7 +339,7 @@ def write_proved(board, plan, proof, destination, *, settings=None):
         if _fixed_copper(reread) != proof.fixed_copper or _rules(reread.geometry) != proof.rules:
             raise CandidateRefused('proof_readback_rules_or_copper_changed',
                                    'saved candidate fixed copper or physical rules changed')
-        if _semantics(reread.geometry) != proof.semantics:
+        if _semantics(reread.geometry) != proof.final_semantics:
             raise CandidateRefused('proof_readback_semantics_changed',
                                    'saved candidate changed manufacturing or footprint identity')
         if _collision_shapes(reread) != proof.final_collision:

@@ -418,3 +418,24 @@ def test_polygon_enumeration_normalization_keeps_physical_differences(change):
         altered = replace(shape, circle=(1., 2., .3))
     changed.items[ref] = replace(item, shapes=tuple(altered if s is shape else s for s in item.shapes))
     assert _shapes(changed) != _shapes(original)
+
+
+def test_proved_face_transform_preserves_exact_mask_paste_membership_and_other_semantics():
+    from placemat.pinmap_written import _semantics
+    from placemat.values import Face
+    from tests.fixtures import board_geometry, footprint
+    fp = footprint('A', 10, 10)
+    fp = replace(fp, pads=tuple(replace(p, mask_paste=('F.Paste', 'F.Mask')) for p in fp.pads))
+    front = board_geometry((fp,))
+    back_fp = replace(fp, face=Face.BACK, pads=tuple(
+        replace(p, mask_paste=('B.Mask', 'B.Paste')) for p in fp.pads))
+    back = replace(front, footprints=(back_fp,), _by_ref={}, _by_inst={})
+    assert _semantics(front, {'A': Face.BACK}) == _semantics(back)
+    assert _semantics(back, {'A': Face.FRONT}) == _semantics(front)
+    assert _semantics(front, {'A': Face.FRONT}) == _semantics(front)
+    changed = replace(back, footprints=(replace(back_fp, pads=(
+        replace(back_fp.pads[0], mask_paste=('B.Mask',)), *back_fp.pads[1:])),), _by_ref={}, _by_inst={})
+    assert _semantics(front, {'A': Face.BACK}) != _semantics(changed)
+    changed_drill = replace(back, footprints=(replace(back_fp, pads=(
+        replace(back_fp.pads[0], drill_mm=.3), *back_fp.pads[1:])),), _by_ref={}, _by_inst={})
+    assert _semantics(front, {'A': Face.BACK}) != _semantics(changed_drill)
