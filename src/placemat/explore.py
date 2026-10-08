@@ -212,9 +212,12 @@ class Routing:
 
 
 class VariantRouter:
-    """How the routing worker writes a variant's board and routes it: as a run writes its own (`_write_variant`), and
-    placemat's quick route; with `explore.rank_remapped`, the variant's pin remap made on the board written
-    (kicad.remap.apply_remap)."""
+    """Write and route the actual source placement for a variant.
+
+    Virtual pin-map placement evidence does not certify this source route.
+    Routed remap comparison requires a proved writer and fresh logical-role
+    projection; unsupported requests carry an explicit refusal.
+    """
 
     def write(self, make_board, board, plan, folder):
         return _write_variant(make_board, board, plan, folder)
