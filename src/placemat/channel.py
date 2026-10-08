@@ -307,8 +307,12 @@ class Beacon:
         path = self.directory / ("%d.sock" % self.pid)
         if len(str(path).encode()) > 100:                               # a socket address is short: a short path elsewhere, named in the entry
             short = Path(tempfile.gettempdir()) / ("placemat-sockets-%d" % os.getuid())
-            short.mkdir(mode=0o700, exist_ok=True)
+            if len(str(short / ("%d.sock" % self.pid)).encode()) > 100:
+                short = Path("/tmp") / ("placemat-sockets-%d" % os.getuid())
             path = short / ("%d.sock" % self.pid)
+            if len(str(path).encode()) > 100:
+                raise OSError("channel socket address exceeds its byte limit")
+            short.mkdir(mode=0o700, exist_ok=True)
         try:
             path.unlink()
         except OSError:
