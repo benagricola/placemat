@@ -50,7 +50,7 @@ def test_malformed_owned_deadline_refuses_before_native_import(deadline, monkeyp
     from placemat import final_check_worker
     monkeypatch.setattr(final_check_worker, '_runtime_identity', lambda: pytest.fail('native runtime must not load'))
     packet = {'schema': 1, 'deadline_utc': deadline, 'original': {}, 'candidate': {},
-              'logical': {}, 'expected_readback': {}, 'critical_original': {}, 'critical_candidate': {}}
+              'logical': {}, 'expected_readback': {}, 'input_bundle': {}, 'critical_original': {}, 'critical_candidate': {}}
     with pytest.raises(CandidateRefused) as error:
         evaluate(packet)
     assert error.value.code == 'logical_worker_request_malformed'
@@ -85,7 +85,7 @@ def test_candidate_cannot_weaken_original_check_intent(field, monkeypatch):
     changed = deepcopy(context)
     changed[field] = ['changed']
     request = {'schema': 1, 'deadline_utc': deadline, 'original': {'deadline_utc': deadline},
-               'candidate': {'deadline_utc': deadline}, 'logical': {}, 'expected_readback': {},
+               'candidate': {'deadline_utc': deadline}, 'logical': {}, 'expected_readback': {}, 'input_bundle': {},
                'critical_original': context, 'critical_candidate': changed}
     with pytest.raises(CandidateRefused) as error:
         evaluate(request)

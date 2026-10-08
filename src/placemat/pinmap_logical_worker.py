@@ -131,6 +131,54 @@ def _clean_whole(original_open, open_after, data, is_real, counted):
     return result
 
 
+def _input_bundle(bundle, packets):
+    """Exact original sidecar relation, independently checked in the child."""
+    from pathlib import Path
+    import hashlib
+    from .pinmap_logical_packet import _json
+    if type(bundle) is not dict or set(bundle) != {'original', 'candidate', 'sidecars'}:
+        _refuse('logical_input_bundle_malformed')
+    for side in ('original', 'candidate'):
+        artifact = bundle[side]
+        if (type(artifact) is not dict or set(artifact) != {'path', 'sha256'}
+                or artifact['path'] != packets[side]['binding']['paths']['original']):
+            _refuse('logical_input_bundle_malformed')
+    rows = bundle['sidecars']
+    if type(rows) is not list:
+        _refuse('logical_input_bundle_malformed')
+    seen = {'original': set(), 'candidate': set()}
+    for row in rows:
+        if type(row) is not dict or set(row) != {'original', 'candidate', 'sha256'}:
+            _refuse('logical_input_bundle_malformed')
+        for side in seen:
+            if type(row[side]) is not str or row[side] in seen[side]:
+                _refuse('logical_input_bundle_malformed')
+            seen[side].add(row[side])
+    for side in ('original', 'candidate'):
+        source = Path(bundle[side]['path'])
+        for ext in ('.kicad_pro', '.kicad_dru'):
+            matches = [row for row in rows if row[side] == str(source.with_suffix(ext))]
+            if len(matches) != 1 or matches[0]['sha256'] != packets[side]['binding']['contract']['source_inputs']['rules'][ext]:
+                _refuse('logical_input_sidecar_changed', side=side, extension=ext)
+    for artifact in [bundle['original'], bundle['candidate'],
+                     *({'path': row[side], 'sha256': row['sha256']} for row in rows for side in seen)]:
+        path = artifact['path']
+        expected = artifact['sha256']
+        if type(path) is not str or not Path(path).is_absolute() or (expected is not None and
+                (type(expected) is not str or len(expected) != 64)):
+            _refuse('logical_input_bundle_malformed')
+        actual = hashlib.sha256(Path(path).read_bytes()).hexdigest() if Path(path).is_file() else None
+        if actual != expected:
+            _refuse('logical_input_sidecar_changed', path=path)
+    # Every explicitly supplied capture must be one of these retained files.
+    for side in seen:
+        capture = packets[side]['binding']['contract']['invocation']['capture']
+        if capture['path'] is not None and not any(row[side] == capture['path'] and
+                                                   row['sha256'] == capture['sha256'] for row in rows):
+            _refuse('logical_input_capture_changed', side=side)
+    _json(bundle)
+
+
 def _final_side(grader, raw, destination, asks, critical, original_baseline, original_open, original_counted, deadline):
     from pathlib import Path
     import shutil
@@ -195,7 +243,7 @@ def evaluate(request):
     import json
     from .final_check_worker import _deadline, _runtime_identity
     from .pinmap_logical_packet import _hash, _json, verify_contract_record
-    keys = {'schema', 'deadline_utc', 'original', 'candidate', 'logical', 'expected_readback',
+    keys = {'schema', 'deadline_utc', 'original', 'candidate', 'logical', 'expected_readback', 'input_bundle',
             'critical_original', 'critical_candidate'}
     if type(request) is not dict or set(request) != keys or type(request['schema']) is not int or request['schema'] != 1:
         _refuse('logical_worker_request_malformed')
@@ -248,6 +296,7 @@ def evaluate(request):
             _refuse('logical_original_invocation_changed', field=key)
     if a_invocation['capture']['sha256'] != b_invocation['capture']['sha256']:
         _refuse('logical_original_capture_changed')
+    _input_bundle(request['input_bundle'], request)
     # Source-bound width receipt validation and original baseline measurement
     # occurred independently during both strict reconstructions above.
     with bind(original._cfg):
@@ -276,6 +325,7 @@ def evaluate(request):
         artifact = request[side]['raw']
         if file_hash(artifact['path']) != artifact['sha256']:
             _refuse('logical_final_artifact_changed', side=side)
+    _input_bundle(request['input_bundle'], request)
     _deadline(deadline)
     implementation_end = _runtime_identity()
     if implementation_start != implementation_end:

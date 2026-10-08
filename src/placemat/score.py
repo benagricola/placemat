@@ -324,6 +324,16 @@ def rank(a: Standing, b: Standing, cfg, *, phase_priority=None) -> int:
             if any(name not in a.phase_names for name in phase_priority):
                 raise ValueError('Phase priority names an unknown phase')
             indices = tuple(a.phase_names.index(name) for name in phase_priority)
+    return _rank_values(a, b, cfg, indices=indices)
+
+
+def _rank_values(a: Standing, b: Standing, cfg, *, indices=None) -> int:
+    """Value tiers after a private consumer has proved complete contracts.
+
+    This helper performs no compatibility or authority validation. Public
+    callers use rank; the owned logical consumer must verify its separate
+    original fixed-ask projection before reaching these shared value tiers.
+    """
     s = validity_order(a, b)
     if s:
         return s
