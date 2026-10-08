@@ -212,11 +212,19 @@ class FinalExecution:
         command = issued['command']
         _,_,parser_argv = replay_backend._runtime(ctx,command)
         launch = command[:len(command)-len(parser_argv)]
+        original = custody.require_original(self.grader)
+        original_path = str(Path(self.grader._original).resolve())
+        original_sha = original['read_manifest'].get(original_path)
+        if original_sha is None or file_hash(original_path) != original_sha:
+            raise ProofUnavailable('original_fabrication_source_unproved')
+        fabrication_source = {'path': original_path, 'sha256': original_sha,
+                              'custody_sha256': original['private_context_sha256']}
         prepared = planner.prepare(
             phase_index=phase,call_index=call,calls=self.ledger.call_plans[phase][0]['calls'],
             call_id=call_id,board=issued['input_board'],output=issued['output_board'],
             summary=issued['summary'],command=command,launch=launch,nets=issued['nets'],
-            layers=issued['layers'],deadline_utc=self.deadline)
+            layers=issued['layers'],deadline_utc=self.deadline,
+            original_fabrication=fabrication_source)
         if prepared == command:
             self.nominal_refusal = list(planner.refusals)
             return env

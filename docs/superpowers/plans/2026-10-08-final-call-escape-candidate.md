@@ -176,3 +176,11 @@ dependency. Missing that exact adapter preserves standalone ordinary execution;
 a broken dependency is not treated as absence. Both main merges remain held
 until the integrated repairs and prescribed gates qualify. These implementation
 interfaces do not waive the original no-worse or user-decision requirements.
+
+### Original fabrication policy for seed sites
+
+The final-call proof carries the executor-retained original PCB path, exact source SHA and private-context SHA. The source is validated by the existing custody registry before issuance and remains hash-bound to the proof and candidate context. The seed consumer reads those exact source bytes, preserves the original capping/filling policy in its receipt, and never treats a new router stamp as permission. Positive Type VII authorization remains unsupported until the full original fabrication contract is proved.
+
+The conventional seed uses the original nominal diameter/drill/widths/layers and exact same-net pad clearance. It rejects barrel or paste contact across the complete supported board domain before placement, composes this predicate with the existing zone predicate, and rechecks it after edge clamping. Unsupported geometry refuses optional repair. Ordinary taps with no seed predicate retain their existing behavior. Search radius, one seed per physical endpoint/four per net, two proposal slots and shared absolute deadline remain unchanged.
+
+This guard does not resolve local-clearance or declared-annular-floor proof gaps. Those require independent complete manufacturing evidence; no normal-use connectivity repair or strict certificate is established by the guard alone.

@@ -91,7 +91,8 @@ class CandidatePlanner:
         self._unproved_work.append('resumed:' + name)
 
     def prepare(self, *, phase_index, call_index, calls, call_id, board, output,
-                summary, command, launch, nets, layers, deadline_utc, now=None):
+                summary, command, launch, nets, layers, deadline_utc, now=None,
+                original_fabrication=None):
         """Bind the literal actual final issued call, preserving ordinary argv on refusal."""
         try:
             self._verify_prior()
@@ -135,6 +136,8 @@ class CandidatePlanner:
                                                           self._phases[phase_index].name, scope)
             proof = proof_of(board, scope, policy, self._work, self._authority,
                              deadline_utc=deadline_utc, complete_route=True, now=now)
+            if original_fabrication is not None:
+                proof['original_fabrication'] = deepcopy(original_fabrication)
             request = Path(summary).with_name(call_id + '_final_call.json')
             artifacts = Path(summary).with_name(call_id + '_candidates')
             if artifacts.exists():
