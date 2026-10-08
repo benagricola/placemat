@@ -8,17 +8,17 @@ from pathlib import Path
 
 
 def verify_original_binding(factory, binding, original_geometry):
-    from placemat.capture_nets import read_capture
+    from placemat.capture_nets import read_capture, CaptureError
     from placemat.checks import COPPER_OZ
     from placemat.kicad.phase_select import select
     from placemat.kicad.phase_run import comparison_obligations
     from placemat.kicad.width_policy import requests_of, validate_receipt, apply
-    from placemat.route_phase import phases_of
+    from placemat.route_phase import phases_of, PhaseError
     from placemat.kicad.final_call import file_hash, record_digest
     from placemat.pinmap_common import CandidateRefused
 
-    def refuse(code, reason):
-        raise CandidateRefused(code, reason)
+    def refuse(code, reason, **facts):
+        raise CandidateRefused(code, reason, **facts)
     contract, paths = binding['contract'], binding['paths']
     cfg = factory._board.settings
     invocation = contract.get('invocation')
@@ -29,7 +29,10 @@ def verify_original_binding(factory, binding, original_geometry):
         refuse('authority_invocation_mismatch', 'physical context differs from retained original invocation')
     if record_digest(contract) != binding['contract_sha256']:
         refuse('authority_binding_mismatch', 'physical binding digest differs from exact contract')
-    phases = phases_of(cfg)
+    try:
+        phases = phases_of(cfg)
+    except PhaseError as error:
+        refuse('authority_phase_unavailable', str(error), phase_code=error.code, phase_facts=error.facts)
     if invocation['upto'] is not None or invocation['only'] is not False or invocation['phases'] != json.loads(json.dumps([p.key() for p in phases])):
         refuse('authority_phase_scope_unsupported', 'initial authority requires complete configured original phases')
     if contract['phases'] != invocation['phases']:
@@ -56,14 +59,20 @@ def verify_original_binding(factory, binding, original_geometry):
         path = Path(capture_record['path'])
         if not path.is_absolute() or factory._inputs.get(str(path)) != capture_record['sha256'] or file_hash(path) != capture_record['sha256']:
             refuse('authority_capture_changed', 'actual original capture is not retained unchanged')
-        capture = read_capture(path)
+        try:
+            capture = read_capture(path)
+        except CaptureError as error:
+            refuse('authority_capture_unavailable', str(error), capture_code=error.code, capture_facts=error.facts)
     excluded = set(invocation['exclude_nets'])
     pours = set(invocation['pour_nets'])
     if not pours <= set(original_geometry.nets):
         refuse('authority_pours_mismatch', 'original resolved pour nets are absent from original geometry')
-    selected = [select(phase, original_geometry, capture, open_nets=set(original_geometry.nets),
-                       excluded=excluded, pour_nets=pours, route_layers=invocation['layers'],
-                       rise_c=cfg.check_rise_c, copper_oz=COPPER_OZ) for phase in phases]
+    try:
+        selected = [select(phase, original_geometry, capture, open_nets=set(original_geometry.nets),
+                           excluded=excluded, pour_nets=pours, route_layers=invocation['layers'],
+                           rise_c=cfg.check_rise_c, copper_oz=COPPER_OZ) for phase in phases]
+    except PhaseError as error:
+        refuse('authority_selection_unavailable', str(error), phase_code=error.code, phase_facts=error.facts)
     chosen_pours = set().union(*(set(sel.pour_nets) for sel in selected))
     if sorted(chosen_pours) != contract['chosen_pours'] or sorted(excluded | (pours - chosen_pours)) != contract['counted']:
         refuse('authority_selection_mismatch', 'original selected pours/exclusions differ from physical context')
@@ -71,11 +80,17 @@ def verify_original_binding(factory, binding, original_geometry):
     receipt_path = paths['width_receipt']
     if not isinstance(receipt_path, str) or not Path(receipt_path).is_absolute() or file_hash(receipt_path) != contract['width_receipt_sha256']:
         refuse('authority_width_receipt_changed', 'actual original resolver receipt is missing or changed')
-    receipt = json.loads(Path(receipt_path).read_text())
+    try:
+        receipt = json.loads(Path(receipt_path).read_text())
+    except (json.JSONDecodeError, UnicodeDecodeError) as error:
+        refuse('authority_width_receipt_unavailable', str(error))
     if receipt != contract['width_authority']:
         refuse('authority_width_receipt_mismatch', 'physical widths differ from actual original receipt')
-    validate_receipt(receipt, pcb=query['path'], router_dir=invocation['router_dir'],
-                     requests=requests_of(phases, selected, cfg))
+    requests = requests_of(phases, selected, cfg)
+    try:
+        validate_receipt(receipt, pcb=query['path'], router_dir=invocation['router_dir'], requests=requests)
+    except ValueError as error:
+        refuse('authority_width_receipt_unavailable', str(error))
     normalized = apply(obligations, selected, phases, receipt)
     if normalized != contract['obligations']:
         refuse('authority_obligations_mismatch', 'original stable obligations and widths differ from physical context')
