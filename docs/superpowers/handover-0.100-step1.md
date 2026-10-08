@@ -251,3 +251,33 @@ rounds with a scoped re-review, the ledger updated after every step.
   retain raw measurements and apply identical original settings and acceptance intent to both variants. Width-unknown,
   current-path failure and unjudged outcomes remain distinct from manufacturing validity. The second comparison and
   all project-specific numeric findings remain outside repository documentation.
+
+## Final reference review and remaining gate (2026-10-08)
+
+- Frozen `a32a232f` completed all prescribed final feature invocations: 18 module references and 11 historical
+  hand-module comparisons. Each owned process completed with unchanged runtime/input identities; no truth pins were
+  changed. The module USB-C case had preexisting pair joins and zero pair calls, so it establishes captured interface
+  integration rather than newly routed coupled geometry. Manufacturing faults remain explicit.
+- Same-contract saved-copper audits completed for 16 A rows, one priority USB row and 11 historical C rows under
+  original project/custom rules and effective width authorities. Parent independently verified receipts and unchanged
+  source/helper identities. Selected-terminal ambiguity withheld two A rows; empty selected obligations are not a full
+  board certificate. Module references have no historical baseline and carry no invented old/new comparison.
+- The priority reference retains a genuine lost selected connection under identical original-rule grading. Its nominal
+  rescue was attempted and blocked by different preceding copper; the rejected proximity-skip hypothesis is preserved
+  as such. Required-width unknowns prevent certification. The USB comparison improves priority current connectivity
+  while losing signal connectivity; this is a mixed result, not an overall routing gain. One historical module retains
+  equal joins but one additional unproved width. No retuning, repinning or successful adoption claim hides these results.
+- The optional final-call candidate planner remains inactive. Its initial custody domain excludes the affected prior
+  task pipeline, and unavailable full width/Standing authority independently prevents adoption. Retained adapter and
+  bounded worker integration are separate reviewed work; hashes or transport descriptors do not authorize adoption.
+- Reviewed production follow-up `d69b6cba` binds the complete private final report, including asked/final judgments,
+  and defers stop delivery across width-query spawn until its owned process group is retained. TERM/HUP/INT regressions
+  and policy/finalization tests passed 30 cases. The timeout regression observes terminated zombies separately from
+  running children; production PID-existence semantics remain unchanged. The historical intermittent assertion's
+  precise cause remains unproved.
+- Remaining required Step 1 gate: genuine isolated install refresh, frozen latest whole `pytest --full -n2
+  -p no:cacheprovider`, measured slow-test ledger, and parent review of the concrete candidate. Earlier full-suite
+  evidence remains historical. Main merge, release and fork pushes remain withheld. Combined final electrical/current
+  checks and strict Standing integration are owned by Step 2 and require their separate integrated gates.
+- Detailed owned receipts are indexed by `step1-finite-reference-handback.json` in the review scratch directory;
+  real project identities and numeric comparison evidence remain in fixture/bench records.
