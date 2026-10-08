@@ -129,3 +129,72 @@ def verify_fixed(source_geometry, source_pcb, final_geometry, final_pcb):
         refuse('final board changes original fixed copper or zone definitions')
     original = manifest(source_geometry, source_pcb)
     return {key: original[key] for key in ('fixed_copper', 'protected_forms')}
+
+
+def verify_fixed_after_permutation(source_geometry, source_pcb, written_geometry, written_pcb,
+                                   final_geometry, final_pcb, pool_records):
+    """Cross-input copper proof after exact emitted and final pad-domain checks.
+
+    Only numbered lands changed by independently verified pool records can
+    leave the original pad-net Counter. Ambiguous physical land identities
+    refuse; ordinary fixed preservation remains strict.
+    """
+    verify(written_geometry, written_pcb, final_geometry, final_pcb,
+           manifest(written_geometry, written_pcb))
+    source_pads = {(fp.ref, pad.number): [] for fp in source_geometry.footprints for pad in fp.pads}
+    written_pads = {(fp.ref, pad.number): [] for fp in written_geometry.footprints for pad in fp.pads}
+    for geometry, table in ((source_geometry, source_pads), (written_geometry, written_pads)):
+        for fp in geometry.footprints:
+            for pad in fp.pads:
+                table[fp.ref, pad.number].append(pad)
+    changed = set()
+    expected_nets = {key: {pad.net for pad in pads} for key, pads in source_pads.items()}
+    if set(source_pads) != set(written_pads):
+        refuse('permuted numbered land membership changed')
+    for record in pool_records:
+        for net, old, new in record['mapping']:
+            if old != new:
+                key = record['ref'], old
+                if key not in source_pads or key not in written_pads:
+                    refuse('permuted pad physical identity is missing')
+                if any(p.net != net for p in source_pads[key]):
+                    refuse('permuted original pad net is not proved')
+                target = record['ref'], new
+                if target not in written_pads or any(p.net != net for p in written_pads[target]):
+                    refuse('permuted written pad net is not proved')
+                expected_nets[target] = {net}
+                changed.add(key)
+    if any({pad.net for pad in written_pads[key]} != nets for key, nets in expected_nets.items()):
+        refuse('unselected pad net changed outside proved permutation')
+    def land(pad):
+        return pad.owner, pad.net, pad.layers, pad.outlines, pad.box
+    identities = {}
+    for key, pads in source_pads.items():
+        for pad in pads:
+            identities.setdefault(land(pad), set()).add(key)
+    permitted = set()
+    for key in changed:
+        for pad in source_pads[key]:
+            identity = land(pad)
+            if identities[identity] != {key}:
+                refuse('permuted pad copper identity is ambiguous')
+            permitted.add(identity)
+    expected_lands = Counter(land(p) for key in changed for p in source_pads[key])
+    actual_lands = Counter((c.owner, c.net, c.layers, c.outlines, c.box)
+                           for c in source_geometry.copper if c.kind == 'pad'
+                           and (c.owner, c.net, c.layers, c.outlines, c.box) in permitted)
+    if expected_lands != actual_lands:
+        refuse('permuted pad copper multiplicity is unproved')
+    canonical = lambda item: json.dumps(facts(item), sort_keys=True, separators=(',', ':'))
+    def omitted(item):
+        return item.kind == 'pad' and (item.owner, item.net, item.layers, item.outlines, item.box) in permitted
+    original = Counter(canonical(c) for c in source_geometry.copper if c.kind != 'zone' and not omitted(c))
+    final = Counter(canonical(c) for c in final_geometry.copper if c.kind != 'zone')
+    if original - final:
+        refuse('final board changes original non-permuted electrical copper')
+    fixed, zones = forms(source_pcb)
+    final_fixed, final_zones = forms(final_pcb)
+    if Counter(fixed) - Counter(final_fixed) or zones != final_zones:
+        refuse('final board changes original fixed copper or zone definitions')
+    retained = manifest(source_geometry, source_pcb)
+    return {key: retained[key] for key in ('fixed_copper', 'protected_forms')}

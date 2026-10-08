@@ -280,7 +280,7 @@ def evaluate(request):
     from .kicad.final_worker_protocol import reconstruct
     from .settings import bind
     from .pinmap_written import _read_occupancy, _pads, _verify_readback_record
-    from .final_preservation import verify_fixed
+    from .final_preservation import verify_fixed_after_permutation
     original, original_raw, original_dest, _ = reconstruct(request['original'])
     candidate, candidate_raw, candidate_dest, _ = reconstruct(request['candidate'])
     from dataclasses import asdict
@@ -317,8 +317,9 @@ def evaluate(request):
                                   request['critical_original'], baseline, original._open_before, original._counted, deadline)
     b, candidate_final = _final_side(candidate, candidate_raw, candidate_dest, candidate_asks,
                                    request['critical_candidate'], baseline, original._open_before, original._counted, deadline)
-    fixed = verify_fixed(source.geometry, original._original, candidate_final.geometry,
-                         candidate_dest / 'final.kicad_pcb')
+    fixed = verify_fixed_after_permutation(source.geometry, original._original,
+                         written.geometry, candidate._original, candidate_final.geometry,
+                         candidate_dest / 'final.kicad_pcb', pool_proof)
     from .kicad.final_call import file_hash
     for side, grader in (('original', original), ('candidate', candidate)):
         grader._unchanged()
