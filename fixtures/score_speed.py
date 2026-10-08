@@ -120,6 +120,12 @@ def measure(board, plan, step, *, count, repeats):
             if old_native is not None else (lambda row: old(row[0]))
         new_call = (lambda row: full.evaluate(row[0].location.x, row[0].location.y, row[1])) \
             if full is not None else (lambda row: common(row[0]))
+        # First complete evaluation after preparation, before any warm-up.
+        def first(call):
+            start = time.perf_counter_ns()
+            call(legal[0])
+            return (time.perf_counter_ns() - start) / 1000
+        old_first_us, delta_first_us = first(old_call), first(new_call)
         old_us, delta_us = timed(old_call, legal, repeats), timed(new_call, legal, repeats)
         kernel = delta.native(rotations, original.face)
         six_us = timed(lambda row: kernel.terms(row[0].location.x, row[0].location.y, row[1]), legal, repeats) \
@@ -128,6 +134,9 @@ def measure(board, plan, step, *, count, repeats):
                 'attempted': count, 'legal': len(legal), 'lift_us': lift_us,
                 'old_setup_us': old_setup_us, 'delta_setup_us': setup_us,
                 'old_score_us': old_us, 'delta_score_us': delta_us,
+                'old_first_evaluation_us': old_first_us, 'delta_first_evaluation_us': delta_first_us,
+                'first_evaluation_scope': 'first scoring call after preparation; shared libraries and process may already be warm',
+                'warm_evaluation_scope': 'eight warm-up calls then median complete corpus pass',
                 'old_python_share': int(old_native is None), 'delta_python_share': int(full is None),
                 'fallback_reason': refusal, 'python_legality_us_per_attempt': legality_us,
                 'legal_per_second_python_legality': len(legal) / (count * legality_us + len(legal) * delta_us) * 1e6,

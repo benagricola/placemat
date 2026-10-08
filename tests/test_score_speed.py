@@ -126,3 +126,46 @@ def test_paired_resolve_timing_uses_fresh_boards_and_labels_nudge_origin(capsys)
     assert resolves[0]['score'] == resolves[1]['score']
     assert all(row['search'] == 'mst' for row in resolves)
     assert rows and all(row['measurement_board_search'] == 'mst' for row in rows)
+
+
+def test_first_after_setup_precedes_warm_corpus_without_extra_cold_calls(monkeypatch):
+    import fixtures.score_speed as speed
+    from placemat import geometry
+    from placemat.layout import Scorer
+    from placemat.score_search import MSTScorer
+    from placemat.values import Location, Part
+    from tests.test_score_measures import _two_part_board
+    import pytest
+    if geometry._native is None:
+        pytest.skip('native timing entry point unavailable')
+    board = _two_part_board()
+    board.place(Part('u1'), at=Location(10, 10))
+    board.place(Part('c1'), at=Location(20, 20))
+    plan = board.resolve()
+    step = next(s for s in plan.steps if s.item == 'c1')
+    events = []
+    def instrument_native(cls, name):
+        original = cls.native
+        def native(self, *args, **kwargs):
+            value = original(self, *args, **kwargs)
+            assert value is not None
+            class Proxy:
+                def evaluate(self, *args):
+                    events.append(('call', name))
+                    return value.evaluate(*args)
+            return Proxy()
+        monkeypatch.setattr(cls, 'native', native)
+    instrument_native(Scorer, 'old')
+    instrument_native(MSTScorer, 'complete')
+    original_timed = speed.timed
+    def timed(call, rows, repeats):
+        events.append(('warm_start', len(rows)))
+        return original_timed(call, rows, repeats)
+    monkeypatch.setattr(speed, 'timed', timed)
+    row = speed.measure(board, plan, step, count=4, repeats=1)
+    assert row['legal'] == 4
+    assert events[:3] == [('call', 'old'), ('call', 'complete'), ('warm_start', 4)]
+    # One first call, four warm-ups and one four-candidate timed corpus.
+    assert events.count(('call', 'old')) == events.count(('call', 'complete')) == 9
+    assert row['old_first_evaluation_us'] > 0
+    assert row['delta_first_evaluation_us'] > 0
