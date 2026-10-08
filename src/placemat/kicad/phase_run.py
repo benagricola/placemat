@@ -669,6 +669,25 @@ def connection_summary(path, pending, phase, log):
     return data
 
 
+def _completed_single_call(ctx, cmd, log, what, source, output, token, *, run=None):
+    """One existing single-call lifecycle, including its actual restoration.
+
+    A private proposal callback must encompass this whole operation. The raw
+    snapshot is retained before companion restoration and locking; completion
+    evidence is retained only after those existing operations finish.
+    """
+    rc = (run or _run)(cmd, log, ctx)
+    if ctx.execution is not None:
+        ctx.execution.raw_call(token, rc)
+    if rc != 0 or not output.exists():
+        _failed(rc, log, what)
+    _copy_project(source, output)
+    lock_copper(str(output))
+    if ctx.execution is not None:
+        ctx.execution.restored_call(token)
+    return rc
+
+
 def route_calls(ctx, index, phase, sel, board) -> PhaseOutcome:
     """Route one phase's calls (plan_calls) on `board`, in order, each on the board the one before left, its copper
     locked. The outcome's `routed` is what judge_phase needs. A task the router refuses stops the route (RouteRefused
@@ -699,6 +718,7 @@ def route_calls(ctx, index, phase, sel, board) -> PhaseOutcome:
         nxt = ctx.work / (stem + ".kicad_pcb")
         summary = ctx.work / (stem + "_summary.json")
         single_token = None
+        single_restored = False
         if call.kind == "pairs":
             # the phase's own router flags go to the pair router too; its neck-down is route.py's only (route_diff.py
             # has no --no-power-tap-neckdown), so `neckdown` does not reach a pair call
@@ -786,18 +806,23 @@ def route_calls(ctx, index, phase, sel, board) -> PhaseOutcome:
                     phase=index, call=k, wave=0, kind='single', command=cmd,
                     source=board, input_board=board, output_board=nxt, summary=summary,
                     layers=layers, nets=issued_nets, tasks=[], constraint_files=constraints, environment=ctx.env)
-            rc = _run(cmd, log, ctx)
-            if ctx.execution is not None:
-                ctx.execution.raw_call(single_token, rc)
-            if rc != 0 or not nxt.exists():
-                _failed(rc, log, what)
-            _copy_project(board, nxt)
+            if call.kind in ('nets', 'rest'):
+                _completed_single_call(ctx, cmd, log, what, board, nxt, single_token)
+                single_restored = True
+            else:
+                rc = _run(cmd, log, ctx)
+                if ctx.execution is not None:
+                    ctx.execution.raw_call(single_token, rc)
+                if rc != 0 or not nxt.exists():
+                    _failed(rc, log, what)
+                _copy_project(board, nxt)
             out.summaries.append((phase.name, k, summary))
             if call.kind == "bus" and summary.exists():
                 bus_groups += json.loads(summary.read_text()).get("bus_groups") or []
-        lock_copper(str(nxt))
-        if ctx.execution is not None:
-            ctx.execution.restored_call(single_token)
+        if not single_restored:
+            lock_copper(str(nxt))
+            if ctx.execution is not None:
+                ctx.execution.restored_call(single_token)
         if call.kind not in ("tasks", "bus_tasks"):
             out.calls.append((call, board, nxt))
         board = nxt
