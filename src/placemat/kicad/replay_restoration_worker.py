@@ -79,9 +79,14 @@ def evaluate(request):
     from placemat.kicad.final_owned_worker import _implementation
     from placemat.kicad import route
     from placemat.settings import Settings, SettingsError, _coerce, _validate, bind
-    from dataclasses import fields
+    from dataclasses import asdict, fields
+    from placemat.kicad.final_worker_protocol import _plain
     implementation = _implementation()
     values = request['settings']
+    if (not isinstance(values.get('sources'),dict)
+            or any(not isinstance(key,str) or not isinstance(value,str)
+                   for key,value in values['sources'].items())):
+        raise ProofUnavailable('replay_restoration_settings_changed')
     declared = {field.name: str(field.type) for field in fields(Settings)}
     if set(values) != set(declared):
         raise ProofUnavailable('replay_restoration_settings_changed')
@@ -93,7 +98,7 @@ def evaluate(request):
         cfg = Settings(**{key: _coerce(key, value) for key, value in values.items()})
     except (SettingsError, TypeError, ValueError) as error:
         raise ProofUnavailable('replay_restoration_settings_changed') from error
-    if record_digest(json.loads(cfg.json())) != record_digest(values):
+    if record_digest(_plain(asdict(cfg))) != record_digest(values):
         raise ProofUnavailable('replay_restoration_settings_changed')
     with bind(cfg):
         operations(request, route)

@@ -1,16 +1,18 @@
 """Concrete native lifecycle child using the existing owned deadline runner."""
 import json
+from dataclasses import asdict
 from pathlib import Path
 import sys
 
 from placemat.kicad import issued_calls
+from placemat.kicad.final_worker_protocol import _plain
 from placemat.kicad.final_call import ProofUnavailable, file_hash, record_digest
 from placemat.kicad.final_owned_worker import _execute, _implementation
 
 
 def run(budget, original, ctx, stage, current, given, output, work):
     budget._check(budget.executor)
-    if record_digest(json.loads(ctx.cfg.json())) != record_digest(json.loads(budget.grader._cfg.json())):
+    if record_digest(_plain(asdict(ctx.cfg))) != record_digest(_plain(asdict(budget.grader._cfg))):
         raise ProofUnavailable('replay_retained_settings_changed')
     kind = original['identity']['kind']
     if kind not in ('single', 'connections', 'pour') or kind == 'pour' and len(original['nets']) != 1:
@@ -25,7 +27,7 @@ def run(budget, original, ctx, stage, current, given, output, work):
     request = dict(paths, schema=1, stage=stage, kind=kind,
                    net=original['nets'][0] if kind == 'pour' else None,
                    guard_layers=list(ctx.layers), plane_share=ctx.cfg.route_plane_share,
-                   settings=json.loads(ctx.cfg.json()), deadline_utc=budget.deadline,
+                   settings=_plain(asdict(ctx.cfg)), deadline_utc=budget.deadline,
                    inputs=inputs,
                    raw_output_sha256=file_hash(output) if stage == 'restore' else None)
     implementation = _implementation()  # already-loaded actual parent modules only

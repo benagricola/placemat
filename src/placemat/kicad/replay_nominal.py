@@ -51,6 +51,17 @@ def eligible(budget,owner,final_call,work):
     issued_calls._unchanged(observation['runtime'])
     issued_calls._unchanged(observation['detached_files'])
     issued_calls._unchanged(observation['source_files'])
+    grade=(Path(ctx.router_dir)/ctx.script).resolve().with_name('route_candidates.py')
+    capability=owner.backend_capability
+    if record_digest(capability)!=owner.backend_capability_sha:
+        raise ProofUnavailable('nominal_capability_changed')
+    policies=capability['policies']
+    if (str(grade)!=policies.get('grade_path')
+            or runtime.get(str(grade))!=policies.get('grade_sha256')):
+        raise ProofUnavailable('nominal_grade_implementation_unproved')
+    grade_sha=file_hash(grade)
+    if grade_sha!=policies['grade_sha256']:
+        raise ProofUnavailable('nominal_grade_implementation_changed')
     work=Path(work).resolve()
     if work.exists():raise ProofUnavailable('nominal_fresh_work_required')
     work.mkdir()
@@ -73,6 +84,10 @@ def eligible(budget,owner,final_call,work):
     request_sha=file_hash(request_path)
     def unchanged():
         budget._check(budget.executor);owner.contexts_for(budget)
+        if record_digest(owner.backend_capability)!=owner.backend_capability_sha:
+            raise ProofUnavailable('nominal_capability_changed')
+        if file_hash(grade)!=grade_sha:
+            raise ProofUnavailable('nominal_grade_implementation_changed')
         if record_digest(observation)!=owner.nominal_observation_sha:
             raise ProofUnavailable('nominal_observer_changed')
         issued_calls._unchanged(runtime);issued_calls._unchanged(originals)
@@ -80,7 +95,7 @@ def eligible(budget,owner,final_call,work):
         issued_calls._unchanged(observation['source_files'])
         if file_hash(request_path)!=request_sha:raise ProofUnavailable('nominal_request_changed')
     unchanged()
-    command=[str(ctx.rpy),str(Path(ctx.router_dir)/'route_candidates.py'),
+    command=[str(ctx.rpy),str(grade),
              '--nominal-evidence',str(request_path),str(reply)]
     code,stdout,stderr=_execute(command,budget.deadline,dict(ctx.env,
         KRT_ROUTE_DEADLINE_UTC=str(budget.deadline)),cwd=ctx.router_dir)
