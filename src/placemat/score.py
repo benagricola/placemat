@@ -179,7 +179,7 @@ class Standing:
             return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
         def closure(value):
             return value if not isinstance(value, bool) and isinstance(value, (int, float)) \
-                and math.isfinite(value) and 0.0 <= value <= 1.0 else None
+                and 0.0 <= value <= 1.0 and math.isfinite(value) else None
         m = dict(measures)
         # Never retain placement-era quality when final quality is unavailable.
         for key, source in (('vias', 'vias'), ('copper_mm', 'track_mm'), ('segments', 'segments')):

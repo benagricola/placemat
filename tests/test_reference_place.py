@@ -19,13 +19,33 @@ def _digest(monkeypatch):
 
 def _m(**over):
     fields = dict(script="fam/X", closure_clean=1.0, area_mm2=100.0, run_score=5.0, seconds=1.0, versions=VERSIONS, failure="", inputs_digest="d1")
-    return place_ref.MResult(**dict(fields, **over))
+    fields.update(over)
+    _evidence(fields)
+    return place_ref.MResult(**fields)
 
 
 def _b(**over):
     fields = dict(board="x", closure_clean=1.0, open=0, new_violations=[], vias=3, track_mm=10.0, run_score=5.0, ref_vias=4,
                   ref_track_mm=20.0, a_closure_clean=1.0, seconds=1.0, versions=VERSIONS, failure="", inputs_digest="d1")
-    return place_ref.BResult(**dict(fields, **over))
+    fields.update(over)
+    _evidence(fields)
+    fields.setdefault('reference_drc', {'baseline': 'human', 'new_violations': len(fields['new_violations'])})
+    return place_ref.BResult(**fields)
+
+
+def _evidence(fields):
+    from placemat.settings import Settings
+    measures = fields.setdefault('measures', {'v': 2, 'area_mm2': fields.get('area_mm2', 0.0)})
+    fields.setdefault('score_settings', place_ref._score_settings(Settings()))
+    fields.setdefault('route_report', {
+        'closure_clean': fields['closure_clean'], 'drc_new': measures.get('drc', 0),
+        'widths_failed': 0, 'critical_checks': 0, 'critical_unknown': [], 'final_findings': {},
+        'required_width_unknown': [],
+        'vias': measures.get('vias', 3), 'track_mm': measures.get('copper_mm', 10.0),
+        'segments': measures.get('segments', 20),
+        'phases': [{'name': 'REST', 'comparison_contract': 'same-original-asks',
+                    'final_closure_clean': fields['closure_clean']}],
+    })
 
 
 def _folder(tmp_path, script_text):
@@ -88,7 +108,7 @@ def test_a_board_is_clean_closure_lower_or_a_lint_failure_is_worse():
     assert place_ref.compare_b(old, _b(), {"placemat"}).status == "same"
     assert place_ref.compare_b(old, _b(closure_clean=0.9), {"placemat"}).status == "worse"
     assert place_ref.compare_b(old, _b(closure_clean=0.0, failure="lint"), {"placemat"}).status == "worse"
-    assert place_ref.compare_b(place_ref.asdict(_b(closure_clean=0.0, failure="placement")), _b(closure_clean=0.5), {"placemat"}).status == "better"
+    assert place_ref.compare_b(place_ref.asdict(_b(closure_clean=0.0, failure="placement")), _b(closure_clean=0.5), {"placemat"}).status == "not comparable"
     assert place_ref.compare_b(None, _b(), {"placemat"}).status == "new"
 
 
@@ -457,3 +477,80 @@ def test_routed_cli_applies_settings_only_to_copy_and_scores_with_them(tmp_path,
     row = json.loads(results.read_text())[result_kind][result_name]
     assert row['run_score'] == 55.0 and row['placement']['run_score'] == 55.0
     assert all(path.read_bytes() == data for path, data in source_bytes.items())
+
+
+@pytest.mark.parametrize('missing', ['route_report', 'score_settings'])
+def test_legacy_routed_rows_cannot_certify_comparison(missing):
+    old = place_ref.asdict(_m())
+    old.pop(missing)
+    comparison = place_ref.compare_module(old, _m(area_mm2=1.0), {'placemat'})
+    assert comparison.status == 'not comparable'
+    assert comparison.differ == ['routed evidence/settings']
+
+
+@pytest.mark.parametrize('field', ['critical_checks', 'critical_unknown', 'widths_failed', 'phases'])
+def test_missing_final_evidence_cannot_use_placement_counts(field):
+    old = place_ref.asdict(_m())
+    old['route_report'].pop(field)
+    assert place_ref.compare_module(old, _m(), {'placemat'}).status == 'not comparable'
+
+
+def test_changed_original_phase_contract_refuses_even_with_better_scalar_score():
+    old = place_ref.asdict(_m())
+    new = _m(measures={'v': 2, 'airwire_mm': 0.0})
+    new.route_report['phases'][0]['comparison_contract'] = 'different-original-asks'
+    assert place_ref.compare_module(old, new, {'placemat'}).status == 'not comparable'
+
+
+def test_effective_prices_are_bound_and_used_for_partial_routes():
+    from placemat.settings import Settings
+    prices = dict(place_ref._score_settings(Settings()), score_area=1.0)
+    old = _m(closure_clean=0.9, measures={'v': 2, 'airwire_mm': 10.0, 'area_mm2': 10.0}, score_settings=prices)
+    new = _m(closure_clean=0.9, measures={'v': 2, 'airwire_mm': 5.0, 'area_mm2': 20.0}, score_settings=prices)
+    assert place_ref.compare_module(place_ref.asdict(old), new, {'placemat'}).status == 'worse'
+    different = dict(prices, score_area=0.1)
+    assert place_ref.compare_module(place_ref.asdict(old), _m(score_settings=different), {'placemat'}).status == 'not comparable'
+
+
+def test_human_drc_view_does_not_rewrite_runtime_report():
+    old = _b()
+    violation = prepare.Violation('clearance', ('A', 'B'), (1.0, 2.0))
+    new = _b(new_violations=[violation])
+    before = json.dumps(new.route_report, sort_keys=True)
+    assert place_ref.compare_b(place_ref.asdict(old), new, {'placemat'}).status == 'worse'
+    assert json.dumps(new.route_report, sort_keys=True) == before
+    assert new.route_report['drc_new'] == 0
+
+
+def test_missing_width_proof_is_not_known_empty():
+    old = place_ref.asdict(_m())
+    old['route_report'].pop('required_width_unknown')
+    assert place_ref.compare_module(old, _m(), {'placemat'}).status == 'not comparable'
+
+
+@pytest.mark.parametrize('unknown', ['width_policy_unknown', 'width_unknown'])
+def test_raw_phase_open_unknown_width_cannot_certify(unknown):
+    row = _m(closure_clean=0.0)
+    row.route_report.pop('required_width_unknown')
+    phase = row.route_report['phases'][0]
+    phase.update(final_asked=1, final_joined=0, final_open=[{'net': 'A', unknown: True}],
+                 width_policy=[{'name': 'REST', 'by_net': {'A': {'status': 'known', 'widths': {'F.Cu': 0.3}}}}])
+    assert place_ref.compare_module(place_ref.asdict(row), row, {'placemat'}).status == 'not comparable'
+
+
+def test_complete_raw_phase_width_proof_is_measured_without_augmented_list():
+    row = _m(closure_clean=0.0)
+    row.route_report.pop('required_width_unknown')
+    phase = row.route_report['phases'][0]
+    phase.update(final_asked=1, final_joined=0, final_open=[{'net': 'A'}],
+                 width_policy=[{'name': 'REST', 'by_net': {'A': {'status': 'known', 'widths': {'F.Cu': 0.3}}}}])
+    assert place_ref.compare_module(place_ref.asdict(row), row, {'placemat'}).status == 'same'
+    phase['width_policy'][0]['by_net']['A']['status'] = 'unknown'
+    assert place_ref.compare_module(place_ref.asdict(row), row, {'placemat'}).status == 'not comparable'
+
+
+@pytest.mark.parametrize('value', [True, '1.0', float('nan'), float('inf'), -1.0, 10 ** 1000])
+def test_same_malformed_historical_prices_are_incomparable(value):
+    row = _m()
+    row.score_settings['score_area'] = value
+    assert place_ref.compare_module(place_ref.asdict(row), row, {'placemat'}).status == 'not comparable'

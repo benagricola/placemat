@@ -222,3 +222,15 @@ def test_final_critical_evidence_replaces_stale_placement_checks_and_escape_wall
     assert missing.validity.critical == 0  # no stale placement evidence presented as final
     assert set(missing.validity.unmeasured) == {'critical_checks', 'critical_unknown', 'critical_findings'}
     assert rank(final, missing, Settings()) < 0
+
+
+def test_huge_decoded_route_closure_is_unmeasured():
+    from placemat.score import Standing
+    report = {'closure_clean': 10 ** 1000, 'drc_new': 0, 'widths_failed': 0,
+              'critical_checks': 0, 'critical_unknown': [], 'final_findings': {},
+              'phases': [{'name': 'REST', 'comparison_contract': 'original',
+                          'final_closure_clean': 10 ** 1000}]}
+    result = Standing.of_route({'v': 2}, report)
+    assert result.clean is None and result.closures == (None,)
+    assert 'closure_clean' in result.validity.unmeasured
+    assert 'phase_closure' in result.validity.unmeasured
