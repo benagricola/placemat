@@ -67,6 +67,7 @@ class BResult:
     detail: str = ""        # what the failure said
     inputs_digest: str = ""   # of the capture's generator inputs: a changed capture is a difference, not a regression
     placement: dict = dataclasses.field(default_factory=dict)   # placement_facts: kept when the route fails or is refused
+    routing_evidence: dict = dataclasses.field(default_factory=dict)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -156,6 +157,8 @@ def placemat_run(script: pathlib.Path, extra: tuple = ()) -> tuple[dict | None, 
     started = time.monotonic()
     records = script.parent / ".placemat" / "runs"
     before = {p: _run_identity(p) for p in records.glob("*/run.json")}
+    previous_artifacts = {p.resolve(): route_ref._artifact_identity(p) for p in records.rglob("*")
+                          if p.is_file() and p.suffix in (".kicad_pcb", ".json")}
     audits = script.parent / ".placemat" / "reference-runs"
     audits.mkdir(parents=True, exist_ok=True)
     audit = pathlib.Path(tempfile.mkdtemp(prefix="invocation-", dir=audits))
@@ -211,9 +214,27 @@ def placemat_run(script: pathlib.Path, extra: tuple = ()) -> tuple[dict | None, 
     if proc.returncode:
         # A CLI exit cannot be promoted by an apparently completed record.
         message = (_process_text(proc.stderr) or _process_text(proc.stdout))[-500:]
+        result, seconds = failed("exit %d" % proc.returncode, message)
         if isinstance(record, dict) and record.get("failure"):
-            return dict(record, status="failed", returncode=proc.returncode), time.monotonic() - started
-        return failed("exit %d" % proc.returncode, message)
+            result = dict(record, status="failed", returncode=proc.returncode)
+        if isinstance(record, dict):
+            result["raw_record_diagnostic"] = record   # unverified; never adopted as metrics
+        if proc.returncode == 1 and malformed is None and isinstance(record, dict):
+            metrics = record.get("metrics")
+            route = metrics.get("route") if isinstance(metrics, dict) else None
+            if isinstance(route, dict) and route.get("routed_pcb"):
+                try:
+                    route_dir = pathlib.Path(route["routed_pcb"]).resolve().parent
+                    if route_dir.is_relative_to(chosen.parent.resolve()):
+                        report_path = route_dir / "route.json"
+                        report = json.loads(report_path.read_text())
+                        if report == route:
+                            diagnostic = route_ref._invalid_route_diagnostic(report, report_path, chosen.parent, previous_artifacts)
+                            if diagnostic:
+                                result["route_diagnostic"] = diagnostic
+                except (OSError, ValueError, TypeError):
+                    pass
+        return result, seconds
     if malformed is not None:
         return failed("malformed run record", malformed)
     return record, time.monotonic() - started
@@ -265,15 +286,35 @@ def run_b(board: fetch.Board, ref_dir: pathlib.Path, work: pathlib.Path, *, prep
     placement = placement_facts(record, folder)
     kind, message = _failure(record)
     if kind:
-        return result(failure=kind, detail=message, seconds=round(seconds, 1), versions=versions, placement=placement)
+        diagnostic = record.get("route_diagnostic", {}) if record else {}
+        report = route_ref.verified_invalid_report(diagnostic)
+        if report is None:
+            return result(failure=kind, detail=message, seconds=round(seconds, 1), versions=versions, placement=placement,
+                          routing_evidence={"status": "unmeasured", "measured": False, "certified": False})
+        after_path = pathlib.Path(diagnostic["drc_after_path"]) if "drc_after_path" in diagnostic else None
+        after = route_ref.diagnostic_violations(after_path)
+        new = route_ref.new_violations(after, prepared.baseline) if after is not None else None
+        evidence = route_ref.routing_evidence(report, status="completed_invalid", artifacts=diagnostic, after=after, new=new)
+        return result(failure=kind, detail=message, closure_clean=report["closure_clean"], open=report["open_after"],
+                      vias=report.get("vias", 0), track_mm=report.get("track_mm", 0.0),
+                      seconds=round(seconds, 1), versions=versions, placement=placement, new_violations=new or [],
+                      routing_evidence=evidence)
     route = record["metrics"].get("route")
     if not route or not route.get("routed_pcb"):
         return result(failure=NO_ROUTE, seconds=round(seconds, 1), versions=versions, placement=placement)
     _, routed = prepare.measure(pathlib.Path(route["routed_pcb"]))
-    new = route_ref.new_violations(prepare.violations_of(route["drc_after"]), prepared.baseline)
+    drc_path = pathlib.Path(route["routed_pcb"]).with_name("drc_after.json")
+    after = prepare.violations(drc_path) if drc_path.is_file() else (
+        prepare.violations_of(route["drc_after"]) if isinstance(route.get("drc_after", {}).get("violations"), list) else None)
+    new = route_ref.new_violations(after, prepared.baseline) if after is not None else []
+    evidence = route_ref.routing_evidence(dict(route, vias=routed.vias, track_mm=routed.track_mm),
+                                         status="completed_valid" if route.get("valid") is not False else "completed_invalid",
+                                         after=after, new=new if after is not None else None)
     return result(closure_clean=route.get("closure_clean", NOT_RUN), open=route.get("open_after", 0), new_violations=new,
                   vias=routed.vias, track_mm=routed.track_mm, run_score=run_score(record, folder), seconds=round(seconds, 1),
-                  versions=versions, placement=placement)
+                  versions=versions, placement=placement, routing_evidence=evidence,
+                  failure="invalid board" if route.get("valid") is False else "",
+                  detail=route.get("invalid_reason", ""))
 
 
 def _area(metrics: dict) -> float:
@@ -344,6 +385,8 @@ def _worse_closure(old: dict, new) -> bool:
 def _compared(old: dict | None, new, changing: set[str], value) -> route_ref.Comparison:
     if old is None:
         return route_ref.Comparison("new", [])
+    if isinstance(new, BResult) and route_ref.unmeasured_failure_comparison(old, new):
+        return route_ref.Comparison("not comparable", ["routing measurements"])
     differ = _differ(old, new, changing)
     if differ:
         return route_ref.Comparison("not comparable", differ, value(old, new))
@@ -382,6 +425,8 @@ def compare_module(old: dict | None, new: MResult, changing: set[str]) -> route_
 
 def save_results(path: pathlib.Path, boards: list[BResult] = (), modules: list[MResult] = ()) -> None:
     """Rewrite the "b" entries of the boards and the "modules" entries of the modules given, keeping every other entry and key."""
+    if not boards and not modules:
+        return   # every result was held: preserve the existing baseline bytes
     data = route_ref.load_results(path)
     for r in boards:
         data.setdefault("b", {})[r.board] = asdict(r)
@@ -391,11 +436,14 @@ def save_results(path: pathlib.Path, boards: list[BResult] = (), modules: list[M
 
 
 def line_b(r: BResult, c: route_ref.Comparison) -> str:
+    if r.failure:
+        return "%-22s b %s  %s  FAILED %s: %s" % (
+            r.board, route_ref.evidence_line(r.routing_evidence), route_ref.said(c), r.failure, r.detail[:200])
     a = "n/a" if r.a_closure_clean is None else "%.1f%%" % (100 * r.a_closure_clean)
     head = "%-22s b     closure_clean %.1f%% (a %s) open %d new DRC %d vias %d/%d track %.0f/%.0f mm score %.1f %.0fs" % (
         r.board, 100 * r.closure_clean, a, r.open, len(r.new_violations), r.vias, r.ref_vias, r.track_mm, r.ref_track_mm,
         r.run_score, r.seconds)
-    return "%s  %s%s" % (head, route_ref.said(c), "  FAILED %s: %s" % (r.failure, r.detail[:200]) if r.failure else "")
+    return "%s  %s" % (head, route_ref.said(c))
 
 
 def line_module(r: MResult, c: route_ref.Comparison) -> str:
@@ -457,8 +505,13 @@ def main(argv=None) -> int:
     finally:
         if not args.work:   # a --work folder is the caller's, to inspect
             shutil.rmtree(root, ignore_errors=True)
+    unresolved = {id(r) for r, c in zip(boards + modules, comparisons) if "routing measurements" in c.differ}
     for r in held:
-        print("held back, worse than the recorded result: %s (--accept-worse writes it)" % (getattr(r, "board", None) or r.script))
+        name = getattr(r, "board", None) or r.script
+        if id(r) in unresolved:
+            print("held back, unresolved routing measurements: %s" % name)
+        else:
+            print("held back, worse than the recorded result: %s (--accept-worse writes it)" % name)
     return 1 if worse or held else 0
 
 

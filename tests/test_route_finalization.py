@@ -83,6 +83,9 @@ def test_final_recheck_retains_earlier_obligations_and_clears_stale_success(monk
     assert seen == obs and report.asked == obs and report.asked is not obs
     assert report.widths_failed == 1
     assert report.phases[0]['final_open'][0]['width_unknown'] is True
+    assert report.phases[0]['final_connected'] == 1
+    assert report.phases[0]['final_width_known_under'] == 0
+    assert report.phases[0]['final_width_unknown'] == 1
     assert report.phases[0]['final_closure_clean'] == 0
     assert report.phases[1]['final_closure_clean'] == 1
     # A second candidate is rejudged, rather than accumulating the first candidate's failures.
@@ -299,3 +302,21 @@ def test_actual_phase_key_tuple_fields_match_retained_json_invocation(tmp_path):
     assert record_digest(old_representation) == binding['contract_sha256']
     binding['contract']['phases'][0]['router_args'].append('--changed')
     assert grader.binding()['contract']['phases'] == invocation['phases']
+
+
+def test_final_connected_and_width_evidence_counts_are_distinct_from_clean(monkeypatch):
+    import placemat.kicad.phase_run as phase_run
+    judged = [{'joined': True, 'under': {'F.Cu': 0.1}, 'violated': False, 'width_unknown': True},
+              {'joined': True, 'under': {}, 'violated': False, 'width_unknown': False},
+              {'joined': False, 'under': {}, 'violated': False, 'width_unknown': False}]
+    asked = [[{'net': 'N', 'from': {'ref': 'A', 'pad': str(i)}, 'to': {'ref': 'B', 'pad': str(i)},
+               'widths': {'F.Cu': 0.2}} for i in range(3)]]
+    monkeypatch.setattr(phase_run, 'judge_obligations', lambda *args: judged)
+    monkeypatch.setattr(phase_run, 'phase_neck', lambda *args: None)
+    monkeypatch.setattr(phase_run, 'comparison_contract', lambda *args: 'contract')
+    report = SimpleNamespace(phases=[{'name': 'signals', 'connections': []}], final_judged=[], widths_failed=0)
+    route.recheck_final_phases(report, asked, [SimpleNamespace(name='signals')], {'policies': []},
+                              'candidate', 'drc', SimpleNamespace(is_real=lambda _: True), None)
+    phase = report.phases[0]
+    assert (phase['final_connected'], phase['final_joined']) == (2, 1)
+    assert (phase['final_width_known_under'], phase['final_width_unknown']) == (1, 1)

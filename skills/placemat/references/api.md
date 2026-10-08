@@ -5662,3 +5662,18 @@ current paths and remaining signals. Without a board it writes the signals phase
 
 A run's start is the end reached first while walking the declared outline path
 (or the chained edge order for a read board); `run.at(0)[0]` is that point.
+
+### Final phase measurements
+
+Routing phase records distinguish clean closure from electrical connectivity. `final_joined`
+counts obligations that pass connectivity, applicable width proof and DRC; `final_connected`
+counts obligations electrically joined on the final copper. Among connected obligations,
+`final_width_known_under` counts measured under-width paths and `final_width_unknown` counts
+unproved required-width paths. These two width counts may overlap. Neither count certifies a
+complete path, and a missing field in an older report means unknown rather than zero.
+
+Reference collectors preserve verified completed-invalid routing measurements separately
+from certification. RC1 still fails certification and remains held against a previously
+passed baseline. An unverified, stale or incomplete artifact carries no measured routing
+comparison. Inherited manufacturing errors remain visible separately from new errors;
+connectivity comparisons require matching original selected obligations and rules.

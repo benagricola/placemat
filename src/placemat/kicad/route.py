@@ -1242,6 +1242,10 @@ def recheck_final_phases(report, comparison_asked, run_list, width_receipt, pcb_
         report.widths_failed += sum(1 for j, oc in zip(got, outcomes) if j["joined"] and (j["under"] or j.get("width_unknown", False) or oc == "joined_narrow"))
         clean = [is_clean(j, oc) for j, oc in zip(got, outcomes)]
         rec["final_joined"] = sum(clean)
+        # Electrical connectivity is distinct from clean (width/DRC-certified) closure.
+        rec["final_connected"] = sum(j["joined"] for j in got)
+        rec["final_width_known_under"] = sum(bool(j["under"]) for j in got if j["joined"])
+        rec["final_width_unknown"] = sum(bool(j.get("width_unknown")) for j in got if j["joined"])
         rec["final_closure_clean"] = round(sum(clean) / len(obs), 4) if obs else 1.0
         rec["final_open"] = [dict(o, **({"violated": True} if j["joined"] and j["violated"] else {}),
                                   **({"under": dict(j["under"])} if j["joined"] and j["under"] else {}),
