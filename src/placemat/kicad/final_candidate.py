@@ -60,6 +60,33 @@ class CandidatePlanner:
         if kind not in ('nets', 'rest'):
             self._unproved_work.append(call_id)
 
+    def _executor_bind_prior(self, grader, ledger, executor, *, phase, call):
+        """Replace declaration-only prior work with validated actual receipts."""
+        from . import replay_inventory
+        if self._work or self._unproved_work or self.requests:
+            raise ProofUnavailable('candidate_prior_work_already_bound')
+        proof, records = replay_inventory._executor_prior_work(
+            grader, ledger, executor, phase=phase, call=call)
+        work = []
+        for record in records:
+            identity = record['identity']
+            call_id = 'p%d-c%d-w%d' % (identity['phase'], identity['call'], identity['wave'])
+            work.append(CopperWork(call_id, identity['kind']))
+        self._work = work
+        self._prior_custody = (grader, ledger, executor, phase, call, proof)
+
+    def _verify_prior(self):
+        prior = getattr(self, '_prior_custody', None)
+        if prior is None:
+            return
+        from . import replay_inventory
+        grader, ledger, executor, phase, call, expected = prior
+        actual, _ = replay_inventory._executor_prior_work(
+            grader, ledger, executor, phase=phase, call=call)
+        from .final_call import record_digest
+        if record_digest(actual) != record_digest(expected):
+            raise ProofUnavailable('candidate_prior_work_changed')
+
     def resumed(self, name):
         self._unproved_work.append('resumed:' + name)
 
@@ -67,6 +94,7 @@ class CandidatePlanner:
                 summary, command, launch, nets, layers, deadline_utc, now=None):
         """Bind the literal actual final issued call, preserving ordinary argv on refusal."""
         try:
+            self._verify_prior()
             if not _supports_final_call(self._capabilities):
                 raise ProofUnavailable('final_call_capability_unavailable')
             if self._complete is not True:

@@ -48,9 +48,14 @@ def finish(factory,report,work):
                 packet=detached(authority,result['candidate'],result['published'])
                 return packet.verify(),packet
             return report,None
-    output,receipt,evidence=sole_pocket.run(budget,owner,owner.final_call,work/'pocket')
+    from . import replay_nominal
+    nominal=replay_nominal.eligible(budget,owner,owner.final_call,work/'nominal-eligibility')
+    if nominal is None:
+        output,receipt,evidence=sole_pocket.run(budget,owner,owner.final_call,work/'pocket')
+    else:
+        output,receipt,evidence=sole_pocket.run(budget,owner,owner.final_call,work/'escape',nominal=nominal)
     selection=evidence.get('selection',{})
-    if output is None or selection.get('selected')!='pocket':return report,None
+    if output is None or selection.get('selected') not in ('pocket','escape'):return report,None
     # Fresh final physical/critical checks still run even when strict Standing
     # is unknown; original ordinary selection is recorded as such, not adoption.
     incumbent=authority.regrade(report.routed_pcb,work/'ordinary-incumbent')

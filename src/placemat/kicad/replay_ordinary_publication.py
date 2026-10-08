@@ -9,7 +9,9 @@ from .replay_publication import detached
 
 def publish_selected(budget,authority,incumbent,candidate,destination,selection):
     budget._check(budget.executor)
-    if selection.get('selected')!='pocket' or selection.get('ordinary_comparison_only') is not True:
+    if (selection.get('selected') not in ('pocket','escape') or selection.get('ordinary_comparison_only') is not True
+            or selection.get('selected')=='escape' and (selection.get('candidate_kind')!='escape'
+                                                       or selection.get('preference_candidate')!='pocket')):
         raise ProofUnavailable('replay_original_ordinary_selection_required')
     source=Path(candidate.evidence).parent
     expected={p.name:file_hash(p) for p in source.iterdir() if p.is_file()}

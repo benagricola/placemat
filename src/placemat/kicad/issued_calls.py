@@ -301,6 +301,25 @@ def _executor_raw_result(grader, ledger, executor, token, *, returncode, snapsho
     token.raw_sha = record_digest(token.raw)
 
 
+def raw_summary_hash(record):
+    """Bind the exact summary snapshot made by this module's raw capture.
+
+    Board/project/rules occupy slots 0..2, including absent companions; the
+    summary occupies slot 3. No suffix-based or ambiguous basename matching.
+    """
+    source=Path(record['summary']).resolve()
+    name='3-'+source.name
+    matches=[(path,digest) for path,digest in record['raw']['files'].items()
+             if Path(path).name==name]
+    if len(matches)!=1:
+        raise ProofUnavailable('issued_call_summary_snapshot_unproved')
+    path,expected=matches[0]
+    _unchanged({path:expected})
+    if not source.is_file() or file_hash(source)!=expected:
+        raise ProofUnavailable('issued_call_summary_changed')
+    return expected
+
+
 def _executor_restored_result(grader, ledger, executor, token):
     """PRIVATE after actual source-project/locking/pour/guard restoration."""
     _token(grader, ledger, executor, token)
@@ -308,9 +327,7 @@ def _executor_restored_result(grader, ledger, executor, token):
         raise ProofUnavailable('issued_call_restoration_order')
     _unchanged(token.raw['files'])
     summary = Path(token.record['summary'])
-    raw_summary_sha = next(v for p, v in token.raw['files'].items() if Path(p).name.endswith(summary.name))
-    if file_hash(summary) != raw_summary_sha:
-        raise ProofUnavailable('issued_call_summary_changed')
+    raw_summary_hash(dict(token.record, raw=token.raw))
     output_files = _files(token.record['output'])
     if output_files[token.record['output']] is None:
         raise ProofUnavailable('issued_call_outputs_missing')

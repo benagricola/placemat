@@ -141,7 +141,7 @@ def walls_at_final_call(grader, ledger, executor, prior_call, final_call, *, sel
     return result
 
 
-def supported_completed_work(grader, ledger, executor):
+def _supported_work(grader, ledger, executor, pending_final=None):
     """Withhold when the actual ordered pipeline contains unrecorded work.
 
     This deliberately excludes pair/bus custody and skipped or resumed plans.
@@ -151,6 +151,15 @@ def supported_completed_work(grader, ledger, executor):
     issued_calls._owner(grader, ledger, executor, writing=False)
     if len(ledger.call_plans) != len(grader._phases):
         raise ProofUnavailable('replay_work_list_incomplete')
+    if pending_final is not None:
+        if (not isinstance(pending_final, tuple) or len(pending_final) != 2
+                or any(type(index) is not int for index in pending_final)):
+            raise ProofUnavailable('replay_pending_final_unproved')
+        phase, index = pending_final
+        if (phase != len(grader._phases)-1 or phase < 0
+                or index != len(ledger.call_plans[phase][0]['calls'])-1 or index < 0
+                or ledger.call_plans[phase][0]['calls'][index]['kind'] not in ('nets', 'rest')):
+            raise ProofUnavailable('replay_pending_final_unproved')
     records = [issued_calls.completed_record(grader, ledger, executor, token)
                for token in ledger.issued]
     valid_indices = {(phase, index) for phase, (plan, _) in enumerate(ledger.call_plans)
@@ -166,6 +175,10 @@ def supported_completed_work(grader, ledger, executor):
                              'tasks': 'connections', 'pour': 'pour'}.get(call['kind'])
             own = [record for record in records
                    if record['identity']['phase'] == phase and record['identity']['call'] == index]
+            if pending_final == (phase, index):
+                if own:
+                    raise ProofUnavailable('replay_pending_final_already_issued')
+                continue
             if expected_kind is None or not own or any(
                     record['identity']['kind'] != expected_kind for record in own):
                 raise ProofUnavailable('replay_work_list_unsupported')
@@ -178,3 +191,19 @@ def supported_completed_work(grader, ledger, executor):
                     raise ProofUnavailable('replay_task_wave_scope_incomplete')
     return {'plans_sha256': record_digest([plan for plan, _ in ledger.call_plans]),
             'issued_calls_sha256': record_digest(records)}
+
+
+def supported_completed_work(grader, ledger, executor):
+    return _supported_work(grader, ledger, executor)
+
+
+def _executor_prior_work(grader, ledger, executor, *, phase, call):
+    """Before the exact final single issue, prove every other planned call complete.
+
+    No incomplete token is ignored. Only the uniquely identified final planned
+    nets/rest call may be absent; this is transport provenance, not adoption.
+    """
+    proof = _supported_work(grader, ledger, executor, (phase, call))
+    records = [issued_calls.completed_record(grader, ledger, executor, token)
+               for token in ledger.issued]
+    return proof, records

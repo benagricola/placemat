@@ -91,7 +91,8 @@ def run_calls(budget, contexts, final_call, cohort_call, wall_input, work):
         given = work / ('c%d-input.kicad_pcb' % index)
         output = work / ('c%d-output.kicad_pcb' % index)
         summary = work / ('c%d-summary.json' % index)
-        env = dict(ctx.env, KRT_INTERNAL_ROUTE_CANDIDATE='1',
+        from .replay_nominal import clear_transport
+        env = dict(clear_transport(ctx.env), KRT_INTERNAL_ROUTE_CANDIDATE='1',
                    KRT_ROUTE_DEADLINE_UTC=str(budget.deadline),
                    KRT_INTERNAL_ORDINARY_GRADE_REQUEST=str(work/('c%d-ordinary-grade-request.json' % index)))
         candidate_ctx = replace(ctx, env=env, execution=None)

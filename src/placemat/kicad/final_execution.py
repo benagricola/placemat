@@ -190,6 +190,97 @@ class FinalExecution:
             result[token] = replace(ctx, env=dict(ctx.env), cfg=deepcopy(ctx.cfg))
         return result
 
+    def _prepare_nominal_context(self, ctx, issued, env):
+        """Optional observer transport from existing planner + actual prior ledger."""
+        from .final_candidate import CandidatePlanner
+        from . import replay_backend
+        phase, call = issued['phase'], issued['call']
+        from hashlib import sha256
+        raw_caps = (self.work/'replay-capability'/'stdout.json').read_bytes()
+        if (record_digest(self.backend_capability) != self.backend_capability_sha
+                or sha256(raw_caps).hexdigest() != self.backend_capability['stdout_sha256']):
+            raise ProofUnavailable('nominal_capability_changed')
+        caps = json.loads(raw_caps)
+        planner = CandidatePlanner(
+            authority=self.factory._authority.descriptor(), phases=self.grader._phases,
+            obligations=json.loads(self.grader._obligations),
+            width_receipt=json.loads(self.grader._widths), receipt_path=self.grader._receipt_path,
+            complete=True, capabilities=caps)
+        planner._executor_bind_prior(self.grader,self.ledger,self.executor,phase=phase,call=call)
+        call_id = 'p%d-c%d-w%d' % (phase,call,issued['wave'])
+        planner.note(call_id,self.ledger.call_plans[phase][0]['calls'][call]['kind'])
+        command = issued['command']
+        _,_,parser_argv = replay_backend._runtime(ctx,command)
+        launch = command[:len(command)-len(parser_argv)]
+        prepared = planner.prepare(
+            phase_index=phase,call_index=call,calls=self.ledger.call_plans[phase][0]['calls'],
+            call_id=call_id,board=issued['input_board'],output=issued['output_board'],
+            summary=issued['summary'],command=command,launch=launch,nets=issued['nets'],
+            layers=issued['layers'],deadline_utc=self.deadline)
+        if prepared == command:
+            self.nominal_refusal = list(planner.refusals)
+            return env
+        request = planner.requests[0]
+        proof = json.loads(Path(request['proof']).read_bytes())
+        identity = {'proof_sha256':record_digest(proof),'call_id':call_id,
+                    'deadline_utc':self.deadline,'policy_sha256':record_digest(proof['nominal_policy'])}
+        context_path = self.work/'nominal-original-context.json'
+        evidence_path = self.work/'nominal-original-evidence.json'
+        context = dict(proof=proof,identity=identity,candidate='legacy',
+                       evidence_file=str(evidence_path),failures=[])
+        with context_path.open('x') as handle:
+            json.dump(context,handle,sort_keys=True,allow_nan=False)
+        runtime,_,_ = replay_backend._runtime(ctx,command)
+        self.nominal_observation = {'runtime':runtime,'request':request,'context':str(context_path),
+            'context_sha256':file_hash(context_path),'evidence':str(evidence_path),
+            'proof':proof,'identity':identity}
+        self.nominal_observation_sha = record_digest(self.nominal_observation)
+        return dict(env,KRT_INTERNAL_FINAL_CALL_CONTEXT=str(context_path),
+                    KRT_INTERNAL_FINAL_CALL_KIND='legacy',
+                    KRT_INTERNAL_FINAL_CALL_PROOF=identity['proof_sha256'],
+                    KRT_INTERNAL_FINAL_CALL_ID=call_id)
+
+    def _retain_nominal_receipt(self, log):
+        """Detach telemetry only after the same actual owned incumbent completed."""
+        from . import issued_calls
+        record = getattr(self,'nominal_observation',None)
+        if record is None:
+            return
+        try:
+            if record_digest(record) != self.nominal_observation_sha:
+                raise ProofUnavailable('nominal_observer_context_changed')
+            if (file_hash(record['context']) != record['context_sha256']
+                    or file_hash(record['request']['proof']) != record['request']['proof_sha256']):
+                raise ProofUnavailable('nominal_observer_context_changed')
+            issued_calls._unchanged(record['runtime'])
+            evidence = Path(record['evidence'])
+            from hashlib import sha256
+            raw_evidence = evidence.read_bytes()
+            evidence_sha = sha256(raw_evidence).hexdigest()
+            raw_log = Path(log).read_bytes()
+            log_sha = sha256(raw_log).hexdigest()
+            completed = []
+            refused = False
+            for line in raw_log.decode('utf-8').splitlines():
+                if line.startswith('FINAL_CALL_EVIDENCE_REFUSED: '):
+                    refused = True
+                elif line.startswith('FINAL_CALL_EVIDENCE_COMPLETE: '):
+                    completed.append(json.loads(line.split(': ',1)[1]))
+            expected = {'schema':1,'proof_sha256':record['identity']['proof_sha256'],
+                        'call_id':record['identity']['call_id'],'evidence_sha256':evidence_sha}
+            if refused or len(completed)!=1 or record_digest(completed[0])!=record_digest(expected):
+                raise ProofUnavailable('nominal_observer_completion_unproved')
+            files = {record['context']:record['context_sha256'],
+                     record['request']['proof']:record['request']['proof_sha256'],
+                     str(evidence):evidence_sha,str(Path(log)):log_sha}
+            record['source_files'] = dict(files)
+            record['log'] = str(Path(log))
+            record['detached_files'] = issued_calls._snapshot(files,self.work/'nominal-original-snapshot')
+            self.nominal_observation_sha = record_digest(record)
+        except (ProofUnavailable,OSError,ValueError,TypeError,KeyError) as error:
+            self.nominal_refusal = [error.record() if isinstance(error,ProofUnavailable) else
+                {'code':'nominal_observer_receipt_unavailable','facts':{'error':type(error).__name__}}]
+
     def issue_single(self, ctx, **issued):
         """Reserve before final token; unsupported proof preserves ordinary argv/env."""
         phase, call = issued['phase'], issued['call']
@@ -220,6 +311,12 @@ class FinalExecution:
             env = dict(ctx.env, KRT_INTERNAL_ROUTE_CANDIDATE='1', KRT_ROUTE_DEADLINE_UTC=str(self.deadline),
                        KRT_INTERNAL_ORDINARY_GRADE_REQUEST=str(self.work/'ordinary-grade-original.json'))
             env.pop('KRT_INTERNAL_POCKET_WALLS',None)
+            # A missing observer does not disable original cohort/pocket routing.
+            try:
+                env = self._prepare_nominal_context(ctx,issued,env)
+            except (ProofUnavailable,OSError,ValueError,KeyError,TypeError) as error:
+                self.nominal_refusal = [error.record() if isinstance(error,ProofUnavailable) else
+                    {'code':'nominal_observer_unavailable','facts':{'error':type(error).__name__}}]
             candidate_ctx = replace(ctx,env=env)
             issued['environment'] = env
             token = self.issue_call(_context=candidate_ctx,**issued)
@@ -245,6 +342,7 @@ class FinalExecution:
         self.ordinary_receipt, self.backend_eligibility = ordinary_completed.run_completed(
             self.replay_budget,token,ctx,log,
             lambda run: _completed_single_call(ctx,cmd,log,what,source,output,token,run=run))
+        self._retain_nominal_receipt(log)
 
     def raw_call(self, token, returncode):
         if token is None:

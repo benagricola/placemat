@@ -55,7 +55,7 @@ def _grade(value):
     return value
 
 
-def choose(budget,owner,final_call,pocket_output,pocket_files,work):
+def choose(budget,owner,final_call,pocket_output,pocket_files,work, *, candidate_kind='pocket'):
     """Grade/select inside the already consumed ordinary pocket slot.
 
     This cannot launch another routing search or publish an authoritative
@@ -141,7 +141,10 @@ def choose(budget,owner,final_call,pocket_output,pocket_files,work):
     namespace={}
     exec(compile(ast.Module(body=[node],type_ignores=[]),str(helper),'exec'),namespace)
     unchanged()
+    if candidate_kind not in ('pocket','escape'):raise ProofUnavailable('ordinary_candidate_kind_unproved')
     selected='pocket' if namespace['prefer_pocket'](grades['legacy'],grades['pocket']) else 'legacy'
     result={'selected':selected,'scope':scope,'grades':grades,'ordinary_comparison_only':True}
+    if candidate_kind=='escape':
+        result.update(selected='escape' if selected=='pocket' else 'legacy',candidate_kind='escape',preference_candidate='pocket')
     (work/'selection.json').write_text(json.dumps(result,sort_keys=True,allow_nan=False)+'\n')
     return result
