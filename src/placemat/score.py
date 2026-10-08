@@ -164,6 +164,7 @@ class Standing:
     clean: float | None = None  # the route's clean closure; None when not routed
     phase_contracts: tuple | None = () # None when the final phase evidence is missing
     routed: bool = False       # includes a routed result whose closure could not be measured
+    phase_names: tuple | None = ()  # original full phase order; None when names are missing
 
     @classmethod
     def of_route(cls, measures: dict, report) -> "Standing":
@@ -232,7 +233,11 @@ class Standing:
         if contracts is not None and any(not c for c in contracts):
             missing.append('phase_contract')
         validity = replace(Validity.of(m, drc_new=drc, widths_failed=widths), unmeasured=tuple(missing))
-        return cls(m, validity, closures, clean, contracts, True)
+        names = tuple(p.get('name') for p in phases) if phases_known else None
+        if names is not None and (any(not isinstance(n, str) or not n for n in names)
+                                  or len(set(names)) != len(names)):
+            names = None
+        return cls(m, validity, closures, clean, contracts, True, names)
 
 
 QUALITY_TERMS = ("vias", "copper_mm", "segments")
@@ -276,7 +281,7 @@ def validity_order(a: Standing, b: Standing) -> int:
     return 0 if va else _sign(a.validity.key(), b.validity.key())
 
 
-def rank(a: Standing, b: Standing, cfg) -> int:
+def rank(a: Standing, b: Standing, cfg, *, phase_priority=None) -> int:
     """-1 when `a` ranks above `b`, 1 below, 0 a tie (D11-D17):
     1. validity: a valid board above an invalid one; two invalid boards by `Validity.key()`;
     2. the phases' closures in order (higher better, exact), when both are routed;
@@ -285,19 +290,48 @@ def rank(a: Standing, b: Standing, cfg) -> int:
        exact (D17);
     5. the run score, within its noise band (area is a term of it).
     A tie (0) keeps the incumbent: callers replace a held board only on -1, and never replace a valid board with an
-    invalid one (D12)."""
+    invalid one (D12).
+
+    ``phase_priority`` is the explore run's explicit named phase order (D23).
+    Complete original contracts must still match before any tier compares.
+    Only the selected phase closures precede whole closure; omitted phases
+    remain obligations, and are not appended to the selected priorities.
+    Final-call acceptance always uses the default full configured order.
+    """
+    indices = None
+    if phase_priority is not None:
+        if not isinstance(phase_priority, (tuple, list)) or any(not isinstance(n, str) or not n for n in phase_priority):
+            raise ValueError('Phase priority must be an ordered list of phase names')
+        if len(set(phase_priority)) != len(phase_priority):
+            raise ValueError('Phase priority contains duplicate names')
+        if not (_routed(a) and _routed(b)):
+            raise ValueError('Phase priority requires two routed boards')
     if _routed(a) and _routed(b):
         if (a.phase_contracts is None or b.phase_contracts is None
                 or len(a.closures) != len(b.closures) or len(a.phase_contracts) != len(a.closures)
                 or len(b.phase_contracts) != len(b.closures) or a.phase_contracts != b.phase_contracts
                 or any(not c for c in a.phase_contracts)):
             raise ValueError('Routed boards have incomparable phase obligations')
+        if a.phase_names is not None and b.phase_names is not None and a.phase_names != b.phase_names:
+            raise ValueError('Routed boards have incomparable phase names')
+        if phase_priority is not None:
+            if (a.phase_names is None or b.phase_names is None
+                    or len(a.phase_names) != len(a.closures)
+                    or len(b.phase_names) != len(b.closures)
+                    or a.phase_names != b.phase_names
+                    or len(set(a.phase_names)) != len(a.phase_names)):
+                raise ValueError('Routed boards lack comparable complete phase names')
+            if any(name not in a.phase_names for name in phase_priority):
+                raise ValueError('Phase priority names an unknown phase')
+            indices = tuple(a.phase_names.index(name) for name in phase_priority)
     s = validity_order(a, b)
     if s:
         return s
     va = a.validity.valid
     if _routed(a) and _routed(b):
-        for ca, cb in zip(a.closures, b.closures):
+        ordered = range(len(a.closures)) if indices is None else indices
+        for i in ordered:
+            ca, cb = a.closures[i], b.closures[i]
             s = _sign(cb if cb is not None else -math.inf, ca if ca is not None else -math.inf)
             if s:
                 return s

@@ -1076,11 +1076,12 @@ def _write_variant(make_board, board, plan, folder: Path) -> Path:
     return pcb
 
 
-def _taken(routes: list, measures: dict, cfg):
+def _taken(routes: list, measures: dict, cfg, phase_priority=None):
     """The seed of the routed variant that ranks first (`score.rank`: the validity tier, the clean closure, the quality
     key once fully routed, the run score, exactly: `_exact`) by its measures (`measures`, {seed: measures}) and its route's
     clean closure and phase contracts from the authoritative final report;
-    the earlier seed of a tie; None when every route failed."""
+    the earlier seed of a tie; None when every route failed. An explicit
+    phase_priority uses the per-run named order after complete-contract validation."""
     import functools
     from . import score as _score
     closed = sorted((r for r in routes if "error" not in r and not r.get("remap_refusal")), key=lambda r: r["seed"])
@@ -1091,7 +1092,9 @@ def _taken(routes: list, measures: dict, cfg):
     def standing(r):
         m = dict(measures.get(r["seed"]) or {})
         return _score.Standing.of_route(m, r)
-    return min(closed, key=functools.cmp_to_key(lambda a, b: _score.rank(standing(a), standing(b), cfg)))["seed"]
+    def compare(a, b):
+        return _score.rank(standing(a), standing(b), cfg, phase_priority=phase_priority)
+    return min(closed, key=functools.cmp_to_key(compare))["seed"]
 
 
 def _send_done(report, kept: bool, **more) -> None:

@@ -62,3 +62,47 @@ if the limit is out of reach.
 
 - The `score.area` default weight, and any other weight the plan sets. Tunables are settings with documented defaults.
 - Anything the gate shows is worse.
+
+## Continuation status, 2026-10-08
+
+Step 2 remains in its feature worktree. Scoped common-score, native delta,
+final critical checks, pin finalist and placement comparison changes have been
+reviewed; this is not completion of the full comparative or integration gates.
+The area weight 0.25 remains provisional, the search defaults to the clique,
+and the user has not chosen the performance gate or an area default.
+
+Contact-index commit `9f291834` is bound to genuine editable version
+`0.99.35.post1.dev88+g9f2918340.d20261008` and native SHA-256
+`197f9e2699c4f8204f63f4dcbc99d3923802514da4113fe8246e98f814297119`.
+The owned corpus job passed both cases in 632.34 seconds, with unchanged
+runtime/input identities: 4,000 synthetic candidates, then 153 native part
+candidates across six actual modules. The written core has zero native cell
+coverage and twelve documented invalid fixed-frame fallbacks. A separate
+122.16-second job proved exactly four distinct actual free-core cell poses,
+with 789 independent Python/native pad judgments per pose, raw/whole parity
+and source restoration. Receipts, wrappers, hashes and logs are in the
+task-owned `placemat-review-scratch-20261007/step2` directory. These are
+correctness proofs, not performance measurements.
+
+Earlier bounded timing at native `c200` showed substantial measured regressions:
+generated free-core resolve 355.91 seconds versus clique 32.06, and InputPower
+29.32 seconds versus 2.37. The 600-second diagnostic timed out before complete
+instrumented core counters; its external end-identity audit is recorded. No
+native `197f` speed improvement or adoption decision has been established.
+
+The shared rank helper now supports the settled per-run named phase order:
+all original phase contracts are validated, requested phase closures compare
+in the supplied order, then whole closure and normal quality/score tiers.
+Omitted phases are not inserted before whole closure. Default comparisons,
+including final-call acceptance, retain the full configured order. Step 1's
+`Routing.rank` plumbing belongs to the root-owned combined review checkout.
+
+The exact pin writer/readback work is still under review. Reserved artifact
+names and refused-readback preservation have pure coverage; saved pose gates,
+manufacturing/footprint identity checks and routed logical-role projection
+remain open. The retained full-board authority must independently bind the
+actual original selection and resolved width receipt, preserve held geometry
+and fixed copper, rejudge final critical checks, and withhold adoption for
+unknown required-width evidence. A descriptor alone cannot enable it.
+Root owns combined integration; no main merge or optional routing activation
+has occurred.
