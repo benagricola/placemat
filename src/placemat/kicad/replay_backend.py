@@ -1,4 +1,5 @@
 """One actual owned router call; execution receipts never authorize adoption."""
+import hashlib
 from pathlib import Path
 import json
 import math
@@ -193,7 +194,7 @@ def run_issued(grader, ledger, executor, token, ctx, log):
                        lambda: issued_calls._token(grader, ledger, executor, token))
 
 
-def _run_record(record, deadline, ctx, log, validate, *, effective_clearances=_UNSET):
+def _run_record(record, deadline, ctx, log, validate, *, effective_clearances=_UNSET, actual_completed=None):
     """Shared owned launch; only its private owning closure supplies context.
 
     This function cannot mint original execution custody or adoption authority.
@@ -231,19 +232,12 @@ def _run_record(record, deadline, ctx, log, validate, *, effective_clearances=_U
     if rc != 0 or time.time() >= deadline:
         raise ProofUnavailable('replay_backend_incomplete', returncode=rc)
     try:
-        summary = json.loads(Path(record['summary']).read_bytes())
+        summary_bytes = Path(record['summary']).read_bytes()
+        summary = json.loads(summary_bytes)
     except (OSError, ValueError, UnicodeError) as error:
         raise ProofUnavailable('replay_backend_summary_unavailable') from error
     if not isinstance(summary, dict):
         raise ProofUnavailable('replay_backend_summary_malformed')
-    requested = None
-    if ctx.clearances_file is not None:
-        try:
-            requested = json.loads(Path(ctx.clearances_file).read_bytes())
-        except (OSError, ValueError, UnicodeError) as error:
-            raise ProofUnavailable('replay_requested_clearances_unavailable') from error
-    policy = _policy(summary, record, env, expected_implementation, requested, parser_argv=parser_argv,
-                     effective_clearances=effective_clearances)
     if any(summary.get(key) is not None and summary[key] is not False
            for key in ('aborted', 'cancelled', 'timed_out')):
         raise ProofUnavailable('replay_backend_deferred')
@@ -252,6 +246,32 @@ def _run_record(record, deadline, ctx, log, validate, *, effective_clearances=_U
         if not isinstance(entries, list) or any(not isinstance(entry, dict)
                 or entry.get('status') == 'deferred' for entry in entries):
             raise ProofUnavailable('replay_backend_deferred')
+    try:
+        raw_files = {record['output']: file_hash(record['output']),
+                     record['summary']: hashlib.sha256(summary_bytes).hexdigest()}
+        issued_calls._unchanged(raw_files)
+    except OSError as error:
+        raise ProofUnavailable('replay_backend_output_unavailable') from error
+    if actual_completed is not None:
+        # Execution facts only; optional policy metadata cannot certify these.
+        actual_completed({'returncode': rc, 'files': dict(raw_files),
+                          'command': list(record['command']),
+                          'input_files': dict(record['actual_input_files']),
+                          'implementation': dict(files), 'deadline_utc': deadline})
+        issued_calls._unchanged(files)
+        issued_calls._unchanged(record['actual_input_files'])
+        issued_calls._unchanged(raw_files)
+        validate()
+        if time.time() >= deadline:
+            raise ProofUnavailable('replay_backend_incomplete', returncode=rc)
+    requested = None
+    if ctx.clearances_file is not None:
+        try:
+            requested = json.loads(Path(ctx.clearances_file).read_bytes())
+        except (OSError, ValueError, UnicodeError) as error:
+            raise ProofUnavailable('replay_requested_clearances_unavailable') from error
+    policy = _policy(summary, record, env, expected_implementation, requested, parser_argv=parser_argv,
+                     effective_clearances=effective_clearances)
     return {'returncode': rc, 'files': {record['output']: file_hash(record['output']),
                                       record['summary']: file_hash(record['summary'])},
             'proposals': policy['board_proposals']}
