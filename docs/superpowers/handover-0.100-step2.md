@@ -160,8 +160,10 @@ pose cases passed. The remaining cell cases exposed test-domain mistakes:
 external footprints must remain unchanged, and the existing pin study holds
 cells on their current face. Commit `329fe7cc` corrects those assertions and
 requires explicit `pose_not_allowed` refusal before publication for cell flips.
-The corrected ten-case physical gate is still required; the earlier failed XML
-and receipts remain preserved in the task scratch directory.
+The corrected ten-case physical gate at `2f25538f` passed all ten cases in
+3.104 seconds with unchanged source, runtime, inputs and supervisor. Earlier
+failed XML and receipts remain preserved. The later shared canonical readback
+refactor at `956decf5` still requires its final saved gate.
 
 Fixed electrical geometry now compares exact structured multisets, preserving
 all Shape fields and duplicate counts while ignoring serializer iteration
@@ -174,16 +176,42 @@ other carried member endpoint exactly.
 The owned critical worker now transports retained source physical manifests,
 original verification and actual implementation start/end identities alongside
 final judgments. Its preservation reads use the original settings. The
-retained factory and original-selector/width verifier are concrete, inactive
-source; their standalone boundary tests do not certify actual saved-board
-execution. A small combined owned-worker gate must prove private executor
+retained factory and original-selector/width verifier are concrete source.
+The small combined owned-worker gate at `60050fdf` proved private executor
 custody, original baseline remeasurement, held/static copper and zone intent
-preservation, and independent parent import. Exact serialized lock metadata is
+preservation, and independent parent import: valid, new DRC zero, required
+width failures zero, unknown evidence empty and complete clean closure.
+Optional router strategy activation remains withheld. Exact serialized lock metadata is
 still part of preservation; no operational lock changes are silently ignored.
 
-No measured three-weight D4 sweep exists. The old 99-row definition table
-compares scoring configurations, not area weights. The required remaining
-measurement is the 18 admitted actual module scripts at 0.1, 0.25 and 1.0,
-using fresh copied intents and unchanged placement budgets. The provisional
-area weight and D3 search adoption decision remain unsettled. Current bounded
-comparative timing runs are incomplete speed-gate failures, not corpus success.
+The prescribed fitted reference sweep has now completed: five existing fitted
+intent scripts at 0.1, 0.25 and 1.0, all fifteen placements successful, 125.648
+seconds. It used clean combined `60050fdf`, genuine dev217 and native SHA
+`6aaee5b5`, unchanged default clique, original cached generations and constraints.
+Every runtime/input/helper/supervisor identity and the original PCB cache remained
+unchanged. The fifteen-row receipt and compact table are in the task scratch
+folder as `fitted-area-current-receipt.json` and `fitted-area-summary.json`.
+
+The five fitted areas were 202.079692, 107.658884, 256.290888, 35.269938 and
+234.325451 square millimetres, with 23, 12, 22, 7 and 27 placed components.
+Within each reference, all three weights produced identical placement measures;
+only the area contribution to common score changed. This is a real, complete
+measurement, but does not establish a unique best area weight. D4 user choice
+remains pending and 0.25 provisional. The earlier 99-row table compared scoring
+configurations, not area weights. The eighteen direct-glob intent scripts were
+found ineligible for this sweep because none declares a fitted frame; no
+irrelevant fifty-four-row run was launched.
+
+Commit `956decf5` adds sealed logical endpoint roles and shared canonical saved
+readback values. Same-net roles remain whole-net connectivity obligations, and
+explicit tasks touching reassigned parts or unmeasured critical contexts refuse.
+Every minted physical identity is independently retained and checked before use,
+including nested mutable fields; weak lifetime cleanup prevents registry leaks.
+Fresh hash-seed processes produce identical typed readback records. Parent
+review and 39 default cases passed, with ten saved cases explicitly omitted.
+This endpoint/readback evidence does not authorize routed comparisons. The
+separate logical routed authority, original-baseline custody, fresh physical
+phase/width receipts, final saved readback and broad integrated gates remain
+required. Generic Standing still refuses different physical contracts. Current
+bounded comparative timing batches remain incomplete speed-gate failures; D3
+user decision and Task 15 full correctness/reference coverage remain open.
