@@ -5694,3 +5694,17 @@ invalid manufacturing remain reported. It is not a strict complete-board
 certificate. Optional comparison refusals are recorded as code/facts in the
 Run's separate `route_optional` metric, without changing the sealed original
 route report. No public override enables acceptance of unproved evidence.
+
+Fresh manufacturing comparison uses the retained original manufacturing capsule,
+source companions and deadline. It checks complete via annular dimensions and
+original-rule DRC, then checks captured factory and per-net clearance floors on
+the same original-rule-filled copper. Numeric net identifiers are resolved
+through the original parser to semantic net names. A stricter measurement never
+changes the route's original rules or refills copper under those stricter rules.
+
+Missing, incomplete or unsupported evidence remains unproved. A proved inherited
+violation is invalid; sharing it with the incumbent does not permit a candidate
+to compete. Error counts merge overlapping original and mandatory clearance
+report domains by item identity and maximum multiplicity; they are not claims
+of unique physical violation locations. All measurements consume the original
+route deadline without an additional routing proposal.

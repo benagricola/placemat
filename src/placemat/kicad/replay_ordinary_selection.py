@@ -7,7 +7,6 @@ import ast
 from copy import deepcopy
 import json
 import hashlib
-import math
 from pathlib import Path
 
 from placemat.kicad import issued_calls
@@ -28,29 +27,11 @@ def _snapshot(files,name,parent=None):
 
 
 def _grade(value):
+    from .manufacturing_grade import typed_grade, GradeUnproved
     try:
         record_digest(value)
-    except (TypeError,ValueError,OverflowError):
-        return None
-    if not isinstance(value,dict) or type(value.get('known')) is not bool:
-        return None
-    if not value['known']:
-        return value
-    if (set(value)!={'known','unproved','drc','undersized','widths_unknown','open','quality'}
-            or not isinstance(value['unproved'],list)
-            or any(not isinstance(item,str) for item in value['unproved'])
-            or type(value['widths_unknown']) is not bool):
-        return None
-    if any(type(value[key]) is not int or value[key]<0 for key in ('drc','undersized','open')):
-        return None
-    if value['unproved']:
-        return None
-    def finite_quality(item):
-        if type(item) not in (int,float) or item<0:return False
-        try:return math.isfinite(item)
-        except OverflowError:return False
-    if (not isinstance(value['quality'],list) or len(value['quality'])!=3
-            or any(not finite_quality(item) for item in value['quality'])):
+        typed_grade(value)
+    except (GradeUnproved,TypeError,ValueError,OverflowError):
         return None
     return value
 
@@ -134,6 +115,9 @@ def choose(budget,owner,final_call,pocket_output,pocket_files,work, *, candidate
         request=deepcopy(template)
         request.update(board=str(board),summary=summary,scope=scope['scope'])
         grades[name]=_grade(worker('--grade',request,name))
+    from .manufacturing_current_measurement import measure
+    grades = measure(budget, owner, final_call, legacy_board, pocket_board,
+                     pocket_files, grades, work/'manufacturing', unchanged)
     # Exactly the configured backend's existing pure ordinary preference rule.
     tree=ast.parse(helper.read_text())
     node=next((n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='prefer_pocket'),None)
