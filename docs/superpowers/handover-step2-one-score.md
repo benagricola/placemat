@@ -132,9 +132,9 @@ evidence, not whole-core throughput. Receipt: task scratch
 `step2/free-core-production-receipt.json`.
 
 The first nine-case saved writer gate failed before useful proof: eight cases
-used a nonexistent KiCad footprint-shape class, and the map fixture used a
-one-pad series-prefixed endpoint collapsed by generator following. The fixes
-use the existing PCB_SHAPE footprint API and identify that endpoint as a test
-point before the initial immutable fixture snapshot. No evaluator/writer
+used a nonexistent KiCad footprint-shape class, and the map fixture attempted to swap a singleton unused pool net as a
+logical role. The fixes use the existing PCB_SHAPE footprint API and give
+every permuted role a real external test-point endpoint before the initial
+immutable fixture snapshot. No evaluator/writer
 contract is relaxed. The original failed receipt/log remains preserved;
 a fresh saved gate is still required.

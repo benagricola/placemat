@@ -118,6 +118,23 @@ def test_saved_map_preserves_fixed_track_via_zone_and_original_project_capture(t
         # The one-pad endpoint is a test point, not a series resistor.
         # Series-following intentionally collapses passives in the generator.
         next(fp for fp in pcb.GetFootprints() if fp.GetReference() == 'R1').SetReference('TP1')
+        # Every remapped logical role has an external endpoint. Unused pool
+        # slots are not a licence to move a held singleton net as a role.
+        for index, net in enumerate(('B', 'C', 'D'), 2):
+            endpoint = pcbnew.FOOTPRINT(pcb)
+            endpoint.SetReference(f'TP{index}')
+            pcb.Add(endpoint)
+            at = pcbnew.VECTOR2I(pcbnew.FromMM(20), pcbnew.FromMM(8.5 + index - 1))
+            endpoint.SetPosition(at)
+            pad = pcbnew.PAD(endpoint)
+            pad.SetNumber('1')
+            pad.SetShape(getattr(pcbnew, 'PAD_SHAPE_RECT', None) or pcbnew.PAD_SHAPE_RECTANGLE)
+            pad.SetAttribute(pcbnew.PAD_ATTRIB_SMD)
+            pad.SetSize(pcbnew.VECTOR2I(pcbnew.FromMM(.6), pcbnew.FromMM(.6)))
+            pad.SetLayerSet(pad.SMDMask())
+            pad.SetNet(pcb.FindNet(net))
+            endpoint.Add(pad)
+            pad.SetPosition(at)
         # Even an unfilled zone's complete definition must survive unchanged.
         zone = pcbnew.ZONE(pcb)
         zone.SetNet(pcb.FindNet('D'))
