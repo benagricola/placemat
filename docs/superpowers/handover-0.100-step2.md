@@ -150,3 +150,40 @@ certify pin reassignment. Routed pin comparison additionally requires validated
 complete pool bijections, exact emitted readback, fresh physical phase/width
 receipts and the reviewed logical-role projection. All authority drafts remain
 inactive; generic Standing comparability remains strict.
+
+### Current saved-writer and owned-worker status
+
+The saved ten-case gate at `d4a0ccff` completed with seven passes and three
+failures, with identical start/end runtime and input identities. Compatible
+fixed track/via/zone preservation, attached-copper refusal and the four part
+pose cases passed. The remaining cell cases exposed test-domain mistakes:
+external footprints must remain unchanged, and the existing pin study holds
+cells on their current face. Commit `329fe7cc` corrects those assertions and
+requires explicit `pose_not_allowed` refusal before publication for cell flips.
+The corrected ten-case physical gate is still required; the earlier failed XML
+and receipts remain preserved in the task scratch directory.
+
+Fixed electrical geometry now compares exact structured multisets, preserving
+all Shape fields and duplicate counts while ignoring serializer iteration
+order. The writer restores original project/rule/capture bytes after native
+Save and before readback, then checks them again before publication. A native
+Save that retags an attached original track remains a refusal. Cell assignment
+recognizes only declared physical slot endpoints as movable and retains every
+other carried member endpoint exactly.
+
+The owned critical worker now transports retained source physical manifests,
+original verification and actual implementation start/end identities alongside
+final judgments. Its preservation reads use the original settings. The
+retained factory and original-selector/width verifier are concrete, inactive
+source; their standalone boundary tests do not certify actual saved-board
+execution. A small combined owned-worker gate must prove private executor
+custody, original baseline remeasurement, held/static copper and zone intent
+preservation, and independent parent import. Exact serialized lock metadata is
+still part of preservation; no operational lock changes are silently ignored.
+
+No measured three-weight D4 sweep exists. The old 99-row definition table
+compares scoring configurations, not area weights. The required remaining
+measurement is the 18 admitted actual module scripts at 0.1, 0.25 and 1.0,
+using fresh copied intents and unchanged placement budgets. The provisional
+area weight and D3 search adoption decision remain unsettled. Current bounded
+comparative timing runs are incomplete speed-gate failures, not corpus success.
