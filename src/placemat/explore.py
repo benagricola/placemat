@@ -222,11 +222,14 @@ class VariantRouter:
     def write(self, make_board, board, plan, folder):
         return _write_variant(make_board, board, plan, folder)
 
-    def route(self, pcb, work, exclude_nets=(), quick=True, resume=True, _authority_factory=None, capture_path=None):
+    def route(self, pcb, work, exclude_nets=(), quick=True, resume=True, _authority_factory=None, capture_path=None,
+              pour_nets=()):
         from .kicad import route as route_mod
         optional = {'_authority_factory': _authority_factory} if _authority_factory is not None else {}
         if capture_path is not None:
             optional['capture_path'] = capture_path
+        if pour_nets:
+            optional['pour_nets'] = pour_nets
         import os
         if 'KRT_ROUTE_DEADLINE_UTC' in os.environ:
             from .pinmap_explore_route import _deadline
@@ -235,9 +238,9 @@ class VariantRouter:
             optional['timeout'] = max(0.0, _deadline(active()) - time.time())
         return route_mod.route_board(pcb, work, exclude_nets=exclude_nets, quick=quick, resume=resume, **optional)
 
-    def compare_remap(self, board, plan, pcb, folder, proposal, *, excluded, resume, deadline):
+    def compare_remap(self, board, plan, pcb, folder, proposal, *, excluded, pours, resume, deadline):
         from .pinmap_explore_route import paired
-        return paired(self, board, plan, pcb, folder, proposal, excluded=excluded,
+        return paired(self, board, plan, pcb, folder, proposal, excluded=excluded, pours=pours,
                       resume=resume, deadline=deadline)
 
 
@@ -769,6 +772,13 @@ def _route_work(make_board, focus, lock, reuse, routing, rq, out, parent):
                     p = b.resolve(reuse=reuse, lock=lock) if seed == 0 else \
                         b.resolve(reuse=reuse, explore=Explore(seed, focus), lock=lock)
                     pcb = router.write(make_board, b, p, d)
+                    from .explore_capture import prepare, verify_capture
+                    from .pinmap_common import CandidateRefused
+                    requested_capture = getattr(routing, 'capture', None)
+                    src = getattr(make_board, 'src', None)
+                    source_pcb = getattr(src, 'pcb', None)
+                    if source_pcb is not None or requested_capture is not None:
+                        entry['capture_copy'] = prepare(source_pcb, pcb, requested_capture)
                     from .pinmap import _plan_remap_proposal
                     proposal = _plan_remap_proposal(b, p) if b.settings.explore_rank_remapped else None
                     remap = proposal[0] if proposal is not None else None
@@ -785,8 +795,9 @@ def _route_work(make_board, focus, lock, reuse, routing, rq, out, parent):
                                 if compare_remap is None:
                                     raise CandidateRefused('logical_terminal_proof_missing',
                                                            'router has no live logical comparison interface')
-                                r, checked, live = compare_remap(b, p, pcb, d, proposal, excluded=excluded,
-                                                                resume=routing.resume, deadline=deadline)
+                                r, checked, live = compare_remap(b, p, pcb, d, proposal, excluded=set(routing.exclude),
+                                                                pours=set(p.plane_nets), resume=routing.resume,
+                                                                deadline=deadline)
                                 logical_incumbent = compare_live(logical_incumbent, live, checked,
                                     phase_priority=getattr(routing, 'rank', None) or None)
                                 entry['logical_comparison'] = checked
@@ -795,8 +806,14 @@ def _route_work(make_board, focus, lock, reuse, routing, rq, out, parent):
                                 entry['remap_refusal'] = error.record()
                                 entry['comparison_supported'] = False
                                 entry['route_scope'] = 'source_diagnostic'
-                                r = error.source if isinstance(error, PairedUnavailable) else router.route(
-                                    pcb, d / 'route', exclude_nets=excluded, quick=False, resume=routing.resume)
+                                if isinstance(error, PairedUnavailable):
+                                    r = error.source
+                                else:
+                                    source_scope = {'exclude_nets': set(routing.exclude), 'quick': False,
+                                                    'resume': routing.resume}
+                                    if p.plane_nets:
+                                        source_scope['pour_nets'] = set(p.plane_nets)
+                                    r = router.route(pcb, d / 'route', **source_scope)
                             if getattr(r, 'routed_pcb', None) is not None:
                                 from . import final_board, score
                                 from .pinmap_explore_route import _remaining
@@ -807,6 +824,8 @@ def _route_work(make_board, focus, lock, reuse, routing, rq, out, parent):
                     else:
                         r = router.route(pcb, d / 'route', exclude_nets=excluded, quick=True, resume=routing.resume)
                         entry['routing_mode'] = 'quick'
+                    if entry.get('capture_copy') is not None:
+                        verify_capture(entry['capture_copy'])
                 # Keep the authoritative final report intact, apart from worker
                 # identity/timing. Legacy test routers report only what they measured.
                 from copy import deepcopy
@@ -833,6 +852,11 @@ def _route_work(make_board, focus, lock, reuse, routing, rq, out, parent):
                     entry['route_report'] = deepcopy(completed.as_dict())
                     entry['completed_source_diagnostic'] = True
             entry["seconds"] = round(time.perf_counter() - t0, 3)
+            if entry.get('capture_copy') is not None:
+                try:
+                    verify_capture(entry['capture_copy'])
+                except (CandidateRefused, OSError) as error:
+                    entry['error'] = {'type': type(error).__name__, 'message': str(error)}
             out.put(("route", seed, entry))
     finally:
         out.put(("rend",))

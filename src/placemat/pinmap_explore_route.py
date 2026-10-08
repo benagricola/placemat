@@ -72,7 +72,11 @@ def budget(cfg):
             os.environ['KRT_ROUTE_DEADLINE_UTC'] = old
 
 
-def _invocation(board, pcb, excluded):
+def _scope_nets(board, excluded, pours):
+    return set(excluded), set(pours) & set(board.geometry.nets)
+
+
+def _invocation(board, pcb, excluded, pours):
     """Reconstruct configured scope without a second width query/native read."""
     from .kicad import route
     try:
@@ -83,6 +87,7 @@ def _invocation(board, pcb, excluded):
         raise CandidateRefused('logical_execution_unavailable',
                                'reviewed full routing execution API is unavailable') from error
     cfg = board.settings
+    excluded, pours = _scope_nets(board, excluded, pours)
     selected, origin = configured_router(cfg)
     router_dir = Path(route.checked_router(selected, origin)).resolve()
     geometry = board.geometry
@@ -93,7 +98,7 @@ def _invocation(board, pcb, excluded):
     capture_record = {'path': str(capture_path), 'sha256': _hash(capture_path)} if capture else {
         'path': None, 'sha256': None}
     return {'phases': [phase.key() for phase in phases_of(cfg)], 'upto': None, 'only': False,
-            'layers': list(layers), 'exclude_nets': sorted(excluded), 'pour_nets': [],
+            'layers': list(layers), 'exclude_nets': sorted(excluded), 'pour_nets': sorted(pours),
             'quick': False, 'capture': capture_record, 'router_dir': str(router_dir),
             'router_python': str(router_dir / '.venv' / 'bin' / 'python'),
             'width_query_input': {'path': str(pcb), 'sha256': _hash(pcb)}}
@@ -117,7 +122,7 @@ def _known_refusals():
     return RouteRefused, ProofUnavailable, RouterFailed
 
 
-def paired(router, board, plan, pcb, folder, proposal, *, excluded, resume, deadline):
+def paired(router, board, plan, pcb, folder, proposal, *, excluded, pours, resume, deadline):
     """Return raw source route and detached checked comparison diagnostics.
 
     All authorities and proofs remain local and alive through comparison. The
@@ -130,7 +135,8 @@ def paired(router, board, plan, pcb, folder, proposal, *, excluded, resume, dead
     pcb, folder = Path(pcb).resolve(), Path(folder).resolve()
     if deadline != float(os.environ.get('KRT_ROUTE_DEADLINE_UTC', 'nan')) or deadline <= time.time():
         raise CandidateRefused('logical_deadline_unavailable', 'paired route requires its retained shared budget')
-    invocation = _invocation(board, pcb, excluded)
+    excluded, pours = _scope_nets(board, excluded, pours)
+    invocation = _invocation(board, pcb, excluded, pours)
     _remaining(deadline)
     capture = invocation['capture']['path']
     context_files = (Path(capture),) if capture is not None else ()
@@ -143,12 +149,12 @@ def paired(router, board, plan, pcb, folder, proposal, *, excluded, resume, dead
     source_factory = final_authority.retain(board, plan, score.plan_measures(board, plan), pcb,
         invocation=invocation, deadline_utc=deadline, context_files=context_files)
     candidate_factory = final_authority.retain(finalist.board, finalist.plan, finalist.measures, candidate_pcb,
-        invocation=_invocation(finalist.board, candidate_pcb, excluded), deadline_utc=deadline,
+        invocation=_invocation(finalist.board, candidate_pcb, excluded, pours), deadline_utc=deadline,
         context_files=candidate_context)
     source = router.route(pcb, folder / 'route', exclude_nets=excluded, quick=False, resume=resume,
-                          _authority_factory=source_factory, capture_path=capture)
+                          _authority_factory=source_factory, capture_path=capture, pour_nets=pours)
     return _after_source(source, lambda: _finish(router, source, candidate_pcb, folder, excluded, resume,
-                                               source_factory, candidate_factory, logical, deadline))
+                                               source_factory, candidate_factory, logical, deadline, pours=pours))
 
 
 def _after_source(source, operation):
@@ -175,12 +181,12 @@ def _after_source(source, operation):
 
 
 def _finish(router, source, candidate_pcb, folder, excluded, resume,
-            source_factory, candidate_factory, logical, deadline):
+            source_factory, candidate_factory, logical, deadline, *, pours=()):
     from . import pinmap_logical_compare
     _remaining(deadline)
     candidate = router.route(candidate_pcb, folder / 'candidate-route', exclude_nets=excluded,
                              quick=False, resume=resume, _authority_factory=candidate_factory,
-                             capture_path=candidate_factory._invocation['capture']['path'])
+                             capture_path=candidate_factory._invocation['capture']['path'], pour_nets=pours)
     _remaining(deadline)
     source_authority = source_factory.completed_authority()
     candidate_authority = candidate_factory.completed_authority()

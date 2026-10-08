@@ -39,6 +39,7 @@ def test_live_finish_uses_same_deadline_full_scope_and_withholds_publication(tmp
             events.append(('route', kwargs))
             assert paired.os.environ['KRT_ROUTE_DEADLINE_UTC'] == '125.0'
             assert kwargs['quick'] is False and kwargs['capture_path'] == str(tmp_path / 'candidate.capture')
+            assert kwargs['exclude_nets'] == {'excluded'} and kwargs['pour_nets'] == {'plane'}
             return candidate
     class Authority:
         def regrade(self, pcb, destination):
@@ -59,7 +60,7 @@ def test_live_finish_uses_same_deadline_full_scope_and_withholds_publication(tmp
         _invocation={'capture': {'path': str(tmp_path / 'candidate.capture')}})
     with paired.budget(SimpleNamespace(timeout_route=25)) as deadline:
         returned, diagnostic, live = paired._finish(Router(), source, tmp_path / 'candidate.pcb', tmp_path,
-            {'plane'}, True, original_factory, final_factory, object(), deadline)
+            {'excluded'}, True, original_factory, final_factory, object(), deadline, pours={'plane'})
     assert returned is source
     assert diagnostic['candidate_rank'] == -1
     assert diagnostic['improving_proposal'] is True and isinstance(live, Comparison)
@@ -162,3 +163,9 @@ def test_full_route_presentation_does_not_claim_executable_mapping():
     assert 'routed with its pin remap' not in line
     summary = routes_summary({'routes': [row], 'taken_seed': 1})[0]
     assert '1 full configured with shared deadlines, 0 quick' in summary
+
+
+def test_declared_pours_remain_distinct_from_explicit_exclusions():
+    board = SimpleNamespace(geometry=SimpleNamespace(nets={'signal', 'plane', 'excluded'}))
+    excluded, pours = paired._scope_nets(board, {'excluded'}, {'plane', 'absent'})
+    assert excluded == {'excluded'} and pours == {'plane'}
