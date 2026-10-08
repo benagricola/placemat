@@ -3,7 +3,7 @@ from pathlib import Path
 import re
 
 
-def protected_forms(path, refuse):
+def read_forms(path, refuse):
     tokens = re.findall(r'"(?:\\.|[^"\\])*"|[()]|[^\s()]+', Path(path).read_text())
     stack, roots = [], []
     for token in tokens:
@@ -21,10 +21,15 @@ def protected_forms(path, refuse):
             refuse('board token outside form')
     if stack or len(roots) != 1 or not roots[0] or roots[0][0] != 'kicad_pcb':
         refuse('malformed board root')
+    return roots[0]
+
+
+def protected_forms(path, refuse):
+    root = read_forms(path, refuse)
     def frozen(value):
         return tuple(frozen(v) if isinstance(v, list) else v for v in value)
     fixed, zones = [], []
-    for node in roots[0]:
+    for node in root:
         if not isinstance(node, list) or not node:
             continue
         if type(node[0]) is not str:
