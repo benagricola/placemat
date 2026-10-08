@@ -78,6 +78,7 @@ def test_missing_planned_task_cannot_be_covered_by_one_wave(issued,tmp_path):
 def test_already_issued_final_is_not_ignored(prior):
     args,token,tmp=prior;finish(args,token,tmp)
     options=dict(args[3],call=1,kind='single',tasks=[],task_file=None,
+        command=['python','route.py','--nets','*','--layers','F.Cu'],
         output_board=tmp/'final.kicad_pcb',summary=tmp/'final.json',snapshot_dir=tmp/'final-before')
     issued_calls._executor_issue(*args[:3],**options)
     with pytest.raises(ProofUnavailable,match='not_completed'):bind(prior)

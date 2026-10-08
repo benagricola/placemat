@@ -321,6 +321,10 @@ class FinalExecution:
             issued['environment'] = env
             token = self.issue_call(_context=candidate_ctx,**issued)
             if token is None:
+                # issue_call already recorded the precise issuer refusal.
+                # Preserve it instead of overwriting it with a generic wrapper.
+                if not self.active:
+                    return None
                 raise ProofUnavailable('replay_final_call_issuance_unavailable')
             self.final_call = token
             return candidate_ctx,token

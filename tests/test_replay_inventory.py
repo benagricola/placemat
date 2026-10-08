@@ -113,7 +113,7 @@ def final_call(walls, tmp_path, request):
     output, summary = tmp_path / 'final.kicad_pcb', tmp_path / 'final_summary.json'
     token = issued_calls._executor_issue(
         hook.grader, hook.ledger, hook.executor, phase=0, call=prior_count, wave=0, kind='single',
-        command=['python', 'route.py', str(input_board)], source=input_board,
+        command=['python', 'route.py', str(input_board), '--nets', 'N', '--layers', 'F.Cu'], source=input_board,
         input_board=input_board, output_board=output, summary=summary,
         layers=['F.Cu'], nets=['N'], tasks=[], constraint_files=(),
         snapshot_dir=tmp_path / 'final-before')

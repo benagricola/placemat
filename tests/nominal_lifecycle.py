@@ -35,7 +35,7 @@ def completed_hook(context,monkeypatch,observer_mode='bound'):
                  counted=original._counted,open_before=original._open_before,chosen_pours=original._chosen_pours,
                  invocation=dict(original._semantic_contract['invocation'],capture={'path':None,'sha256':None}),selections=facts['selections'])
     assert hook.active and hook.factory._route_execution is hook and bound==[hook.grader]
-    hook.plan_calls(phase=0,calls=[phase_run.Call('nets',('N',)),phase_run.Call('rest',('N',))],layers=['F.Cu'],input_board=original._original)
+    hook.plan_calls(phase=0,calls=[phase_run.Call('nets',('N',)),phase_run.Call('nets',('N',))],layers=['F.Cu'],input_board=original._original)
     ctx=SimpleNamespace(router_dir=hook.work,script='route.py',rpy=sys.executable,env={},cfg=original._cfg,layers=['F.Cu'],clearances_file=None,execution=hook)
     monkeypatch.setattr(module,'replace',lambda value,**kw:SimpleNamespace(**(vars(value)|kw)))
     monkeypatch.setattr(replay_backend,'_original_effective',lambda *a,**k:None)

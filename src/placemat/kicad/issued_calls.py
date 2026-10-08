@@ -205,7 +205,39 @@ def _executor_issue(grader, ledger, executor, *, phase, call, wave, kind,
                 raise
             raise ProofUnavailable('issued_task_file_unavailable') from error
         constraint_files = tuple(constraint_files) + (task_file,)
-    if not set(nets).issubset({task['net'] for task in originals}):
+    if kind == 'single' and ledger.call_plans:
+        # Execution scope includes original one-pad nets with no connection ask.
+        # Bind the actual original plan/geometry, never a candidate-supplied set.
+        from .route import main_pass_nets, router_net_pattern
+        original_nets = set(owner.geometry.nets)
+        plan = ledger.call_plans[phase][0]
+        planned_call = plan['calls'][call]
+        expected_nets = (main_pass_nets(original_nets, set(planned_call['excluded']))
+                         if planned_call['kind'] == 'rest' else set(planned_call['nets']))
+        expected_patterns = (['*'] + [router_net_pattern(net, 'exclude')
+                             for net in sorted(planned_call['excluded'])]
+                             if planned_call['kind'] == 'rest' else
+                             [router_net_pattern(net, 'include') for net in sorted(planned_call['nets'])])
+        if planned_call['kind'] == 'nets':
+            from .phase_select import net_matches
+            expanded = {net for net in original_nets
+                        if any(net_matches(net, pattern) for pattern in expected_patterns)}
+            if expanded != expected_nets:
+                raise ProofUnavailable('issued_single_leaf_scope_unproved')
+        def values(flag):
+            positions = [i for i, value in enumerate(command) if value == flag]
+            if len(positions) != 1:
+                return None
+            start = positions[0] + 1
+            stop = next((i for i in range(start, len(command))
+                         if command[i].startswith('--')), len(command))
+            return list(command[start:stop])
+        if (values('--nets') != expected_patterns or values('--layers') != plan['layers']
+                or not expected_nets.issubset(original_nets)
+                or set(nets) != expected_nets or len(nets) != len(expected_nets)
+                or list(layers) != plan['layers']):
+            raise ProofUnavailable('issued_single_scope_mismatch')
+    elif not set(nets).issubset({task['net'] for task in originals}):
         raise ProofUnavailable('issued_net_outside_original_contract')
     if kind == 'pour':
         if len(nets) != 1 or nets[0] not in grader._chosen_pours or len(set(layers)) != len(layers):

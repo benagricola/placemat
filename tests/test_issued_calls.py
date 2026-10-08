@@ -451,16 +451,13 @@ def test_actual_non_final_single_call_records_raw_before_rule_and_lock_restorati
     later_task = Task('N', ('A', '1'), ('B', '1'), (('F.Cu', .2),))
     monkeypatch.setattr(phase_run, 'plan_calls', lambda *args: [
         *original_plan(*args), phase_run.Call('tasks', tasks=(later_task,))])
-    monkeypatch.setattr(phase_run, 'router_command',
-                        lambda py, script, src, out, excluded, layers, summary, **kw:
-                        [str(py), script, str(src), str(out), str(summary)])
     def run(command, log, context):
         token = hook.ledger.issued[-1]
         assert token.record['identity']['kind'] in ('single', 'connections')
         assert token.record['nets'] == ['N']
         assert token.raw is None
-        Path(command[3]).write_text('raw single result')
-        Path(command[4]).write_text(json.dumps({'successful': 1, 'failed': 0,
+        Path(token.record['output']).write_text('raw single result')
+        Path(token.record['summary']).write_text(json.dumps({'successful': 1, 'failed': 0,
             'connections': [dict(item, status='routed') for item in token.record['tasks']]}))
         return 0
     monkeypatch.setattr(phase_run, '_run', run)
