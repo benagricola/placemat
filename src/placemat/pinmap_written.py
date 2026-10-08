@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import json
+import math
 from pathlib import Path
 import re
 import shutil
@@ -309,7 +310,9 @@ def _pose_records(poses):
     for ref, pose in poses:
         if type(pose) is not Placement:
             raise CandidateRefused('proof_pose_malformed', 'saved pose identity requires a known Placement')
-        out.append([ref, {'location': facts(pose.location), 'rotation': pose.rotation,
+        if type(pose.rotation) not in (int, float) or not math.isfinite(pose.rotation):
+            raise CandidateRefused('proof_pose_malformed', 'saved rotation requires a finite numeric angle')
+        out.append([ref, {'location': facts(pose.location), 'rotation': float(pose.rotation),
                           'face': facts(pose.face), 'arrangement': pose.arrangement}])
     return out
 

@@ -622,3 +622,24 @@ def test_retained_minted_identity_does_not_keep_proof_alive(tmp_path):
     assert reference() is None
     assert key not in pinmap_written._PROOF_RECORDS
     assert key not in pinmap_written._MINTED
+
+
+def test_declared_rotation_float_canonicalizes_equal_integer_source_angle():
+    from placemat.placement import Placement
+    from placemat.values import Location
+    from placemat.pinmap_written import _pose_records
+    source = Placement(Location(1.0, 2.0), 0)
+    read = replace(source, rotation=0.0)
+    assert _pose_records((('U1', source),)) == _pose_records((('U1', read),))
+    assert type(_pose_records((('U1', source),))[0][1]['rotation']) is float
+    assert _pose_records((('U1', source),)) != _pose_records((('U1', replace(source, rotation=0.000000001)),))
+
+
+@pytest.mark.parametrize('rotation', (True, False, float('nan'), float('inf'), -float('inf'), '0'))
+def test_rotation_transport_refuses_invalid_values(rotation):
+    from placemat.placement import Placement
+    from placemat.values import Location
+    from placemat.pinmap_written import _pose_records
+    with pytest.raises(CandidateRefused) as error:
+        _pose_records((('U1', Placement(Location(1.0, 2.0), rotation)),))
+    assert error.value.code == 'proof_pose_malformed'
