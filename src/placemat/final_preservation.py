@@ -106,6 +106,18 @@ def verify(source_geometry, source_pcb, final_geometry, final_pcb, expected_mani
         refuse('actual original geometry differs from retained executor manifest')
     if encoded(held(final_geometry)) != encoded({k: original[k] for k in ('footprints', 'rules_outline')}):
         refuse('final board changes original held physical geometry or intent')
+    verify_fixed(source_geometry, source_pcb, final_geometry, final_pcb)
+    return {'original_manifest': original, 'held_and_fixed_preserved': True}
+
+
+def verify_fixed(source_geometry, source_pcb, final_geometry, final_pcb):
+    """Original electrical copper and zone intent, separately from pad poses.
+
+    The logical worker first proves its emitted input and final held domain.
+    This additional check carries the original source's fixed copper through a
+    permitted input permutation. It neither permits pad changes nor mints
+    their authority, and newly routed copper can only be added.
+    """
     canonical = lambda item: json.dumps(facts(item), sort_keys=True, separators=(',', ':'))
     original_copper = Counter(canonical(c) for c in source_geometry.copper if c.kind != 'zone')
     final_copper = Counter(canonical(c) for c in final_geometry.copper if c.kind != 'zone')
@@ -115,4 +127,5 @@ def verify(source_geometry, source_pcb, final_geometry, final_pcb, expected_mani
     final_fixed, final_zones = forms(final_pcb)
     if Counter(fixed) - Counter(final_fixed) or zones != final_zones:
         refuse('final board changes original fixed copper or zone definitions')
-    return {'original_manifest': original, 'held_and_fixed_preserved': True}
+    original = manifest(source_geometry, source_pcb)
+    return {key: original[key] for key in ('fixed_copper', 'protected_forms')}
