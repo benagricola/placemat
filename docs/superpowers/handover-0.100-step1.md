@@ -281,3 +281,23 @@ rounds with a scoped re-review, the ledger updated after every step.
   checks and strict Standing integration are owned by Step 2 and require their separate integrated gates.
 - Detailed owned receipts are indexed by `step1-finite-reference-handback.json` in the review scratch directory;
   real project identities and numeric comparison evidence remain in fixture/bench records.
+
+## Parent worker boundary snapshot (2026-10-08)
+
+- Reviewed executor hooks retain one actual pre-guard read and a same-byte private snapshot, original rules and one
+  validated width receipt. A process-local custody registry seals only the actual completed ordinary phase ledger,
+  full report and artifact bytes. Public grader constructors, JSON packets and copied reports cannot mint custody.
+  Missing optional evidence preserves ordinary routing; cancellation still propagates. No optional router strategy
+  is activated by these hooks.
+- The JSON codec and owned worker share the original absolute deadline. Parent validation binds actual child runtime,
+  independently remeasured original DRC/count/selection evidence, output/report hashes and exact held/fixed manifest
+  intent before private import. Typed canonical comparisons reject numeric/boolean aliases. Original zones retain
+  their complete definitions; refill metadata is the only intended zone exception in the shared preservation helper.
+- Parent independently passed the 114-case boundary gate and the subsequent 22-case owned-worker/preservation group;
+  the final parent boundary suite passed 118 cases. An actual KiCad/controlled copying-router regression passed one
+  ordinary call with unavailable optional authority, unchanged runtime identities and intact ordinary route output.
+  These are pure boundary/process controls and limited ordinary-path coverage, not actual saved-board authority proof.
+- The coherent child critical-context/preservation/runtime reply is still awaiting combined review. A small legal
+  saved-board worker gate and a latest frozen whole suite remain required. The last whole suite retained 6,859 passes,
+  22 skips and one real long-TMPDIR socket failure; the separately reviewed channel fix passed all 24 channel tests.
+  No complete-suite success, candidate adoption, no-worse gate waiver or main merge is claimed by this snapshot.

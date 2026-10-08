@@ -556,3 +556,14 @@ def test_resume_invalidates_earlier_or_shared_authority_and_every_downstream_pha
     report = rig.route(leg, FB, {'name': 'signals'}, settings=settings)
     assert [record['reused'] for record in report.phases] == [False, False, False]
     assert len(rig.calls()) > n
+
+
+@needs_kicad
+def test_unavailable_optional_authority_keeps_ordinary_route_output(rig):
+    report = rig.route({'name': 'signals'}, _authority_factory=object())
+    assert report.routed_pcb.is_file()
+    assert len(rig.calls()) == 1
+    assert not any('--final-call-proof' in call or '--candidate-artifacts' in call for call in rig.calls())
+    refusal = json.loads((rig.work / 'final_authority_unavailable.json').read_text())
+    assert refusal['code'] in {'final_authority_adapter_unavailable', 'final_authority_factory_required'}
+    assert json.loads((rig.work / 'route.json').read_text()) == report.as_dict()

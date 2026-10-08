@@ -1254,7 +1254,7 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
                  quick: bool = False, iterations: int | None = None, probe: int | None = None,
                  timeout: int | None = None, resume: bool = True, board_info: dict | None = None,
                  on_setup=None, phases=None, upto: str | None = None, only: bool = False, pour_nets=(),
-                 capture_path=None) -> RouteReport:
+                 capture_path=None, _authority_factory=None) -> RouteReport:
     """Route a copy of `pcb` through the project's routing phases (route_phase.py; `phases` None: the bound settings'),
     in order, each phase on the board the one before it left, its copper locked. `upto` routes the phases up to and
     including the one named; with `only`, that phase alone on the board as given. `exclude_nets` are left out of
@@ -1328,7 +1328,13 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
         layer_types_ = read_layer_types(str(pcb_in))
     layers, plane_dropped = resolved_layers(layers, all_layers, layer_types_)
     from .read import read_board
-    geometry = read_board(str(pcb_in))
+    if _authority_factory is None:
+        final_execution = None
+        geometry = read_board(str(pcb_in))
+    else:
+        from .final_execution import FinalExecution
+        final_execution = FinalExecution(_authority_factory, work)
+        geometry = final_execution.read(pcb_in, read_board)
     board_doc = route_view.board_doc(geometry)
     (work / route_progress.BOARD).write_text(json.dumps(board_doc, separators=(",", ":")))
     if rep is not None:                                  # the board the copper is drawn on, for a route with no placement in front of it
@@ -1361,6 +1367,8 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     env.pop("KICAD_ROUTE_TRACE", None)
     env.pop("KICAD_SMOOTH_ROUTE", None)     # it overrides the router's smoothing flag: [route] smoothing decides
     env["KRT_DIR"] = str(router_dir_path)
+    if final_execution is not None:
+        env = final_execution.environment(env)
     from . import width_policy
     width_receipt = width_policy.resolve(rpy, router_dir_path, pcb, run_list,
                                         [picked[p.name] for p in run_list], cfg, env, timeout=timeout)
@@ -1387,6 +1395,17 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     # What every phase's result depends on: the board and its rules as given, the capture, what is left out or
     # poured, how it is routed and by which router. Each phase's digest chains from the one before it.
     from .. import __version__
+    if final_execution is not None:
+        actual_capture = Path(capture_path).resolve() if capture_path else pcb.with_name(SIDECAR)
+        capture_record = {"path": str(actual_capture), "sha256": file_digest(actual_capture)} if capture else {"path": None, "sha256": None}
+        invocation = {"phases": [p.key() for p in phases], "upto": upto, "only": only,
+                      "layers": list(layers), "exclude_nets": sorted(excluded), "pour_nets": sorted(pours),
+                      "quick": quick, "capture": capture_record, "router_dir": str(router_dir_path),
+                      "router_python": str(rpy), "width_query_input": {"path": str(pcb), "sha256": file_digest(pcb)}}
+        final_execution.prepare(original=pcb, cleanup_input=pcb_in, baseline_drc=work / "drc_before.json",
+                                obligations=comparison_asked, phases=run_list, width_receipt=width_receipt,
+                                cfg=cfg, counted=counted, open_before=open0, chosen_pours=chosen_pours,
+                                invocation=invocation, selections=[picked[p.name] for p in run_list])
     settings_part = {k: v for k, v in sorted(json.loads(cfg.json()).items())
                      if k.startswith("route_") and k not in ("route_router_dir", "route_phase")}
     base = digest("effective-phase-widths-and-comparison-v3", file_digest(pcb), file_digest(pcb.with_suffix(".kicad_pro")), file_digest(pcb.with_suffix(".kicad_dru")),
@@ -1420,6 +1439,8 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
             rev.resumed(phase.name, saved["record"]["seconds"])
             board, open_now = routed.board, dict(saved["open_nets"])
             records.append(dict(saved["record"], reused=True))
+            if final_execution is not None:
+                final_execution.phase(i, records[-1], routed)
             summaries += [tuple(x) for x in routed.summaries]
             spent += saved["record"]["seconds"]
             prev = key
@@ -1440,6 +1461,8 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
         state.record(label, key, {"routed": outcome.routed, "record": record, "open_nets": open_now})
         board = routed.board
         records.append(record)
+        if final_execution is not None:
+            final_execution.phase(i, record, routed)
         summaries += [tuple(x) for x in routed.summaries]
         spent += record["seconds"]
         prev = key
@@ -1488,6 +1511,8 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
         report.record = str(route_progress.write_record(work, rev.info, rev.stages, report.as_dict(), complete=True))
     _HOOK = False
     (work / "route.json").write_text(json.dumps(report.as_dict(), indent=2) + "\n")
+    if final_execution is not None:
+        final_execution.complete(report)
     return report
 
 

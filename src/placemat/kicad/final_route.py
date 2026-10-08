@@ -86,6 +86,11 @@ class FinalCopperGrader:
                           'rules': str(self._rules), 'baseline_drc': str(self._baseline),
                           'width_receipt': str(self._receipt_path) if self._receipt_path is not None else None}}
 
+    def original_snapshot(self):
+        """Read the actual executor's privately retained original geometry."""
+        from .final_custody import original_snapshot
+        return original_snapshot(self)
+
     def bind_execution(self, report):
         """Retain the executor's actual completed incumbent diagnostics once."""
         if self._template is not None:
