@@ -97,7 +97,8 @@ def test_reconstructed_or_changed_proof_is_refused_before_reader_or_destination_
 
 @pytest.mark.slow
 @needs_kicad
-def test_saved_map_preserves_fixed_track_via_zone_and_original_project_capture(tmp_path):
+@pytest.mark.parametrize('attached', [False, True])
+def test_saved_map_preserves_fixed_track_via_zone_and_original_project_capture(tmp_path, attached):
     from fixtures.reference.lock import realboard
     from placemat.layout import Board
     from placemat.kicad.read import read_board
@@ -118,6 +119,12 @@ def test_saved_map_preserves_fixed_track_via_zone_and_original_project_capture(t
         # The one-pad endpoint is a test point, not a series resistor.
         # Series-following intentionally collapses passives in the generator.
         next(fp for fp in pcb.GetFootprints() if fp.GetReference() == 'R1').SetReference('TP1')
+        if not attached:
+            # Fixed copper stays physically separate from the reassigned pads.
+            # The attached variant remains an explicit no-publication control.
+            delta = pcbnew.VECTOR2I(pcbnew.FromMM(20), pcbnew.FromMM(10))
+            for fixed in pcb.GetTracks():
+                fixed.Move(delta)
         # Every remapped logical role has an external endpoint. Unused pool
         # slots are not a licence to move a held singleton net as a role.
         for index, net in enumerate(('B', 'C', 'D'), 2):
@@ -165,6 +172,14 @@ def test_saved_map_preserves_fixed_track_via_zone_and_original_project_capture(t
                                  for ref, number in ends) for net, ends in study.present_assign.items()}
         changed = replace(study.results[0], assign=assignment)
         proof = mint(board, plan, inp, ((study.refs, changed),), source, context_files=(capture,))
+        if attached:
+            with pytest.raises(CandidateRefused) as refusal:
+                write_proved(board, plan, proof, tmp_path / 'candidate')
+            assert refusal.value.code == 'proof_fixed_board_items_changed'
+            assert not (tmp_path / 'candidate').exists()
+            assert not list(tmp_path.glob('placemat-remap-*'))
+            assert {p: p.read_bytes() for p in original} == original
+            return
         emitted, receipt = write_proved(board, plan, proof, tmp_path / 'candidate')
         assert _pads(_read_occupancy(emitted, cfg)) == proof.final_pads
         assert _protected_forms(emitted) == _protected_forms(source)
