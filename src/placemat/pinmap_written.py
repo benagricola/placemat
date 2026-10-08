@@ -16,10 +16,12 @@ import tempfile
 import weakref
 
 from .pinmap_common import CandidateRefused, Finalists, _fixed_copper, _physical_pad
+from .final_preservation import facts
 
 _RESERVED = frozenset(('canonical-source.kicad_pcb', 'placement-proof.json'))
 _SEAL = object()
 _MINTED = weakref.WeakValueDictionary()
+_PROOF_RECORDS = {}
 
 
 def _hash(path):
@@ -62,7 +64,7 @@ def _rules(geometry):
     keys = ('nets', 'netclasses', 'default_clearance', 'layers', 'edge_clearance',
             'hole_to_hole', 'hole_clearance', 'silk_clearance', 'min_track_width',
             'drc_epsilon', 'layer_types', 'copper_mm')
-    return tuple((key, repr(getattr(geometry, key))) for key in keys)
+    return tuple((key, facts(getattr(geometry, key))) for key in keys)
 
 
 def _poses(occ):
@@ -78,9 +80,9 @@ def _poses(occ):
 def _shapes(occ):
     from dataclasses import fields
     # Include analytic collision/hole/ownership roles, not only polygon boxes.
-    return tuple(sorted(((ref, tuple((field.name, repr(_polygon(shape.poly) if field.name == "poly" else getattr(shape, field.name)))
+    return tuple(sorted(((ref, tuple((field.name, facts(_polygon(shape.poly) if field.name == "poly" else getattr(shape, field.name)))
                                     for field in fields(shape)))
-                         for ref, item in occ.items.items() for shape in item.shapes), key=repr))
+                         for ref, item in occ.items.items() for shape in item.shapes), key=lambda row: json.dumps(row, sort_keys=True)))
 
 
 def _semantics(geometry, faces=None):
@@ -94,8 +96,8 @@ def _semantics(geometry, faces=None):
             opposite = {'F.Mask': 'B.Mask', 'B.Mask': 'F.Mask',
                         'F.Paste': 'B.Paste', 'B.Paste': 'F.Paste'}
             value = tuple(sorted(opposite.get(layer, layer) if flip else layer for layer in value))
-        return repr(value)
-    return tuple((tuple((name, repr(getattr(fp, name))) for name in names),
+        return facts(value)
+    return tuple((tuple((name, facts(getattr(fp, name))) for name in names),
                   tuple(sorted(tuple((name, value(fp, pad, name)) for name in pad_names)
                                for pad in fp.pads)))
                  for fp in sorted(geometry.footprints, key=lambda fp: fp.ref))
@@ -163,9 +165,18 @@ class RemapProof:
     candidate_record: str
     _seal: object
 
-    def verify(self, board, plan, settings=None):
-        if self._seal is not _SEAL or _MINTED.get(id(self)) is not self:
+    def _verify_minted(self):
+        if type(self) is not RemapProof or self._seal is not _SEAL or _MINTED.get(id(self)) is not self:
             raise CandidateRefused('proof_missing', 'pin candidate lacks a minted physical proof')
+        try:
+            current = _proof_record(self)
+        except (TypeError, ValueError) as error:
+            raise CandidateRefused('proof_changed', 'minted physical identity was modified') from error
+        if current != _PROOF_RECORDS.get(id(self)):
+            raise CandidateRefused('proof_changed', 'minted physical identity was modified')
+
+    def verify(self, board, plan, settings=None):
+        self._verify_minted()
         if _context(board, plan, settings or board.settings) != self.context:
             raise CandidateRefused('proof_context_changed', 'pin candidate source intent or layout changed')
         for path, expected in self.inputs:
@@ -218,6 +229,8 @@ def mint(board, plan, inp, groups, source_pcb, *, settings=None, context_files=(
                       _collision_shapes(original), _collision_shapes(candidate),
                       json.dumps(final.record(), sort_keys=True, allow_nan=False), _SEAL)
     _MINTED[id(proof)] = proof
+    _PROOF_RECORDS[id(proof)] = _proof_record(proof)
+    weakref.finalize(proof, _PROOF_RECORDS.pop, id(proof), None)
     return proof
 
 
@@ -290,6 +303,75 @@ def _edit_candidate(proof, out, canonical):
     pcb.Save(str(out))
 
 
+def _pose_records(poses):
+    from .placement import Placement
+    out = []
+    for ref, pose in poses:
+        if type(pose) is not Placement:
+            raise CandidateRefused('proof_pose_malformed', 'saved pose identity requires a known Placement')
+        out.append([ref, {'location': facts(pose.location), 'rotation': pose.rotation,
+                          'face': facts(pose.face), 'arrangement': pose.arrangement}])
+    return out
+
+
+def _readback_record(occ):
+    """Explicit JSON values; never repr, pickle or dynamic object reconstruction."""
+    properties = tuple((fp.ref, tuple(sorted(fp.fields.items())))
+                       for fp in sorted(occ.geometry.footprints, key=lambda f: f.ref))
+    return json.loads(json.dumps({'schema': 1, 'pads': _pads(occ), 'poses': _pose_records(_poses(occ)),
+        'shapes': _shapes(occ), 'fixed_copper': _fixed_copper(occ), 'rules': _rules(occ.geometry),
+        'semantics': _semantics(occ.geometry), 'collision': _collision_shapes(occ),
+        'properties': properties}, sort_keys=True, allow_nan=False))
+
+
+def _proof_record(proof):
+    """Retain every minted field independently of nested mutable JSON values."""
+    from dataclasses import fields
+    record = {field.name: getattr(proof, field.name) for field in fields(RemapProof)
+              if field.name not in ('_seal', 'source', 'source_poses', 'final_poses')}
+    record.update(source=str(proof.source), source_poses=_pose_records(proof.source_poses),
+                  final_poses=_pose_records(proof.final_poses))
+    return json.dumps(record, sort_keys=True, allow_nan=False, separators=(',', ':'))
+
+
+def _readback_expectation(proof):
+    """Private minted expected values; this record alone is not authority."""
+    if type(proof) is not RemapProof:
+        raise CandidateRefused('proof_missing', 'readback expectation requires a minted physical proof')
+    proof._verify_minted()
+    return json.loads(json.dumps({'schema': 1, 'pads': proof.final_pads,
+        'poses': _pose_records(proof.final_poses), 'shapes': proof.final_shapes,
+        'fixed_copper': proof.fixed_copper, 'rules': proof.rules, 'semantics': proof.final_semantics,
+        'collision': proof.final_collision, 'properties': proof.properties}, sort_keys=True, allow_nan=False))
+
+
+def _verify_readback_record(expected, reread):
+    """Compare a request-bound expectation in the owned child; mint nothing."""
+    keys = {'schema', 'pads', 'poses', 'shapes', 'fixed_copper', 'rules', 'semantics', 'collision', 'properties'}
+    if type(expected) is not dict or set(expected) != keys or type(expected['schema']) is not int or expected['schema'] != 1:
+        raise CandidateRefused('proof_readback_record_malformed', 'saved readback expectation has an unsupported schema')
+    encode = lambda value: json.dumps(value, sort_keys=True, allow_nan=False, separators=(',', ':'))
+    try:
+        encode(expected)
+    except (TypeError, ValueError) as error:
+        raise CandidateRefused('proof_readback_record_malformed',
+                               'saved readback expectation must contain finite JSON values') from error
+    actual = _readback_record(reread)
+    for fields, code, message in (
+        (('pads', 'poses', 'shapes'), 'proof_readback_geometry_changed', 'saved candidate differs from evaluated pad geometry'),
+        (('fixed_copper', 'rules'), 'proof_readback_rules_or_copper_changed', 'saved candidate fixed copper or physical rules changed'),
+        (('semantics',), 'proof_readback_semantics_changed', 'saved candidate changed manufacturing or footprint identity'),
+        (('collision',), 'proof_readback_collision_changed', 'saved candidate collision geometry differs from evaluated candidate'),
+        (('properties',), 'proof_readback_properties_changed', 'saved candidate changed original intent properties')):
+        if any(encode(expected[key]) != encode(actual[key]) for key in fields):
+            raise CandidateRefused(code, message)
+
+
+def _verify_readback(proof, reread):
+    """One exact saved geometry contract for writer and owned route reads."""
+    _verify_readback_record(_readback_expectation(proof), reread)
+
+
 def write_proved(board, plan, proof, destination, *, settings=None):
     """Write a fresh private bundle, exact reread, then publish the directory.
 
@@ -298,7 +380,7 @@ def write_proved(board, plan, proof, destination, *, settings=None):
     Unsupported KiCad geometry round trips refuse rather than weaken the proof.
     """
     effective = settings or board.settings
-    if not isinstance(proof, RemapProof):
+    if type(proof) is not RemapProof:
         raise CandidateRefused('proof_missing', 'pin candidate writer requires a minted physical proof')
     proof.verify(board, plan, effective)
     destination = Path(destination)
@@ -338,21 +420,7 @@ def write_proved(board, plan, proof, destination, *, settings=None):
         if _protected_forms(out) != protected:
             raise CandidateRefused('proof_fixed_board_items_changed', 'writing changed fixed copper or board graphics')
         reread = _read_occupancy(out, effective)
-        if (_pads(reread) != proof.final_pads or _poses(reread) != proof.final_poses
-                or _shapes(reread) != proof.final_shapes):
-            raise CandidateRefused('proof_readback_geometry_changed', 'saved candidate differs from evaluated pad geometry')
-        if _fixed_copper(reread) != proof.fixed_copper or _rules(reread.geometry) != proof.rules:
-            raise CandidateRefused('proof_readback_rules_or_copper_changed',
-                                   'saved candidate fixed copper or physical rules changed')
-        if _semantics(reread.geometry) != proof.final_semantics:
-            raise CandidateRefused('proof_readback_semantics_changed',
-                                   'saved candidate changed manufacturing or footprint identity')
-        if _collision_shapes(reread) != proof.final_collision:
-            raise CandidateRefused('proof_readback_collision_changed',
-                                   'saved candidate collision geometry differs from evaluated candidate')
-        properties = tuple((fp.ref, tuple(sorted(fp.fields.items()))) for fp in sorted(reread.geometry.footprints, key=lambda f: f.ref))
-        if properties != proof.properties:
-            raise CandidateRefused('proof_readback_properties_changed', 'saved candidate changed original intent properties')
+        _verify_readback(proof, reread)
         for raw, expected in proof.inputs:
             if expected is not None and Path(raw) != proof.source and _hash(temp / Path(raw).name) != expected:
                 raise CandidateRefused('proof_readback_sidecar_changed', 'saved candidate changed original project or capture bytes')

@@ -507,3 +507,118 @@ def test_save_defaults_restore_exact_sidecars_before_readback(tmp_path, monkeypa
         for path in (project, rules, capture):
             assert (destination / path.name).read_bytes() == original[path]
     assert {path: path.read_bytes() for path in original} == original
+
+
+def test_readback_record_is_stable_across_fresh_hash_seed_processes():
+    import json
+    import os
+    import subprocess
+    import sys
+    code = '''
+import json
+from dataclasses import replace
+from tests.fixtures import board_geometry, footprint
+from placemat.occupancy import Occupancy
+from placemat.pinmap_written import _readback_record
+fp=footprint('U1',10,10,nets=('A','B'))
+fp=replace(fp,pads=tuple(replace(p,through=True) for p in fp.pads),net_tie_pads=frozenset(('1','2')))
+print(json.dumps(_readback_record(Occupancy(board_geometry([fp]))),sort_keys=True,allow_nan=False))
+'''
+    records=[]
+    for seed in ('1','42','1234'):
+        completed=subprocess.run([sys.executable,'-c',code],env={**os.environ,'PYTHONHASHSEED':seed},
+                                 capture_output=True,text=True,check=True,timeout=10)
+        records.append(json.loads(completed.stdout))
+    assert records[0] == records[1] == records[2]
+    assert records[0]['schema'] == 1
+    assert records[0]['shapes']
+
+
+def test_shared_readback_expectation_checks_all_fields_and_rejects_malformed_schema(tmp_path):
+    import copy
+    from placemat import pinmap_written
+    from placemat.pinmap_common import Finalists
+    board,plan,inp,group=scene()
+    physical=mint(board,plan,inp,((group.refs,group.results[0]),),_source(tmp_path))
+    occ=Finalists(board,plan).evaluate(inp,((group.refs,group.results[0]),)).occupancy
+    expected=pinmap_written._readback_expectation(physical)
+    pinmap_written._verify_readback_record(expected,occ)
+    for key in ('pads','poses','shapes','fixed_copper','rules','semantics','collision','properties'):
+        changed=copy.deepcopy(expected)
+        changed[key]=['unproved']
+        with pytest.raises(CandidateRefused):
+            pinmap_written._verify_readback_record(changed,occ)
+    for changed in ({}, {**expected,'schema':True}, {**expected,'extra':1}):
+        with pytest.raises(CandidateRefused) as error:
+            pinmap_written._verify_readback_record(changed,occ)
+        assert error.value.code == 'proof_readback_record_malformed'
+    with pytest.raises(CandidateRefused) as error:
+        pinmap_written._readback_expectation(replace(physical))
+    assert error.value.code == 'proof_missing'
+
+
+def test_readback_nested_nonfinite_or_nonjson_values_are_structured_refusals(tmp_path):
+    import copy
+    from placemat import pinmap_written
+    from placemat.pinmap_common import Finalists
+    board,plan,inp,group=scene()
+    physical=mint(board,plan,inp,((group.refs,group.results[0]),),_source(tmp_path))
+    occ=Finalists(board,plan).evaluate(inp,((group.refs,group.results[0]),)).occupancy
+    expected=pinmap_written._readback_expectation(physical)
+    for invalid in (float('nan'), object()):
+        changed=copy.deepcopy(expected)
+        changed['shapes'][0][1][0][1]=invalid
+        with pytest.raises(CandidateRefused) as error:
+            pinmap_written._verify_readback_record(changed,occ)
+        assert error.value.code == 'proof_readback_record_malformed'
+    changed=copy.deepcopy(expected)
+    fields=dict(changed['shapes'][0][1])
+    assert type(fields['wire']) is bool
+    for pair in changed['shapes'][0][1]:
+        if pair[0]=='wire': pair[1]=int(pair[1])
+    with pytest.raises(CandidateRefused) as error:
+        pinmap_written._verify_readback_record(changed,occ)
+    assert error.value.code == 'proof_readback_geometry_changed'
+
+
+@pytest.mark.parametrize('identity', ['source_shapes','final_shapes','rules','semantics','final_semantics'])
+def test_nested_minted_identity_mutation_cannot_change_expected_readback(tmp_path,identity):
+    from placemat import pinmap_written
+    board,plan,inp,group=scene()
+    proof=mint(board,plan,inp,((group.refs,group.results[0]),),_source(tmp_path))
+    def mutate(value):
+        if isinstance(value,list):
+            value.append('unproved')
+            return True
+        if isinstance(value,dict):
+            value['unproved']=1
+            return True
+        if isinstance(value,tuple):
+            return any(mutate(member) for member in value)
+        return False
+    assert mutate(getattr(proof,identity))
+    with pytest.raises(CandidateRefused) as error:
+        proof.verify(board,plan)
+    assert error.value.code == 'proof_changed'
+    with pytest.raises(CandidateRefused) as error:
+        pinmap_written._readback_expectation(proof)
+    assert error.value.code == 'proof_changed'
+    with pytest.raises(CandidateRefused) as error:
+        pinmap_written.write_proved(board,plan,proof,tmp_path/'written')
+    assert error.value.code == 'proof_changed'
+    assert not (tmp_path/'written').exists()
+
+
+def test_retained_minted_identity_does_not_keep_proof_alive(tmp_path):
+    import gc
+    import weakref
+    from placemat import pinmap_written
+    board,plan,inp,group=scene()
+    proof=mint(board,plan,inp,((group.refs,group.results[0]),),_source(tmp_path))
+    key=id(proof);reference=weakref.ref(proof)
+    assert key in pinmap_written._PROOF_RECORDS
+    del proof
+    gc.collect()
+    assert reference() is None
+    assert key not in pinmap_written._PROOF_RECORDS
+    assert key not in pinmap_written._MINTED
