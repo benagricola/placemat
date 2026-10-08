@@ -1240,3 +1240,75 @@ def test_lazy_escape_oracle_refuses_changed_occupancy_before_setup(monkeypatch):
     occ.unlift({'C1'})
     with pytest.raises(ValueError, match='snapshot|occupancy|lifted'):
         _ = delta._escape_base
+
+
+@pytest.mark.parametrize('moving_ref', ['U9', 'R9'])
+def test_netless_pad_obstacles_keep_escape_delta_native_and_whole_parity(moving_ref, monkeypatch):
+    from dataclasses import replace
+    from placemat import geometry, score
+    from placemat.prepared_escape import prepare
+    from placemat.score_delta import Delta
+    from placemat.values import Location
+    from tests.test_escape_findings import _walled_in
+    from tests.test_surface_escapes import _via_only_board
+    parts = _walled_in(0.1)
+    parts[1] = replace(parts[1], pads=tuple(replace(pad, net='') for pad in parts[1].pads))
+    board = _via_only_board(parts)
+    # Real readers omit the unnamed net from the declared net table.
+    board.geometry = replace(board.geometry, nets=board.geometry.nets - {''},
+                             netclasses={n: c for n, c in board.geometry.netclasses.items() if n})
+    plan = board.resolve()
+    occ = plan.occupancy
+    item = next(part for part in parts if part.ref == moving_ref)
+    original = plan.placement(item.inst)
+    occ.lift({moving_ref})
+    before = score.whole(board, occ, plan)
+    walls = []
+    for pose in (original, replace(original, location=Location(30, 15))):
+        delta = Delta(board, occ, item, plan.links, plan=plan)
+        with monkeypatch.context() as context:
+            context.setattr(geometry, "_native", None)
+            expected = delta(pose)
+        prepared, reason = prepare(delta, (0.0,), pose.face, rest_cache=True)
+        assert prepared is not None, reason
+        actual = prepared.evaluate(pose, 0, inspect=True)
+        # Same-body prepared inspection exposes complete categorical counts.
+        terms, crossed, vias, away, native_wall, _, _ = actual
+        keys = ('airwire', 'crossings', 'link', 'link_over', 'area', 'congestion')
+        assert terms == pytest.approx(tuple(expected.terms[k] for k in keys), abs=1e-6)
+        view, _, _ = delta._view(pose)
+        from placemat.escapes import judging
+        with monkeypatch.context() as context:
+            context.setattr(geometry, "_native", None)
+            counts = judging(view).counts()
+        assert (crossed, vias, away, native_wall) == (
+            counts['escape_crossed'] - delta._escape_base['escape_crossed'],
+            counts['escape_via'], counts['escape_closed'], counts['escape_walled'])
+        occ.commit(item, pose)
+        with monkeypatch.context() as context:
+            context.setattr(geometry, "_native", None)
+            whole = score.whole(board, occ, plan)
+        final = score._incremental(board, occ, plan)['findings'].get('escape_walled', 0)
+        for term, change in expected.terms.items():
+            assert change == pytest.approx(whole[term] - before[term]), term
+        assert expected.walled == final
+        walls.append(final)
+        # Whole geometry still contains the netless pad blockers.
+        assert any(sh.net == '' for sh in occ.items['R9'].shapes)
+        occ.lift({moving_ref})
+    assert walls[0] > walls[1]
+
+
+def test_escape_delta_does_not_treat_unknown_nonempty_net_as_netless():
+    from dataclasses import replace
+    from placemat.escapes import EscapeDelta
+    from tests.test_escape_findings import _walled_in
+    from tests.test_surface_escapes import _via_only_board
+    board = _via_only_board(_walled_in(0.1))
+    plan = board.resolve()
+    occ = plan.occupancy
+    occ.lift({'U9'})
+    occ.geometry = replace(occ.geometry, nets=occ.geometry.nets - {'RING'},
+                           netclasses={n: c for n, c in occ.geometry.netclasses.items() if n!='RING'})
+    with pytest.raises(KeyError, match="no net named 'RING'"):
+        EscapeDelta(occ, {'U9'})

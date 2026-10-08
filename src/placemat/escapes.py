@@ -1283,6 +1283,10 @@ class EscapeDelta:
                 continue
             lanes, spots, pads = self.base._lanes_of(ref)
             for number, (net, _, box) in pads.items():
+                # Netless pads have no escape verdict, but remain physical
+                # blockers in the base and candidate geometry indexes.
+                if not net:
+                    continue
                 key = ref, number
                 self.ways[key] = None
                 self.nets[key] = net
