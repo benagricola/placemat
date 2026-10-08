@@ -1420,7 +1420,7 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     script = str(ONE_ROUND) if quick else str(route_py)
     ctx = PhaseContext(rpy, script, router_dir_path, work, layers, iterations, probe, quick, timeout, env, cfg,
                        geometry, clearance_map, base_clearance, clearances_file, excluded, pours, rev,
-                       class_clearances, stated)
+                       class_clearances, stated, final_execution)
     pcb_out = work / "routed.kicad_pcb"
     raw_out = work / "router_out.kicad_pcb"      # the last phase's board: post-processing is made on a copy
     board, prev, records, summaries, spent, resumed = pcb_in, base, [], [], 0.0, []

@@ -127,6 +127,35 @@ class FinalExecution:
             self.ledger = custody._executor_begin_calls(self.grader, self.executor)
         self._optional(bind)
 
+    def issue_call(self, **issued):
+        """Capture one actual issued call; no replay/adoption permission."""
+        from . import issued_calls
+        def retain():
+            phase, call, wave = issued['phase'], issued['call'], issued['wave']
+            destination = self.work / ('issued-p%d-c%d-w%d-input' % (phase, call, wave))
+            return issued_calls._executor_issue(
+                self.grader, self.ledger, self.executor, snapshot_dir=destination, **issued)
+        return self._optional(retain)
+
+    def raw_call(self, token, returncode):
+        if token is None:
+            return
+        from . import issued_calls
+        def retain():
+            identity = token.record['identity']
+            destination = self.work / ('issued-p%d-c%d-w%d-raw' %
+                                      (identity['phase'], identity['call'], identity['wave']))
+            issued_calls._executor_raw_result(self.grader, self.ledger, self.executor, token,
+                                             returncode=returncode, snapshot_dir=destination)
+        self._optional(retain)
+
+    def restored_call(self, token):
+        if token is None:
+            return
+        from . import issued_calls
+        self._optional(lambda: issued_calls._executor_restored_result(
+            self.grader, self.ledger, self.executor, token))
+
     def phase(self, index, record, routed):
         def retain():
             paths = [Path(routed.board)]

@@ -103,7 +103,7 @@ class _Opaque:
         raise CustodyUnavailable('custody_not_serializable')
 
 class _Ledger(_Opaque):
-    __slots__ = ('owner', 'executor', 'report', 'phases', 'outputs', 'sealed')
+    __slots__ = ('owner', 'executor', 'report', 'phases', 'outputs', 'sealed', 'issued')
 
     def __new__(cls, key, *args):
         if key is not _MINT:
@@ -112,6 +112,7 @@ class _Ledger(_Opaque):
 
     def __init__(self, key, owner, executor):
         self.owner, self.executor, self.report, self.phases, self.outputs, self.sealed = (owner, executor, None, [], {}, False)
+        self.issued = []
 
 class _Completion(_Opaque):
     __slots__ = ('owner', 'report_sha', 'outputs', 'ledger_sha', 'completed_at')
@@ -260,6 +261,11 @@ def _executor_record_phase(grader, ledger, executor, index, record, *, calls, ou
     if not isinstance(record, dict) or record.get('name') != grader._phases[index].name or (not isinstance(calls, (tuple, list))):
         raise CustodyUnavailable('ordinary_phase_incomplete')
     phase = {'index': index, 'record': deepcopy(record), 'calls': deepcopy(calls)}
+    if ledger.issued:
+        from .issued_calls import completed_record
+        phase['issued_calls'] = [completed_record(grader, ledger, executor, token)
+                                 for token in ledger.issued
+                                 if token.record['identity']['phase'] == index]
     _digest(phase)
     new_outputs = {}
     for p, h in outputs.items():

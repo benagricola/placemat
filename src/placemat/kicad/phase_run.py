@@ -123,6 +123,7 @@ class PhaseContext:
     events: object
     class_clearances: dict = field(default_factory=dict)
     stated_clearances: dict = field(default_factory=dict)
+    execution: object = None
 
 
 @dataclass
@@ -719,13 +720,26 @@ def route_calls(ctx, index, phase, sel, board) -> PhaseOutcome:
                 cmd = router_command(ctx.rpy, ctx.script, src, part, set(), layers, psum, connections=cfile,
                                      bus_nets=list(call.nets) if call.kind == "bus_tasks" else None, **common)
                 log = ctx.work / ("%s_%d.log" % (stem, j))
+                token = None
+                if ctx.execution is not None:
+                    constraints = (ctx.clearances_file,) if ctx.clearances_file else ()
+                    token = ctx.execution.issue_call(
+                        phase=index, call=k, wave=j, kind='connections', command=cmd,
+                        source=src, input_board=src, output_board=part, summary=psum,
+                        layers=layers, nets=sorted({task.net for task in pending}),
+                        tasks=[task.record() for task in pending], constraint_files=constraints,
+                        task_file=cfile)
                 rc = _run(cmd, log, ctx)
+                if ctx.execution is not None:
+                    ctx.execution.raw_call(token, rc)
                 if rc != 0 or not part.exists():
                     _failed(rc, log, what)
                 _copy_project(src, part)
                 lock_copper(str(part))
                 out.summaries.append((phase.name, k, psum))
                 data = connection_summary(psum, pending, phase.name, log)
+                if ctx.execution is not None:
+                    ctx.execution.restored_call(token)
                 recs = data.get("connections") or []
                 if call.kind == "bus_tasks":
                     bus_groups += data.get("bus_groups") or []
