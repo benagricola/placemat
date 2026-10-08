@@ -7,19 +7,19 @@ a third router candidate, wider repair scope, or weaker width certification.
 
 ## Evidence and problem
 
-The PicProgrammer B comparison used identical original input geometry and project
-rules. Under one selected-pad/effective-width contract the old saved board joins
-86 signal obligations and the new board joins 85. Both have no real errors under
-the original project. Old paths remain conservatively width-unproved; they are
+An old/new reference-board comparison used identical original input geometry and
+project rules. Under one selected-pad/effective-width contract the new saved board
+loses one signal join. Both have no real errors under the original project.
+Old paths remain conservatively width-unproved; they are
 not full required-width certificates.
 
 An owned observer replay captured the actual rescue decisions. Both old and new
-calls consider JP1.2 bare and invoke its tap. The old tap creates a nominal via;
-both new candidates report the via blocked. New rescue-time copper from another
+calls consider the selected terminal bare and invoke its tap. The old tap creates
+a nominal via; both new candidates report the via blocked. New rescue-time copper from another
 signal overlaps the old successful via site. This establishes an ordering/terrain
 interaction, not impossibility of every alternative site. The earlier suspected
 proximity eligibility defect is disproved for this case. The old replay uses the
-captured historical source but its exact historical B native hash is unavailable;
+captured historical source but its exact historical native hash is unavailable;
 that limitation remains in its evidence. No reference coordinates, net names,
 pad names, or geometry changes belong in the implementation.
 
@@ -110,7 +110,7 @@ is weakened to make the new strategy succeed.
    failure proof, deadline/owned process cleanup, and final earlier-phase/width/
    critical-check regression. Verify no third candidate and no deadline extension.
 5. Review concrete implementation and scoped tests before one bounded actual
-   Pic comparison. Grade original rules and full contracts, record conservative
+   reference-board comparison. Grade original rules and full contracts, record conservative
    width outcomes and individual candidate epochs, and retain unchanged input.
 6. Resolve the merge blocker through the accepted final comparison or report the
    remaining limitation explicitly. Then finish the finite reference/common-audit
@@ -122,3 +122,11 @@ width does not prove a task's effective policy, especially when tasks share a
 terminal but declare different widths. This refusal preserves ordinary
 connection routing and its existing legacy/pocket candidate policy. Typed task
 identities and widths remain in the proof transport for future supported use.
+
+The first executor also withholds requests after resumed, pair, pour, bus or
+connection work whose internal calls and deferred copper custody it cannot
+enumerate. It retains the ordinary routing command and records the refusal.
+Known nominal widths alone do not establish final-call capability: the configured
+router must advertise both optional transport flags through its existing
+capability listing. A retained complete-board grader is required for adoption;
+the transport descriptor and candidate's own report cannot provide that authority.

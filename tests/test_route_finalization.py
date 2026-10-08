@@ -1,9 +1,36 @@
 """Both final-board candidates use source rules and the same frozen phase contract."""
 from types import SimpleNamespace
+import json
 
 import pytest
 
 from placemat.kicad import phase_run, route, route_cleanup
+
+
+def test_retained_invocation_and_actual_width_receipt_are_bound(tmp_path):
+    from placemat.kicad.final_call import ProofUnavailable
+    from placemat.kicad.final_route import FinalCopperGrader
+    from placemat.settings import Settings
+    original, baseline, receipt = [tmp_path / name for name in ('source.kicad_pcb', 'drc.json', 'width.json')]
+    original.write_text('source')
+    original.with_suffix('.kicad_pro').write_text('rules')
+    baseline.write_text('{}')
+    widths = {'policies': []}
+    receipt.write_text(json.dumps(widths))
+    invocation = {'layers': ['F.Cu'], 'exclude_nets': ['EXCLUDED'], 'pour_nets': [],
+                  'upto': None, 'only': False, 'capture_path': None}
+    grader = FinalCopperGrader(original=original, cleanup_input=original, rules=original,
+                              baseline_drc=baseline, obligations=[], phases=[], width_receipt=widths,
+                              cfg=Settings(), counted={'EXCLUDED'}, open_before={}, chosen_pours=set(),
+                              invocation=invocation, width_receipt_path=receipt)
+    invocation['exclude_nets'].clear()
+    bound = grader.binding()
+    assert bound['contract']['invocation']['exclude_nets'] == ['EXCLUDED']
+    assert bound['paths']['width_receipt'] == str(receipt)
+    assert bound['contract']['width_receipt_sha256']
+    receipt.write_text('{"policies": [{"name": "changed"}]}')
+    with pytest.raises(ProofUnavailable, match='original_grading_input_changed'):
+        grader.binding()
 
 
 def test_finalize_private_copy_restores_original_rules_and_cleanup_boundary(tmp_path, monkeypatch):

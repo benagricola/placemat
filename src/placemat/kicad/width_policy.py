@@ -64,6 +64,55 @@ def requests_of(phases, selections, cfg):
     return out
 
 
+def validate_receipt(policy, *, pcb, router_dir, requests):
+    """Revalidate an actual resolved receipt against the same immutable context.
+
+    No router query is performed. The retained adapter must supply the original
+    issued requests and query input, rather than candidate-derived selections.
+    Invalid receipts raise the same boundary errors handled by resolve.
+    """
+    board = str(Path(pcb).resolve())
+    contract = hashlib.sha256(json.dumps(requests, sort_keys=True).encode()).hexdigest()
+    script = Path(router_dir) / 'py_router' / 'nominal_width_policy.py'
+    if not isinstance(policy, dict) or type(policy.get('schema')) is not int or policy['schema'] != 1 or policy.get('config_sha256') != contract:
+        raise ValueError('policy schema/configuration mismatch')
+    if policy.get('board') != board:
+        raise ValueError('policy board mismatch')
+    expected = {str(path): hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
+                for path in (Path(board), Path(board).with_suffix('.kicad_pro'),
+                             Path(board).with_suffix('.kicad_dru'))}
+    if policy.get('inputs') != expected:
+        raise ValueError('policy input digest mismatch')
+    sources = set(Path(router_dir).glob('*.py')) | set(script.parent.rglob('*.py'))
+    expected_sources = {str(path.relative_to(router_dir)): hashlib.sha256(path.read_bytes()).hexdigest()
+                        for path in sorted(sources)}
+    if policy.get('sources') != expected_sources:
+        raise ValueError('policy source digest mismatch')
+    external = policy.get('external_inputs', {})
+    if not isinstance(external, dict) or any(
+            hashlib.sha256(Path(path).read_bytes()).hexdigest() != digest for path, digest in external.items()):
+        raise ValueError('policy external input digest mismatch')
+    records = policy['policies']
+    if not isinstance(records, list) or len(records) != len(requests):
+        raise ValueError('policy scope count mismatch')
+    for record, request in zip(records, requests):
+        if record['name'] != request['name'] or record['kind'] != request['kind']:
+            raise ValueError('policy scope identity mismatch')
+        if set(record['by_net']) != set(request['nets']):
+            raise ValueError('policy net membership mismatch')
+        for entry in record['by_net'].values():
+            if entry['status'] == 'unknown':
+                if not isinstance(entry.get('reason'), str) or not entry['reason']:
+                    raise ValueError('unknown policy without reason')
+                continue
+            if entry['status'] != 'known' or set(entry['widths']) != set(request['layers']):
+                raise ValueError('policy layer membership mismatch')
+            if any(isinstance(w, bool) or not isinstance(w, (int, float)) or not math.isfinite(w) or w <= 0
+                   for w in entry['widths'].values()):
+                raise ValueError('invalid policy width')
+    return policy
+
+
 def resolve(rpy, router_dir, pcb, phases, selections, cfg, env=None, *, timeout=None):
     """Versioned policy receipt; unavailable or malformed policy is unknown."""
     requests = requests_of(phases, selections, cfg)
@@ -134,43 +183,7 @@ def resolve(rpy, router_dir, pcb, phases, selections, cfg, env=None, *, timeout=
     try:
         line = next(line for line in reversed(stdout.splitlines()) if line.startswith('PLACEMAT_WIDTH_POLICY '))
         policy = json.loads(line.removeprefix('PLACEMAT_WIDTH_POLICY '))
-        if not isinstance(policy, dict) or type(policy.get('schema')) is not int or policy['schema'] != 1 or policy.get('config_sha256') != contract:
-            raise ValueError('policy schema/configuration mismatch')
-        if policy.get('board') != packet['board']:
-            raise ValueError('policy board mismatch')
-        expected = {str(path): hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
-                    for path in (Path(packet['board']), Path(packet['board']).with_suffix('.kicad_pro'),
-                                 Path(packet['board']).with_suffix('.kicad_dru'))}
-        if policy.get('inputs') != expected:
-            raise ValueError('policy input digest mismatch')
-        sources = set(Path(router_dir).glob('*.py')) | set(script.parent.rglob('*.py'))
-        expected_sources = {str(path.relative_to(router_dir)): hashlib.sha256(path.read_bytes()).hexdigest()
-                            for path in sorted(sources)}
-        if policy.get('sources') != expected_sources:
-            raise ValueError('policy source digest mismatch')
-        external = policy.get('external_inputs', {})
-        if not isinstance(external, dict) or any(
-                hashlib.sha256(Path(path).read_bytes()).hexdigest() != digest for path, digest in external.items()):
-            raise ValueError('policy external input digest mismatch')
-        records = policy['policies']
-        if not isinstance(records, list) or len(records) != len(requests):
-            raise ValueError('policy scope count mismatch')
-        for record, request in zip(records, requests):
-            if record['name'] != request['name'] or record['kind'] != request['kind']:
-                raise ValueError('policy scope identity mismatch')
-            if set(record['by_net']) != set(request['nets']):
-                raise ValueError('policy net membership mismatch')
-            for entry in record['by_net'].values():
-                if entry['status'] == 'unknown':
-                    if not isinstance(entry.get('reason'), str) or not entry['reason']:
-                        raise ValueError('unknown policy without reason')
-                    continue
-                if entry['status'] != 'known' or set(entry['widths']) != set(request['layers']):
-                    raise ValueError('policy layer membership mismatch')
-                if any(isinstance(w, bool) or not isinstance(w, (int, float)) or not math.isfinite(w) or w <= 0
-                       for w in entry['widths'].values()):
-                    raise ValueError('invalid policy width')
-        return policy
+        return validate_receipt(policy, pcb=pcb, router_dir=router_dir, requests=requests)
     except (KeyError, TypeError, ValueError, OSError, StopIteration) as error:
         return unknown('malformed nominal width policy: ' + str(error), 'malformed')
 

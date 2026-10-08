@@ -28,7 +28,8 @@ class FinalCopperGrader:
     can replace its original obligations and width policy.
     """
     def __init__(self, *, original, cleanup_input, rules, baseline_drc, obligations,
-                 phases, width_receipt, cfg, counted, open_before, chosen_pours, template=None):
+                 phases, width_receipt, cfg, counted, open_before, chosen_pours, template=None,
+                 invocation=None, width_receipt_path=None):
         self._original = Path(original)
         self._cleanup_input = Path(cleanup_input)
         self._rules = Path(rules)
@@ -36,6 +37,16 @@ class FinalCopperGrader:
         paths = [self._original, self._cleanup_input, self._baseline]
         paths += [self._rules.with_suffix(ext) for ext in ('.kicad_pro', '.kicad_dru')]
         self._inputs = {str(path): file_hash(path) if path.is_file() else None for path in paths}
+        self._receipt_path = Path(width_receipt_path) if width_receipt_path is not None else None
+        if self._receipt_path is not None:
+            try:
+                receipt_bytes = self._receipt_path.read_bytes()
+                actual_receipt = json.loads(receipt_bytes)
+                self._inputs[str(self._receipt_path)] = hashlib.sha256(receipt_bytes).hexdigest()
+            except (OSError, ValueError, UnicodeError) as error:
+                raise ProofUnavailable('width_receipt_unavailable') from error
+            if actual_receipt != width_receipt:
+                raise ProofUnavailable('width_receipt_mismatch')
         if self._inputs[str(self._rules.with_suffix('.kicad_pro'))] is None:
             raise ProofUnavailable('missing_input_rules')
         self._obligations = json.dumps(obligations, sort_keys=True, allow_nan=False)
@@ -58,6 +69,9 @@ class FinalCopperGrader:
                                               'source_inputs': source_contract,
                                               'counted': sorted(self._counted), 'open_before': self._open_before,
                                               'chosen_pours': sorted(self._chosen_pours)}
+        self._semantic_contract['invocation'] = json.loads(json.dumps(invocation, sort_keys=True, allow_nan=False))
+        self._semantic_contract['width_receipt_sha256'] = (self._inputs[str(self._receipt_path)]
+                                                          if self._receipt_path is not None else None)
         self._contract_sha256 = record_digest(self._semantic_contract)
 
     @property
@@ -69,7 +83,8 @@ class FinalCopperGrader:
         self._unchanged()
         return {'contract_sha256': self.contract_sha256, 'contract': deepcopy(self._semantic_contract),
                 'paths': {'original': str(self._original), 'cleanup_input': str(self._cleanup_input),
-                          'rules': str(self._rules), 'baseline_drc': str(self._baseline)}}
+                          'rules': str(self._rules), 'baseline_drc': str(self._baseline),
+                          'width_receipt': str(self._receipt_path) if self._receipt_path is not None else None}}
 
     def bind_execution(self, report):
         """Retain the executor's actual completed incumbent diagnostics once."""
