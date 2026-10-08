@@ -32,6 +32,62 @@ def issue(issued):
     return calls._executor_issue(grader, ledger, executor, **options)
 
 
+@pytest.mark.parametrize('environment', [[], {'KRT_INTERNAL_ROUTE_CANDIDATE': True},
+                                        {'KRT_ROUTE_DEADLINE_UTC': 123}])
+def test_malformed_execution_transport_refuses_before_snapshot(issued, environment):
+    issued[3]['environment'] = environment
+    with pytest.raises(ProofUnavailable, match='execution_environment_malformed'):
+        issue(issued)
+    assert not issued[3]['snapshot_dir'].exists()
+
+
+def test_execution_transport_is_detached_and_excludes_unrelated_environment(issued):
+    environment = {'KRT_INTERNAL_ROUTE_CANDIDATE': '1',
+                   'KRT_ROUTE_DEADLINE_UTC': '123', 'UNRELATED_SECRET': 'private'}
+    issued[3]['environment'] = environment
+    token = issue(issued)
+    environment['KRT_INTERNAL_ROUTE_CANDIDATE'] = 'changed'
+    assert token.record['execution_transport']['KRT_INTERNAL_ROUTE_CANDIDATE'] == '1'
+    assert 'UNRELATED_SECRET' not in token.record['execution_transport']
+
+
+def test_actual_plan_cannot_be_changed_before_issuance(issued):
+    from placemat.kicad.phase_run import Call
+    grader, ledger, executor, options = issued
+    calls._executor_plan(grader, ledger, executor, phase=0, calls=[Call('tasks')],
+                         layers=['F.Cu'], input_board=options['input_board'])
+    ledger.call_plans[0][0]['calls'][0]['kind'] = 'nets'
+    with pytest.raises(ProofUnavailable, match='plan_changed'):
+        issue(issued)
+    assert not options['snapshot_dir'].exists()
+
+
+def test_actual_issued_kind_must_match_plan(issued):
+    from placemat.kicad.phase_run import Call
+    grader, ledger, executor, options = issued
+    calls._executor_plan(grader, ledger, executor, phase=0, calls=[Call('nets', ('N',))],
+                         layers=['F.Cu'], input_board=options['input_board'])
+    with pytest.raises(ProofUnavailable, match='kind_outside_plan'):
+        issue(issued)
+    assert not options['snapshot_dir'].exists()
+
+
+def test_completed_phase_retains_actual_plan_in_sealed_ledger_input(issued, tmp_path):
+    from placemat.kicad.phase_run import Call
+    grader, ledger, executor, options = issued
+    calls._executor_plan(grader, ledger, executor, phase=0, calls=[Call('tasks')],
+                         layers=['F.Cu'], input_board=options['input_board'])
+    token = issue(issued)
+    finish(issued, token, tmp_path)
+    custody._executor_record_phase(grader, ledger, executor, 0,
+                                  {'name': grader._phases[0].name},
+                                  calls=[(grader._phases[0].name, 0, str(options['summary']))],
+                                  outputs={str(options['output_board']): calls.file_hash(options['output_board'])})
+    assert ledger.phases[0]['actual_call_plan'] == ledger.call_plans[0][0]
+    ledger.call_plans[0][0]['calls'].clear()
+    assert len(ledger.phases[0]['actual_call_plan']['calls']) == 1
+
+
 def finish(issued, token, tmp_path):
     grader, ledger, executor, options = issued
     options['output_board'].write_text('actual raw result')
@@ -135,6 +191,11 @@ def test_real_task_wave_sites_capture_before_and_after_restoration(context, tmp_
                         lambda py, script, src, out, excluded, layers, summary, **kw:
                         [str(py), script, str(src), str(out), str(summary), str(kw['connections'])])
     def run(command, log, context):
+        planned, planned_sha = hook.ledger.call_plans[0]
+        assert planned['phase'] == 0 and planned['layers'] == ['F.Cu']
+        assert planned['calls'][0]['kind'] == 'tasks'
+        assert planned['calls'][0]['tasks'] == [task.record()]
+        assert planned_sha == calls.record_digest(planned)
         assert len(hook.ledger.issued) == 1
         assert hook.ledger.issued[0].raw is None
         Path(command[3]).write_text('raw from actual issued wave')
@@ -349,3 +410,50 @@ def test_nonidentity_pour_withholds_optional_custody_but_routes_ordinary(pour_ex
     assert route.route_pour_net(ctx, hook.grader._original, tmp_path/'direct.kicad_pcb',
                                 'N', .2, ['F.Cu'], 'direct') == []
     assert len(invoked) == 2
+
+
+@pytest.mark.parametrize('selector', ['nets', 'rest'])
+def test_actual_single_call_records_raw_before_rule_and_lock_restoration(context, tmp_path, monkeypatch, selector):
+    from types import SimpleNamespace
+    from placemat.kicad import phase_run
+    from placemat.kicad.final_execution import FinalExecution
+    from placemat.kicad.phase_select import Selection
+    grader, facts, report = register(context)
+    hook = object.__new__(FinalExecution)
+    hook.work, hook.active, hook.grader = tmp_path, True, grader
+    hook.executor, hook.refusals = object(), (ProofUnavailable,)
+    hook.ledger = custody._executor_begin_calls(grader, hook.executor)
+    ctx = phase_run.PhaseContext(
+        Path('/usr/bin/python3'), 'route.py', str(tmp_path), tmp_path, ['F.Cu'],
+        None, None, False, 60, {}, SimpleNamespace(route_router_args=()), facts['geometry'],
+        {}, .2, None, set(), set(), None, execution=hook)
+    phase = SimpleNamespace(name='signals', router_args=(), neckdown=False)
+    selected = Selection('signals', selector, nets=('N',), rest=selector == 'rest', layers=('F.Cu',))
+    monkeypatch.setattr(phase_run, 'router_command',
+                        lambda py, script, src, out, excluded, layers, summary, **kw:
+                        [str(py), script, str(src), str(out), str(summary)])
+    def run(command, log, context):
+        token = hook.ledger.issued[0]
+        assert token.record['identity']['kind'] == 'single'
+        assert token.record['nets'] == ['N']
+        assert token.raw is None
+        Path(command[3]).write_text('raw single result')
+        Path(command[4]).write_text(json.dumps({'successful': 1, 'failed': 0}))
+        return 0
+    monkeypatch.setattr(phase_run, '_run', run)
+    monkeypatch.setattr(phase_run, '_copy_project',
+                        lambda src, out: Path(out).with_suffix('.kicad_pro').write_bytes(
+                            Path(src).with_suffix('.kicad_pro').read_bytes()))
+    def lock(path):
+        token = hook.ledger.issued[0]
+        assert token.raw is not None and token.completed is None
+        Path(path).write_text('locked single result')
+    monkeypatch.setattr(phase_run, 'lock_copper', lock)
+    for name in ('phase_widths', 'narrow_join_widths', 'task_widths'):
+        monkeypatch.setattr(phase_run, name, lambda *args: [])
+    phase_run.route_calls(ctx, 0, phase, selected, grader._original)
+    token = hook.ledger.issued[0]
+    assert hook.active and token.completed is not None
+    raw = next(path for path in token.raw['files'] if path.endswith('p0_0.kicad_pcb'))
+    assert Path(raw).read_text() == 'raw single result'
+    assert Path(token.record['output']).read_text() == 'locked single result'

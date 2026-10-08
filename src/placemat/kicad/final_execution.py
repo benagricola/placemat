@@ -127,6 +127,11 @@ class FinalExecution:
             self.ledger = custody._executor_begin_calls(self.grader, self.executor)
         self._optional(bind)
 
+    def plan_calls(self, **planned):
+        from . import issued_calls
+        self._optional(lambda: issued_calls._executor_plan(
+            self.grader, self.ledger, self.executor, **planned))
+
     def issue_call(self, **issued):
         """Capture one actual issued call; no replay/adoption permission."""
         from . import issued_calls

@@ -687,6 +687,8 @@ def route_calls(ctx, index, phase, sel, board) -> PhaseOutcome:
                   base_clearance=routing_clearance(ctx.geometry.default_clearance, args, ctx.env))
     calls = plan_calls(sel, ctx.clearance_map, ctx.base_clearance, set(ctx.excluded) | set(ctx.pour_nets))
     layers = list(sel.layers)
+    if ctx.execution is not None:
+        ctx.execution.plan_calls(phase=index, calls=calls, layers=layers, input_board=board)
     out = PhaseOutcome(board, {}, {})
     pairs, connections, bus_groups = None, [], []
     common = dict(iterations=ctx.iterations, probe=ctx.probe, quick=ctx.quick, clearances=ctx.clearances_file,
@@ -696,6 +698,7 @@ def route_calls(ctx, index, phase, sel, board) -> PhaseOutcome:
         stem = "p%d_%d" % (index, k)
         nxt = ctx.work / (stem + ".kicad_pcb")
         summary = ctx.work / (stem + "_summary.json")
+        single_token = None
         if call.kind == "pairs":
             # the phase's own router flags go to the pair router too; its neck-down is route.py's only (route_diff.py
             # has no --no-power-tap-neckdown), so `neckdown` does not reach a pair call
@@ -729,7 +732,7 @@ def route_calls(ctx, index, phase, sel, board) -> PhaseOutcome:
                         source=src, input_board=src, output_board=part, summary=psum,
                         layers=layers, nets=sorted({task.net for task in pending}),
                         tasks=[task.record() for task in pending], constraint_files=constraints,
-                        task_file=cfile)
+                        task_file=cfile, environment=ctx.env)
                 rc = _run(cmd, log, ctx)
                 if ctx.execution is not None:
                     ctx.execution.raw_call(token, rc)
@@ -775,7 +778,17 @@ def route_calls(ctx, index, phase, sel, board) -> PhaseOutcome:
                 cmd = router_command(ctx.rpy, ctx.script, board, nxt, set(), layers, summary, nets=list(call.nets),
                                      widths=widths, bus_nets=list(call.nets) if call.kind == "bus" else None, **common)
             log = ctx.work / (stem + ".log")
+            if ctx.execution is not None and call.kind in ('nets', 'rest'):
+                constraints = (ctx.clearances_file,) if ctx.clearances_file else ()
+                issued_nets = (sorted(main_pass_nets(ctx.geometry.nets, set(call.excluded)))
+                               if call.kind == 'rest' else list(call.nets))
+                single_token = ctx.execution.issue_call(
+                    phase=index, call=k, wave=0, kind='single', command=cmd,
+                    source=board, input_board=board, output_board=nxt, summary=summary,
+                    layers=layers, nets=issued_nets, tasks=[], constraint_files=constraints, environment=ctx.env)
             rc = _run(cmd, log, ctx)
+            if ctx.execution is not None:
+                ctx.execution.raw_call(single_token, rc)
             if rc != 0 or not nxt.exists():
                 _failed(rc, log, what)
             _copy_project(board, nxt)
@@ -783,6 +796,8 @@ def route_calls(ctx, index, phase, sel, board) -> PhaseOutcome:
             if call.kind == "bus" and summary.exists():
                 bus_groups += json.loads(summary.read_text()).get("bus_groups") or []
         lock_copper(str(nxt))
+        if ctx.execution is not None:
+            ctx.execution.restored_call(single_token)
         if call.kind not in ("tasks", "bus_tasks"):
             out.calls.append((call, board, nxt))
         board = nxt

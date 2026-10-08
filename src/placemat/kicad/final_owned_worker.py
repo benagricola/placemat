@@ -60,7 +60,7 @@ def _implementation():
     return {str(path): file_hash(path) for path in sorted(set(paths))}
 
 
-def _execute(argv, deadline, env):
+def _execute(argv, deadline, env, *, cwd=None, pass_fds=()):
     """Bound the wait by the original deadline; shutdown time cannot mint proof."""
     if threading.current_thread() is not threading.main_thread():
         raise ProofUnavailable('final_worker_main_thread_required')
@@ -110,7 +110,7 @@ def _execute(argv, deadline, env):
             if handler != signal.SIG_IGN:
                 signal.signal(sig, interrupted)
         proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                text=True, env=env, start_new_session=True)
+                                text=True, env=env, start_new_session=True, cwd=cwd, pass_fds=pass_fds)
         if pending is not None:
             interrupted(*pending)
         stdout, stderr = proc.communicate(timeout=_remaining(deadline))

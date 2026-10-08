@@ -16,6 +16,10 @@ from . import final_custody as custody
 from .final_call import ProofUnavailable, file_hash, record_digest
 
 _MINT = object()
+_TRANSPORT = ('KRT_INTERNAL_ROUTE_CANDIDATE', 'KRT_INTERNAL_POCKET_WALLS',
+              'KRT_ROUTE_DEADLINE_UTC', 'KRT_ROUTE_BUDGET_S',
+              'KRT_INTERNAL_FINAL_CALL_CONTEXT', 'KRT_INTERNAL_FINAL_CALL_KIND',
+              'KRT_INTERNAL_FINAL_CALL_PROOF', 'KRT_INTERNAL_FINAL_CALL_ID')
 
 
 def _owner(grader, ledger, executor, *, writing=True):
@@ -23,6 +27,9 @@ def _owner(grader, ledger, executor, *, writing=True):
     if (state.run is not ledger or ledger.owner is not state
             or ledger.executor is not executor or (writing and ledger.sealed)):
         raise ProofUnavailable('issued_call_owner_mismatch')
+    for record, fingerprint in ledger.call_plans:
+        if record_digest(record) != fingerprint:
+            raise ProofUnavailable('issued_call_plan_changed')
     return state
 
 
@@ -105,9 +112,32 @@ class IssuedCall(custody._Opaque):
         self.raw = self.raw_sha = self.completed = self.completed_sha = None
 
 
+def _executor_plan(grader, ledger, executor, *, phase, calls, layers, input_board):
+    """Bind the actual planner result before any call in this phase executes."""
+    _owner(grader, ledger, executor)
+    from .phase_run import Call
+    if (type(phase) is not int or phase != len(ledger.phases)
+            or phase != len(ledger.call_plans) or phase >= len(grader._phases)
+            or not isinstance(calls, (list, tuple))
+            or any(type(call) is not Call for call in calls)
+            or not isinstance(layers, (list, tuple)) or not layers
+            or any(not isinstance(layer, str) or not layer for layer in layers)
+            or len(set(layers)) != len(layers)
+            or not isinstance(input_board, (str, Path)) or not Path(input_board).is_file()):
+        raise ProofUnavailable('issued_call_plan_malformed')
+    records = []
+    for call in calls:
+        records.append(dict(kind=call.kind, nets=list(call.nets), excluded=list(call.excluded),
+                            tasks=[task.record() for task in call.tasks],
+                            width=call.width, clearance=call.clearance))
+    record = dict(phase=phase, layers=list(layers), calls=records, input=_files(input_board))
+    fingerprint = record_digest(record)
+    ledger.call_plans.append((deepcopy(record), fingerprint))
+
+
 def _executor_issue(grader, ledger, executor, *, phase, call, wave, kind,
                     command, source, input_board, output_board, summary,
-                    layers, nets, tasks, constraint_files, snapshot_dir, task_file=None):
+                    layers, nets, tasks, constraint_files, snapshot_dir, task_file=None, environment=None):
     """PRIVATE hook immediately before the actual issued subprocess.
 
     Pour source and transformed input are separate identities. Connection tasks
@@ -115,6 +145,16 @@ def _executor_issue(grader, ledger, executor, *, phase, call, wave, kind,
     """
     owner = _owner(grader, ledger, executor)
     identity = _Identity(phase, call, wave, kind).record()
+    if ledger.call_plans:
+        if phase >= len(ledger.call_plans):
+            raise ProofUnavailable('issued_call_plan_missing')
+        planned = ledger.call_plans[phase][0]['calls']
+        if call >= len(planned):
+            raise ProofUnavailable('issued_call_outside_plan')
+        permitted = {'single': ('nets', 'rest'), 'connections': ('tasks', 'bus_tasks'),
+                     'pour': ('pour',)}
+        if planned[call]['kind'] not in permitted[kind]:
+            raise ProofUnavailable('issued_call_kind_outside_plan')
     issued = ledger.issued
     if any(t.completed is None for t in issued):
         raise ProofUnavailable('issued_call_previous_incomplete')
@@ -138,6 +178,12 @@ def _executor_issue(grader, ledger, executor, *, phase, call, wave, kind,
         raise ProofUnavailable('issued_call_path_malformed')
     if not Path(source).is_file() or not Path(input_board).is_file():
         raise ProofUnavailable('issued_call_board_missing')
+    if environment is not None and (not isinstance(environment, dict)
+            or any(environment.get(key) is not None and not isinstance(environment.get(key), str)
+                   for key in _TRANSPORT)):
+        raise ProofUnavailable('issued_execution_environment_malformed')
+    transport = ({key: environment.get(key) for key in _TRANSPORT}
+                 if environment is not None else None)
     normalized = [_task(task) for task in tasks]
     if kind == 'connections' and (
             set(nets) != {task['net'] for task in normalized}
@@ -188,7 +234,8 @@ def _executor_issue(grader, ledger, executor, *, phase, call, wave, kind,
               'tasks': normalized, 'actual_input_files': files, 'input_snapshots': source_files,
               'original_context_sha256': owner.original_sha,
               'width_authority_sha256': record_digest(json.loads(grader._widths)),
-              'deadline_utc': owner.deadline_utc, 'pour_transform': transform}
+              'deadline_utc': owner.deadline_utc, 'pour_transform': transform,
+              'execution_transport': transport}
     token = IssuedCall(_MINT, owner, ledger, executor, record)
     issued.append(token)
     return token

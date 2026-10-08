@@ -103,7 +103,7 @@ class _Opaque:
         raise CustodyUnavailable('custody_not_serializable')
 
 class _Ledger(_Opaque):
-    __slots__ = ('owner', 'executor', 'report', 'phases', 'outputs', 'sealed', 'issued')
+    __slots__ = ('owner', 'executor', 'report', 'phases', 'outputs', 'sealed', 'issued', 'replay_budget', 'call_plans')
 
     def __new__(cls, key, *args):
         if key is not _MINT:
@@ -113,6 +113,8 @@ class _Ledger(_Opaque):
     def __init__(self, key, owner, executor):
         self.owner, self.executor, self.report, self.phases, self.outputs, self.sealed = (owner, executor, None, [], {}, False)
         self.issued = []
+        self.replay_budget = None
+        self.call_plans = []
 
 class _Completion(_Opaque):
     __slots__ = ('owner', 'report_sha', 'outputs', 'ledger_sha', 'completed_at')
@@ -261,6 +263,12 @@ def _executor_record_phase(grader, ledger, executor, index, record, *, calls, ou
     if not isinstance(record, dict) or record.get('name') != grader._phases[index].name or (not isinstance(calls, (tuple, list))):
         raise CustodyUnavailable('ordinary_phase_incomplete')
     phase = {'index': index, 'record': deepcopy(record), 'calls': deepcopy(calls)}
+    if index < len(ledger.call_plans):
+        planned, fingerprint = ledger.call_plans[index]
+        from .final_call import record_digest
+        if record_digest(planned) != fingerprint:
+            raise CustodyUnavailable('ordinary_call_plan_changed')
+        phase['actual_call_plan'] = deepcopy(planned)
     if ledger.issued:
         from .issued_calls import completed_record
         phase['issued_calls'] = [completed_record(grader, ledger, executor, token)

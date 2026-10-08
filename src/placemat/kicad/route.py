@@ -1090,7 +1090,7 @@ def route_pour_net(ctx, board: Path, out: Path, net: str, width, layers, stem: s
             phase=phase_index, call=call_index, wave=0, kind='pour', command=cmd,
             source=board, input_board=inp, output_board=out,
             summary=ctx.work / (stem + '_summary.json'), layers=layers, nets=[net],
-            tasks=[task.record() for task in tasks], constraint_files=constraints)
+            tasks=[task.record() for task in tasks], constraint_files=constraints, environment=ctx.env)
     log = ctx.work / (stem + ".log")
     with open(log, "w") as f:
         f.write("$ %s\n\n" % " ".join(str(c) for c in cmd))
