@@ -29,7 +29,7 @@ def _b(**over):
                   ref_track_mm=20.0, a_closure_clean=1.0, seconds=1.0, versions=VERSIONS, failure="", inputs_digest="d1")
     fields.update(over)
     _evidence(fields)
-    fields.setdefault('reference_drc', {'baseline': 'human', 'new_violations': len(fields['new_violations'])})
+    fields.setdefault('reference_drc', {'baseline': 'prepared_reference', 'new_violations': len(fields['new_violations'])})
     return place_ref.BResult(**fields)
 
 
@@ -512,7 +512,7 @@ def test_effective_prices_are_bound_and_used_for_partial_routes():
     assert place_ref.compare_module(place_ref.asdict(old), _m(score_settings=different), {'placemat'}).status == 'not comparable'
 
 
-def test_human_drc_view_does_not_rewrite_runtime_report():
+def test_prepared_reference_drc_view_does_not_rewrite_runtime_report():
     old = _b()
     violation = prepare.Violation('clearance', ('A', 'B'), (1.0, 2.0))
     new = _b(new_violations=[violation])

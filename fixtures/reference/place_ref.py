@@ -73,7 +73,7 @@ class BResult:
     measures: dict = dataclasses.field(default_factory=dict)    # the run's measures (score.py), routed quality included
     route_report: dict = dataclasses.field(default_factory=dict)
     score_settings: dict = dataclasses.field(default_factory=dict)
-    reference_drc: dict = dataclasses.field(default_factory=dict)  # distinct human-baseline comparison evidence
+    reference_drc: dict = dataclasses.field(default_factory=dict)  # distinct prepared-baseline comparison evidence
 
 
 @dataclasses.dataclass(frozen=True)
@@ -226,7 +226,7 @@ def run_b(board: fetch.Board, ref_dir: pathlib.Path, work: pathlib.Path, *, prep
                   vias=routed.vias, track_mm=routed.track_mm, run_score=run_score(record, folder, script=copied), seconds=round(seconds, 1),
                   versions=versions, placement=placement, measures=record["metrics"].get("measures") or {},
                   route_report=deepcopy(route), score_settings=_score_settings(cfg),
-                  reference_drc={"baseline": "human", "new_violations": len(new)})
+                  reference_drc={"baseline": "prepared_reference", "new_violations": len(new)})
 
 
 def _area(metrics: dict) -> float:
@@ -342,7 +342,7 @@ def _ranked(old: dict, new) -> str:
             return None
         reference = row.get("reference_drc")
         if "new_violations" in row:
-            if (not isinstance(reference, dict) or reference.get("baseline") != "human"
+            if (not isinstance(reference, dict) or reference.get("baseline") != "prepared_reference"
                     or type(reference.get("new_violations")) is not int
                     or reference["new_violations"] != len(row["new_violations"])):
                 return None
