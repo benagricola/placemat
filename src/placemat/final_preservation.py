@@ -75,7 +75,18 @@ def forms(path):
         if node[0] in ('segment', 'arc', 'via') or node[0].startswith('gr_'):
             fixed.append(frozen(node))
         elif node[0] == 'zone':
-            zones.append(frozen([v for v in node if not (isinstance(v, list) and v and v[0] in ('filled_polygon', 'fill_segments'))]))
+            definition = []
+            for value in node:
+                if isinstance(value, list) and value:
+                    if value[0] in ('filled_polygon', 'fill_segments'):
+                        continue
+                    # KiCad's direct zone fill yes atom is derived m_isFilled
+                    # state. Retain every fill parameter and unknown token;
+                    # graphic fills and nested yes atoms are not normalized.
+                    if value[0] == 'fill' and len(value) > 1 and value[1] == 'yes':
+                        value = [value[0], *value[2:]]
+                definition.append(value)
+            zones.append(frozen(definition))
     return tuple(sorted(fixed)), tuple(sorted(zones))
 
 

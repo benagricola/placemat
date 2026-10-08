@@ -46,3 +46,53 @@ def test_manifest_boolean_does_not_accept_integer_substitution(tmp_path):
     expected['footprints'][0]['fields']['dnp'] = 0
     with pytest.raises(CandidateRefused):
         verify(geometry, source, geometry, source, expected)
+
+
+ZONE = ('(zone (net 1) (layer "B.Cu") (uuid "original-zone") (priority 2) '
+        '(polygon (pts (xy 1 1) (xy 5 1) (xy 5 5))) '
+        '(fill (mode 0) (thermal_gap 0.2) (thermal_bridge_width 0.3) '
+        '(hatch_thickness 0.4) (island_removal_mode 1)))')
+
+
+def test_zone_direct_filled_state_preserves_actual_manifest(tmp_path):
+    geometry, source = original(tmp_path)
+    source.write_text('(kicad_pcb ' + ZONE + ')')
+    final = tmp_path / 'final.kicad_pcb'
+    final.write_text(source.read_text().replace('(fill ', '(fill yes '))
+    retained = manifest(geometry, source)
+    assert manifest(geometry, final) == retained
+    assert verify(geometry, source, geometry, final, retained)['held_and_fixed_preserved'] is True
+
+
+@pytest.mark.parametrize(('old', 'new'), [
+    ('(mode 0)', '(mode 1)'),
+    ('(thermal_gap 0.2)', '(thermal_gap 0.3)'),
+    ('(thermal_bridge_width 0.3)', '(thermal_bridge_width 0.4)'),
+    ('(hatch_thickness 0.4)', '(hatch_thickness 0.5)'),
+    ('(island_removal_mode 1)', '(island_removal_mode 2)'),
+    ('(net 1)', '(net 2)'),
+    ('(layer "B.Cu")', '(layer "F.Cu")'),
+    ('(uuid "original-zone")', '(uuid "changed-zone")'),
+    ('(priority 2)', '(priority 3)'),
+    ('(xy 5 5)', '(xy 5.01 5)'),
+])
+def test_zone_parameters_remain_exact_after_filled_state_normalization(tmp_path, old, new):
+    geometry, source = original(tmp_path)
+    source.write_text('(kicad_pcb ' + ZONE + ')')
+    final = tmp_path / 'final.kicad_pcb'
+    final.write_text(source.read_text().replace('(fill ', '(fill yes ').replace(old, new))
+    assert manifest(geometry, source) != manifest(geometry, final)
+    with pytest.raises(CandidateRefused):
+        verify(geometry, source, geometry, final, manifest(geometry, source))
+
+
+def test_filled_state_normalization_retains_unknown_and_graphic_fill_tokens(tmp_path):
+    from placemat.final_preservation import forms
+    source = tmp_path / 'source.kicad_pcb'
+    final = tmp_path / 'final.kicad_pcb'
+    source.write_text('(kicad_pcb (zone (fill (mode 0))) (gr_poly (fill none)))')
+    for text in ('(kicad_pcb (zone (fill yes yes (mode 0))) (gr_poly (fill none)))',
+                 '(kicad_pcb (zone (fill unknown (mode 0))) (gr_poly (fill none)))',
+                 '(kicad_pcb (zone (fill yes (mode 0))) (gr_poly (fill yes)))'):
+        final.write_text(text)
+        assert forms(source) != forms(final)
