@@ -16,7 +16,10 @@ def query(ctx,deadline,work):
     route=(root/ctx.script).resolve()
     helper=route.with_name('route_execution_receipt.py')
     grade=route.with_name('route_candidates.py')
-    paths=[Path(ctx.rpy).resolve(),script,route,helper,grade]
+    publisher=root/'py_router'/'execution_policy_capabilities.py'
+    if not publisher.is_file():
+        publisher=root/'execution_policy_capabilities.py'
+    paths=[Path(ctx.rpy).resolve(),script,route,helper,grade,publisher.resolve()]
     if any(not path.is_file() for path in paths):
         raise ProofUnavailable('replay_execution_capability_unavailable')
     try:
@@ -47,7 +50,9 @@ def query(ctx,deadline,work):
         fields={'schema','legacy_only','pocket','policy_receipt_schema','parent_scope_schema',
                 'route_path','helper_path','route_sha256','helper_sha256',
                 'ordinary_grade_request_schema','grade_path','grade_sha256'}
-        valid=(type(caps['schema']) is int and caps['schema']==1
+        valid=(caps.get('execution_policy_publisher')=={'path':str(publisher.resolve()),
+                   'sha256':sources[str(publisher.resolve())]}
+               and type(caps['schema']) is int and caps['schema']==1
                and Path(caps['root']).resolve()==root
                and isinstance(policies,dict) and set(policies)==fields
                and all(type(policies[key]) is int and policies[key]==expected
