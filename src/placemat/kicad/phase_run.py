@@ -748,7 +748,7 @@ def route_calls(ctx, index, phase, sel, board) -> PhaseOutcome:
                 if ctx.execution is not None:
                     constraints = (ctx.clearances_file,) if ctx.clearances_file else ()
                     token = ctx.execution.issue_call(
-                        phase=index, call=k, wave=j, kind='connections', command=cmd,
+                        _context=ctx, phase=index, call=k, wave=j, kind='connections', command=cmd,
                         source=src, input_board=src, output_board=part, summary=psum,
                         layers=layers, nets=sorted({task.net for task in pending}),
                         tasks=[task.record() for task in pending], constraint_files=constraints,
@@ -798,16 +798,20 @@ def route_calls(ctx, index, phase, sel, board) -> PhaseOutcome:
                 cmd = router_command(ctx.rpy, ctx.script, board, nxt, set(), layers, summary, nets=list(call.nets),
                                      widths=widths, bus_nets=list(call.nets) if call.kind == "bus" else None, **common)
             log = ctx.work / (stem + ".log")
+            issued_ctx = ctx
             if ctx.execution is not None and call.kind in ('nets', 'rest'):
                 constraints = (ctx.clearances_file,) if ctx.clearances_file else ()
                 issued_nets = (sorted(main_pass_nets(ctx.geometry.nets, set(call.excluded)))
                                if call.kind == 'rest' else list(call.nets))
-                single_token = ctx.execution.issue_call(
+                issued_ctx, single_token = ctx.execution.issue_single(ctx,
                     phase=index, call=k, wave=0, kind='single', command=cmd,
                     source=board, input_board=board, output_board=nxt, summary=summary,
                     layers=layers, nets=issued_nets, tasks=[], constraint_files=constraints, environment=ctx.env)
             if call.kind in ('nets', 'rest'):
-                _completed_single_call(ctx, cmd, log, what, board, nxt, single_token)
+                if ctx.execution is not None:
+                    ctx.execution.execute_single(issued_ctx, cmd, log, what, board, nxt, single_token)
+                else:
+                    _completed_single_call(ctx, cmd, log, what, board, nxt, single_token)
                 single_restored = True
             else:
                 rc = _run(cmd, log, ctx)

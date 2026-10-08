@@ -179,11 +179,14 @@ def test_real_task_wave_sites_capture_before_and_after_restoration(context, tmp_
     hook.work, hook.active, hook.grader = tmp_path, True, grader
     hook.executor, hook.refusals = object(), (ProofUnavailable,)
     hook.ledger = custody._executor_begin_calls(grader, hook.executor)
+    hook.contexts = {}
+    hook.replay_budget = hook.final_call = None
+    hook.deadline = custody._context(grader).deadline_utc
     task = Task('N', ('A', '1'), ('B', '1'), (('F.Cu', .2),))
     geometry = facts['geometry']
     ctx = phase_run.PhaseContext(
         Path('/usr/bin/python3'), 'route.py', str(tmp_path), tmp_path, ['F.Cu'],
-        None, None, False, 60, {}, SimpleNamespace(route_router_args=()), geometry,
+        None, None, False, 60, {}, SimpleNamespace(route_router_args=(), json=lambda: '{"route_router_args":[]}'), geometry,
         {}, .2, None, set(), set(), None, execution=hook)
     phase = SimpleNamespace(name='signals', router_args=(), neckdown=False)
     selected = Selection('signals', 'connections', tasks=(task,), layers=('F.Cu',))
@@ -285,6 +288,9 @@ def pour_execution(context, tmp_path):
     hook.work, hook.active, hook.grader = tmp_path, True, grader
     hook.executor, hook.refusals = object(), (ProofUnavailable,)
     hook.ledger = custody._executor_begin_calls(grader, hook.executor)
+    hook.contexts = {}
+    hook.replay_budget = hook.final_call = None
+    hook.deadline = custody._context(grader).deadline_utc
     return hook
 
 
@@ -324,10 +330,14 @@ def test_actual_pour_helper_binds_transform_raw_and_guard_completion(pour_execut
         stages.append('restore_own_guards')
         return []
     monkeypatch.setattr(route, 'guard_partial_pours', guards)
-    ctx = SimpleNamespace(work=tmp_path, cfg=SimpleNamespace(route_plane_share=.5),
+    ctx = SimpleNamespace(work=tmp_path, cfg=SimpleNamespace(route_plane_share=.5, json=lambda: '{"route_plane_share":0.5}'),
                           rpy=Path('/usr/bin/python3'), script='route.py', iterations=None,
                           probe=None, quick=False, clearances_file=None, router_dir=tmp_path,
                           env={}, timeout=10, layers=['F.Cu'], execution=hook)
+    # The real executor context is a dataclass, so snapshots use replace().
+    from dataclasses import make_dataclass
+    values = vars(ctx)
+    ctx = make_dataclass('ControlledPourContext', [(name, object) for name in values])(**values)
     task = Task('N', ('A', '1'), ('B', '1'), (('F.Cu', .2),))
     route.route_pour_net(ctx, hook.grader._original, tmp_path/'p0_0.kicad_pcb', 'N', .2,
                          ['F.Cu'], 'p0_0', _issued_scope=(0, 0, (task,)))
@@ -394,10 +404,14 @@ def test_nonidentity_pour_withholds_optional_custody_but_routes_ordinary(pour_ex
     monkeypatch.setattr(route, 'pours_back', lambda *args: 0)
     monkeypatch.setattr(route, 'lock_copper', lambda *args: None)
     monkeypatch.setattr(route, 'guard_partial_pours', lambda *args: [])
-    ctx = SimpleNamespace(work=tmp_path, cfg=SimpleNamespace(route_plane_share=.5),
+    ctx = SimpleNamespace(work=tmp_path, cfg=SimpleNamespace(route_plane_share=.5, json=lambda: '{"route_plane_share":0.5}'),
                           rpy=Path('/usr/bin/python3'), script='route.py', iterations=None,
                           probe=None, quick=False, clearances_file=None, router_dir=tmp_path,
                           env={}, timeout=10, layers=['F.Cu'], execution=hook)
+    # The real executor context is a dataclass, so snapshots use replace().
+    from dataclasses import make_dataclass
+    values = vars(ctx)
+    ctx = make_dataclass('ControlledPourContext', [(name, object) for name in values])(**values)
     task = Task('N', ('A', '1'), ('B', '1'), (('F.Cu', .2),))
     output = tmp_path/'p0_0.kicad_pcb'
     assert route.route_pour_net(ctx, hook.grader._original, output, 'N', .2, ['F.Cu'], 'p0_0',
@@ -413,40 +427,51 @@ def test_nonidentity_pour_withholds_optional_custody_but_routes_ordinary(pour_ex
 
 
 @pytest.mark.parametrize('selector', ['nets', 'rest'])
-def test_actual_single_call_records_raw_before_rule_and_lock_restoration(context, tmp_path, monkeypatch, selector):
+def test_actual_non_final_single_call_records_raw_before_rule_and_lock_restoration(context, tmp_path, monkeypatch, selector):
     from types import SimpleNamespace
     from placemat.kicad import phase_run
     from placemat.kicad.final_execution import FinalExecution
-    from placemat.kicad.phase_select import Selection
+    from placemat.kicad.phase_select import Selection, Task
     grader, facts, report = register(context)
     hook = object.__new__(FinalExecution)
     hook.work, hook.active, hook.grader = tmp_path, True, grader
     hook.executor, hook.refusals = object(), (ProofUnavailable,)
     hook.ledger = custody._executor_begin_calls(grader, hook.executor)
+    hook.contexts = {}
+    hook.replay_budget = hook.final_call = None
+    hook.deadline = custody._context(grader).deadline_utc
     ctx = phase_run.PhaseContext(
         Path('/usr/bin/python3'), 'route.py', str(tmp_path), tmp_path, ['F.Cu'],
-        None, None, False, 60, {}, SimpleNamespace(route_router_args=()), facts['geometry'],
+        None, None, False, 60, {}, SimpleNamespace(route_router_args=(), json=lambda: '{"route_router_args":[]}'), facts['geometry'],
         {}, .2, None, set(), set(), None, execution=hook)
     phase = SimpleNamespace(name='signals', router_args=(), neckdown=False)
     selected = Selection('signals', selector, nets=('N',), rest=selector == 'rest', layers=('F.Cu',))
+    # A real later task call keeps the selected single call non-final.
+    original_plan = phase_run.plan_calls
+    later_task = Task('N', ('A', '1'), ('B', '1'), (('F.Cu', .2),))
+    monkeypatch.setattr(phase_run, 'plan_calls', lambda *args: [
+        *original_plan(*args), phase_run.Call('tasks', tasks=(later_task,))])
     monkeypatch.setattr(phase_run, 'router_command',
                         lambda py, script, src, out, excluded, layers, summary, **kw:
                         [str(py), script, str(src), str(out), str(summary)])
     def run(command, log, context):
-        token = hook.ledger.issued[0]
-        assert token.record['identity']['kind'] == 'single'
+        token = hook.ledger.issued[-1]
+        assert token.record['identity']['kind'] in ('single', 'connections')
         assert token.record['nets'] == ['N']
         assert token.raw is None
         Path(command[3]).write_text('raw single result')
-        Path(command[4]).write_text(json.dumps({'successful': 1, 'failed': 0}))
+        Path(command[4]).write_text(json.dumps({'successful': 1, 'failed': 0,
+            'connections': [dict(item, status='routed') for item in token.record['tasks']]}))
         return 0
     monkeypatch.setattr(phase_run, '_run', run)
     monkeypatch.setattr(phase_run, '_copy_project',
                         lambda src, out: Path(out).with_suffix('.kicad_pro').write_bytes(
                             Path(src).with_suffix('.kicad_pro').read_bytes()))
     def lock(path):
-        token = hook.ledger.issued[0]
-        assert token.raw is not None and token.completed is None
+        token = hook.ledger.issued[-1]
+        assert token.raw is not None
+        if token.record['identity']['kind'] == 'single':
+            assert token.completed is None
         Path(path).write_text('locked single result')
     monkeypatch.setattr(phase_run, 'lock_copper', lock)
     for name in ('phase_widths', 'narrow_join_widths', 'task_widths'):

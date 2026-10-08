@@ -6,12 +6,13 @@ routing calls and report unchanged; process cancellation always propagates.
 from __future__ import annotations
 
 from copy import deepcopy
+from dataclasses import replace
 import json
 import math
 from pathlib import Path
 import time
 
-from .final_call import ProofUnavailable, file_hash
+from .final_call import ProofUnavailable, file_hash, record_digest
 from .final_route import FinalCopperGrader
 from . import final_custody as custody
 
@@ -20,6 +21,8 @@ class FinalExecution:
     def __init__(self, factory, work):
         self.factory, self.work = factory, Path(work)
         self.grader = self.ledger = None
+        self.contexts = {}
+        self.replay_budget = self.final_call = None
         self.executor = object()
         self.read_identity = self.geometry = None
         self.refusals = (ProofUnavailable,)
@@ -27,7 +30,9 @@ class FinalExecution:
         try:
             try:
                 from ..final_authority import RetainedAuthorityFactory, AuthorityRefused
-            except ImportError as error:
+            except ModuleNotFoundError as error:
+                if error.name != 'placemat.final_authority':
+                    raise
                 raise ProofUnavailable('final_authority_adapter_unavailable') from error
             self.refusals += (AuthorityRefused,)
             if type(factory) is not RetainedAuthorityFactory:
@@ -94,7 +99,11 @@ class FinalExecution:
                     raise ProofUnavailable('final_authority_deadline_context_mismatch') from error
                 if not math.isfinite(value) or value != self.deadline:
                     raise ProofUnavailable('final_authority_deadline_context_mismatch')
-            return dict(env, KRT_ROUTE_DEADLINE_UTC=str(self.deadline))
+            constrained=dict(env,KRT_ROUTE_DEADLINE_UTC=str(self.deadline))
+            # The independent original comparator capsule belongs only to the
+            # final issued call; prior ordinary calls must not occupy its path.
+            constrained.pop('KRT_INTERNAL_ORDINARY_GRADE_REQUEST',None)
+            return constrained
         return self._optional(constrain) or env
 
     def prepare(self, *, original, cleanup_input, baseline_drc, obligations, phases,
@@ -125,6 +134,11 @@ class FinalExecution:
                 deadline_utc=self.deadline)
             self.factory.bind_physical(self.grader)
             self.ledger = custody._executor_begin_calls(self.grader, self.executor)
+            if getattr(self.factory, '_route_execution', None) is not None:
+                raise ProofUnavailable('final_authority_execution_already_bound')
+            self.factory._route_execution = self
+            self.contexts = {}
+            self.replay_budget = self.final_call = None
         self._optional(bind)
 
     def plan_calls(self, **planned):
@@ -132,15 +146,105 @@ class FinalExecution:
         self._optional(lambda: issued_calls._executor_plan(
             self.grader, self.ledger, self.executor, **planned))
 
-    def issue_call(self, **issued):
+    def issue_call(self, *, _context=None, **issued):
         """Capture one actual issued call; no replay/adoption permission."""
         from . import issued_calls
         def retain():
             phase, call, wave = issued['phase'], issued['call'], issued['wave']
             destination = self.work / ('issued-p%d-c%d-w%d-input' % (phase, call, wave))
-            return issued_calls._executor_issue(
+            token = issued_calls._executor_issue(
                 self.grader, self.ledger, self.executor, snapshot_dir=destination, **issued)
+            if _context is not None:
+                self._remember_context(token, _context)
+            return token
         return self._optional(retain)
+
+    @staticmethod
+    def _context_digest(ctx):
+        return record_digest({'root': str(Path(ctx.router_dir).resolve()), 'script': str(ctx.script),
+                              'python': str(Path(ctx.rpy).resolve()), 'env': dict(ctx.env),
+                              'settings': json.loads(ctx.cfg.json()), 'layers': list(ctx.layers),
+                              'clearances': str(ctx.clearances_file) if ctx.clearances_file else None})
+
+    def _remember_context(self, token, ctx):
+        if token in self.contexts:
+            raise ProofUnavailable('replay_context_already_retained')
+        snapshot = replace(ctx, env=dict(ctx.env), cfg=deepcopy(ctx.cfg), execution=None)
+        self.contexts[token] = (snapshot, self._context_digest(snapshot))
+
+    def contexts_for(self, budget):
+        from . import issued_calls
+        if (self.factory._route_execution is not self or budget is not self.replay_budget
+                or self.factory._grader is not self.grader or budget.ledger is not self.ledger
+                or budget.executor is not self.executor):
+            raise ProofUnavailable('replay_execution_owner_mismatch')
+        budget._check(self.executor)
+        result = {}
+        for token in self.ledger.issued:
+            issued_calls.completed_record(self.grader, self.ledger, self.executor, token)
+            if token not in self.contexts:
+                raise ProofUnavailable('replay_original_execution_context_missing')
+            ctx, digest = self.contexts[token]
+            if self._context_digest(ctx) != digest:
+                raise ProofUnavailable('replay_original_execution_context_changed')
+            result[token] = replace(ctx, env=dict(ctx.env), cfg=deepcopy(ctx.cfg))
+        return result
+
+    def issue_single(self, ctx, **issued):
+        """Reserve before final token; unsupported proof preserves ordinary argv/env."""
+        phase, call = issued['phase'], issued['call']
+        final = (self.active and phase == len(self.grader._phases)-1
+                 and phase < len(self.ledger.call_plans)
+                 and call == len(self.ledger.call_plans[phase][0]['calls'])-1)
+        if not final:
+            return ctx, self.issue_call(_context=ctx, **issued)
+        def prepare():
+            from . import issued_calls, replay_budget
+            from . import replay_backend as replay_backend
+            from . import replay_capability as owned_capability
+            for plan, digest in self.ledger.call_plans:
+                if record_digest(plan) != digest or any(item['kind'] not in ('nets','rest','tasks','pour') for item in plan['calls']):
+                    raise ProofUnavailable('replay_pipeline_scope_unproved')
+            for token in self.ledger.issued:
+                prior = issued_calls.completed_record(self.grader,self.ledger,self.executor,token)
+                if token not in self.contexts:
+                    raise ProofUnavailable('replay_original_execution_context_missing')
+                prior_ctx, digest = self.contexts[token]
+                if self._context_digest(prior_ctx) != digest:
+                    raise ProofUnavailable('replay_original_execution_context_changed')
+                replay_backend._original_effective(prior,prior_ctx,final=False)
+            self.backend_capability = owned_capability.query(ctx,self.deadline,self.work/'replay-capability')
+            self.backend_capability_sha=record_digest(self.backend_capability)
+            # Actual completed prior calls only; final token does not exist yet.
+            self.replay_budget = replay_budget._executor_reserve(self.grader,self.ledger,self.executor)
+            env = dict(ctx.env, KRT_INTERNAL_ROUTE_CANDIDATE='1', KRT_ROUTE_DEADLINE_UTC=str(self.deadline),
+                       KRT_INTERNAL_ORDINARY_GRADE_REQUEST=str(self.work/'ordinary-grade-original.json'))
+            env.pop('KRT_INTERNAL_POCKET_WALLS',None)
+            candidate_ctx = replace(ctx,env=env)
+            issued['environment'] = env
+            token = self.issue_call(_context=candidate_ctx,**issued)
+            if token is None:
+                raise ProofUnavailable('replay_final_call_issuance_unavailable')
+            self.final_call = token
+            return candidate_ctx,token
+        result = self._optional(prepare)
+        if result is None:
+            # No backend call has been issued: disable this optional reservation.
+            # Do not reopen or reuse it through another execution path.
+            self.replay_budget = self.final_call = None
+            self.contexts = {}
+            return ctx, None
+        return result
+
+    def execute_single(self, ctx, cmd, log, what, source, output, token):
+        from .phase_run import _completed_single_call
+        if (not self.active or token is None or self.final_call is None
+                or self.replay_budget is None or token is not self.final_call):
+            return _completed_single_call(ctx,cmd,log,what,source,output,token)
+        from . import replay_ordinary_completion as ordinary_completed
+        self.ordinary_receipt, self.backend_eligibility = ordinary_completed.run_completed(
+            self.replay_budget,token,ctx,log,
+            lambda run: _completed_single_call(ctx,cmd,log,what,source,output,token,run=run))
 
     def raw_call(self, token, returncode):
         if token is None:
@@ -189,4 +293,6 @@ class FinalExecution:
                 self.grader, self.ledger, self.executor, report,
                 report_json=self.work / 'route.json',
                 outputs={str(path): file_hash(path) for path in paths})
+            if self.replay_budget is not None:
+                self.replay_budget.seal_incumbent(self.executor)
         self._optional(seal)

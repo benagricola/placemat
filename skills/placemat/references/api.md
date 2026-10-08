@@ -5677,3 +5677,20 @@ from certification. RC1 still fails certification and remains held against a pre
 passed baseline. An unverified, stale or incomplete artifact carries no measured routing
 comparison. Inherited manufacturing errors remain visible separately from new errors;
 connectivity comparisons require matching original selected obligations and rules.
+
+### Complete-board routing comparisons
+
+A full Run can retain its original layout/check context for a bounded routing
+comparison when the configured backend advertises the required source-bound
+capability. A replay can replace the existing pocket proposal; it never adds a
+third routing proposal or extends the original deadline. Original selected
+terminals, effective widths, fixed copper, zone intent and held placement remain
+the comparison contract. Each incumbent current-path join must be preserved.
+Unsupported call custody or missing authority keeps ordinary routing behavior.
+
+Ordinary pocket selection and strict certification are separate. A selected
+ordinary output is finalized and freshly checked; unknown widths and inherited
+invalid manufacturing remain reported. It is not a strict complete-board
+certificate. Optional comparison refusals are recorded as code/facts in the
+Run's separate `route_optional` metric, without changing the sealed original
+route report. No public override enables acceptance of unproved evidence.

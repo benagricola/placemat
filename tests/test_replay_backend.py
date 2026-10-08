@@ -23,12 +23,17 @@ parser.add_argument('input_file');parser.add_argument('output_file')
 parser.add_argument('--json-out');parser.add_argument('--connections')
 parser.add_argument('--net-clearances');parser.add_argument('--nets',nargs='+')
 parser.add_argument('--layers',nargs='+')
+parser.set_defaults(track_width=.2,via_size=.6,via_drill=.3,clearance=.2)
 args,unknown=parser.parse_known_args()
 sys.modules['grid_router']=SimpleNamespace(__file__=str(Path(__file__).parent.parent/'rust_router/grid_router.so'))
+# Manufacturing identity is deliberately controlled; no native board reads.
+sys.modules['fab_tiers']=SimpleNamespace(fab_tier_from_args=lambda args:('controlled',{}),
+ count_copper_layers_in_file=lambda path:2,
+ fab_floor_min=lambda count,tier,overrides:dict(clearance=.2,track_width=.2,via_diameter=.6,via_drill=.3,annular=.15))
 tasks=json.loads(Path(args.connections).read_text())
 requested=json.loads(Path(args.net_clearances).read_text())
 resolved_nets=sorted({task['net'] for task in tasks})
-policy=receipt.make(args,sys.argv[1:],resolved_nets,args.layers,os.environ,__file__,tasks,{'1':.2},requested)
+policy=receipt.make(args,sys.argv[1:],resolved_nets,args.layers,os.environ,__file__,tasks,{'1':.2},requested,parser)
 shutil.copyfile(args.input_file,args.output_file)
 summary={'execution_policy':policy,'connections':[dict(task,status='routed') for task in tasks]}
 mode=os.environ.get('CONTROL_MODE')
@@ -51,6 +56,7 @@ def launch(issued, tmp_path, request):
     (root/'py_router/route.py').write_text(SCRIPT)
     helper=HERE/'fixtures/replay_backend/route_execution_receipt.py'
     (root/'py_router/route_execution_receipt.py').write_bytes(helper.read_bytes())
+    (root/'py_router/route_candidates.py').write_bytes((HERE/'fixtures/replay_backend/route_candidates.py').read_bytes())
     (root/'rust_router/grid_router.so').write_bytes(b'controlled identity only; not imported native')
     mapping=tmp_path/'map.json';mapping.write_text('{"N":0.2}')
     grader,ledger,executor,options=issued

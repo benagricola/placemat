@@ -776,54 +776,63 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
                 rec.timing_s["arrangements"] = round(others_s + time.time() - t0, 1)     # their resolves and their proofs
             if route:
                 from .kicad.route import route_board
-                t0 = time.time()
-                stage = "route"
-                say("route", "%s routing on a copy of the board ..." % ("quick" if route_quick else "full"))
-                try:                                    # the placement as the studio draws it: the build replay's first half (the route's record is its second)
-                    from .preview_json import declared_sites, plan_json
-                    (run_dir / "plan.json").write_text(json.dumps(plan_json(plan, declared_sites(board)), separators=(",", ":")))
-                except Exception as e:                  # a courtesy: the run goes on without it
-                    say("route", "no plan.json for the build replay: %s: %s" % (type(e).__name__, e))
-                from .kicad.route import RouteRefused, RouterFailed, RouterMissing
-                from .route_phase import PhaseError
-                try:
-                    report = route_board(src.pcb, run_dir / "route", exclude_nets=set(route_exclude),
-                                         pour_nets=set(plan.plane_nets), quick=route_quick, resume=resume,
-                                         board_info={"run": rec.run_id, "script": str(script)},
-                                         on_setup=lambda fs: [console.finding(f, "route") for f in fs])
-                except (RouteRefused, PhaseError) as e:
-                    raise RunFailure("route", "Routing refused", {"code": e.code, "facts": e.facts, "error": str(e)}) from e
-                except RouterFailed as e:
-                    raise RunFailure("route", "Routing failed", {"error": e.what, "code": e.code, "facts": e.facts,
-                                                                 "exit_code": e.exit_code, "log": str(e.log), "tail": e.tail}) from e
-                except RouterMissing as e:
-                    raise RunFailure("route", "Routing refused", {"error": str(e), **e.record()}) from e
-                except Exception as e:                  # anything else the route raises fails the run too
-                    raise RunFailure("route", "Routing failed", {"error": "%s: %s" % (type(e).__name__, e),
-                                                                 "traceback": traceback.format_exc()}) from e
-                if report.resumed:
-                    say("route", "took %s from an earlier route of the same inputs (--no-resume routes again)" %
-                        ", ".join(report.resumed))
-                metrics["route"] = report.as_dict()
-                metrics["closure_clean"] = report.closure_clean
-                rec.timing_s["route"] = round(time.time() - t0, 1)
-                say("route", "%s  (%.0fs)" % (report.summary(), rec.timing_s["route"]))
-                from .kicad.route import phase_lines
-                for line in phase_lines(report.phases, report.phases_without_copper):
-                    say("route", line)
-                for breach in report.keepout_breaches:
-                    say("route", breach, level="finding")
-                if report.has_findings():
-                    from .findings import FindingCause
-                    from .kicad.route_widths import stated_currents
-                    short = report.findings(stated_currents(read_board(src.pcb)) if report.widths else {})
-                    plan.findings.extend(short)
-                    for f in short:
-                        if f.cause is not FindingCause.SETUP_NET_CLEARANCE:    # said before the route started
-                            console.finding(f, "route")
-                if report.open_nets:
-                    worst = sorted(report.open_nets.items(), key=lambda kv: -kv[1])[:8]
-                    say("route", "still open: " + ", ".join("%s %d" % kv for kv in worst))
+                from contextlib import ExitStack
+                with ExitStack() as route_authority_stack:
+                    t0 = time.time()
+                    stage = "route"
+                    say("route", "%s routing on a copy of the board ..." % ("quick" if route_quick else "full"))
+                    try:                                    # the placement as the studio draws it: the build replay's first half (the route's record is its second)
+                        from .preview_json import declared_sites, plan_json
+                        (run_dir / "plan.json").write_text(json.dumps(plan_json(plan, declared_sites(board)), separators=(",", ":")))
+                    except Exception as e:                  # a courtesy: the run goes on without it
+                        say("route", "no plan.json for the build replay: %s: %s" % (type(e).__name__, e))
+                    from .kicad.route import RouteRefused, RouterFailed, RouterMissing
+                    from .route_phase import PhaseError
+                    try:
+                        from .ordinary_route_authority import run as route_original
+                        routed_original = route_authority_stack.enter_context(route_original(
+                            board, plan, metrics.get("measures", {}), src.pcb, run_dir / "route", route_board,
+                            exclude_nets=set(route_exclude), pour_nets=set(plan.plane_nets),
+                            quick=route_quick, resume=resume,
+                            board_info={"run": rec.run_id, "script": str(script)},
+                            on_setup=lambda fs: [console.finding(f, "route") for f in fs]))
+                        report = routed_original.report
+                    except (RouteRefused, PhaseError) as e:
+                        raise RunFailure("route", "Routing refused", {"code": e.code, "facts": e.facts, "error": str(e)}) from e
+                    except RouterFailed as e:
+                        raise RunFailure("route", "Routing failed", {"error": e.what, "code": e.code, "facts": e.facts,
+                                                                     "exit_code": e.exit_code, "log": str(e.log), "tail": e.tail}) from e
+                    except RouterMissing as e:
+                        raise RunFailure("route", "Routing refused", {"error": str(e), **e.record()}) from e
+                    except Exception as e:                  # anything else the route raises fails the run too
+                        raise RunFailure("route", "Routing failed", {"error": "%s: %s" % (type(e).__name__, e),
+                                                                     "traceback": traceback.format_exc()}) from e
+                    if report.resumed:
+                        say("route", "took %s from an earlier route of the same inputs (--no-resume routes again)" %
+                            ", ".join(report.resumed))
+                    if routed_original.unavailable is not None:
+                        metrics["route_optional"] = json.loads(json.dumps(
+                            routed_original.unavailable, allow_nan=False))
+                    metrics["route"] = report.as_dict()
+                    metrics["closure_clean"] = report.closure_clean
+                    rec.timing_s["route"] = round(time.time() - t0, 1)
+                    say("route", "%s  (%.0fs)" % (report.summary(), rec.timing_s["route"]))
+                    from .kicad.route import phase_lines
+                    for line in phase_lines(report.phases, report.phases_without_copper):
+                        say("route", line)
+                    for breach in report.keepout_breaches:
+                        say("route", breach, level="finding")
+                    if report.has_findings():
+                        from .findings import FindingCause
+                        from .kicad.route_widths import stated_currents
+                        short = report.findings(stated_currents(read_board(src.pcb)) if report.widths else {})
+                        plan.findings.extend(short)
+                        for f in short:
+                            if f.cause is not FindingCause.SETUP_NET_CLEARANCE:    # said before the route started
+                                console.finding(f, "route")
+                    if report.open_nets:
+                        worst = sorted(report.open_nets.items(), key=lambda kv: -kv[1])[:8]
+                        say("route", "still open: " + ", ".join("%s %d" % kv for kv in worst))
             if render:
                 stage = "render"
                 render_job = render_job or start_render()

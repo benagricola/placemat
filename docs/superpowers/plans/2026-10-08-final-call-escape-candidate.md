@@ -130,3 +130,49 @@ Known nominal widths alone do not establish final-call capability: the configure
 router must advertise both optional transport flags through its existing
 capability listing. A retained complete-board grader is required for adoption;
 the transport descriptor and candidate's own report cannot provide that authority.
+
+## Completed-call replay and ordinary fallback custody
+
+A bounded prior-call replay may replace the existing pocket slot when actual
+completed call receipts uniquely attribute a blocking wall to earlier generated
+copper. It removes only the proved wall subset, preserves original copper and
+zone intent, and replays the exact retained call scopes and task vectors. It
+never derives replacement obligations or an MST from the changed candidate.
+Connection waves require actual issuance/completion receipts. Pour calls are
+supported only in the proved single-net identity-normalization domain, with
+actual pre-transform, raw and restored artifacts; unsupported forms refuse.
+Pair, bus, resumed and unenumerated deferred work remain unavailable. This does
+not establish the initial nominal terminal-failure evidence required by the
+separate escape-first proposal.
+
+The original backend's immutable incumbent summary determines whether an
+ordinary second slot exists. Complete or unmeasured summaries do not authorize
+another attempt. A single private executor budget accounts both the replay and
+ordinary pocket paths; either consumes the same second slot irreversibly. All
+search, restoration, grading and final checks share the inherited absolute
+deadline. Optional attribution failure can use the original pocket path only
+before that slot is issued and while original custody/runtime remain valid.
+
+The configured backend must advertise the source-bound execution modes and
+schema-2 independent ordinary grade request. That request is captured before
+search, only for the final original call, and binds the original parsed
+manufacturing envelope, tasks and effective CLI policy. Each replay wave uses a
+fresh request path. Optional completion metadata cannot substitute for it.
+Ordinary fallback reuses the original scope freezer, grade workers and pocket
+preference, including conservative malformed/unknown results.
+
+Strict adoption uses the original retained physical and critical authority and
+requires all stable obligations, widths and manufacturing evidence. Ordinary
+pocket selection is an execution outcome, finalized and freshly checked, but
+cannot mint a strict certificate. Both publication paths preserve every
+incumbent current-path join individually. Published files and caller report
+pointers are verified before metrics and final judgment. Known optional refusal
+codes/facts are recorded separately in `route_optional`; they do not rewrite the
+sealed original route report. Unknown widths and inherited invalid manufacturing
+remain visible and do not qualify strict adoption or the final merge gates.
+
+The normal Run caller's full critical/Standing authority is an integrated Step 2
+dependency. Missing that exact adapter preserves standalone ordinary execution;
+a broken dependency is not treated as absence. Both main merges remain held
+until the integrated repairs and prescribed gates qualify. These implementation
+interfaces do not waive the original no-worse or user-decision requirements.

@@ -1087,7 +1087,7 @@ def route_pour_net(ctx, board: Path, out: Path, net: str, width, layers, stem: s
         phase_index, call_index, tasks = _issued_scope
         constraints = (ctx.clearances_file,) if ctx.clearances_file else ()
         token = ctx.execution.issue_call(
-            phase=phase_index, call=call_index, wave=0, kind='pour', command=cmd,
+            _context=ctx, phase=phase_index, call=call_index, wave=0, kind='pour', command=cmd,
             source=board, input_board=inp, output_board=out,
             summary=ctx.work / (stem + '_summary.json'), layers=layers, nets=[net],
             tasks=[task.record() for task in tasks], constraint_files=constraints, environment=ctx.env)

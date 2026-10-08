@@ -4,10 +4,10 @@ import json
 import math
 import time
 
-from .. import route_progress
-from . import issued_calls
-from .final_call import ProofUnavailable, file_hash, record_digest
-from .final_owned_worker import _execute
+from placemat import route_progress
+from placemat.kicad import issued_calls
+from placemat.kicad.final_call import ProofUnavailable, file_hash, record_digest
+from placemat.kicad.final_owned_worker import _execute
 
 _UNSET = object()
 
@@ -26,7 +26,8 @@ def _runtime(ctx, command):
         raise ProofUnavailable('replay_router_command_mismatch')
     native = (root / 'rust_router' / 'grid_router.so').resolve()
     helper = script.with_name('route_execution_receipt.py').resolve()
-    required = [Path(ctx.rpy).resolve(), script, helper, native]
+    required = [Path(ctx.rpy).resolve(), script, helper, native,
+                script.with_name('route_candidates.py').resolve()]
     if any(not path.is_file() for path in required):
         raise ProofUnavailable('replay_execution_policy_unavailable')
     # Bind the actual source families used by routing and width/quality tools.
@@ -48,13 +49,19 @@ def _policy(summary, record, env, implementation, requested_clearances, *,
         raise ProofUnavailable('replay_backend_policy_malformed') from error
     fields = {'schema', 'policy', 'board_proposals', 'argv', 'input_files', 'output', 'summary',
               'nets', 'layers', 'deadline_utc', 'transport', 'actual_tasks',
-              'effective_clearances', 'requested_clearances', 'implementation'}
+              'effective_clearances', 'requested_clearances', 'implementation', 'ordinary_grade_request'}
     policy = summary.get('execution_policy')
     if (not isinstance(policy, dict) or set(policy) != fields
-            or type(policy['schema']) is not int or policy['schema'] != 1
+            or type(policy['schema']) is not int or policy['schema'] != 2
             or type(policy['board_proposals']) is not int or policy['board_proposals'] != 1
             or policy['policy'] != 'nested-board-candidates-disabled'):
         raise ProofUnavailable('replay_backend_policy_malformed')
+    return _resolved_fields(policy, record, env, implementation, requested_clearances,
+                            effective_clearances=effective_clearances, parser_argv=parser_argv)
+
+
+def _resolved_fields(policy, record, env, implementation, requested_clearances, *,
+                     effective_clearances=_UNSET, parser_argv=None):
     expected_transport = {key: env.get(key) for key in issued_calls._TRANSPORT}
     if (record_digest(policy['transport']) != record_digest(expected_transport)
             or record_digest(policy['argv']) != record_digest(
@@ -94,7 +101,81 @@ def _policy(summary, record, env, implementation, requested_clearances, *,
             raise ProofUnavailable('replay_backend_tasks_mismatch')
     elif policy['actual_tasks'] is not None:
         raise ProofUnavailable('replay_backend_tasks_unexpected')
+    _ordinary_request(policy, record)
     return policy
+
+
+def _ordinary_request(policy, record):
+    request = policy['ordinary_grade_request']
+    fields = {'board', 'input', 'summary', 'scope', 'manufacturing_defaults',
+              'explicit_width', 'connections', 'power_nets', 'power_nets_widths',
+              'impedance', 'clearance_unproved', 'electrical_unproved', 'via_size', 'via_drill'}
+    if (not isinstance(request, dict) or set(request) != fields
+            or request['board'] != record['output'] or request['input'] != record['input']
+            or request['summary'] is not None
+            or record_digest(request['scope']) != record_digest(record['nets'])
+            or type(request['clearance_unproved']) is not bool
+            or type(request['electrical_unproved']) is not bool):
+        raise ProofUnavailable('replay_ordinary_grade_request_malformed')
+    for key in ('explicit_width', 'via_size', 'via_drill'):
+        value = request[key]
+        if value is not None and (type(value) not in (int, float) or not math.isfinite(value) or value <= 0):
+            raise ProofUnavailable('replay_ordinary_grade_request_malformed')
+    envelope = request['manufacturing_defaults']
+    if (not isinstance(envelope, dict) or set(envelope) != {'clearance','size_floors','tier','overrides','source'}
+            or envelope['source'] not in ('original_invocation_fab_floor_min','original_invocation_no_escalation')
+            or not isinstance(envelope['tier'], str) or not isinstance(envelope['overrides'], dict)
+            or not isinstance(envelope['size_floors'],dict)
+            or set(envelope['size_floors']) != {'track_width','via_diameter','via_drill','annular'}):
+        raise ProofUnavailable('replay_ordinary_grade_request_malformed')
+    for value in [envelope['clearance'], *envelope['size_floors'].values()]:
+        if type(value) not in (int,float) or not math.isfinite(value) or value < 0:
+            raise ProofUnavailable('replay_ordinary_grade_request_malformed')
+    path = request['connections']
+    if path is not None and (not isinstance(path,str) or not Path(path).is_absolute()
+                             or path not in policy['input_files']):
+        raise ProofUnavailable('replay_ordinary_grade_request_malformed')
+    if (record['identity']['kind']=='connections') != (path is not None):
+        raise ProofUnavailable('replay_ordinary_grade_request_malformed')
+    return request
+
+
+def _parent_scope(completed, ctx):
+    record = completed
+    _, required, argv = _runtime(ctx, record['command'])
+    implementation = {str(path): file_hash(path) for path in required}
+    scope = completed['raw']['summary'].get('resolved_scope')
+    fields = {'schema', 'observation', 'argv', 'input_files', 'output', 'summary',
+              'nets', 'layers', 'deadline_utc', 'transport', 'actual_tasks',
+              'effective_clearances', 'requested_clearances', 'implementation',
+              'actual_output_sha256', 'ordinary_grade_request'}
+    if (not isinstance(scope, dict) or set(scope) != fields
+            or type(scope['schema']) is not int or scope['schema'] != 2
+            or scope['observation'] != 'parent-post-floor-scope'):
+        raise ProofUnavailable('replay_original_scope_unavailable')
+    raw = [value for path, value in completed['raw']['files'].items()
+           if Path(path).name.split('-', 1)[-1] == Path(record['output']).name]
+    if len(raw) != 1 or scope['actual_output_sha256'] != raw[0]:
+        raise ProofUnavailable('replay_original_scope_output_changed')
+    requested = (json.loads(Path(ctx.clearances_file).read_bytes())
+                 if ctx.clearances_file is not None else None)
+    _resolved_fields(scope, record, ctx.env, implementation, requested, parser_argv=argv)
+    return scope['effective_clearances']
+
+
+def _original_effective(completed, ctx, *, final=False):
+    if not final:
+        return _parent_scope(completed, ctx)
+    if ctx.env.get('KRT_INTERNAL_ROUTE_CANDIDATE') != '1':
+        raise ProofUnavailable('replay_original_final_policy_unavailable')
+    _, required, argv = _runtime(ctx, completed['command'])
+    implementation = {str(path): file_hash(path) for path in required}
+    try:
+        requested = json.loads(Path(ctx.clearances_file).read_bytes()) if ctx.clearances_file is not None else None
+    except (OSError, ValueError, UnicodeError) as error:
+        raise ProofUnavailable('replay_original_scope_unavailable') from error
+    return _policy(completed['raw']['summary'], completed, ctx.env, implementation,
+                   requested, parser_argv=argv)['effective_clearances']
 
 
 def run_issued(grader, ledger, executor, token, ctx, log):
@@ -108,6 +189,16 @@ def run_issued(grader, ledger, executor, token, ctx, log):
         raise ProofUnavailable('replay_call_already_completed')
     record = token.record
     deadline = owner.deadline_utc
+    return _run_record(record, deadline, ctx, log,
+                       lambda: issued_calls._token(grader, ledger, executor, token))
+
+
+def _run_record(record, deadline, ctx, log, validate, *, effective_clearances=_UNSET):
+    """Shared owned launch; only its private owning closure supplies context.
+
+    This function cannot mint original execution custody or adoption authority.
+    """
+    validate()
     env = dict(ctx.env)
     try:
         actual_deadline = float(env.get('KRT_ROUTE_DEADLINE_UTC', 'nan'))
@@ -136,7 +227,7 @@ def run_issued(grader, ledger, executor, token, ctx, log):
     Path(log).write_text(stdout + stderr)
     issued_calls._unchanged(files)
     issued_calls._unchanged(record['actual_input_files'])
-    issued_calls._token(grader, ledger, executor, token)
+    validate()
     if rc != 0 or time.time() >= deadline:
         raise ProofUnavailable('replay_backend_incomplete', returncode=rc)
     try:
@@ -151,7 +242,8 @@ def run_issued(grader, ledger, executor, token, ctx, log):
             requested = json.loads(Path(ctx.clearances_file).read_bytes())
         except (OSError, ValueError, UnicodeError) as error:
             raise ProofUnavailable('replay_requested_clearances_unavailable') from error
-    policy = _policy(summary, record, env, expected_implementation, requested, parser_argv=parser_argv)
+    policy = _policy(summary, record, env, expected_implementation, requested, parser_argv=parser_argv,
+                     effective_clearances=effective_clearances)
     if any(summary.get(key) is not None and summary[key] is not False
            for key in ('aborted', 'cancelled', 'timed_out')):
         raise ProofUnavailable('replay_backend_deferred')
@@ -205,3 +297,38 @@ def run_completed(budget, grader, ledger, executor, token, ctx, log, complete_ca
                 'files': {path: value for path, value in files.items() if value is not None}}
 
     return budget.run_incumbent(executor, operation)
+
+
+def original_grade_request(record, ctx):
+    """Validate the prelaunch request even if completion policy is unavailable.
+
+    This proves the ordinary comparator's requested context, not successful
+    routing, candidate cardinality or a FullStanding certificate.
+    """
+    path = ctx.env.get('KRT_INTERNAL_ORDINARY_GRADE_REQUEST')
+    if not isinstance(path, str) or not Path(path).is_absolute():
+        raise ProofUnavailable('replay_ordinary_grade_request_unavailable')
+    try:
+        capsule_sha = file_hash(path)
+        value = json.loads(Path(path).read_bytes())
+        record_digest(value)
+    except (OSError, ValueError, TypeError, UnicodeError) as error:
+        raise ProofUnavailable('replay_ordinary_grade_request_unavailable') from error
+    fields = {'schema','argv','input_files','output','summary','nets','layers','deadline_utc',
+              'transport','actual_tasks','effective_clearances','requested_clearances',
+              'implementation','ordinary_grade_request'}
+    if not isinstance(value,dict) or set(value)!=fields or type(value['schema']) is not int or value['schema']!=2:
+        raise ProofUnavailable('replay_ordinary_grade_request_malformed')
+    _, required, argv = _runtime(ctx,record['command'])
+    implementation = {str(path):file_hash(path) for path in required}
+    try:
+        requested=json.loads(Path(ctx.clearances_file).read_bytes()) if ctx.clearances_file is not None else None
+    except (OSError, ValueError, UnicodeError) as error:
+        raise ProofUnavailable('replay_ordinary_grade_request_unavailable') from error
+    _resolved_fields(value,record,ctx.env,implementation,requested,parser_argv=argv)
+    try:
+        if file_hash(path) != capsule_sha:
+            raise ProofUnavailable('replay_ordinary_grade_request_changed')
+    except OSError as error:
+        raise ProofUnavailable('replay_ordinary_grade_request_unavailable') from error
+    return value['ordinary_grade_request']

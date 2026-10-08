@@ -78,6 +78,8 @@ def test_actual_route_calls_single_branch_fence_and_bus_parse_order(kind,tmp_pat
         'phase_widths':lambda *a:[], 'narrow_join_widths':lambda *a:[],
         'task_widths':lambda *a:[]}
     exec(compile(ast.Module(body=nodes,type_ignores=[]),str(path),'exec'),ns)
+    execution.issue_single=lambda actual_ctx,**kw:(actual_ctx,object())
+    execution.execute_single=lambda *args:ns['_completed_single_call'](*args)
     ns['route_calls'](ctx,0,phase,SimpleNamespace(layers=['F.Cu']),tmp_path/'input')
     assert events==(['run','raw','companions','bus_parse','lock','completed']
                     if kind=='bus' else ['run','raw','companions','lock','completed'])
