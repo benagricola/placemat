@@ -10,11 +10,20 @@ from placemat import final_check_worker as worker
 from placemat.final_check_context import ContextRefused
 
 
+@pytest.fixture(autouse=True)
+def isolated_runtime(monkeypatch):
+    # Unit sequencing uses explicit stand-ins; actual runtime/native reads are
+    # exercised separately by the owned saved-board integration gate.
+    monkeypatch.setattr(worker, '_runtime_identity', lambda: {'runtime': 'bound'})
+    monkeypatch.setattr(worker, '_preservation', lambda *args: {
+        'original_manifest': {'bound': 'original'}, 'held_and_fixed_preserved': True})
+
+
 def request():
     deadline = time.time() + 30
     return {'schema': 1, 'deadline_utc': deadline,
             'physical': {'deadline_utc': deadline, 'binding': {'contract_sha256': 'bound'}},
-            'critical': {'original': 'context'}}
+            'critical': {'original': 'context', 'source_physical': {'bound': 'original'}}}
 
 
 @pytest.mark.parametrize('change', ['missing', 'schema-bool', 'expired', 'nonfinite', 'other-deadline'])
@@ -42,6 +51,7 @@ def test_exact_physical_then_shared_critical_judge_and_reverification(tmp_path, 
     receipt = {'original': 'physical context'}
     (tmp_path / 'physical_grade.json').write_text('physical evidence')
     class Grader:
+        _worker_original_proof = {'original': 'verified'}
         def regrade(self, raw, dest, *, candidate_summary):
             calls.append(('physical', raw, dest, candidate_summary))
             return result
@@ -63,6 +73,9 @@ def test_exact_physical_then_shared_critical_judge_and_reverification(tmp_path, 
     assert response['physical_receipt'] == receipt
     assert response['critical']['measures'] == {'critical_checks': 0}
     assert response['request_sha256'] == worker._digest(value)
+    assert response['original_verification'] == {'original': 'verified'}
+    assert response['implementation_start'] == response['implementation_end'] == {'runtime': 'bound'}
+    assert response['critical']['preservation']['held_and_fixed_preserved'] is True
 
 
 def test_duplicate_json_fields_refuse():
@@ -70,13 +83,17 @@ def test_duplicate_json_fields_refuse():
         worker._unique([('schema', 1), ('schema', 2)])
 
 
-@pytest.mark.parametrize('change', ['deadline', 'physical', 'request'])
+@pytest.mark.parametrize('change', ['deadline', 'physical', 'request', 'runtime'])
 def test_late_or_changed_evidence_never_returns_authority(tmp_path, monkeypatch, change):
     value = request()
+    if change == 'runtime':
+        identities = iter(({'runtime': 'bound'}, {'runtime': 'changed'}))
+        monkeypatch.setattr(worker, '_runtime_identity', lambda: next(identities))
     report = SimpleNamespace(routed_pcb=tmp_path / 'routed.kicad_pcb')
     result = SimpleNamespace(report=report)
     calls = []
     class Grader:
+        _worker_original_proof = {'original': 'verified'}
         def regrade(self, *args, **kwargs):
             return result
         def verify(self, actual):
@@ -91,5 +108,13 @@ def test_late_or_changed_evidence_never_returns_authority(tmp_path, monkeypatch,
             value['critical']['original'] = 'mutated'
         return SimpleNamespace(measures={}, evidence=lambda: {})
     monkeypatch.setattr(worker, 'judge', critical)
+    with pytest.raises(ContextRefused):
+        worker.evaluate(value)
+
+
+def test_missing_physical_manifest_refuses_before_runtime_or_native_reads(monkeypatch):
+    value = request()
+    del value['critical']['source_physical']
+    monkeypatch.setattr(worker, '_runtime_identity', lambda: pytest.fail('invalid context reached native runtime'))
     with pytest.raises(ContextRefused):
         worker.evaluate(value)

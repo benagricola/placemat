@@ -6,6 +6,7 @@ every artifact and imports the result into its retained grader.
 """
 from __future__ import annotations
 
+from copy import deepcopy
 import hashlib
 import json
 import math
@@ -30,6 +31,25 @@ def _deadline(value):
         raise ContextRefused('final_check_worker_deadline_expired', 'shared final-check deadline expired')
 
 
+def _runtime_identity():
+    """Load and bind actual runtimes only inside the owned child."""
+    from .kicad.quiet import import_pcbnew
+    from .kicad.final_owned_worker import _implementation
+    import_pcbnew()
+    import placemat_native
+    return _implementation()
+
+
+def _preservation(grader, final_pcb, expected):
+    from .kicad.read import read_board
+    from .final_preservation import verify
+    from .settings import bind
+    with bind(grader._cfg):
+        original = read_board(grader._original)
+        final = read_board(final_pcb)
+        return verify(original, grader._original, final, final_pcb, expected)
+
+
 def evaluate(request):
     """Finalize and check one candidate; called only inside owned execution."""
     if not isinstance(request, dict) or set(request) != {'schema', 'deadline_utc', 'physical', 'critical'}:
@@ -40,27 +60,44 @@ def evaluate(request):
     physical = request['physical']
     if not isinstance(physical, dict) or physical.get('deadline_utc') != request['deadline_utc']:
         _refuse('physical grading must share the retained absolute deadline')
+    critical_context = request['critical']
+    if not isinstance(critical_context, dict) or not isinstance(critical_context.get('source_physical'), dict):
+        _refuse('retained original physical manifest is required')
     request_sha = _digest(request)
     # Binding-time import deliberately keeps this entrypoint unavailable on a
     # standalone branch without the reviewed physical codec. No duck typing or
     # dynamic module/class name supplied by JSON can replace it.
-    from .kicad.final_worker_protocol import reconstruct, report_record
+    try:
+        from .kicad.final_worker_protocol import reconstruct, report_record
+        implementation_start = _runtime_identity()
+    except ImportError as error:
+        raise ContextRefused('final_check_worker_unavailable',
+                             'reviewed physical worker runtime is unavailable') from error
+    _deadline(request['deadline_utc'])
     grader, raw, destination, summary = reconstruct(physical)
     _deadline(request['deadline_utc'])
     result = grader.regrade(raw, destination, candidate_summary=summary)
     receipt = grader.verify(result)
     _deadline(request['deadline_utc'])
-    critical = judge(request['critical'], result.report.routed_pcb)
+    critical = judge(critical_context, result.report.routed_pcb)
+    _deadline(request['deadline_utc'])
+    preservation = _preservation(grader, result.report.routed_pcb, critical_context['source_physical'])
     _deadline(request['deadline_utc'])
     # Reverification catches input/output mutation while critical checks read
     # the finalized PCB. Publication remains the retained parent's duty.
     if grader.verify(result) != receipt or _digest(request) != request_sha:
         _refuse('worker request or physical grading evidence changed')
+    implementation_end = _runtime_identity()
+    if implementation_end != implementation_start:
+        _refuse('worker implementation changed during grading')
     return {'schema': 1, 'request_sha256': request_sha,
             'binding_sha256': physical['binding']['contract_sha256'],
             'report': report_record(result.report), 'physical_receipt': receipt,
             'physical_grade_sha256': hashlib.sha256((destination / 'physical_grade.json').read_bytes()).hexdigest(),
-            'critical': {'measures': critical.measures, 'evidence': critical.evidence()}}
+            'implementation_start': implementation_start, 'implementation_end': implementation_end,
+            'original_verification': deepcopy(grader._worker_original_proof),
+            'critical': {'measures': critical.measures, 'evidence': critical.evidence(),
+                         'preservation': preservation}}
 
 
 def _unique(pairs):

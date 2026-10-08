@@ -161,7 +161,7 @@ def _plain(value):
         _refuse('final-check context cannot be represented exactly as JSON', reason=str(error))
 
 
-def encode(board, plan, measures, source_pcb):
+def encode(board, plan, measures, source_pcb, *, source_geometry=None):
     """Encode retained original facts; declared lane intent is not supported yet."""
     from .checks import Acceptance
     from .rules import Rule
@@ -186,6 +186,12 @@ def encode(board, plan, measures, source_pcb):
               'quiet': sorted(plan.occupancy.quiet_nets), 'planes': sorted(plan.occupancy.plane_nets),
               'pending': sorted(plan.occupancy.pending),
               'fields': {fp.ref: dict(fp.fields) for fp in plan.geometry.footprints}}
+    # A critical-only packet is not full physical authority. The factory must
+    # supply its private read-time geometry to bind preservation evidence.
+    result['source_physical'] = None
+    if source_geometry is not None:
+        from .final_preservation import manifest
+        result['source_physical'] = manifest(source_geometry, source)
     return _plain(result)
 
 
@@ -200,10 +206,12 @@ def judge(record, pcb):
     from .settings import Settings, SettingsError, _coerce, _validate, bind
     _keys(record, ('schema', 'source', 'inputs', 'settings', 'rules', 'acceptances', 'measures',
                    'edge_margin', 'component_spacing', 'board_shape', 'board_cutouts',
-                   'quiet', 'planes', 'pending', 'fields'))
+                   'quiet', 'planes', 'pending', 'fields', 'source_physical'))
     if type(record['schema']) is not int or record['schema'] != 1:
         _refuse('unsupported final-check context schema')
     _plain(record)
+    if record['source_physical'] is not None and not isinstance(record['source_physical'], dict):
+        _refuse('original physical manifest is malformed')
     if not isinstance(record['source'], str) or not Path(record['source']).is_absolute():
         _refuse('final-check source must be an absolute path')
     if not isinstance(record['measures'], dict) or not isinstance(record['fields'], dict) or any(
