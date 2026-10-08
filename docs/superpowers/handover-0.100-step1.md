@@ -275,10 +275,22 @@ rounds with a scoped re-review, the ledger updated after every step.
   and policy/finalization tests passed 30 cases. The timeout regression observes terminated zombies separately from
   running children; production PID-existence semantics remain unchanged. The historical intermittent assertion's
   precise cause remains unproved.
-- Remaining required Step 1 gate: genuine isolated install refresh, frozen latest whole `pytest --full -n2
-  -p no:cacheprovider`, measured slow-test ledger, and parent review of the concrete candidate. Earlier full-suite
-  evidence remains historical. Main merge, release and fork pushes remain withheld. Combined final electrical/current
-  checks and strict Standing integration are owned by Step 2 and require their separate integrated gates.
+- The required Step 1 whole-suite gate completed at frozen `b593226ea9566338cb3a223936fefad27dfd914d`, genuine
+  isolated distribution `0.99.35.post1.dev95+gb593226ea`: 6,982 passed, 22 skipped, zero failures/errors in 1,073.71 s.
+  `pytest --full -n2 -p no:cacheprovider` used the reviewed two-tier locks, private PCB cache and original 3,600 s
+  owned-process bound. All fifteen start/end identity comparisons passed; supervisor/helper identities and the original
+  PCB cache were unchanged. No earlier failed or incomplete suite is relabelled as a success.
+- Current unused-code and public-surface checks passed at the same tested source: the full XML records the exact
+  prescribed vulture command and CLI/settings/removed-document checks, all unskipped. The separate offline native
+  build with `RUSTFLAGS="-D dead_code"`, two Cargo jobs and a task-owned target passed in 10.98 s. Source, helper and
+  installed-native identities were unchanged; the installed binary was not replaced. Its initial supervisor API setup
+  failure occurred before Cargo and remains preserved separately from the successful actual build.
+- Post-run handover updates and `tests/slow_tests.txt` classification come from the completed XML using the existing
+  2.0 s threshold. They are documentation and test timing metadata, not a new implementation or a full-suite pass at a
+  later documentation commit. The tested source/native/test implementation hashes remain attached to the `b593226e`
+  receipt. Main merge, release and fork pushes remain withheld: the no-worse gate still requires an explicit user
+  decision on the held comparisons. Combined final electrical/current and Standing gates remain separately owned by
+  the parent and Step 2.
 - Detailed owned receipts are indexed by `step1-finite-reference-handback.json` in the review scratch directory;
   real project identities and numeric comparison evidence remain in fixture/bench records.
 
@@ -297,7 +309,18 @@ rounds with a scoped re-review, the ledger updated after every step.
   the final parent boundary suite passed 118 cases. An actual KiCad/controlled copying-router regression passed one
   ordinary call with unavailable optional authority, unchanged runtime identities and intact ordinary route output.
   These are pure boundary/process controls and limited ordinary-path coverage, not actual saved-board authority proof.
-- The coherent child critical-context/preservation/runtime reply is still awaiting combined review. A small legal
-  saved-board worker gate and a latest frozen whole suite remain required. The last whole suite retained 6,859 passes,
-  22 skips and one real long-TMPDIR socket failure; the separately reviewed channel fix passed all 24 channel tests.
-  No complete-suite success, candidate adoption, no-worse gate waiver or main merge is claimed by this snapshot.
+- The coherent retained factory and child critical/preservation/runtime reply passed the parent's small legal
+  saved-board gate at combined `60050fdfbed07a33b6e61d7c0e3b81cad53f9e01`, genuine `dev217` distribution and retained
+  native binary. One actual KiCad/native/DRC case passed in 12.12 s, using a controlled straight-span router rather
+  than KRT search. Fresh final authority reported legal manufacturing, known required widths, full closure and no
+  unjudged critical checks. Original fixed-copper deletion, zone-priority mutation, held-pose mutation and changed
+  original source all refused. The unfilled original zone remains positive coverage; only demonstrated derived fill
+  state is normalized alongside filled polygons/segments, while zone design intent stays exact.
+- The earlier 6,859-pass/22-skip/one-failure whole run is preserved as failed evidence. Its long-TMPDIR socket defect
+  was corrected and the latest `b593226e` whole run passed as recorded above. The 22 final skips are fourteen known
+  track/via airwire-position oracle cases, three missing connector datasheets, two optional fitted-reference inputs,
+  two optional disc-board inputs and one missing antenna datasheet. These are coverage limitations, not new successes.
+- Constructor phase contracts now use their strict JSON wire representation once, preserving their exact serialized
+  digest and actual phase objects; the real tuple-valued phase regression passed independently. The small worker gate
+  retains prior setup/boundary failures separately. No optional escape strategy, routing-improvement certificate,
+  no-worse waiver or main merge is activated by the worker proof or whole-suite result.
