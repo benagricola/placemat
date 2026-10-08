@@ -1062,7 +1062,7 @@ def router_capable(rpy, router_dir) -> list:
 
 
 def route_pour_net(ctx, board: Path, out: Path, net: str, width, layers, stem: str, neckdown: bool = True,
-                   extra_args=()) -> list:
+                   extra_args=(), _issued_scope=None) -> list:
     """Route one net the board serves by a pour, alone (D15), on `layers` (the phase's): its pads and the pieces its
     pours leave apart, the router counting the net's own zones as joining what they reach. Every pour net's partial
     inner-layer pours are guarded on the route's input board, on the route's layers (`ctx.layers`); this call takes
@@ -1082,19 +1082,33 @@ def route_pour_net(ctx, board: Path, out: Path, net: str, width, layers, stem: s
     cmd = router_command(ctx.rpy, ctx.script, inp, out, set(), layers, ctx.work / (stem + "_summary.json"),
                          ctx.iterations, ctx.probe, ctx.quick, nets=[net], widths={net: width} if width else None,
                          clearances=ctx.clearances_file, neckdown=neckdown, extra_args=extra_args)
+    token = None
+    if getattr(ctx, 'execution', None) is not None and _issued_scope is not None:
+        phase_index, call_index, tasks = _issued_scope
+        constraints = (ctx.clearances_file,) if ctx.clearances_file else ()
+        token = ctx.execution.issue_call(
+            phase=phase_index, call=call_index, wave=0, kind='pour', command=cmd,
+            source=board, input_board=inp, output_board=out,
+            summary=ctx.work / (stem + '_summary.json'), layers=layers, nets=[net],
+            tasks=[task.record() for task in tasks], constraint_files=constraints)
     log = ctx.work / (stem + ".log")
     with open(log, "w") as f:
         f.write("$ %s\n\n" % " ".join(str(c) for c in cmd))
         f.flush()
         rc = subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, cwd=str(ctx.router_dir), env=ctx.env,
                             timeout=ctx.timeout, pass_fds=route_progress.pass_fds()).returncode
+    if getattr(ctx, 'execution', None) is not None:
+        ctx.execution.raw_call(token, rc)
     if rc != 0 or not out.exists():
         tail = "\n".join(log.read_text(errors="replace").splitlines()[-8:])
         raise RouterFailed("the router exited %d routing pour net %s" % (rc, net), rc, log, tail)
     _copy_project(inp, out)
     pours_back(str(out), board)
     lock_copper(str(out))
-    return guard_partial_pours(str(out), {net}, ctx.layers, share)
+    guards = guard_partial_pours(str(out), {net}, ctx.layers, share)
+    if getattr(ctx, 'execution', None) is not None:
+        ctx.execution.restored_call(token)
+    return guards
 
 
 def own_pour_breach(breach: str, nets) -> bool:

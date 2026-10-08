@@ -161,8 +161,14 @@ def _executor_issue(grader, ledger, executor, *, phase, call, wave, kind,
         constraint_files = tuple(constraint_files) + (task_file,)
     if not set(nets).issubset({task['net'] for task in originals}):
         raise ProofUnavailable('issued_net_outside_original_contract')
-    if kind == 'pour' and (len(nets) != 1 or nets[0] not in grader._chosen_pours):
-        raise ProofUnavailable('issued_pour_scope_unproved')
+    if kind == 'pour':
+        if len(nets) != 1 or nets[0] not in grader._chosen_pours or len(set(layers)) != len(layers):
+            raise ProofUnavailable('issued_pour_scope_unproved')
+        selected = [task for task in originals if task['net'] == nets[0]]
+        task_selector = getattr(grader._phases[phase], 'selector', None) in ('connections', 'current_paths')
+        if ((normalized or task_selector) and normalized != selected
+                or any(set(task['widths']) != set(layers) for task in selected)):
+            raise ProofUnavailable('issued_pour_task_scope_mismatch')
     files = dict(_files(source))
     files.update(_files(input_board))
     for path in constraint_files:
@@ -170,6 +176,10 @@ def _executor_issue(grader, ledger, executor, *, phase, call, wave, kind,
         if not path.is_file():
             raise ProofUnavailable('issued_constraint_missing', path=str(path))
         files[str(path)] = file_hash(path)
+    transform = None
+    if kind == 'pour':
+        from . import pour_identity
+        transform = pour_identity.normalized(source, input_board)
     source_files = _snapshot(files, snapshot_dir)
     record = {'schema': 1, 'identity': identity, 'phase': grader._phases[phase].name,
               'command': list(command), 'source': str(Path(source).resolve()),
@@ -178,7 +188,7 @@ def _executor_issue(grader, ledger, executor, *, phase, call, wave, kind,
               'tasks': normalized, 'actual_input_files': files, 'input_snapshots': source_files,
               'original_context_sha256': owner.original_sha,
               'width_authority_sha256': record_digest(json.loads(grader._widths)),
-              'deadline_utc': owner.deadline_utc}
+              'deadline_utc': owner.deadline_utc, 'pour_transform': transform}
     token = IssuedCall(_MINT, owner, ledger, executor, record)
     issued.append(token)
     return token
@@ -228,6 +238,16 @@ def _executor_raw_result(grader, ledger, executor, token, *, returncode, snapsho
             raise ProofUnavailable('issued_connection_summary_unproved', reason=error.facts) from error
         if checked != data:
             raise ProofUnavailable('issued_call_summary_changed')
+    if token.record['identity']['kind'] == 'pour':
+        integer_fields = ('successful', 'failed', 'total_iterations', 'total_vias')
+        if (any(type(data.get(key)) is not int or data[key] < 0 for key in integer_fields)
+                or type(data.get('total_time')) not in (int, float)
+                or not math.isfinite(data['total_time']) or data['total_time'] < 0
+                or any(data.get(key) is not None and data[key] is not False
+                       for key in ('aborted', 'cancelled', 'timed_out'))):
+            raise ProofUnavailable('issued_pour_summary_unproved')
+        # Recognized execution effort/status only. These values never certify
+        # connectivity or widths; original frozen asks are independently graded.
     files = _files(output)
     files[str(summary)] = file_hash(summary)
     token.raw = {'returncode': returncode, 'summary': data, 'files': _snapshot(files, snapshot_dir)}
@@ -252,7 +272,13 @@ def _executor_restored_result(grader, ledger, executor, token):
         output = str(Path(token.record['output']).with_suffix(ext))
         if output_files[output] != token.record['actual_input_files'][source]:
             raise ProofUnavailable('issued_restored_rules_changed', suffix=ext)
-    token.completed = {'restored_files': output_files, 'completed_utc': time.time()}
+    transform = None
+    if token.record['identity']['kind'] == 'pour':
+        from .pour_identity import restored
+        transform = restored(token.record['source'], token.record['output'],
+                             token.record['pour_transform'])
+    token.completed = {'restored_files': output_files, 'completed_utc': time.time(),
+                       'pour_transform': transform}
     token.completed_sha = record_digest(token.completed)
     return completed_record(grader, ledger, executor, token)
 

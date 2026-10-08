@@ -198,3 +198,154 @@ def test_arbitrary_restored_sidecar_cannot_be_proved(issued, tmp_path):
     with pytest.raises(ProofUnavailable, match='restored_rules_changed'):
         calls._executor_restored_result(*issued[:3], token)
     assert token.completed is None
+
+
+@pytest.fixture
+def pour_execution(context, tmp_path):
+    from placemat.kicad.final_execution import FinalExecution
+    from placemat.kicad.final_route import FinalCopperGrader
+    from tests.test_pour_identity import BOARD
+    old, facts, report = context
+    old._original.write_text(BOARD)
+    old._phases[0].selector = 'current_paths'
+    grader = FinalCopperGrader(
+        original=old._original, cleanup_input=old._cleanup_input, rules=old._rules,
+        baseline_drc=old._baseline, obligations=json.loads(old._obligations), phases=old._phases,
+        width_receipt=json.loads(old._widths), cfg=old._cfg, counted=old._counted,
+        open_before=old._open_before, chosen_pours={'N'},
+        width_receipt_path=old._receipt_path, invocation=old._semantic_contract['invocation'])
+    snapshot = Path(facts['read_identity']['snapshot_path'])
+    snapshot.write_bytes(grader._original.read_bytes())
+    facts['read_identity']['read_sha256'] = custody._hash(grader._original)
+    facts['read_identity']['snapshot_sha256'] = custody._hash(snapshot)
+    facts['read_manifest'] = dict(grader._inputs, **{str(snapshot): custody._hash(snapshot)})
+    custody._executor_register_original(grader, **facts)
+    hook = object.__new__(FinalExecution)
+    hook.work, hook.active, hook.grader = tmp_path, True, grader
+    hook.executor, hook.refusals = object(), (ProofUnavailable,)
+    hook.ledger = custody._executor_begin_calls(grader, hook.executor)
+    return hook
+
+
+def test_actual_pour_helper_binds_transform_raw_and_guard_completion(pour_execution, tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from placemat.kicad import route
+    from placemat.kicad.phase_select import Task
+    hook = pour_execution
+    stages = []
+    def strip(path, nets):
+        stages.append('drop_own_guards')
+    def normalize(path, net):
+        stages.append('normalize_own_pour')
+        return 0
+    monkeypatch.setattr(route, 'drop_pour_guards', strip)
+    monkeypatch.setattr(route, 'pours_as_zones', normalize)
+    monkeypatch.setattr(route, 'router_command', lambda py, script, src, out, excluded, layers, summary, *a, **k:
+                        [str(py), script, str(src), str(out), str(summary)])
+    def run(command, **kwargs):
+        assert stages == ['drop_own_guards', 'normalize_own_pour']
+        token = hook.ledger.issued[0]
+        assert token.record['pour_transform']['domain'] == 'single_net_pour_identity_normalization'
+        Path(command[3]).write_bytes(Path(command[2]).read_bytes())
+        Path(command[3]).with_suffix('.kicad_pro').write_text('raw router project rewrite')
+        Path(command[4]).write_text(json.dumps(dict(successful=1, failed=0, total_iterations=3, total_vias=0, total_time=.1)))
+        stages.append('actual_return')
+        return SimpleNamespace(returncode=0)
+    monkeypatch.setattr(route.subprocess, 'run', run)
+    def restore(out, source):
+        assert hook.ledger.issued[0].raw is not None
+        assert Path(out).with_suffix('.kicad_pro').read_text() == 'original required rules'
+        stages.append('restore_own_pour')
+    monkeypatch.setattr(route, 'pours_back', restore)
+    monkeypatch.setattr(route, 'lock_copper', lambda path: stages.append('lock'))
+    def guards(path, nets, layers, share):
+        assert hook.ledger.issued[0].completed is None
+        stages.append('restore_own_guards')
+        return []
+    monkeypatch.setattr(route, 'guard_partial_pours', guards)
+    ctx = SimpleNamespace(work=tmp_path, cfg=SimpleNamespace(route_plane_share=.5),
+                          rpy=Path('/usr/bin/python3'), script='route.py', iterations=None,
+                          probe=None, quick=False, clearances_file=None, router_dir=tmp_path,
+                          env={}, timeout=10, layers=['F.Cu'], execution=hook)
+    task = Task('N', ('A', '1'), ('B', '1'), (('F.Cu', .2),))
+    route.route_pour_net(ctx, hook.grader._original, tmp_path/'p0_0.kicad_pcb', 'N', .2,
+                         ['F.Cu'], 'p0_0', _issued_scope=(0, 0, (task,)))
+    assert hook.active
+    token = hook.ledger.issued[0]
+    assert token.completed['pour_transform']['domain'] == 'single_net_pour_identity_normalization'
+    assert token.record['tasks'] == [calls._task(task.record())]
+    assert stages == ['drop_own_guards', 'normalize_own_pour', 'actual_return',
+                      'restore_own_pour', 'lock', 'restore_own_guards']
+
+
+def pour_issue(hook, tmp_path, **changed):
+    task = json.loads(hook.grader._obligations)[0][0]
+    options = dict(phase=0, call=0, wave=0, kind='pour', command=['python', 'route.py'],
+                   source=hook.grader._original, input_board=hook.grader._original,
+                   output_board=tmp_path/'out.kicad_pcb', summary=tmp_path/'summary.json',
+                   layers=['F.Cu'], nets=['N'], tasks=[task], constraint_files=(),
+                   snapshot_dir=tmp_path/'issued')
+    options.update(changed)
+    return calls._executor_issue(hook.grader, hook.ledger, hook.executor, **options), options
+
+
+@pytest.mark.parametrize('changed', [{'tasks': []}, {'nets': []}, {'nets': ['N', 'N']},
+                                      {'layers': ['F.Cu', 'B.Cu']}])
+def test_pour_original_task_net_and_layer_vectors_are_exact(pour_execution, tmp_path, changed):
+    with pytest.raises(ProofUnavailable):
+        pour_issue(pour_execution, tmp_path, **changed)
+    assert not (tmp_path/'issued').exists()
+
+
+@pytest.mark.parametrize('summary', [{}, {'successful': True},
+                                     dict(successful=1, failed=0, total_iterations=3,
+                                          total_vias=0, total_time=.1, aborted=True),
+                                     dict(successful=1, failed=0, total_iterations=3,
+                                          total_vias=0, total_time=float('nan'))])
+def test_pour_execution_summary_not_arbitrary_dict(pour_execution, tmp_path, summary):
+    token, options = pour_issue(pour_execution, tmp_path)
+    options['output_board'].write_bytes(pour_execution.grader._original.read_bytes())
+    options['summary'].write_text(json.dumps(summary))
+    with pytest.raises(ProofUnavailable, match='pour_summary_unproved'):
+        calls._executor_raw_result(pour_execution.grader, pour_execution.ledger,
+                                  pour_execution.executor, token, returncode=0,
+                                  snapshot_dir=tmp_path/'raw')
+    assert token.raw is None
+
+
+def test_nonidentity_pour_withholds_optional_custody_but_routes_ordinary(pour_execution, tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from placemat.kicad import route
+    from placemat.kicad.phase_select import Task
+    hook = pour_execution
+    monkeypatch.setattr(route, 'drop_pour_guards', lambda *args: None)
+    def unsupported(path, net):
+        Path(path).write_text(Path(path).read_text()+'\n')
+    monkeypatch.setattr(route, 'pours_as_zones', unsupported)
+    monkeypatch.setattr(route, 'router_command', lambda py, script, src, out, *a, **k:
+                        [str(py), script, str(src), str(out)])
+    invoked = []
+    def run(command, **kwargs):
+        invoked.append(command)
+        Path(command[3]).write_bytes(Path(command[2]).read_bytes())
+        return SimpleNamespace(returncode=0)
+    monkeypatch.setattr(route.subprocess, 'run', run)
+    monkeypatch.setattr(route, 'pours_back', lambda *args: 0)
+    monkeypatch.setattr(route, 'lock_copper', lambda *args: None)
+    monkeypatch.setattr(route, 'guard_partial_pours', lambda *args: [])
+    ctx = SimpleNamespace(work=tmp_path, cfg=SimpleNamespace(route_plane_share=.5),
+                          rpy=Path('/usr/bin/python3'), script='route.py', iterations=None,
+                          probe=None, quick=False, clearances_file=None, router_dir=tmp_path,
+                          env={}, timeout=10, layers=['F.Cu'], execution=hook)
+    task = Task('N', ('A', '1'), ('B', '1'), (('F.Cu', .2),))
+    output = tmp_path/'p0_0.kicad_pcb'
+    assert route.route_pour_net(ctx, hook.grader._original, output, 'N', .2, ['F.Cu'], 'p0_0',
+                                _issued_scope=(0, 0, (task,))) == []
+    assert len(invoked) == 1 and output.exists()
+    assert not hook.active and not hook.ledger.issued
+    assert json.loads((tmp_path/'final_authority_unavailable.json').read_text())['code'] == 'pour_transform_nonidentity_unproved'
+    # Existing direct helper context without the optional field stays ordinary.
+    del ctx.execution
+    assert route.route_pour_net(ctx, hook.grader._original, tmp_path/'direct.kicad_pcb',
+                                'N', .2, ['F.Cu'], 'direct') == []
+    assert len(invoked) == 2
