@@ -50,6 +50,45 @@ def _preservation(grader, final_pcb, expected):
         return verify(original, grader._original, final, final_pcb, expected)
 
 
+def evaluate_critical(request):
+    """Only the full final judgement, without routing/finalization/authority."""
+    if (type(request) is not dict or set(request) !=
+            {'schema','operation','deadline_utc','critical','pcb','inputs'}
+            or type(request['schema']) is not int or request['schema'] != 1
+            or request['operation'] != 'critical-only'
+            or type(request['pcb']) is not str or not Path(request['pcb']).is_absolute()
+            or type(request['inputs']) is not dict):
+        _refuse('critical-only request fields are invalid')
+    _deadline(request['deadline_utc'])
+    from .kicad.final_call import file_hash
+    from .final_check_judgement import encode
+    pcb=Path(request['pcb'])
+    expected={str(pcb),str(pcb.with_suffix('.kicad_pro')),str(pcb.with_suffix('.kicad_dru'))}
+    if set(request['inputs']) != expected:
+        _refuse('critical-only input inventory is incomplete')
+    def unchanged():
+        for path,expected_hash in request['inputs'].items():
+            if (expected_hash is not None and (type(expected_hash) is not str
+                    or len(expected_hash)!=64 or any(c not in '0123456789abcdef' for c in expected_hash))):
+                _refuse('critical-only input hash is invalid')
+            actual=file_hash(path) if Path(path).is_file() else None
+            if actual!=expected_hash or (path==str(pcb) and actual is None):
+                _refuse('critical-only input changed')
+    unchanged()
+    implementation_start=_runtime_identity()
+    _deadline(request['deadline_utc'])
+    request_sha=_digest(request)
+    judgement=judge(request['critical'],pcb)
+    _deadline(request['deadline_utc'])
+    unchanged()
+    implementation_end=_runtime_identity()
+    if implementation_start!=implementation_end or _digest(request)!=request_sha:
+        _refuse('critical-only implementation or request changed')
+    return {'schema':1,'operation':'critical-only','request_sha256':request_sha,
+            'implementation_start':implementation_start,'implementation_end':implementation_end,
+            'judgement':encode(judgement),'evidence':judgement.evidence()}
+
+
 def evaluate(request):
     """Finalize and check one candidate; called only inside owned execution."""
     if not isinstance(request, dict) or set(request) != {'schema', 'deadline_utc', 'physical', 'critical'}:
@@ -120,7 +159,7 @@ def main(argv=None):
     raw = args.request.read_bytes()
     request = json.loads(raw, object_pairs_hook=_unique,
                          parse_constant=lambda _: _refuse('nonfinite worker JSON'))
-    result = evaluate(request)
+    result = evaluate_critical(request) if type(request) is dict and request.get('operation') == 'critical-only' else evaluate(request)
     if args.request.read_bytes() != raw:
         _refuse('worker request bytes changed')
     _deadline(request['deadline_utc'])
