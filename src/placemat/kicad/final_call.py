@@ -101,7 +101,7 @@ class RequiredJoin:
                 or not isinstance(pair[1], (float, int)) or not math.isfinite(pair[1]) or pair[1] <= 0
                 for pair in self.widths)):
             raise ProofUnavailable('invalid_terminal_widths')
-        object.__setattr__(self, 'widths', tuple(tuple(pair) for pair in self.widths))
+        object.__setattr__(self, 'widths', tuple((layer, float(width)) for layer, width in self.widths))
 
     def record(self, scope):
         if self.net not in scope.nets or not isinstance(self.start, Terminal) or not isinstance(self.end, Terminal):

@@ -64,6 +64,7 @@ def rig(tmp_path, monkeypatch):
     monkeypatch.setenv("FAKE_ROUTER_LOG", str(tmp_path / "calls"))
 
     class Rig:
+        router = krt
         pcb = _two_part_board(tmp_path)            # FB and VIN open between U1 and J1
         work = tmp_path / "route"
 
@@ -518,3 +519,40 @@ def test_missing_width_policy_refuses_before_any_router_call(rig):
     assert rig.calls() == []
     receipt = json.loads((rig.work / 'width_policy.json').read_text())
     assert receipt['failure']['code'] == 'unavailable'
+
+
+@needs_kicad
+@pytest.mark.parametrize('changed', ['earlier_width', 'global_flags', 'original_rules', 'resolver_source', 'unknown_to_known'])
+def test_resume_invalidates_earlier_or_shared_authority_and_every_downstream_phase(rig, monkeypatch, changed):
+    from placemat.kicad import width_policy
+    if changed == 'unknown_to_known':
+        original_resolve = width_policy.resolve
+        state = {'known': False}
+        def resolve(*args, **kwargs):
+            result = original_resolve(*args, **kwargs)
+            if not state['known']:
+                for record in result['policies']:
+                    for entry in record['by_net'].values():
+                        entry.update(status='unknown', widths=None, reason='test unproved initial policy')
+            return result
+        monkeypatch.setattr(width_policy, 'resolve', resolve)
+    rig.route(LEG, FB, {'name': 'signals'})
+    n = len(rig.calls())
+    leg, settings = LEG, None
+    if changed == 'earlier_width':
+        leg = dict(LEG, width=.7)
+    elif changed == 'global_flags':
+        settings = {'route_router_args': ('--track-width', '0.3')}
+    elif changed == 'original_rules':
+        project = rig.pcb.with_suffix('.kicad_pro')
+        doc = json.loads(project.read_text())
+        doc.setdefault('board', {}).setdefault('design_settings', {}).setdefault('rules', {})['min_hole_clearance'] = .3
+        project.write_text(json.dumps(doc))
+    elif changed == 'resolver_source':
+        helper = rig.router / 'py_router/nominal_width_policy.py'
+        helper.write_text(helper.read_text() + '\n# changed resolver implementation identity\n')
+    else:
+        state['known'] = True
+    report = rig.route(leg, FB, {'name': 'signals'}, settings=settings)
+    assert [record['reused'] for record in report.phases] == [False, False, False]
+    assert len(rig.calls()) > n

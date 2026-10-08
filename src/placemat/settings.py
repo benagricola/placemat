@@ -690,7 +690,7 @@ def router_flag(args, name: str):
 ROUTER_OWNED = frozenset(("--nets", "--layers", "--escalation", "--keep-input-copper", "--turn-cost", "--smoothing",
                            "--no-smoothing", "--power-nets", "--power-nets-widths", "--max-iterations",
                            "--max-probe-iterations", "--json-out", "--net-clearances", "--connections",
-                           "--bus-nets", "--output"))
+                           "--bus-nets", "--output", "--final-call-proof", "--candidate-artifacts"))
 
 
 def router_owned(arg: str) -> str | None:

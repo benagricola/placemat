@@ -221,3 +221,19 @@ def authority(policy):
                           'by_net': {net: {'status': entry['status'], 'widths': entry.get('widths')}
                                      for net, entry in record['by_net'].items()}}
                          for record in policy['policies']]}
+
+
+def shared_authority(policy):
+    """Resolver implementation and external inputs shared by every phase.
+
+    The whole query config hash includes later phases. Their effective policy
+    belongs in their own chained key, so changing a later width does not discard
+    an earlier unchanged result.
+    """
+    identity = authority(policy)
+    return {name: identity[name] for name in ('schema', 'sources', 'external_inputs')}
+
+
+def phase_authority(policy, name):
+    """Actual normalized widths/status for one phase; declared args bind in phase.key()."""
+    return [record for record in authority(policy)['policies'] if record['name'] == name]

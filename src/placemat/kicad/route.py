@@ -237,6 +237,8 @@ class RouteReport:
     # as_dict).
     asked: list = field(default_factory=list)
     final_judged: list = field(default_factory=list)
+    # Saved-copper regrades retain execution diagnostics separately from fresh physical measurements.
+    execution_provenance: dict = field(default_factory=dict)
 
     def has_findings(self) -> bool:
         return bool(self.widths or self.net_clearance_facts)
@@ -309,7 +311,8 @@ class RouteReport:
                 "net_clearance_trapped": list(self.net_clearance_trapped), "dangling_removed": dict(self.dangling_removed),
                 "phases": list(self.phases), "phases_without_copper": list(self.phases_without_copper),
                 "widths_failed": self.widths_failed, "drc_new": self.drc_new, "vias": self.vias,
-                "track_mm": self.track_mm, "segments": self.segments}
+                "track_mm": self.track_mm, "segments": self.segments,
+                **({"execution_provenance": self.execution_provenance} if self.execution_provenance else {})}
 
 
 def plane_nets_of(pcb) -> set:
@@ -898,9 +901,7 @@ def pours_back(pcb_path: str, given: str) -> int:
 def _copy_project(src_pcb, dst_pcb) -> None:
     """The board's project files beside a copy of it: the router reads the
     netclasses (their widths and clearances) from them."""
-    for ext in (".kicad_pro", ".kicad_dru"):
-        if Path(src_pcb).with_suffix(ext).exists():
-            shutil.copy(Path(src_pcb).with_suffix(ext), Path(dst_pcb).with_suffix(ext))
+    copy_source_rules(src_pcb, dst_pcb)
 
 
 def router_net_pattern(name: str, form: str) -> str:
@@ -1197,6 +1198,58 @@ def ctx_for(ctx, rev, name: str):
     return dataclasses.replace(ctx, env=dict(ctx.env, **rev.env(name)))
 
 
+def copy_source_rules(original_rules, pcb_out):
+    """Replace owned companions with source rules, clearing stale absent-source companions."""
+    for ext in (".kicad_pro", ".kicad_dru"):
+        source, target = Path(original_rules).with_suffix(ext), Path(pcb_out).with_suffix(ext)
+        if source.is_file():
+            shutil.copy(source, target)
+        elif target.exists():
+            target.unlink()                 # only this private candidate's stale companion
+
+
+def finalize_copper(raw_board, pcb_out, original_input, original_rules, drc_path):
+    """Finalize a private copy under retained source rules; original fixed copper is cleanup's boundary."""
+    from .route_cleanup import remove_dangling_router_copper
+    shutil.copy(raw_board, pcb_out)
+    copy_source_rules(original_rules, pcb_out)
+    remove_guards(str(pcb_out))
+    fill_zones(str(pcb_out))
+    cleanup = remove_dangling_router_copper(str(pcb_out), str(original_input))
+    return cleanup, run_drc(pcb_out, drc_path, refill_zones=False)
+
+
+def recheck_final_phases(report, comparison_asked, run_list, width_receipt, pcb_out, drc_path, after, cfg):
+    """Rejudge frozen original obligations on finalized copper, never candidate-derived selections."""
+    from .phase_run import comparison_contract, is_clean, judge_obligations, outcome_of, phase_neck
+    from copy import deepcopy
+    if not (len(report.phases) == len(comparison_asked) == len(run_list)):
+        raise ValueError("final phase/obligation count mismatch")
+    report.final_judged = []
+    report.widths_failed = 0
+    report.phases = deepcopy(report.phases)
+    for rec, obs, phase in zip(report.phases, comparison_asked, run_list):
+        rec["comparison_contract"] = comparison_contract(phase, obs)
+        rec["width_policy"] = [p for p in width_receipt['policies'] if p['name'] == phase.name]
+        rec["final_asked"] = len(obs)
+        got = judge_obligations(pcb_out, obs, drc_path, phase_neck(cfg, phase), after.is_real)
+        report.final_judged.append(got)
+        connections = rec.get("connections") or []
+        outcomes = [outcome_of(o, connections) for o in obs]
+        if not (len(got) == len(obs) == len(outcomes)):
+            raise ValueError("final phase judgment/obligation count mismatch")
+        # joined on the final board narrower than asked along its path, or reported joined_narrow by the router (D3)
+        report.widths_failed += sum(1 for j, oc in zip(got, outcomes) if j["joined"] and (j["under"] or j.get("width_unknown", False) or oc == "joined_narrow"))
+        clean = [is_clean(j, oc) for j, oc in zip(got, outcomes)]
+        rec["final_joined"] = sum(clean)
+        rec["final_closure_clean"] = round(sum(clean) / len(obs), 4) if obs else 1.0
+        rec["final_open"] = [dict(o, **({"violated": True} if j["joined"] and j["violated"] else {}),
+                                  **({"under": dict(j["under"])} if j["joined"] and j["under"] else {}),
+                                  **({"width_unknown": True} if j.get("width_unknown") else {}))
+                             for o, j, ok in zip(obs, got, clean) if not ok]
+    report.asked = deepcopy(comparison_asked)
+
+
 def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: str | None = None,
                  quick: bool = False, iterations: int | None = None, probe: int | None = None,
                  timeout: int | None = None, resume: bool = True, board_info: dict | None = None,
@@ -1223,8 +1276,7 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     from ..capture_nets import CaptureError, capture_beside, read_capture
     from ..checks import COPPER_OZ
     from .route_state import RouteState, digest, file_digest
-    from .phase_run import (PhaseContext, Routed, is_clean, judge_obligations, judge_phase, obligations_of,
-                            open_connections, outcome_of, phase_neck, route_calls)
+    from .phase_run import (PhaseContext, Routed, judge_phase, obligations_of, open_connections, route_calls)
     from .phase_select import select
     cfg = active()
     phases = phases_of(cfg) if phases is None else tuple(phases)
@@ -1266,10 +1318,7 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     _HOOK = route_progress.enabled()
     pcb_in = work / "in.kicad_pcb"
     shutil.copy(pcb, pcb_in)
-    for ext in (".kicad_pro", ".kicad_dru"):
-        src = pcb.with_suffix(ext)
-        if src.exists():
-            shutil.copy(src, work / ("in" + ext))
+    copy_source_rules(pcb, pcb_in)
     lock_copper(str(pcb_in))
     if layers:
         all_layers, layer_types_ = [], {}
@@ -1299,7 +1348,7 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     # below edit pcb_in); the rest phase never takes a pour net (D15)
     asked = obligations_of([picked[p.name] for p in run_list], open_connections(pcb_in, work / "drc_before.json"),
                            excluded | pours)
-    from .phase_run import comparison_obligations, comparison_contract
+    from .phase_run import comparison_obligations
     comparison_asked = comparison_obligations([picked[p.name] for p in run_list], geometry, excluded)
     open0 = {n: v for n, v in before.open_nets.items() if n not in counted}
     valid = not before.real
@@ -1340,10 +1389,10 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     from .. import __version__
     settings_part = {k: v for k, v in sorted(json.loads(cfg.json()).items())
                      if k.startswith("route_") and k not in ("route_router_dir", "route_phase")}
-    base = digest("effective-phase-widths-and-comparison-v2", file_digest(pcb), file_digest(pcb.with_suffix(".kicad_pro")), file_digest(pcb.with_suffix(".kicad_dru")),
+    base = digest("effective-phase-widths-and-comparison-v3", file_digest(pcb), file_digest(pcb.with_suffix(".kicad_pro")), file_digest(pcb.with_suffix(".kicad_dru")),
                   capture.digest if capture else "", sorted(excluded), sorted(pours), layers, quick, iterations, probe,
                   router_version(router_dir_path), __version__, settings_part, cfg.check_rise_c,
-                  width_policy.authority(width_receipt))     # rise_c: current widths
+                  width_policy.shared_authority(width_receipt))     # rise_c: current widths
     state.set_order(["only:" + run_list[0].name] if only else [p.name for p in run_list])
     script = str(ONE_ROUND) if quick else str(route_py)
     ctx = PhaseContext(rpy, script, router_dir_path, work, layers, iterations, probe, quick, timeout, env, cfg,
@@ -1354,7 +1403,8 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     board, prev, records, summaries, spent, resumed = pcb_in, base, [], [], 0.0, []
     open_now = dict(before.open_nets)
     for i, phase in enumerate(run_list):
-        key = digest(base, "only", phase.key()) if only else digest(prev, phase.key())
+        phase_identity = (phase.key(), width_policy.phase_authority(width_receipt, phase.name))
+        key = digest(base, "only", *phase_identity) if only else digest(prev, *phase_identity)
         label = state.order[i]
         saved = state.result(label, key)
         if saved is not None and (work / saved["routed"]["board"]).exists():
@@ -1395,16 +1445,10 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
         prev = key
     seconds = round(spent, 1)
     shutil.copy(board, raw_out)
-    shutil.copy(board, pcb_out)
     for ext in (".kicad_pro", ".kicad_dru"):
         if (work / ("in" + ext)).exists():
             shutil.copy(work / ("in" + ext), work / ("router_out" + ext))
-            shutil.copy(work / ("in" + ext), work / ("routed" + ext))
-    remove_guards(str(pcb_out))
-    fill_zones(str(pcb_out))
-    from .route_cleanup import remove_dangling_router_copper
-    cleanup = remove_dangling_router_copper(str(pcb_out), str(pcb_in))     # after the fill: KiCad tests a track end in a zone by its fill
-    after = run_drc(pcb_out, work / "drc_after.json", refill_zones=False)     # filled just now
+    cleanup, after = finalize_copper(board, pcb_out, pcb_in, work / "in.kicad_pcb", work / "drc_after.json")
     open1 = {n: v for n, v in after.open_nets.items() if n not in counted}
     by_net = _violations_by_net(json.loads((work / "drc_after.json").read_text()))
     violated = set(by_net)
@@ -1430,26 +1474,8 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     report.widths = [w for rec in records for w in rec.get("widths", [])] + read_widths(summaries, judged_width_nets)
     report.dangling_removed = cleanup.record()
     report.phases = records
-    # ruling S6: every phase's asked set judged again on the final board, after the last phase and the clean-up
-    report.final_judged = []
-    for rec, obs, phase in zip(records, comparison_asked, run_list):
-        rec["comparison_contract"] = comparison_contract(phase, obs)
-        rec["width_policy"] = [p for p in width_receipt['policies'] if p['name'] == phase.name]
-        rec["final_asked"] = len(obs)
-        got = judge_obligations(pcb_out, obs, work / "drc_after.json", phase_neck(cfg, phase), after.is_real)
-        report.final_judged.append(got)
-        connections = rec.get("connections") or []
-        outcomes = [outcome_of(o, connections) for o in obs]
-        # joined on the final board narrower than asked along its path, or reported joined_narrow by the router (D3)
-        report.widths_failed += sum(1 for j, oc in zip(got, outcomes) if j["joined"] and (j["under"] or j.get("width_unknown", False) or oc == "joined_narrow"))
-        clean = [is_clean(j, oc) for j, oc in zip(got, outcomes)]
-        rec["final_joined"] = sum(clean)
-        rec["final_closure_clean"] = round(sum(clean) / len(obs), 4) if obs else 1.0
-        rec["final_open"] = [dict(o, **({"violated": True} if j["joined"] and j["violated"] else {}),
-                                  **({"under": dict(j["under"])} if j["joined"] and j["under"] else {}),
-                                  **({"width_unknown": True} if j.get("width_unknown") else {}))
-                             for o, j, ok in zip(obs, got, clean) if not ok]
-    report.asked = comparison_asked
+    recheck_final_phases(report, comparison_asked, run_list, width_receipt, pcb_out,
+                         work / "drc_after.json", after, cfg)
     report.drc_new = new_error_count(work / "drc_before.json", work / "drc_after.json", after.is_real)
     report.vias, report.track_mm, report.segments = routed_copper(pcb, pcb_out)
     if only:

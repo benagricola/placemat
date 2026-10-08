@@ -179,3 +179,22 @@ def test_interrupted_policy_wait_reaps_only_owned_process(tmp_path, monkeypatch)
     with pytest.raises(KeyboardInterrupt):
         width_policy.resolve(sys.executable, tmp_path, tmp_path / 'b', [phase], [selected()], Settings())
     assert launched[0].returncode is not None and not stop.pid_alive(launched[0].pid)
+
+
+def test_later_policy_config_changes_do_not_change_earlier_phase_authority():
+    earlier = {'name': 'early', 'kind': 'nets', 'by_net': {'A': {'status': 'known', 'widths': {'F.Cu': .2}}}}
+    later = {'name': 'late', 'kind': 'nets', 'by_net': {'B': {'status': 'known', 'widths': {'F.Cu': .3}}}}
+    before = {'schema': 1, 'config_sha256': 'all-before', 'sources': {'resolver.py': 'same'},
+              'external_inputs': {'fab': 'same'}, 'policies': [earlier, later]}
+    after = json.loads(json.dumps(before))
+    after['config_sha256'] = 'all-after'
+    after['policies'][1]['by_net']['B']['widths']['F.Cu'] = .4
+    assert width_policy.shared_authority(before) == width_policy.shared_authority(after)
+    assert width_policy.phase_authority(before, 'early') == width_policy.phase_authority(after, 'early')
+    assert width_policy.phase_authority(before, 'late') != width_policy.phase_authority(after, 'late')
+    for field in ('sources', 'external_inputs'):
+        changed = dict(after, **{field: {'changed': 'different'}})
+        assert width_policy.shared_authority(before) != width_policy.shared_authority(changed)
+    unknown = json.loads(json.dumps(before))
+    unknown['policies'][0]['by_net']['A'] = {'status': 'unknown', 'reason': 'unproved'}
+    assert width_policy.phase_authority(before, 'early') != width_policy.phase_authority(unknown, 'early')
