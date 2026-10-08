@@ -115,3 +115,10 @@ is weakened to make the new strategy succeed.
 6. Resolve the merge blocker through the accepted final comparison or report the
    remaining limitation explicitly. Then finish the finite reference/common-audit
    and latest whole-full checklist. No repin or broader search is implied.
+
+The first implementation withholds connection-task escape candidates until an
+authoritative task-specific nominal receipt is available. Matching a whole-net
+width does not prove a task's effective policy, especially when tasks share a
+terminal but declare different widths. This refusal preserves ordinary
+connection routing and its existing legacy/pocket candidate policy. Typed task
+identities and widths remain in the proof transport for future supported use.
