@@ -7244,39 +7244,71 @@ git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
 - Modify: `$WT/src/placemat/detach.py:271` (route entry keys), `$WT/tests/surface/cli.txt`
 - Create: `$WT/tests/test_explore_route_rank.py`
 
-**Interfaces:**
-- Consumes: `RouteReport.phases`.
-- Produces: `run --route-rank PHASE[,PHASE...]` (with `--route-best`); each routed variant's entry gains
-  `"phases": {name: closure_clean}`; `_taken(routes, scores, rank=())` orders by each ranked phase's clean closure,
-  in order, then the board-wide clean closure, then the run score, then the seed. A rank naming no phase of the
-  project is refused before the explore starts.
+**Interfaces (amended by the approved 2026-10-07 one-score ranking contract):**
+- Consumes authoritative final `RouteReport` records, settings and common placement measures.
+- Produces `run --route-rank PHASE[,PHASE...]` with `--route-best`. Validity comes first, then the supplied phase
+  priorities, whole final closure, routed quality and common score. With no public flag, the full configured phase
+  order is used. The internal comparator's explicit empty tuple means no phase priorities; the actual explore
+  caller converts an omitted/empty route-rank setting to `None`, which uses configured phase order.
+- `_taken(routes, scores, cfg, phase_priority=None)` delegates to the shared final comparison. Every phase's
+  comparison contract must match, including omitted priorities; unknown phase names are refused before exploration.
 
 - [ ] **Step 1: Write the failing test**
 
 `tests/test_explore_route_rank.py`:
 
 ```python
-"""explore --route-rank orders the routed variants by named phases' clean closure, then as before."""
+"""Explore ranks final routed reports by named phase priorities after validity."""
 import pytest
 
 from placemat.explore import _taken
+from placemat.settings import Settings
 
 
 def routes():
-    return [{"seed": 1, "closure_clean": 0.95, "score": 10.0, "error": None, "phases": {"legs": 0.5, "signals": 0.97}},
-            {"seed": 2, "closure_clean": 0.90, "score": 12.0, "error": None, "phases": {"legs": 1.0, "signals": 0.9}},
-            {"seed": 3, "closure_clean": 0.90, "score": 11.0, "error": None, "phases": {"legs": 1.0, "signals": 0.9}}]
+    reports = [(1, 0.95, 0.5, 0.97), (2, 0.90, 1.0, 0.9), (3, 0.90, 1.0, 0.9)]
+    return [{"seed": seed, "route_report": {
+        "drc_new": 0, "widths_failed": 0, "critical_checks": 0,
+        "critical_unknown": [], "final_findings": {}, "closure_clean": clean,
+        "phases": [
+            {"name": "legs", "comparison_contract": "original-legs",
+             "final_closure_clean": legs},
+            {"name": "signals", "comparison_contract": "original-signals",
+             "final_closure_clean": signals}],
+    }} for seed, clean, legs, signals in reports]
 
 
-def test_without_a_rank_the_board_wide_closure_decides():
-    assert _taken(routes(), {}) == 1
+def measures():
+    return {seed: {"v": 2, "airwire_mm": airwire}
+            for seed, airwire in [(1, 10.0), (2, 12.0), (3, 11.0)]}
 
 
-def test_a_ranked_phase_comes_first_then_the_score():
-    assert _taken(routes(), {}, rank=("legs",)) == 3
+def test_default_ranking_uses_the_full_configured_phase_order():
+    assert _taken(routes(), measures(), Settings()) == 3
 
 
-def test_a_rank_naming_no_phase_is_refused(tmp_path):
+def test_explicit_empty_priorities_use_board_wide_closure():
+    assert _taken(routes(), measures(), Settings(), phase_priority=()) == 1
+
+
+def test_a_ranked_phase_comes_first_then_the_common_score():
+    assert _taken(routes(), measures(), Settings(), phase_priority=("legs",)) == 3
+
+
+def test_validity_precedes_the_named_phase_and_score():
+    candidates = routes()
+    candidates[2]["route_report"]["drc_new"] = 1
+    assert _taken(candidates, measures(), Settings(), phase_priority=("legs",)) == 2
+
+
+def test_omitted_phase_contracts_still_must_match():
+    candidates = routes()
+    candidates[2]["route_report"]["phases"][1]["comparison_contract"] = "changed-signals"
+    with pytest.raises(ValueError, match="incomparable"):
+        _taken(candidates, measures(), Settings(), phase_priority=("legs",))
+
+
+def test_a_rank_naming_no_phase_is_refused():
     from placemat.cli import _route_rank
     with pytest.raises(SystemExit):
         _route_rank("legs,bogus", ("legs", "signals"))
@@ -7289,19 +7321,12 @@ Expected: FAIL.
 
 - [ ] **Step 3: Implement**
 
-```python
-def _taken(routes: list, scores: dict, rank=()):
-    closed = [r for r in routes if not r.get("error")]
-    if not closed:
-        return None
-    return min(closed, key=lambda r: tuple(-(r.get("phases") or {}).get(name, 0.0) for name in rank)
-               + (-r["closure_clean"], scores.get(r["seed"], r["score"]), r["seed"]))["seed"]
-```
+Use the existing shared final-comparison implementation; do not restore a scalar phase-dictionary comparator.
+`_route_work` retains the authoritative final `route_report` (critical checks/findings, manufacturing validity,
+final phases and comparison contracts). Pass settings and common measures to `_taken`, with
+`phase_priority=routing.rank or None`. Render the final phase values truthfully; unknown or invalid final checks
+cannot become zero-cost winners. CLI validation remains:
 
-(keep whatever `_taken` does today for an empty `closed`; read :1047-1053 and keep that line.) `_route_work`'s entry:
-`entry["phases"] = {p["name"]: p["closure_clean"] for p in r.phases}`. `Routing.rank: tuple = ()`, passed from
-`run --route-rank` through the runner; `_taken(result.routes, ..., rank=routing.rank)`. `route_line` appends
-`"; " + ", ".join("%s %.1f%%" % (n, 100 * c) for n, c in r["phases"].items())` when present. cli:
 
 ```python
 def _route_rank(text: str, names) -> tuple:

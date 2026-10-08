@@ -3822,3 +3822,30 @@ ev("renderFindings()"); out.tab = els["#tab-findings"].innerHTML;
     assert "1 width finding" in out["html"] and "reused" in out["html"]
     assert out["none"] == "" and out["view"] == 2
     assert "Routing phases" in out["tab"] and "signals" in out["tab"]
+
+
+@needs_node
+def test_final_phase_regressions_and_width_evidence_show_in_route_and_run_views(tmp_path):
+    out = run_more(tmp_path, r"""
+full([item("a", 1)], [st("a")]);
+const phases = [{name: "legs", selector: "current_paths", asked: 4, joined: 4,
+  closure_clean: 1, seconds: 12, reused: false, open: [], widths: [],
+  final_asked: 4, final_joined: 2, final_closure_clean: 0.5,
+  final_open: [
+    {net: "VB", from: {ref: "J1", pad: "2"}, to: {ref: "Q1", pad: "1"}, under: {"F.Cu": 0.5}},
+    {net: "SW", from: {ref: "Q1", pad: "2"}, to: {ref: "L1", pad: "1"}, width_unknown: true}
+  ]}];
+out.html = ev("phasesHTML(" + JSON.stringify(phases) + ")");
+ev("S.cmdView = {id: 'route:/p/r.json', plan: plan(), report: {phases: " + JSON.stringify(phases) + "}, summary: {command: 'route replay', kind: 'route'}}");
+ev("renderFindings()"); out.route = els["#tab-findings"].innerHTML;
+ev("S.cmdView = {id: 'run:/p/run.json', plan: plan(), summary: {command: 'run', kind: 'run', record: {metrics: {route: {phases: " + JSON.stringify(phases) + "}}}}}");
+out.runCount = ev("routePhases(S.cmdView).length");
+ev("renderFindings()"); out.run = els["#tab-findings"].innerHTML;
+""")
+    assert out["runCount"] == 1
+    for html in (out["html"], out["route"], out["run"]):
+        assert "2 of 4 joined clean, " in html and "50.0%" in html
+        assert "4 of 4 joined clean" not in html
+        assert "VB J1.2-Q1.1 under F.Cu 0.5" in html
+        assert "SW Q1.2-L1.1 width unproven" in html
+    assert "Routing phases" in out["route"] and "Routing phases" in out["run"]

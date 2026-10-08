@@ -17,9 +17,10 @@ def test_a_removed_route_setting_is_refused_naming_its_replacement(tmp_path, tex
         load(tmp_path)
 
 
-def test_route_islands_is_refused_naming_the_phase_form(capsys):
+@pytest.mark.parametrize("args", [["--islands", "VB"], ["--islands=VB"]])
+def test_route_islands_is_refused_naming_the_phase_form(capsys, args):
     from placemat.cli import main
-    assert main(["route", "b.kicad_pcb", "--islands", "VB"]) == 2
+    assert main(["route", "b.kicad_pcb", *args]) == 2
     assert "[[route.phase]]" in capsys.readouterr().out
 
 
