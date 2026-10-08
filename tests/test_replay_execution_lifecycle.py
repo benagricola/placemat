@@ -34,7 +34,9 @@ def test_actual_factory_hook_prior_then_final_execution_and_completion(context,m
     processes=[];summaries=[]
     for index in (0,1):
         output=hook.work/('call%d.kicad_pcb'%index);summary=hook.work/('call%d-summary.json'%index)
-        cmd=[sys.executable,str(hook.work/'route.py'),str(original._original),str(output),'--json-out',str(summary)]
+        cmd=[sys.executable,str(hook.work/'route.py'),str(original._original),str(output),
+             '--nets', 'N' if index == 0 else '*', '--layers', 'F.Cu',
+             '--json-out',str(summary)]
         issued=dict(phase=0,call=index,wave=0,kind='single',command=cmd,source=original._original,input_board=original._original,
                     output_board=output,summary=summary,layers=['F.Cu'],nets=['N'],tasks=[],constraint_files=(),environment={})
         actual_ctx,token=hook.issue_single(ctx,**issued)

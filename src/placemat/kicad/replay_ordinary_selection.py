@@ -115,6 +115,12 @@ def choose(budget,owner,final_call,pocket_output,pocket_files,work, *, candidate
         request=deepcopy(template)
         request.update(board=str(board),summary=summary,scope=scope['scope'])
         grades[name]=_grade(worker('--grade',request,name))
+    if any(value is None for value in grades.values()):
+        unchanged()
+        result = {'selected': 'legacy', 'reason': 'original_grade_unavailable',
+                  'scope': scope, 'grades': grades, 'ordinary_comparison_only': True}
+        (work/'selection.json').write_text(json.dumps(result, sort_keys=True, allow_nan=False)+'\n')
+        return result
     from .manufacturing_current_measurement import measure
     grades = measure(budget, owner, final_call, legacy_board, pocket_board,
                      pocket_files, grades, work/'manufacturing', unchanged)

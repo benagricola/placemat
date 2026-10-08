@@ -1,4 +1,8 @@
-"""Controlled grader producer; actual scope and preference bodies stay intact."""
+"""Controlled grade/measurement producers; actual scope and preference stay intact.
+
+Genuine retained manufacturing custody is tested by the manufacturing integration
+modules. This unit fixture uses JSON stand-in boards and cannot provide custody.
+"""
 import ast
 import json
 import os
@@ -23,6 +27,12 @@ def rig(tmp_path,monkeypatch):
     fixtures=Path(__file__).parent/'fixtures'/'replay_backend'
     shutil.copy(fixtures/'ordinary_grade.py',helper)
     shutil.copy(fixtures/'route_summary.py',root/'route_summary.py')
+    from placemat.kicad import manufacturing_current_measurement
+    measurement_calls = []
+    def controlled_measure(*args):
+        measurement_calls.append(True)
+        return args[6]
+    monkeypatch.setattr(manufacturing_current_measurement, 'measure', controlled_measure)
     token=object();executor=object()
     ctx=SimpleNamespace(router_dir=root,script='route.py',rpy=sys.executable,env=dict(os.environ,PYTHONPATH=str(root)))
     legacy=tmp_path/'legacy-raw';legacy.mkdir();pocket=tmp_path/'pocket';(pocket/'raw').mkdir(parents=True)
@@ -37,7 +47,7 @@ def rig(tmp_path,monkeypatch):
     monkeypatch.setattr(selection.backend,'_runtime',lambda *a:({str(helper):file_hash(helper)},None,None))
     budget=SimpleNamespace(states=['completed','issued'],executor=executor,grader=object(),ledger=object(),deadline=time.time()+10,_check=lambda e:None)
     owner=SimpleNamespace(final_call=token,contexts_for=lambda b:{token:ctx})
-    return SimpleNamespace(budget=budget,owner=owner,token=token,output=pocket/'out.kicad_pcb',files=files,new=new,helper=helper,tmp=tmp_path,template=template)
+    return SimpleNamespace(budget=budget,owner=owner,token=token,output=pocket/'out.kicad_pcb',files=files,new=new,helper=helper,tmp=tmp_path,template=template,measurement_calls=measurement_calls,old=old,record=record)
 
 
 def run(rig):
@@ -57,7 +67,10 @@ def test_actual_scope_and_grade_workers_select_with_same_requests(rig):
 @pytest.mark.parametrize('field,value',[('known',1),('drc',False),('widths_unknown',0),('quality',[True,2,3]),('open',-1)])
 def test_malformed_typed_grade_retains_legacy(rig,field,value):
     changed=grade(0);changed[field]=value;rig.new.write_text(json.dumps(changed));rig.files[str(rig.new)]=file_hash(rig.new)
-    assert run(rig)['selected']=='legacy'
+    result = run(rig)
+    assert result['selected']=='legacy'
+    assert result['reason']=='original_grade_unavailable'
+    assert rig.measurement_calls == []
 
 
 def test_unknown_width_retains_legacy(rig):
@@ -101,6 +114,7 @@ def test_bound_grader_disappearance_refuses_without_selection(rig,monkeypatch):
 def test_contradictory_or_unbounded_grade_retains_legacy(rig,change):
     value=grade(0);value.update(change);rig.new.write_text(json.dumps(value));rig.files[str(rig.new)]=file_hash(rig.new)
     assert run(rig)['selected']=='legacy'
+    assert rig.measurement_calls == []
 
 
 @pytest.mark.parametrize('number',[float('nan'),float('inf'),-float('inf')])
@@ -109,4 +123,17 @@ def test_nonfinite_unknown_grade_cannot_break_legacy_selection(rig,number):
     rig.files[str(rig.new)]=file_hash(rig.new)
     result=run(rig)
     assert result['selected']=='legacy' and result['grades']['pocket'] is None
+    assert rig.measurement_calls == []
     assert json.loads((rig.tmp/'selection'/'selection.json').read_text())['selected']=='legacy'
+
+
+def test_malformed_legacy_grade_retains_original_without_measurement(rig):
+    value = grade(2)
+    value['known'] = 1
+    rig.old.write_text(json.dumps(value))
+    rig.record['raw']['files'][str(rig.old)] = file_hash(rig.old)
+    result = run(rig)
+    assert result['selected'] == 'legacy'
+    assert result['reason'] == 'original_grade_unavailable'
+    assert result['grades']['legacy'] is None
+    assert rig.measurement_calls == []

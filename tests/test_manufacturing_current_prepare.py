@@ -264,9 +264,14 @@ def test_actual_choose_calls_current_measurement_inside_one_consumed_slot(curren
         results.append(selection.choose(current.budget,current.owner,current.token,output,files,current.tmp/'selection'))
         return {'returncode':0,'proposals':1,'files':files}
     if kind=='malformed_unknown':
-        with pytest.raises(ProofUnavailable,match='current_measurement_grade_unavailable'):
-            current.budget.run_replay(current.owner.executor,candidate)
-        assert not native_calls and current.budget.states==['completed','failed']
+        retained_before = custody.require_completed(current.owner.grader)
+        current.budget.run_replay(current.owner.executor,candidate)
+        assert results[0]['selected'] == 'legacy'
+        assert results[0]['reason'] == 'original_grade_unavailable'
+        assert results[0]['grades'] == {'legacy': None, 'pocket': None}
+        assert not native_calls and current.budget.states==['completed','completed']
+        assert custody.require_completed(current.owner.grader) == retained_before
+        assert not (current.tmp/'selection/manufacturing').exists()
     else:
         current.budget.run_replay(current.owner.executor,candidate)
         assert native_calls==[current.budget.deadline] and len(grade_calls)==2
