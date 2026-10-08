@@ -92,6 +92,13 @@ def _shape(shape):
 
 
 def _read_shape(record):
+    try:
+        return _read_shape_value(record)
+    except (ValueError, IndexError, OverflowError) as error:
+        _refuse('final-check board shape is malformed', reason=str(error))
+
+
+def _read_shape_value(record):
     from .cutouts import Cutouts
     from .outline import Outline
     from .values import Disc, Location
@@ -136,7 +143,7 @@ def _named(record, cls):
             record = {**record, 'between': tuple(between)}
     else:
         from .checks import SIDES
-        if record['check'] not in SIDES or not isinstance(record['subject'], str) or not isinstance(record['why'], str):
+        if not isinstance(record['check'], str) or record['check'] not in SIDES or not isinstance(record['subject'], str) or not isinstance(record['why'], str):
             _refuse('final-check acceptance subject is unsupported')
         bounds = [record[k] for k in ('at_least', 'at_most') if record[k] is not None]
         if len(bounds) != 1:

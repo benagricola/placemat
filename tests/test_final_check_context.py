@@ -109,3 +109,31 @@ def test_exact_outline_disc_and_cutout_paths_roundtrip_and_detect_changed_flatte
     record['loops'][0][0][0] += .001
     with pytest.raises(ContextRefused):
         _read_shape(record)
+
+
+@pytest.mark.parametrize('change', ['check-list', 'check-dict', 'wrong-bound', 'bound-list',
+                                  'rule-pair-dict', 'disc-negative', 'arc-not-record'])
+def test_malformed_nested_intent_refuses_before_final_judge(tmp_path, monkeypatch, change):
+    from placemat.checks import Acceptance
+    from placemat.rules import Rule
+    board, plan, source, measures = context(tmp_path)
+    plan.acceptances = [Acceptance('hot-loop', 'VIN', at_most=3., why='retained')]
+    board._rules = [Rule('clearance', .4, 'retained', between=('VIN', 'GND'))]
+    record = encode(board, plan, measures, source)
+    if change.startswith('check-'):
+        record['acceptances'][0]['check'] = [] if change == 'check-list' else {}
+    elif change == 'wrong-bound':
+        record['acceptances'][0].update(at_most=None, at_least=3.)
+    elif change == 'bound-list':
+        record['acceptances'][0]['at_most'] = [3.]
+    elif change == 'rule-pair-dict':
+        record['rules'][0]['between'] = {'first': 'VIN', 'second': 'GND'}
+    elif change == 'disc-negative':
+        record['board_shape'] = {'kind': 'disc', 'centre': [0., 0.], 'diameter': -1., 'hole': 0., 'holes': []}
+    else:
+        record['board_shape'] = {'kind': 'outline', 'paths': [[{'arc': []}]], 'loops': [[]]}
+    monkeypatch.setattr('placemat.kicad.read.read_board', lambda _: plan.geometry)
+    monkeypatch.setattr('placemat.final_board.judge', lambda *a: pytest.fail('malformed intent certified'))
+    with pytest.raises(ContextRefused) as refused:
+        judge(record, source)
+    assert refused.value.code == 'final_check_context_unsupported'
