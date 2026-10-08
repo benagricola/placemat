@@ -329,6 +329,11 @@ def write_proved(board, plan, proof, destination, *, settings=None):
         # Canonical baseline includes the same KiCad serializer as the result.
         canonical = temp / 'canonical-source.kicad_pcb'
         _edit_candidate(proof, out, canonical)
+        # Save may expand private project defaults. Restore the original
+        # context before reading geometry, and verify it again after readback.
+        for raw, expected in proof.inputs:
+            if expected is not None and Path(raw) != proof.source:
+                shutil.copy2(raw, temp / Path(raw).name)
         protected = _protected_forms(canonical)
         if _protected_forms(out) != protected:
             raise CandidateRefused('proof_fixed_board_items_changed', 'writing changed fixed copper or board graphics')

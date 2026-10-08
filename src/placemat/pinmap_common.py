@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import copy
 import math
-from dataclasses import asdict, dataclass, field, replace
+from dataclasses import asdict, dataclass, field, fields, replace
 
 from placemat import score
 from placemat.values import Face, Location, PadRef, CellPadRef
@@ -86,7 +86,19 @@ def _fixed_copper(occ):
         fixed.extend((ref, shape) for shape in item.shapes
                      if shape.kind == 'copper' or shape.carried or shape.given
                      or (shape.kind == 'through' and not shape.label))
-    return tuple(fixed)
+    # Preserve duplicate counts and every field, including compare=False metadata.
+    def identity(shape):
+        values = []
+        for descriptor in fields(shape):
+            name = descriptor.name
+            value = getattr(shape, name)
+            if name in ('faces', 'layers'):
+                value = tuple(sorted(member.value for member in value))
+            elif name == 'box':
+                value = (value.left, value.top, value.right, value.bottom)
+            values.append((name, value))
+        return tuple(values)
+    return tuple(sorted((ref, identity(shape)) for ref, shape in fixed))
 
 
 @dataclass(frozen=True)
@@ -166,12 +178,21 @@ class Finalists:
         if not set(refs) <= {part.ref for part in inp.parts}:
             raise CandidateRefused('unknown_part', 'pin finalist names an unrelated studied part')
         original = {net.net: tuple(net.ends) for net in inp.nets}
-        movable = {(ref, net) for ref in refs for net in inp.part(ref).slots.movable}
-        for net, ends in assign.items():
-            if net not in original:
-                raise CandidateRefused('undeclared_net', 'pin finalist introduces an unrelated logical net')
-            kept = tuple(end for end in ends if (end[0], net) not in movable)
-            expected = tuple(end for end in original[net] if (end[0], net) not in movable)
+        movable = {}
+        original_movable = {}
+        for ref in refs:
+            part = inp.part(ref)
+            physical = {pin.number for pin in part.pins}
+            for net in part.slots.movable:
+                allowed = ({part.slots.present[net]} if present else set(part.slots.allowed[net]))
+                movable.setdefault(net, set()).update((ref, number) for number in allowed & physical)
+                original_movable.setdefault(net, set()).add((ref, part.slots.present[net]))
+        if set(assign) - set(original):
+            raise CandidateRefused('undeclared_net', 'pin finalist introduces an unrelated logical net')
+        for net, original_ends in original.items():
+            ends = assign.get(net, ())
+            kept = tuple(end for end in ends if end not in movable.get(net, ()))
+            expected = tuple(end for end in original_ends if end not in original_movable.get(net, ()))
             if sorted(kept) != sorted(expected):
                 raise CandidateRefused('terminal_contract_changed', 'pin finalist changes a held or unrelated logical terminal')
         for ref in refs:
@@ -179,7 +200,8 @@ class Finalists:
             used = set()
             actual = {}
             for net in part.slots.movable:
-                ends = [number for owner, number in assign.get(net, ()) if owner == ref]
+                ends = [number for owner, number in assign.get(net, ())
+                        if (owner, number) in movable[net] and owner == ref]
                 if len(ends) != 1:
                     raise CandidateRefused('terminal_multiplicity', 'pin finalist changes a logical terminal multiplicity',
                                            ref=ref, net=net, pins=ends)

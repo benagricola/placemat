@@ -454,3 +454,42 @@ def test_proved_face_transform_preserves_exact_mask_paste_membership_and_other_s
     changed_drill = replace(back, footprints=(replace(back_fp, pads=(
         replace(back_fp.pads[0], drill_mm=.3), *back_fp.pads[1:])),), _by_ref={}, _by_inst={})
     assert _semantics(front, {'A': Face.BACK}) != _semantics(changed_drill)
+
+
+@pytest.mark.parametrize('read_changes_project', [False, True])
+def test_save_defaults_restore_exact_sidecars_before_readback(tmp_path, monkeypatch, read_changes_project):
+    from placemat import pinmap_written
+    board, plan, inp, _ = scene()
+    source = _source(tmp_path)
+    project = source.with_suffix('.kicad_pro')
+    rules = source.with_suffix('.kicad_dru')
+    capture = tmp_path / 'capture.json'
+    rules.write_text('(version 1)')
+    capture.write_text('{"original": true}')
+    original = {path: path.read_bytes() for path in (source, project, rules, capture)}
+    proof = mint(board, plan, inp, (), source, context_files=(capture,))
+    def edit(proof, out, canonical):
+        canonical.write_bytes(source.read_bytes())
+        out.write_bytes(source.read_bytes())
+        out.with_suffix('.kicad_pro').write_text('{"native_defaults": true}')
+    def read(path, settings):
+        if path != source:
+            assert path.with_suffix('.kicad_pro').read_bytes() == original[project]
+            assert path.with_suffix('.kicad_dru').read_bytes() == original[rules]
+            assert (path.parent / capture.name).read_bytes() == original[capture]
+            if read_changes_project:
+                path.with_suffix('.kicad_pro').write_text('{"changed_on_read": true}')
+        return plan.occupancy
+    monkeypatch.setattr(pinmap_written, '_edit_candidate', edit)
+    monkeypatch.setattr(pinmap_written, '_read_occupancy', read)
+    destination = tmp_path / 'candidate'
+    if read_changes_project:
+        with pytest.raises(CandidateRefused) as error:
+            pinmap_written.write_proved(board, plan, proof, destination)
+        assert error.value.code == 'proof_readback_sidecar_changed'
+        assert not destination.exists()
+    else:
+        pinmap_written.write_proved(board, plan, proof, destination)
+        for path in (project, rules, capture):
+            assert (destination / path.name).read_bytes() == original[path]
+    assert {path: path.read_bytes() for path in original} == original

@@ -5,7 +5,7 @@ import pytest
 
 from placemat.layout import Board
 from placemat.pinmap import placed_from_plan
-from placemat.pinmap_common import Finalists, mapped_geometry
+from placemat.pinmap_common import CandidateRefused, Finalists, mapped_geometry
 from placemat.pinmap_core import study_group
 from placemat.values import Part, PadRef, Cell, Location, Face, Near
 from tests.fixtures import board_geometry, footprint, pad, track
@@ -513,3 +513,52 @@ def test_malformed_saved_advice_refuses_before_study_or_mutation(monkeypatch, pa
     better, summary = pinmap.longer_advice(board, plan, payload, board.settings.pins_budget_steps)
     assert better is None and summary['incoming_refusal']['code'] == code
     assert (dict(plan.occupancy.items), tuple(plan.occupancy.copper), set(plan.occupancy.pending)) == before
+
+
+def test_assignment_preserves_same_owner_carried_terminal():
+    board, plan, inp, _ = scene()
+    held = ('U1', 'TP2:1')
+    inp = replace(inp, nets=tuple(replace(net, ends=net.ends + (held,)) if net.net == 'A' else net
+                                 for net in inp.nets))
+    assignment = {net.net: tuple(net.ends) for net in inp.nets}
+    evaluator = Finalists(board, plan)
+    assert evaluator._assignment(inp, ('U1',), assignment, present=True)
+    for altered in (tuple(end for end in assignment['A'] if end != held),
+                    assignment['A'] + (held,),
+                    assignment['A'] + (('U1', '1'),)):
+        changed = dict(assignment, A=altered)
+        with pytest.raises(CandidateRefused) as error:
+            evaluator._assignment(inp, ('U1',), changed, present=True)
+        assert error.value.code in ('terminal_contract_changed', 'terminal_multiplicity')
+    missing = dict(assignment)
+    del missing['A']
+    with pytest.raises(CandidateRefused) as error:
+        evaluator._assignment(inp, ('U1',), missing, present=True)
+    assert error.value.code == 'terminal_contract_changed'
+
+
+def test_fixed_copper_multiset_preserves_counts_and_all_metadata():
+    from types import SimpleNamespace
+    from placemat.pinmap_common import _fixed_copper
+    _, plan, _, _ = scene(copper=(track('A', 2, 2, 4, 2), track('B', 2, 3, 4, 3)))
+    original = plan.occupancy
+    reordered = SimpleNamespace(copper=list(reversed(original.copper)), items=original.items)
+    assert _fixed_copper(reordered) == _fixed_copper(original)
+    duplicated = SimpleNamespace(copper=list(original.copper) + [original.copper[0]], items=original.items)
+    assert _fixed_copper(duplicated) != _fixed_copper(original)
+    changed = SimpleNamespace(copper=[replace(original.copper[0], net='C'), *original.copper[1:]], items=original.items)
+    assert _fixed_copper(changed) != _fixed_copper(original)
+
+
+@pytest.mark.parametrize('field', ['net', 'poly', 'layers', 'wire'])
+def test_fixed_copper_multiset_detects_geometry_and_role_changes(field):
+    from types import SimpleNamespace
+    from placemat.pinmap_common import _fixed_copper
+    from placemat.values import CopperLayer
+    _, plan, _, _ = scene(copper=(track('A', 2, 2, 4, 2),))
+    original = plan.occupancy
+    shape = original.copper[0]
+    changes = {'net': 'B', 'poly': ((shape.poly[0][0] + .01, shape.poly[0][1]), *shape.poly[1:]),
+               'layers': frozenset((CopperLayer.B,)), 'wire': not shape.wire}
+    changed = SimpleNamespace(copper=[replace(shape, **{field: changes[field]})], items=original.items)
+    assert _fixed_copper(changed) != _fixed_copper(original)
