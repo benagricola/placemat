@@ -96,3 +96,57 @@ key's copper_mm) and `segments`. Step 1 builds no second comparison.
 - The machine is shared: real-board, bench and reference runs take the realboard lock; pytest `-n 2`; bench `--jobs 2`.
   Bench seconds taken under other sessions' load are not a measure of a change.
 - Disk was 63 GB free on 2026-10-07; below 20 GB, stop and ask.
+
+## Saved writer and remaining finite gates (2026-10-08)
+
+The corrected nine-case saved writer gate at `997fa5ae` / genuine dev95 /
+unchanged native `197f9e26` failed: seven failures and two arbitrary-angle
+refusals passed. The later five-case exact diagnostic reproduced all five
+selected failures in 2.269 seconds, with unchanged runtime/input identities.
+Its receipt and retained before/after boards are in
+`/home/ben/work/placemat-review-scratch-20261007/step2/writer-exact-diagnostic-receipt.json`
+and `writer-exact-diagnostics/` beside it. These are failure evidence, not
+writer approval.
+
+The exact differences separate three causes. A fixed track actually changes
+net after a connected pad permutation; publication must continue to refuse
+that change. A compatible positive map must keep fixed electrical items away
+from reassigned pads; the attached-track scene is also a useful refusal test.
+Quarter-turn physical pad and nanometre collision geometry agree, but polygons
+use different starting vertices/winding. The exact comparison now canonicalizes
+only those enumeration choices, retaining every coordinate and all other
+shape fields. The cell fixture grouped its external endpoint internally,
+leaving no movable logical role; its replacement retains a genuine external
+endpoint and two moved members. Saved physical gates must be rerun after review;
+27 default writer/timing cases passing does not replace them.
+
+The next finite gates are: five-case diagnosis (completed), reviewed nine-case
+writer proof (180 seconds), current fixture-separated complete candidate and
+fresh resolve timings (bounded 600-second batches), responsive area search and
+actual representative weight sweep (120 / 600 seconds), routed explore
+integration (300 seconds) and prescribed regression bench (1200 seconds), then
+latest feature and combined whole suites (3600 seconds each). Exact wrappers,
+coverage assertions, frozen genuine installs and serialized lock handoffs are
+required for each launch. Missing coverage or timeout can establish a failed
+speed gate; it cannot become a successful corpus median. Task 15's prescribed
+full correctness/reference coverage remains required independently of the D3
+performance choice.
+
+A simple actual MST placement responds to area price: weight zero keeps area
+244.24 square millimetres, while positive tested prices choose area 222.44.
+That linkless scene proves responsiveness, not a tradeoff between competing
+objectives or a justification for the provisional 0.25 default. D4 remains
+open. Timing now distinguishes the first evaluation after preparation from
+warmed corpus medians; shared libraries/process state may already be warm.
+D3 remains open, with prior slower actual resolves and incomplete instrumented
+core receipt retained.
+
+The optional final-call copper-only retained authority and routed pin logical
+role projection are separate gates. Neither a physical public grader object
+nor its hash descriptor proves original execution custody. Optional adoption
+still needs bounded original-baseline verification, retained original settings,
+private worker evidence import and fixed/held physical preservation. It cannot
+certify pin reassignment. Routed pin comparison additionally requires validated
+complete pool bijections, exact emitted readback, fresh physical phase/width
+receipts and the reviewed logical-role projection. All authority drafts remain
+inactive; generic Standing comparability remains strict.
