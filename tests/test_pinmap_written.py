@@ -265,6 +265,16 @@ def test_saved_supported_pose_matches_every_member_pad_and_full_front_back_pose(
         assert inp is not None and not problems, (inp, problems)
         study = study_group(inp, ('U1',), cfg, native=False)
         candidate = replace(study.results[0], poses=(('U1', rotation, flip),), assign=study.present_assign)
+        if cell and flip:
+            # The study deliberately holds cells on their current face. An
+            # unsupported proposal must not reach the writer or publish files.
+            with pytest.raises(CandidateRefused) as error:
+                mint(board, plan, inp, ((study.refs, candidate),), source)
+            assert error.value.code == 'pose_not_allowed'
+            assert source.read_bytes() == saved
+            assert not (tmp_path / 'candidate').exists()
+            assert not list(tmp_path.glob('placemat-remap-*'))
+            return
         proof = mint(board, plan, inp, ((study.refs, candidate),), source)
         try:
             emitted, _ = write_proved(board, plan, proof, tmp_path / 'candidate')
@@ -285,7 +295,11 @@ def test_saved_supported_pose_matches_every_member_pad_and_full_front_back_pose(
         assert source.read_bytes() == saved
         assert any(final != dict(proof.source_poses)[ref] for ref, final in proof.final_poses)
         if cell:
-            assert all(final != dict(proof.source_poses)[ref] for ref, final in proof.final_poses)
+            members = {'U1', 'TP2'}
+            assert all(final != dict(proof.source_poses)[ref]
+                       for ref, final in proof.final_poses if ref in members)
+            assert all(final == dict(proof.source_poses)[ref]
+                       for ref, final in proof.final_poses if ref not in members)
 
 
 @pytest.mark.parametrize('name', ['canonical-source.kicad_pcb', 'placement-proof.json'])
