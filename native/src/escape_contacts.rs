@@ -6,7 +6,7 @@ use crate::candidate::{Bounds, PlacedRecord, Point, PreparedCandidate};
 use crate::geometry::polys_overlap;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 struct Shape {
     owner: String,
@@ -74,6 +74,25 @@ fn nondegenerate(polygon: &[Point]) -> bool {
             })
 }
 
+/// Original concatenated shape indices, grouped only by immutable net and role.
+/// No geometric pruning: exact touch tests and traversal order are unchanged.
+#[derive(Default)]
+struct ContactIndex {
+    by_net: HashMap<String, Vec<usize>>,
+    by_pad: HashMap<(String, String), Vec<usize>>,
+}
+impl ContactIndex {
+    fn add(&mut self, index: usize, net: &str, owner: &str, number: &str, kind: &str) {
+        self.by_net.entry(net.to_owned()).or_default().push(index);
+        if pad(kind) {
+            self.by_pad
+                .entry((owner.to_owned(), number.to_owned()))
+                .or_default()
+                .push(index);
+        }
+    }
+}
+
 #[pyclass]
 pub struct PreparedContacts {
     rest: Vec<Shape>,
@@ -84,6 +103,8 @@ pub struct PreparedContacts {
     rest_contact: Vec<bool>,
     moving_contact: Option<Vec<Vec<bool>>>,
     candidate_identity: Option<std::sync::Arc<()>>,
+    rest_index: ContactIndex,
+    turn_indexes: Option<Vec<ContactIndex>>,
 }
 impl PreparedContacts {
     pub(crate) fn shape<'a>(
@@ -185,7 +206,13 @@ impl PreparedContacts {
                 wire,
             });
         }
+        let mut rest_index = ContactIndex::default();
+        for (i, shape) in rest.iter().enumerate() {
+            rest_index.add(i, &shape.net, &shape.owner, &shape.pad, &shape.kind);
+        }
         Ok(Self {
+            rest_index,
+            turn_indexes: None,
             rest_contact: vec![true; rest.len()],
             moving_contact: None,
             candidate_identity: None,
@@ -217,6 +244,31 @@ impl PreparedContacts {
                 "escape contact role dimensions invalid",
             ));
         }
+        // Build all lists privately before publishing any role configuration.
+        let mut rest_index = ContactIndex::default();
+        for (i, shape) in self.rest.iter().enumerate() {
+            if rest[i] {
+                rest_index.add(i, &shape.net, &shape.owner, &shape.pad, &shape.kind);
+            }
+        }
+        let mut turn_indexes = Vec::with_capacity(candidate.turn_count());
+        for (turn, roles) in moving.iter().enumerate() {
+            let mut index = ContactIndex::default();
+            for (i, shape) in candidate.turn(turn).shapes.iter().enumerate() {
+                if roles[i] {
+                    index.add(
+                        self.rest.len() + i,
+                        &shape.net,
+                        &shape.owner,
+                        &shape.pad,
+                        &shape.kind,
+                    );
+                }
+            }
+            turn_indexes.push(index);
+        }
+        self.rest_index = rest_index;
+        self.turn_indexes = Some(turn_indexes);
         self.candidate_identity = Some(candidate.identity.clone());
         self.rest_contact = rest;
         self.moving_contact = Some(moving);
@@ -309,15 +361,21 @@ impl PreparedContacts {
                 "escape contact role dimensions invalid",
             ));
         }
+        self.validate_candidate(py, candidate, turn)?;
+        self.inspect_validated(py, candidate, turn, owner, number, net)
+    }
+
+    /// Validate the evaluated moving geometry once per complete surface call.
+    /// Rest records were validated atomically at construction. Standalone
+    /// inspection calls this itself, so malformed unused geometry still refuses.
+    pub(crate) fn validate_candidate(
+        &self,
+        py: Python<'_>,
+        candidate: &PreparedCandidate,
+        turn: usize,
+    ) -> PyResult<()> {
         let count = self.rest.len() + candidate.turn(turn).shapes.len();
-        self.seen.resize(count, false);
-        self.seen.fill(false);
-        self.todo.clear();
-        self.chain.clear();
-        let mut layers = 0;
-        let mut joined = false;
-        let mut on_pad = false;
-        for index in 0..count {
+        for index in self.rest.len()..count {
             if index % 128 == 0 {
                 py.check_signals()?;
             }
@@ -339,25 +397,80 @@ impl PreparedContacts {
                     "escape contact candidate wall invalid",
                 ));
             }
-            if self.is_contact(turn, index)
-                && mine.owner == owner
-                && mine.pad == number
-                && pad(mine.kind)
-            {
+        }
+        Ok(())
+    }
+
+    pub(crate) fn inspect_validated(
+        &mut self,
+        py: Python<'_>,
+        candidate: &PreparedCandidate,
+        turn: usize,
+        owner: &str,
+        number: &str,
+        net: &str,
+    ) -> PyResult<ContactFacts> {
+        let count = self.rest.len() + candidate.turn(turn).shapes.len();
+        // Rest precedes moving shapes exactly as in the original full scan.
+        let mut indices = self.rest_index.by_net.get(net).cloned().unwrap_or_default();
+        if let Some(indexes) = &self.turn_indexes {
+            if let Some(moving) = indexes[turn].by_net.get(net) {
+                indices.extend(moving);
+            }
+        } else {
+            indices.extend(
+                candidate
+                    .turn(turn)
+                    .shapes
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, shape)| shape.net == net)
+                    .map(|(i, _)| self.rest.len() + i),
+            );
+        }
+        let pad_key = (owner.to_owned(), number.to_owned());
+        let mut seeds = self
+            .rest_index
+            .by_pad
+            .get(&pad_key)
+            .cloned()
+            .unwrap_or_default();
+        if let Some(indexes) = &self.turn_indexes {
+            if let Some(moving) = indexes[turn].by_pad.get(&pad_key) {
+                seeds.extend(moving);
+            }
+        } else {
+            seeds.extend(
+                candidate
+                    .turn(turn)
+                    .shapes
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, s)| s.owner == owner && s.pad == number && pad(&s.kind))
+                    .map(|(i, _)| self.rest.len() + i),
+            );
+        }
+        self.seen.resize(count, false);
+        self.seen.fill(false);
+        self.todo.clear();
+        self.chain.clear();
+        let mut layers = 0;
+        let mut joined = false;
+        let mut on_pad = false;
+        for &index in &seeds {
+            py.check_signals()?;
+            let mine = self.shape(candidate, turn, index);
+            if mine.owner == owner && mine.pad == number && pad(mine.kind) {
                 if mine.net != net || mine.layers == 0 {
                     return Err(PyValueError::new_err("escape contact pad intent mismatch"));
                 }
                 layers |= mine.layers;
-                for other in 0..count {
-                    if other % 128 == 0 {
+                for (walk, &other) in indices.iter().enumerate() {
+                    if walk % 128 == 0 {
                         py.check_signals()?;
                     }
-                    let shape = self.shape(&candidate, turn, other);
-                    if !self.is_contact(turn, other)
-                        || shape.net != net
-                        || shape.layers & mine.layers == 0
-                        || !touches(&mine, &shape)
-                    {
+                    let shape = self.shape(candidate, turn, other);
+                    if shape.layers & mine.layers == 0 || !touches(&mine, &shape) {
                         continue;
                     }
                     joined |= copper(shape.kind) && !self.footprints.contains(shape.owner);
@@ -371,8 +484,8 @@ impl PreparedContacts {
         }
         while let Some(index) = self.todo.pop() {
             py.check_signals()?;
-            for other in 0..count {
-                if other % 128 == 0 {
+            for (walk, &other) in indices.iter().enumerate() {
+                if walk % 128 == 0 {
                     py.check_signals()?;
                 }
                 if self.seen[other] || !self.is_contact(turn, other) {
@@ -399,8 +512,8 @@ impl PreparedContacts {
             let own = self.shape(&candidate, turn, index);
             through |= own.kind == "through";
             declared &= own.lane || own.wire;
-            for other in 0..count {
-                if other % 128 == 0 {
+            for (walk, &other) in indices.iter().enumerate() {
+                if walk % 128 == 0 {
                     py.check_signals()?;
                 }
                 let shape = self.shape(&candidate, turn, other);

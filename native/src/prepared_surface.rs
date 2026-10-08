@@ -566,6 +566,7 @@ impl PreparedSurface {
             ));
         }
         profiled!(profile, candidate, candidate.evaluate(py, (x, y), turn))?;
+        profiled!(profile, contacts, self.contacts.validate_candidate(py, candidate, turn))?;
         let (wire, cross) = profiled!(profile, wire_cross,
             delta.inner.wire_cross(x, y, turn).map_err(PyValueError::new_err))?;
         let crossed = profiled!(profile, escape_cross,
@@ -675,7 +676,7 @@ impl PreparedSurface {
                 let Some(net) = self.nets.get(&pad.net) else {
                     continue;
                 };
-                let facts = profiled!(profile, contacts, self.contacts.inspect(
+                let facts = profiled!(profile, contacts, self.contacts.inspect_validated(
                     py,
                     &candidate,
                     turn,

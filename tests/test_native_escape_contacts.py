@@ -200,3 +200,80 @@ def test_carried_member_shape_matches_python_contact_and_path_pool_split(monkeyp
     snapshot.configure_contact_roles(candidate, [], [mask])
     assert snapshot.contacts(candidate, original.location.x, original.location.y, 0, 'U1', '1', 'S') == (
         False, False, [], False, False, True)
+
+
+def _full_contact_oracle(shapes, roles, footprints, owner, number, net):
+    """Original exhaustive ordering, independent of the prepared net index."""
+    def touches(a, b):
+        ax, ay, ar, ab = a[6]
+        bx, by, br, bb = b[6]
+        return ax < br and bx < ar and ay < bb and by < ab and geometry.polys_overlap(a[5], b[5])
+    pads = lambda s: s[1] in ('pad', 'through')
+    drawn = lambda s: s[1] in ('copper', 'through') and s[0] not in footprints
+    seeds = [i for i, s in enumerate(shapes) if roles[i] and s[:1] == (owner,)
+             and s[3] == number and pads(s)]
+    layers, joined, on_pad = 0, False, False
+    for i in seeds:
+        mine = shapes[i]
+        assert mine[2] == net
+        layers |= mine[4]
+        for j, shape in enumerate(shapes):
+            if roles[j] and shape[2] == net and shape[4] & mine[4] and touches(mine, shape):
+                joined |= drawn(shape)
+                on_pad |= pads(shape) and shape[0] != owner
+    todo, seen, chain = list(seeds), set(), []
+    while todo:
+        at = shapes[todo.pop()]
+        for i, shape in enumerate(shapes):
+            if i not in seen and roles[i] and shape[2] == net and drawn(shape) \
+                    and shape[4] & layers and touches(at, shape):
+                seen.add(i)
+                chain.append(i)
+                todo.append(i)
+    runs_on = any(roles[j] and pads(s) and s[2] == net and s[0] in footprints
+                  and (s[0], s[3]) != (owner, number) and s[4] & shapes[i][4]
+                  and touches(shapes[i], s) for i in chain for j, s in enumerate(shapes))
+    return joined, on_pad, chain, runs_on, any(shapes[i][1] == 'through' for i in chain), \
+        all(shapes[i][8] or shapes[i][9] for i in chain)
+
+
+@pytest.mark.parametrize('split', [0, 4, 8])
+def test_net_index_preserves_exact_rest_candidate_chain_order_and_multi_land_layers(split, monkeypatch):
+    module = geometry._native
+    assert module is not None and hasattr(module, 'PreparedContacts')
+    shapes = [
+        _shape('U1', 'pad', 'S', '1', (0, 0, 1, 1)),
+        _shape('noise', 'copper', 'OTHER', '', (-1, 0, 5, 1)),
+        _shape('drawn', 'copper', 'S', '', (.5, 0, 2, 1), lane=True),
+        _shape('U1', 'through', 'S', '1', (0, 0, 1, 1), layers=3),
+        _shape('carried', 'through', 'S', '', (.5, 0, 3, 1)),
+        _shape('drawn', 'through', 'S', '', (1.5, 0, 3, 1), layers=2, wire=True),
+        _shape('drawn', 'copper', 'S', '', (2.5, 0, 4, 1), layers=2, lane=True),
+        _shape('U2', 'pad', 'S', '2', (3.5, 0, 4.5, 1), layers=2),
+    ]
+    roles = [True, True, True, True, False, True, True, True]
+    rest, moving = shapes[:split], shapes[split:]
+    candidate = module.PreparedCandidate([((1, 0, 0, 1, 0, 0), [s[:6] + s[7:] for s in moving])])
+    contacts = module.PreparedContacts(rest, ['U1', 'U2'])
+    contacts.configure_contact_roles(candidate, roles[:split], [roles[split:]])
+    got = contacts.contacts(candidate, 0, 0, 0, 'U1', '1', 'S')
+    monkeypatch.setattr(geometry, '_native', None)
+    assert got == _full_contact_oracle(shapes, roles, {'U1', 'U2'}, 'U1', '1', 'S')
+    assert got[2] == [2, 5, 6]
+
+
+def test_net_index_does_not_hide_conflicting_seed_land_or_unused_malformed_candidate():
+    module = geometry._native
+    good = _shape('U1', 'pad', 'S', '1', (0, 0, 1, 1))
+    wrong = _shape('U1', 'pad', 'OTHER', '1', (2, 0, 3, 1))
+    candidate = _candidate(module, good)
+    contacts = module.PreparedContacts([wrong], ['U1'])
+    contacts.configure_contact_roles(candidate, [True], [[True]])
+    with pytest.raises(ValueError, match='intent mismatch'):
+        contacts.contacts(candidate, 0, 0, 0, 'U1', '1', 'S')
+    bad = _shape('ignored', 'unsupported', 'OTHER', '', (2, 0, 3, 1))
+    candidate = module.PreparedCandidate([((1, 0, 0, 1, 0, 0), [s[:6] + s[7:] for s in (good, bad)])])
+    contacts = module.PreparedContacts([], ['U1'])
+    contacts.configure_contact_roles(candidate, [], [[True, False]])
+    with pytest.raises(ValueError, match='kind invalid'):
+        contacts.contacts(candidate, 0, 0, 0, 'U1', '1', 'S')
