@@ -533,6 +533,16 @@ def plan_remap(board, plan):
     This is a placement proposal, not a routed writer or phase equivalence proof.
     No sum of independent gains certifies the combined physical candidate.
     """
+    proposal = _plan_remap_proposal(board, plan)
+    return proposal[0] if proposal is not None else None
+
+
+def _plan_remap_proposal(board, plan):
+    """Keep the exact combined finalist available to a live routing worker.
+
+    The returned data is a placement proposal, never routing authority.
+    Public callers receive only its diagnostic through ``plan_remap``.
+    """
     choices = _plan_choices(board, plan)
     if not choices:
         return None
@@ -559,12 +569,13 @@ def plan_remap(board, plan):
     gain = baseline.total - final.total if measured else 0.0
     actionable = bool(picked) and measured and final.key < baseline.key
     scalar_gain = gain if actionable and final.validity.key() == baseline.validity.key() else 0.0
-    return {"scope": "placement", "saving": scalar_gain, "gain": gain,
+    diagnostic = {"scope": "placement", "saving": scalar_gain, "gain": gain,
             "baseline": baseline.record(), "final": final.record(),
             "actionable": actionable, "groups": groups,
             "reason": ("validity repair" if actionable and final.validity.key() < baseline.validity.key()
                        else "common objective gain" if actionable else "no certified combined improvement"),
             "routed_comparison": {"code": "logical_terminal_proof_missing", "facts": {}}}
+    return diagnostic, inp, tuple(picked), final
 
 
 def _incoming_advice_problem(advice):

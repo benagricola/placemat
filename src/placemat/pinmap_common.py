@@ -108,6 +108,9 @@ class Evaluation:
     total: float
     refusals: tuple = ()
     occupancy: object = field(default=None, repr=False, compare=False)
+    board: object = field(default=None, repr=False, compare=False)
+    plan: object = field(default=None, repr=False, compare=False)
+    measures: object = field(default=None, repr=False, compare=False)
 
     @property
     def key(self):
@@ -390,6 +393,7 @@ class Finalists:
                     back_faces -= int(step.back_face and step.placement.face is Face.BACK)
                     back_faces += int(step.placement.face is Face.FRONT)
             terms['back_face'] = self.settings.score_back_face * back_faces
+            measures['back_face'] = back_faces
             selected = {ref for refs, _ in groups for ref in refs}
             pin_failures = sum(len(part.slots.breaks) for part in inp.parts if present or part.ref not in selected)
             validity = score.Validity.of(measures)
@@ -406,7 +410,8 @@ class Finalists:
                 # may claim the source's electrical success.
                 validity = replace(validity, unmeasured=tuple(
                     f'final electrical geometry unavailable: {ref}' for ref in required))
-            return Evaluation(terms, validity, math.fsum(terms.values()), occupancy=occ)
+            return Evaluation(terms, validity, math.fsum(terms.values()), occupancy=occ,
+                              board=board, plan=candidate_plan, measures=measures)
         except CandidateRefused as error:
             return Evaluation({}, score.Validity(unmeasured=(error.code,)), math.inf, (error.record(),))
 

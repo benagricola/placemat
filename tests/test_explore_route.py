@@ -327,3 +327,19 @@ def test_taken_uses_final_route_validity_phases_and_quality():
     assert explore._taken(rows, measures, Settings()) == 2
     rows[0] = {'seed': 1, **base, 'vias': 1}
     assert explore._taken(rows, measures, Settings()) == 1
+
+
+def test_rejected_remap_keeps_complete_source_route_eligible_without_mutating_raw():
+    from copy import deepcopy
+    from placemat.settings import Settings
+    raw = {'closure_clean': 1.0, 'drc_new': 0, 'widths_failed': 0,
+           'phases': [{'comparison_contract': 'stable', 'final_closure_clean': 1.0}],
+           'vias': 2, 'track_mm': 20.0, 'segments': 3}
+    original = deepcopy(raw)
+    row = {'seed': 1, 'route_report': raw,
+           'remap_refusal': {'code': 'logical_terminal_proof_missing', 'facts': {}},
+           'final_check_evidence': {'critical_checks': 0, 'critical_unknown': [], 'final_findings': {}}}
+    assert explore._taken([row], {1: {'airwire_mm': 10.0}}, Settings()) == 1
+    assert raw == original and 'critical_checks' not in raw
+    row['final_check_evidence']['critical_unknown'] = ['required current']
+    assert explore._taken([row], {1: {'airwire_mm': 10.0}}, Settings()) is None
