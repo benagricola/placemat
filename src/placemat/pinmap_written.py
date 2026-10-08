@@ -36,11 +36,24 @@ def _context(board, plan, settings):
                    'placements': repr(board._placements()), 'escapes': repr(board._escapes)})
 
 
+def _polygon(poly):
+    """Exact same closed polygon, independent of first vertex and winding.
+
+    Coordinates and every edge stay unchanged. No quantization, collinear
+    simplification or vertex-set comparison is permitted here.
+    """
+    poly = tuple(poly)
+    if not poly:
+        return ()
+    return min(tuple(order[i:] + order[:i])
+               for order in (poly, tuple(reversed(poly))) for i in range(len(poly)))
+
+
 def _pads(occ):
     numbered = {fp.ref: {pad.number for pad in fp.pads} for fp in occ.geometry.footprints}
     return tuple(sorted(((shape.owner, shape.label, shape.net, shape.kind,
                           tuple(sorted(layer.value for layer in shape.layers)),
-                          tuple(shape.poly), (shape.box.left, shape.box.top, shape.box.right, shape.box.bottom))
+                          _polygon(shape.poly), (shape.box.left, shape.box.top, shape.box.right, shape.box.bottom))
                          for item in occ.items.values() for shape in item.shapes
                          if _physical_pad(shape, numbered)), key=repr))
 
@@ -65,7 +78,7 @@ def _poses(occ):
 def _shapes(occ):
     from dataclasses import fields
     # Include analytic collision/hole/ownership roles, not only polygon boxes.
-    return tuple(sorted(((ref, tuple((field.name, repr(getattr(shape, field.name)))
+    return tuple(sorted(((ref, tuple((field.name, repr(_polygon(shape.poly) if field.name == "poly" else getattr(shape, field.name)))
                                     for field in fields(shape)))
                          for ref, item in occ.items.items() for shape in item.shapes), key=repr))
 

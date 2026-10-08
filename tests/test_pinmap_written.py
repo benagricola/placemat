@@ -210,8 +210,23 @@ def test_saved_supported_pose_matches_every_member_pad_and_full_front_back_pose(
             group = pcbnew.PCB_GROUP(pcb)
             group.SetName('module')
             pcb.Add(group)
-            for fp in pcb.GetFootprints():
-                group.AddItem(fp)
+            # Keep the connected endpoint outside the moved cell. A second
+            # member makes this a real whole-cell pose, rather than one part.
+            member = pcbnew.FOOTPRINT(pcb)
+            member.SetReference('TP2')
+            member.SetPosition(pcbnew.VECTOR2I(pcbnew.FromMM(14), pcbnew.FromMM(13)))
+            pcb.Add(member)
+            pad = pcbnew.PAD(member)
+            pad.SetNumber('1')
+            pad.SetShape(pcbnew.PAD_SHAPE_RECTANGLE)
+            pad.SetAttribute(pcbnew.PAD_ATTRIB_SMD)
+            pad.SetSize(pcbnew.VECTOR2I(pcbnew.FromMM(.6), pcbnew.FromMM(.6)))
+            pad.SetLayerSet(pad.SMDMask())
+            pad.SetNet(pcb.FindNet('A'))
+            member.Add(pad)
+            pad.SetPosition(member.GetPosition())
+            group.AddItem(u1)
+            group.AddItem(member)
         pcb.Save(str(source))
         source.with_suffix('.kicad_pro').write_text('{}\n')
         saved = source.read_bytes()
@@ -222,6 +237,9 @@ def test_saved_supported_pose_matches_every_member_pad_and_full_front_back_pose(
         if cell:
             item = board.geometry.cells['module']
             board.place(Cell('module'), at=Near(item.box.center), radius=0, rotations=(0,), face=Face.EITHER)
+            for fp in board.geometry.footprints:
+                if fp.cell is None:
+                    board.place(Part(fp.inst), at=Near(fp.location), radius=0, rotations=(0,), face=Face.EITHER)
         else:
             for fp in board.geometry.footprints:
                 board.place(Part(fp.inst), at=Near(fp.location), radius=0, rotations=(0,), face=Face.EITHER)
@@ -229,7 +247,7 @@ def test_saved_supported_pose_matches_every_member_pad_and_full_front_back_pose(
         placed = placed_from_plan(board, plan)
         inp, problems = input_of(placed.pads, placed.parts, cells=placed.cells,
                                  netclasses=board.geometry.netclasses, names=board.geometry.pin_names)
-        assert not problems
+        assert inp is not None and not problems, (inp, problems)
         study = study_group(inp, ('U1',), cfg, native=False)
         candidate = replace(study.results[0], poses=(('U1', rotation, flip),), assign=study.present_assign)
         proof = mint(board, plan, inp, ((study.refs, candidate),), source)
@@ -239,7 +257,7 @@ def test_saved_supported_pose_matches_every_member_pad_and_full_front_back_pose(
             # Arbitrary-angle nanometre serialization may change the evaluated
             # geometry. Such a result is explicitly unsupported, never adopted
             # through a relaxed numeric tolerance. Quarter-turn gates must pass.
-            assert rotation == 37.0
+            assert rotation == 37.0, (error.code, error.facts, str(error))
             assert error.code in ('proof_readback_geometry_changed', 'proof_readback_collision_changed')
             assert source.read_bytes() == saved
             assert not (tmp_path / 'candidate').exists()
@@ -363,3 +381,40 @@ def test_same_polygon_with_changed_effective_pad_collision_refuses(tmp_path, mon
         pinmap_written.write_proved(board, plan, proof, tmp_path / 'candidate')
     assert error.value.code == 'proof_source_collision_changed'
     assert not (tmp_path / 'candidate').exists()
+
+
+def test_exact_polygon_enumeration_preserves_pad_and_all_shape_identity():
+    from placemat.pinmap_written import _pads, _shapes
+    from placemat.pinmap_common import detached
+    board, plan, _, _ = scene()
+    original = plan.occupancy
+    changed = detached(original)
+    for ref, item in changed.items.items():
+        changed.items[ref] = replace(item, shapes=tuple(
+            replace(s, poly=tuple(reversed(s.poly[1:] + s.poly[:1]))) if s.poly else s
+            for s in item.shapes))
+    assert _pads(changed) == _pads(original)
+    assert _shapes(changed) == _shapes(original)
+
+
+@pytest.mark.parametrize('change', ['vertex', 'net', 'layer', 'hole'])
+def test_polygon_enumeration_normalization_keeps_physical_differences(change):
+    from placemat.pinmap_written import _shapes
+    from placemat.pinmap_common import detached
+    from placemat.values import CopperLayer
+    _, plan, _, _ = scene()
+    original = plan.occupancy
+    changed = detached(original)
+    ref, item = next(iter(changed.items.items()))
+    shape = next(s for s in item.shapes if s.kind == 'pad')
+    if change == 'vertex':
+        altered = replace(shape, poly=((shape.poly[0][0] + .001, shape.poly[0][1]), *shape.poly[1:]))
+    elif change == 'net':
+        altered = replace(shape, net='different')
+    elif change == 'layer':
+        altered = replace(shape, layers=frozenset((CopperLayer.B,)))
+    else:
+        # Analytic hole/circle metadata must remain exact even at same polygon.
+        altered = replace(shape, circle=(1., 2., .3))
+    changed.items[ref] = replace(item, shapes=tuple(altered if s is shape else s for s in item.shapes))
+    assert _shapes(changed) != _shapes(original)
