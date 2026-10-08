@@ -75,7 +75,7 @@ def test_a_routed_run_is_read_from_its_record_and_routed_board(tmp_path, monkeyp
     record = {"status": "ok", "failure": None, "metrics": {"closure_clean": 0.9, "measures": {}, "route": route}}
     monkeypatch.setattr(place_ref, "placemat_run", lambda *a, **k: (record, 7.0))
     monkeypatch.setattr(place_ref.prepare, "measure", lambda pcb: (2, prepare.HumanCopper(9, 33.0)))
-    monkeypatch.setattr(place_ref, "run_score", lambda record, folder: 12.5)
+    monkeypatch.setattr(place_ref, "run_score", lambda record, folder, **kwargs: 12.5)
     monkeypatch.setattr(place_ref, "krt_version", lambda folder: "k")
     r = place_ref.run_b(BOARD, folder, tmp_path / "work", prepared=PREPARED, versions=VERSIONS, a_closure_clean=1.0)
     assert (r.failure, r.closure_clean, r.open, r.vias, r.track_mm, r.run_score) == ("", 0.9, 2, 9, 33.0, 12.5)
@@ -154,7 +154,7 @@ def test_a_module_run_reads_closure_area_and_score(tmp_path, monkeypatch):
     (folder / "A_layout.py").write_text("")
     record = {"status": "ok", "failure": None, "metrics": {"closure_clean": 0.75, "extent": [10.0, 4.5], "measures": {}}}
     monkeypatch.setattr(place_ref, "placemat_run", lambda *a, **k: (record, 2.0))
-    monkeypatch.setattr(place_ref, "run_score", lambda record, folder: 3.0)
+    monkeypatch.setattr(place_ref, "run_score", lambda record, folder, **kwargs: 3.0)
     monkeypatch.setattr(place_ref, "krt_version", lambda folder: "k")
     r = place_ref.run_module("fam/A", folder / "A_layout.py", tmp_path / "work", versions=VERSIONS)
     assert (r.script, r.closure_clean, r.area_mm2, r.run_score, r.seconds, r.failure) == ("fam/A", 0.75, 45.0, 3.0, 2.0, "")
@@ -213,7 +213,7 @@ def test_a_module_runs_on_a_fresh_generation_inside_a_copy_of_its_workspace(tmp_
                     state=(script.parent / ".placemat/runs").exists(), side=(script.parent / "layout_side").exists())
         return {**PLACED, "metrics": dict(PLACED["metrics"], closure_clean=1.0)}, 1.0
     monkeypatch.setattr(place_ref, "placemat_run", run)
-    monkeypatch.setattr(place_ref, "run_score", lambda record, folder: 3.0)
+    monkeypatch.setattr(place_ref, "run_score", lambda record, folder, **kwargs: 3.0)
     monkeypatch.setattr(place_ref, "krt_version", lambda folder: "k")
     r = place_ref.run_module("fam/A", root / "modules/A/A_layout.py", tmp_path / "work", versions=VERSIONS)
     assert r.failure == ""
@@ -230,7 +230,7 @@ PLACED = {"status": "ok", "failure": None, "metrics": {"placed": 5, "findings": 
 
 def test_placement_measures_are_kept_when_the_route_is_refused(tmp_path, monkeypatch):
     folder = _folder(tmp_path, 'board.place(Part("J1"), at=Location(1, 2), why="mechanical: connector")\n')
-    monkeypatch.setattr(place_ref, "run_score", lambda record, folder: 8.0)
+    monkeypatch.setattr(place_ref, "run_score", lambda record, folder, **kwargs: 8.0)
     monkeypatch.setattr(place_ref, "krt_version", lambda folder: "k")
     failed = {**PLACED, "status": "failed", "failure": {"kind": "route", "message": "no router"}}
     monkeypatch.setattr(place_ref, "placemat_run", lambda *a, **k: (failed, 3.0))
@@ -246,7 +246,7 @@ def test_a_module_records_its_placement_measures(tmp_path, monkeypatch):
     folder = tmp_path / "fam" / "modules" / "A"
     folder.mkdir(parents=True)
     (folder / "A_layout.py").write_text("")
-    monkeypatch.setattr(place_ref, "run_score", lambda record, folder: 3.0)
+    monkeypatch.setattr(place_ref, "run_score", lambda record, folder, **kwargs: 3.0)
     monkeypatch.setattr(place_ref, "krt_version", lambda folder: "k")
     monkeypatch.setattr(place_ref, "placemat_run", lambda *a, **k: (PLACED, 2.0))
     r = place_ref.run_module("fam/A", folder / "A_layout.py", tmp_path / "work", versions=VERSIONS)
@@ -261,7 +261,7 @@ def _main(tmp_path, monkeypatch, status, *extra):
     monkeypatch.setattr(place_ref.lock, "realboard", contextlib.nullcontext)
     monkeypatch.setattr(place_ref.route_ref, "current_versions", lambda: {})
     monkeypatch.setattr(place_ref, "_run_boards",
-                        lambda boards, root, rec, v, ch, results, comparisons, save:
+                        lambda boards, root, rec, v, ch, results, comparisons, save, **kwargs:
                         results.append(_b()) or comparisons.append(status) or save() or False)
     rc = place_ref.main(["x", "--update", "--results", str(path), *extra])
     return rc, json.loads(path.read_text())
@@ -334,7 +334,7 @@ def test_a_board_whose_preparation_raises_is_a_failed_result_and_the_others_run(
 
 
 def test_a_module_that_raises_is_a_failed_result_and_the_others_run(tmp_path, monkeypatch):
-    def run(name, script, work, versions=None):
+    def run(name, script, work, versions=None, overrides=None):
         if name == "fam/Bad":
             raise OSError("copy failed")
         return _m(script=name)
@@ -407,3 +407,53 @@ def test_place_only_refuses_invalid_override_before_lock_or_run(tmp_path, monkey
         place_ref.main(["--place-only", "--modules", "--set", "score_area=-1",
                         "--results", str(tmp_path / "results.json")])
     assert stopped.value.code == 2
+
+
+@pytest.mark.parametrize('module', [False, True])
+def test_routed_cli_applies_settings_only_to_copy_and_scores_with_them(tmp_path, monkeypatch, module):
+    from contextlib import nullcontext
+    from placemat.settings import load
+    if module:
+        script = tmp_path / 'fixtures' / 'family' / 'modules' / 'cell' / 'Cell_layout.py'
+        script.parent.mkdir(parents=True)
+        script.write_text('')
+        monkeypatch.setattr(place_ref, 'module_scripts', lambda: {'family/Cell': script})
+        selection = ['--modules', 'Cell']
+        result_kind, result_name = 'modules', 'family/Cell'
+    else:
+        folder = _folder(tmp_path, 'board.place(Part("J1"), at=Location(1, 2), why="mechanical: connector")\n')
+        script = folder / 'X_layout.py'
+        monkeypatch.setattr(place_ref.lint, 'BOARDS_DIR', folder.parent)
+        monkeypatch.setattr(place_ref.fetch, 'load_manifest', lambda: [BOARD])
+        monkeypatch.setattr(place_ref.fetch, 'fetch', lambda board: tmp_path / 'human.kicad_pcb')
+        monkeypatch.setattr(place_ref.prepare, 'prepare', lambda *args: PREPARED)
+        monkeypatch.setattr(place_ref.prepare, 'measure', lambda pcb: (0, prepare.HumanCopper(0, 0.0)))
+        selection = ['x']
+        result_kind, result_name = 'b', 'x'
+    original = script.parent / 'placemat.toml'
+    original.write_text('[score]\narea = 0.25\n[place]\nsearch_wire = "clique"\n')
+    source_bytes = {path: path.read_bytes() for path in (script, original)}
+    seen = []
+
+    def run(copied, *args, **kwargs):
+        cfg = load(copied.parent, script=copied)
+        assert copied != script and copied.read_bytes() == source_bytes[script]
+        assert cfg.place_search_wire == 'mst' and cfg.score_area == 1.0
+        assert kwargs.get('route', True) is True
+        seen.append(copied)
+        return {'status': 'ok', 'metrics': {'closure_clean': 0.75, 'placed': 2,
+            'extent': [10.0, 5.0], 'measures': {'v': 2, 'airwire_mm': 5.0, 'area_mm2': 50.0},
+            'route': {'routed_pcb': str(tmp_path / 'routed.kicad_pcb'),
+                      'closure_clean': 0.75, 'open_after': 1, 'drc_after': {'violations': []}}}}, 1.0
+
+    monkeypatch.setattr(place_ref, 'placemat_run', run)
+    monkeypatch.setattr(place_ref.lock, 'realboard', nullcontext)
+    monkeypatch.setattr(route_ref, 'current_versions', lambda: VERSIONS)
+    monkeypatch.setattr(place_ref, 'krt_version', lambda folder: '0')
+    results = tmp_path / 'results.json'
+    assert place_ref.main([*selection, '--set', 'place.search_wire=mst', '--set', 'score.area=1.0',
+                           '--results', str(results), '--work', str(tmp_path / 'work'), '--update']) == 0
+    assert len(seen) == 1
+    row = json.loads(results.read_text())[result_kind][result_name]
+    assert row['run_score'] == 55.0 and row['placement']['run_score'] == 55.0
+    assert all(path.read_bytes() == data for path, data in source_bytes.items())
