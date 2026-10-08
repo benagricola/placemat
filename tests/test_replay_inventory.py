@@ -13,7 +13,7 @@ WALL = '(segment (start 2 0) (end 3 0) (width 0.2) (layer "F.Cu") (net 1) (uuid 
 
 
 @pytest.fixture
-def walls(pour_execution, tmp_path):
+def walls(pour_execution, tmp_path, request):
     hook = pour_execution
     token, options = pour_issue(hook, tmp_path)
     source = hook.grader._original.read_text()
@@ -27,6 +27,19 @@ def walls(pour_execution, tmp_path):
     issued_calls._executor_restored_result(hook.grader, hook.ledger, hook.executor, token)
     fixed, _ = replay_inventory._forms(output)
     selected = [form for form in fixed if '"wall"' in str(form)]
+    if getattr(request, 'param', False):
+        prior = output
+        later, next_options = pour_issue(hook, tmp_path, call=1, source=prior, input_board=prior,
+                                         output_board=tmp_path/'later.kicad_pcb',
+                                         summary=tmp_path/'later_summary.json', snapshot_dir=tmp_path/'later-before')
+        output = next_options['output_board']
+        output.write_text(prior.read_text()[:-1] + WALL.replace('"wall"', '"later"')
+                          .replace('(start 2 0) (end 3 0)', '(start 4 0) (end 5 0)') + ')')
+        output.with_suffix('.kicad_pro').write_bytes(prior.with_suffix('.kicad_pro').read_bytes())
+        next_options['summary'].write_text(summary.read_text())
+        issued_calls._executor_raw_result(hook.grader, hook.ledger, hook.executor, later,
+                                         returncode=0, snapshot_dir=tmp_path/'later-raw')
+        issued_calls._executor_restored_result(hook.grader, hook.ledger, hook.executor, later)
     return hook, token, output, selected
 
 
@@ -90,22 +103,23 @@ def test_reversed_endpoints_different_uuid_is_same_physical_wall(walls, tmp_path
 
 
 @pytest.fixture
-def final_call(walls, tmp_path):
+def final_call(walls, tmp_path, request):
     from placemat.kicad.phase_run import Call
     hook, prior, input_board, selected = walls
+    prior_count = len(hook.ledger.issued)
     issued_calls._executor_plan(hook.grader, hook.ledger, hook.executor, phase=0,
-                               calls=[Call('pour', ('N',)), Call('nets', ('N',))],
+                               calls=[Call('pour', ('N',)) for _ in range(prior_count)] + [Call('nets', ('N',))],
                                layers=['F.Cu'], input_board=hook.grader._original)
     output, summary = tmp_path / 'final.kicad_pcb', tmp_path / 'final_summary.json'
     token = issued_calls._executor_issue(
-        hook.grader, hook.ledger, hook.executor, phase=0, call=1, wave=0, kind='single',
+        hook.grader, hook.ledger, hook.executor, phase=0, call=prior_count, wave=0, kind='single',
         command=['python', 'route.py', str(input_board)], source=input_board,
         input_board=input_board, output_board=output, summary=summary,
         layers=['F.Cu'], nets=['N'], tasks=[], constraint_files=(),
         snapshot_dir=tmp_path / 'final-before')
     output.write_bytes(input_board.read_bytes())
     output.with_suffix('.kicad_pro').write_bytes(input_board.with_suffix('.kicad_pro').read_bytes())
-    summary.write_text('{}')
+    summary.write_text(json.dumps(getattr(request, 'param', {})))
     issued_calls._executor_raw_result(hook.grader, hook.ledger, hook.executor, token,
                                      returncode=0, snapshot_dir=tmp_path / 'final-raw')
     issued_calls._executor_restored_result(hook.grader, hook.ledger, hook.executor, token)
