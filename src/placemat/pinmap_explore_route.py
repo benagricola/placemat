@@ -143,6 +143,7 @@ def paired(router, board, plan, pcb, folder, proposal, *, excluded, pours, resum
     physical = pinmap_written.mint(board, plan, inp, picked, pcb, context_files=context_files)
     _remaining(deadline)
     logical = pinmap_logical.mint(board, plan, physical)
+    folder.mkdir(parents=True, exist_ok=True)
     candidate_pcb, _ = pinmap_written.write_proved(board, plan, physical, folder / 'candidate-input')
     _remaining(deadline)
     candidate_context = tuple(candidate_pcb.parent / path.name for path in context_files)

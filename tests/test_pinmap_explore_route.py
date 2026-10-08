@@ -169,3 +169,27 @@ def test_declared_pours_remain_distinct_from_explicit_exclusions():
     board = SimpleNamespace(geometry=SimpleNamespace(nets={'signal', 'plane', 'excluded'}))
     excluded, pours = paired._scope_nets(board, {'excluded'}, {'plane', 'absent'})
     assert excluded == {'excluded'} and pours == {'plane'}
+
+
+def test_pair_creates_writer_parent_before_emission(tmp_path, monkeypatch):
+    from placemat import pinmap_logical, pinmap_written
+    board = SimpleNamespace(geometry=SimpleNamespace(nets=()))
+    monkeypatch.setattr(paired, '_scope_nets', lambda *args: (set(), set()))
+    monkeypatch.setattr(paired, '_invocation', lambda *args: {'capture': {'path': None}})
+    monkeypatch.setattr(pinmap_written, 'mint', lambda *args, **kwargs: object())
+    monkeypatch.setattr(pinmap_logical, 'mint', lambda *args: object())
+    folder = tmp_path / 'not-yet-created' / 'pair'
+    class ReachedWriter(Exception):
+        pass
+    def write(*args):
+        destination = args[-1]
+        assert destination == folder / 'candidate-input'
+        assert destination.parent.is_dir()
+        assert not destination.exists()
+        raise ReachedWriter
+    monkeypatch.setattr(pinmap_written, 'write_proved', write)
+    with paired.budget(SimpleNamespace(timeout_route=25)) as deadline:
+        with pytest.raises(ReachedWriter):
+            paired.paired(object(), board, object(), tmp_path / 'source.kicad_pcb', folder,
+                          ({'actionable': True}, object(), (), SimpleNamespace(refusals=())),
+                          excluded=set(), pours=set(), resume=False, deadline=deadline)
