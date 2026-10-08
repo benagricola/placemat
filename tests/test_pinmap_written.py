@@ -635,7 +635,7 @@ def test_declared_rotation_float_canonicalizes_equal_integer_source_angle():
     assert _pose_records((('U1', source),)) != _pose_records((('U1', replace(source, rotation=0.000000001)),))
 
 
-@pytest.mark.parametrize('rotation', (True, False, float('nan'), float('inf'), -float('inf'), '0'))
+@pytest.mark.parametrize('rotation', (True, False, float('nan'), float('inf'), -float('inf'), '0', 10**1000))
 def test_rotation_transport_refuses_invalid_values(rotation):
     from placemat.placement import Placement
     from placemat.values import Location

@@ -310,9 +310,15 @@ def _pose_records(poses):
     for ref, pose in poses:
         if type(pose) is not Placement:
             raise CandidateRefused('proof_pose_malformed', 'saved pose identity requires a known Placement')
-        if type(pose.rotation) not in (int, float) or not math.isfinite(pose.rotation):
+        if type(pose.rotation) not in (int, float):
             raise CandidateRefused('proof_pose_malformed', 'saved rotation requires a finite numeric angle')
-        out.append([ref, {'location': facts(pose.location), 'rotation': float(pose.rotation),
+        try:
+            rotation = float(pose.rotation)
+        except OverflowError as error:
+            raise CandidateRefused('proof_pose_malformed', 'saved rotation exceeds the numeric domain') from error
+        if not math.isfinite(rotation):
+            raise CandidateRefused('proof_pose_malformed', 'saved rotation requires a finite numeric angle')
+        out.append([ref, {'location': facts(pose.location), 'rotation': rotation,
                           'face': facts(pose.face), 'arrangement': pose.arrangement}])
     return out
 
