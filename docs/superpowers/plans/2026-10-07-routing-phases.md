@@ -99,7 +99,7 @@ with its reason. "Alt" is what changes if it is reversed.
 - D12 The netlist digest is sha256 of the `default.net` bytes written in the same run. Controller ruling: that file is the one the board was generated from. Alt: a digest of nets and pads computed from the board.
 - D13 `width = "current"` on a net-level selector routes each selected net's carrier pairs as tasks; a selected net with under two carriers refuses the phase, naming it. Controller ruling: a net with one carrier has no current path to size. Alt: route the whole net at its largest stated current.
 - D14 `current_paths`: per carrier pair (A, B) on a net, tasks span every pad of A and of B on that net (`|A| + |B| - 1` tasks) at the lesser current. User, 2026-10-07. Alt: one task per pair, first pad of each.
-- D15 A phase that selects a net the board serves by a pour routes it alone, the pour handed to the router as a zone (today's island mechanism); the rest phase never takes pour nets, and a current phase never routes one (ruling S13). Controller ruling: the fixtures' pour nets route this way today. Alt: refuse pour nets in phases.
+- D15 A phase that selects a net the board serves by a pour routes it alone, the pour handed to the router as a zone (today's island mechanism); the rest phase never takes pour nets, and a `current_paths` phase leaves the pour nets it picks up to their pours (ruling S13). Controller ruling: the fixtures' pour nets route this way today. Alt: refuse pour nets in phases.
 - D16 A phase's closure is judged on a DRC of the board after the phase (one kicad-cli DRC per phase) and KiCad's pad connectivity for tasks. Controller ruling: the spec's clean closure needs a DRC; KRT's own `joined` does not see clearance errors. Alt: KRT's own `joined` and one DRC at the end.
 - D17 Width judgement for a phase is made on the routed board, on the copper each router call of the phase added, against that call's asked width per layer, with the neck allowance unless `neckdown = false`. Controller ruling: a call answers for the copper it added, not for earlier copper. Alt: KRT's per-task narrowest width alone (Task 15 also reads it, see the controller rulings).
 - D18 A pair selector by net names: `pairs = [["P_NET", "N_NET"], ...]` (first is P) for boards without a capture, beside `pairs = true` (the capture's `DiffPair`); spec amended in Task 10a. Test (a) writes the manifest's `phases`, which carry a pair phase and a bus phase (Task 17), so test (a) exercises pair routing; pic_programmer's POWER class stays single-ended. User, 2026-10-07 (replaces "no pair phase in test (a)"). The user named usb-c-power-adapter's USB pair; that board has none (its NOTES.md, "No USB pair": J1's data pins are unconnected), so the pair phase is esp-rust-board's `USB_D+`/`USB_D-` and usb-c-power-adapter carries the bus phase (`/USB PD/SDA`, `/USB PD/SCL`). Alt: no pair phase in test (a).
@@ -206,14 +206,16 @@ Not user decisions. Each line gives the ruling, its reason, and what it costs if
     satisfied obligation sets are equivalent).
   Reason: rank compares final boards, and a denominator a candidate can change is no comparison. Cost if wrong: one
   more pcbnew load and DRC read per route, and closure figures that differ from the old per-net counts.
-- S13 A current phase (`current_paths`, or `width = "current"`) never routes a pour net. Its tasks on a pour net are
-  served by the pour, which carries the net's current: they make no router call, are left out of the phase's
+- S13 A `current_paths` phase never routes a pour net. A pour net it picks up because it carries a stated current is
+  served by its pour, which carries that current: its tasks make no router call, are left out of the phase's
   obligations as the rest phase leaves pour nets out, and are listed in the phase record as `pour_served` (task
-  records), which the route's phase line counts per net. A phase that is not a current phase still routes a pour net
-  it names (D15, ruling S5). Reason: routing a pour net for its current laid the whole net as tracks at the widest
-  task width on every layer (usb-c-power-adapter's GND: 9.79 mm, the inner-layer width, on F.Cu, In2.Cu and B.Cu),
-  which took the board from every later phase and did not finish within test (b)'s hour. Cost if wrong: a carrier
-  pad the pour does not reach is left unrouted and is not counted in the phase's closure.
+  records), which the route's phase line counts per net. A pour net a phase names (`nets`, `net_classes`,
+  `connections` and the other selectors), with or without `width = "current"`, still routes as D15 says (ruling S5).
+  Reason: routing a pour net for its current laid the whole net as tracks at the widest task width on every layer
+  (usb-c-power-adapter's GND: 9.79 mm, the inner-layer width, on F.Cu, In2.Cu and B.Cu), which took the board from
+  every later phase and did not finish within test (b)'s hour; a net the project names is routed as asked (the user,
+  2026-10-11). Cost if wrong: a carrier pad the pour does not reach is left unrouted and is not counted in the
+  phase's closure.
 - The "Decisions (to confirm)" heading became "Decisions", each entry naming who decided it. Reason: nothing applied is
   pending confirmation. Cost if wrong: none.
 

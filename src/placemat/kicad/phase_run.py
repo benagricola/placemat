@@ -62,8 +62,8 @@ def plan_calls(sel, clearance_map: dict, base: float, excluded: set) -> list:
 
     A task set's pour nets (Selection.pour_nets) route in their pour call, not a task call (ruling S5): the call
     carries that net's tasks, and, when the phase sets no numeric width, the widest width any of them asks; each
-    task is still judged on its own path (Task 15). A current phase has no such tasks: it leaves a pour net to its
-    pour (ruling S13, phase_select._current)."""
+    task is still judged on its own path (Task 15). A current_paths phase has no such tasks: it leaves a pour net to
+    its pour (ruling S13, phase_select._current_paths)."""
     calls = []
     if sel.pairs:
         calls.append(Call("pairs", tuple(n for pair in sel.pairs for n in pair)))
@@ -866,8 +866,8 @@ def phase_record(phase, index, sel, obligations, judged, seconds, calls, pairs=N
                  net_evidence=None) -> dict:
     """What one phase did: its definition, `asked` (its obligations), `joined` (those clean on the board after it),
     `closure_clean` (joined / asked, 1.0 when nothing is asked), `open` (open_entry of each one not clean), its time,
-    router calls, pair outcome, --connections records and bus groups, and `pour_served`: the task records a current
-    phase left to their pours (ruling S13). `reused` is set by the route."""
+    router calls, pair outcome, --connections records and bus groups, and `pour_served`: the task records a
+    current_paths phase left to their pours (ruling S13). `reused` is set by the route."""
     connections = list(connections)
     rec = dict(phase.record(), index=index, seconds=round(seconds, 1), reused=False, calls=calls, pairs=pairs,
                connections=connections, bus_groups=list(bus_groups), widths=[],

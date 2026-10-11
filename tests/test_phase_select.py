@@ -202,9 +202,9 @@ def test_capture_pairs_the_board_lacks_or_none_are_refused():
     assert e.value.facts["kind"] == "pair"
 
 
-def test_a_current_phase_leaves_a_pour_nets_connections_to_its_pour():
-    """Ruling S13: the pour carries a pour net's current, so a current phase routes none of its connections; they are
-    kept on the selection as served by the pour, and no pour call is planned."""
+def test_a_current_paths_phase_leaves_a_pour_nets_connections_to_its_pour():
+    """Ruling S13: the pour carries the current of a pour net that current_paths picks up, so none of its connections
+    is routed; they are kept on the selection as served by the pour, and no pour call is planned."""
     from placemat.kicad.phase_run import obligations_of, plan_calls
     s = one({"name": "p", "current_paths": True}, pour_nets={"VB"})
     assert s.pour_nets == () and not s.tasks
@@ -213,18 +213,29 @@ def test_a_current_phase_leaves_a_pour_nets_connections_to_its_pour():
     assert obligations_of([s], [], set()) == [[]]
 
 
-def test_a_current_width_on_named_nets_leaves_a_pour_net_to_its_pour():
-    s = one({"name": "p", "nets": ["VB"], "width": "current"}, pour_nets={"VB"})
-    assert s.tasks == () and s.pour_nets == () and {t.net for t in s.pour_served} == {"VB"}
-    c = one({"name": "p", "width": "current", "connections": [{"from": {"part": "J1", "pad": "1"},
-                                                             "to": {"part": "Q1", "pad": "1"}}]}, pour_nets={"VB"})
-    assert c.tasks == () and c.pour_nets == () and len(c.pour_served) == 1
+def _gnd_carriers():
+    j1 = footprint("J1", 5, 10, nets=("GND", "VIN"), fields={"Pm.I": "2A"})
+    u1 = footprint("U1", 20, 10, nets=("GND", "VOUT"), fields={"Pm.I": "2A"})
+    return board_geometry([j1, u1])
 
 
-def test_a_connection_at_a_class_width_on_a_pour_net_still_routes_in_its_pour_call():
+def test_a_pour_net_a_phase_names_at_the_current_width_still_routes_in_its_pour_call():
+    """S13 covers current_paths only: a pour net named by `nets` at `width = "current"` routes as D15 says."""
+    from placemat.kicad.phase_run import plan_calls
+    g = _gnd_carriers()
+    s = select(parse_phases([{"name": "p", "nets": ["GND"], "width": "current"}])[0], g, None, open_nets=set(g.nets),
+               excluded=set(), pour_nets={"GND"}, route_layers=LAYERS, rise_c=10.0, copper_oz=1.0)
+    assert s.pour_nets == ("GND",) and {t.net for t in s.tasks} == {"GND"} and s.pour_served == ()
+    assert [c.kind for c in plan_calls(s, {}, 0.15, set())] == ["pour"]
+
+
+def test_a_connection_on_a_pour_net_still_routes_in_its_pour_call():
     s = one({"name": "p", "connections": [{"from": {"part": "J1", "pad": "1"}, "to": {"part": "Q1", "pad": "1"}}]},
             pour_nets={"VB"})
     assert s.pour_nets == ("VB",) and s.tasks and s.pour_served == ()
+    c = one({"name": "p", "width": "current", "connections": [{"from": {"part": "J1", "pad": "1"},
+                                                             "to": {"part": "Q1", "pad": "1"}}]}, pour_nets={"VB"})
+    assert c.pour_nets == ("VB",) and c.tasks and c.pour_served == ()
 
 
 def test_pairs_by_name_need_no_capture_and_keep_p_first():

@@ -3995,9 +3995,10 @@ is routed alone in a call of its own, its pours handed to the router as zones, s
 pieces the pours leave apart. Every pour net's partial inner-layer pours are kept clear of other nets' tracks on the
 route's layers, whatever the phase's own `layers`, from the first phase on; a pour net's call takes its own net's guard
 off for itself alone. A pour net no phase names is left to its pours and is not counted in the closure. The rest
-phase never takes a pour net. A current phase (`current_paths`, or `width = "current"`) never routes a pour net: the
-pour carries the net's current, so its connections are not routed, asked or counted, and the phase lists them as
-`pour_served` (the console line says "left to their pours: GND 46 connections").
+phase never takes a pour net. A `current_paths` phase does not route the pour nets it picks up: the pour carries the
+net's current, so their connections are not routed, asked or counted, and the phase lists them as `pour_served` (the
+console line says "left to their pours: GND 46 connections"). A pour net a phase names, by `nets`, a class,
+`connections` or another selector, routes in its own call as above, `width = "current"` or not.
 
 **Kept results.** Each phase's result is kept in the route's work folder (`<run dir>/route/`, or `.placemat/route/`, or
 `--out`) as it finishes, its routed board first, then its judgement (a failure judging it, such as a DRC that wrote no

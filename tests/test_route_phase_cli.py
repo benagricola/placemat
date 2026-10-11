@@ -101,7 +101,8 @@ def test_an_unmeasured_join_reads_width_not_measured():
 
 
 def test_a_phase_names_the_connections_it_left_to_their_pours():
-    """Ruling S13: a current phase's connections on a pour net are served by the pour; the line counts them per net."""
+    """Ruling S13: a current_paths phase's connections on a pour net are served by the pour; the line counts them
+    per net."""
     gnd = {"net": "GND", "from": {"ref": "J1", "pad": "2"}, "to": {"ref": "U1", "pad": "3"}, "widths": {"F.Cu": 1.0},
            "amps": 2.0}
     (line,) = phase_lines([{"name": "current", "selector": "current_paths", "asked": 1, "joined": 1,

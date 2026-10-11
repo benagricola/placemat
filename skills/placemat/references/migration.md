@@ -26,10 +26,11 @@ section for each hand-written pattern a newer form replaces.
 
 - **Routing phases.** Pair phase widths come from net classes; omit an explicit phase width.
 
-- **Routing phases.** A current phase (`current_paths`, or `width = "current"`) no longer routes a pour net. The pour
-  carries that net's current, so its connections are listed as left to the pour and are not counted in the phase's
-  closure. Before, the phase routed the whole pour net as tracks at the widest current width, which could take the
-  board's room from every later phase. Scripts need no change.
+- **Routing phases.** A `current_paths` phase no longer routes the pour nets it picks up. The pour carries such a
+  net's current, so its connections are listed as left to the pour and are not counted in the phase's closure.
+  Before, the phase routed the whole pour net as tracks at the widest current width, which could take the board's
+  room from every later phase. A pour net a phase names (`nets`, a class, `connections`) is still routed. Scripts
+  need no change.
 
 - **Routing phases.** On a board with inner copper layers, `settings <board> --example` gives the current phase
   `layers` set to the board's outer copper layers. A placemat.toml written by an earlier `--example` keeps its current

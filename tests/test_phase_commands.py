@@ -48,8 +48,8 @@ def test_pairs_pours_and_buses_each_route_in_their_own_calls():
 
 def test_the_tasks_of_a_pour_net_route_in_its_pour_call_not_a_task_call():
     """A task set's pour nets route alone with their pour as a zone (D15, ruling S5): their tasks ride the pour call,
-    at the widest width any of them asks, and no task call routes them again. Only a phase that is not a current phase
-    has such tasks: a current phase leaves a pour net to its pour (ruling S13)."""
+    at the widest width any of them asks, and no task call routes them again. A current_paths phase has no such tasks:
+    it leaves a pour net to its pour (ruling S13)."""
     tasks = (Task("VB", ("J1", "1"), ("Q1", "1"), W3, 1.0), Task("VB", ("J1", "1"), ("U1", "1"), W5, 4.0),
              Task("SW", ("Q1", "2"), ("L1", "1"), W3, 1.0))
     sel = Selection("p", "connections", tasks=tasks, pour_nets=("VB",), layers=("F.Cu", "B.Cu"))
