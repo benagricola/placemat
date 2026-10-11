@@ -12,7 +12,7 @@ section for each hand-written pattern a newer form replaces.
 - **Routing phases.** Routing phases expose `route --phase NAME [--only]`, per-phase reports in the console, watch and studio,
   and `run --route-rank PHASE[,PHASE...]` for routed explore variants.
 
-- **Routing phases.** `settings <board> --example` writes the board's default routing phases; without a board it writes signals.
+- **Routing phases.** `settings <board> --example` writes example routing phases for the board; without a board it writes signals.
 
 ### Changed
 

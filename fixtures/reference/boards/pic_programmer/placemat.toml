@@ -2,7 +2,7 @@
 # the reference set measures placemat as it ships. This file marks the board's project root, so its runs
 # are kept in this folder's .placemat/.
 #
-# Routing: the default route. The capture's currents (Pm.I on the input path, the 7805 and the LT1373
+# Routing: the example phases. The capture's currents (Pm.I on the input path, the 7805 and the LT1373
 # switch path) are judged by the current-path check; no interface or pair calls for a phase of its own.
 
 # Routing: the example phases (`placemat settings --example`).

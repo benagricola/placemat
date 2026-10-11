@@ -270,7 +270,7 @@ def test_a_route_with_no_phases_is_refused_with_the_specs_words(tmp_path):
         with pytest.raises(RouteRefused) as e:
             route_board(tmp_path / "x.kicad_pcb", tmp_path / "w", phases=())
     assert str(e.value) == ("route: no routing phases in placemat.toml; `placemat settings --example` writes a "
-                            "placemat.toml with the default phases")
+                            "placemat.toml with example phases")
 
 
 

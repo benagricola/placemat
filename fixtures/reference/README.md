@@ -58,7 +58,7 @@ files.
 | `board` | Path of the `.kicad_pcb` |
 | `licence` | SPDX identifier |
 | `tests` | `a` and/or `b` |
-| `phases` | Named routing phases before the board defaults: explicit nets, pairs and buses |
+| `phases` | Named routing phases before the board's example phases: explicit nets, pairs and buses |
 | `fixed` | References held at the human board's coordinates in test (b) |
 | `human_track_mm` | The human board's most-used track width |
 | `kicad5` | The board is a KiCad 5 file |
@@ -75,7 +75,7 @@ placemat rather than the quirks of a script.
   link with a worked number), or searched. Each declaration has a `why=` naming its basis: mechanical, datasheet,
   physics or capture (a fact read from the capture's own annotations). No steering: no priority, order, `Near` or
   link added to improve a result.
-- **Routing phases:** the default set from `placemat settings --example`, plus only phases the capture's interfaces and currents
+- **Routing phases:** the example phases from `placemat settings --example`, plus only phases the capture's interfaces and currents
   call for.
 - **A check:** a script lint in the runner lists every declaration by its basis. A reviewer checks each new or changed
   reference script against these rules before it is accepted.

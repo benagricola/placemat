@@ -101,7 +101,7 @@ def _launch(python, script) -> list:
 
 _REFUSED = {
     "no_phases": "route: no routing phases in placemat.toml; `placemat settings --example` writes a placemat.toml with "
-                 "the default phases",
+                 "example phases",
 
     "unknown_phase": "route: no phase %(phase)r; the phases are %(phases)s",
     "capture": "route: %(path)s: %(reason)s %(detail)s",

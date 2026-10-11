@@ -73,7 +73,7 @@ Tasks 13, 15 and 18) was read at KRT 375aee58 (`placemat/connections`), placemat
 - `CLAUDE.md`: take board items off with `board.Delete(item)` (after `group.RemoveItem` if grouped), never
   `board.Remove`.
 - Values verbatim from the spec:
-  - the no-phases refusal: `route: no routing phases in placemat.toml; \`placemat settings --example\` writes a placemat.toml with the default phases`
+  - the no-phases refusal: `route: no routing phases in placemat.toml; \`placemat settings --example\` writes a placemat.toml with example phases` (wording changed by the user on 2026-10-11: placemat has no default phases)
   - the sidecar is `nets.layout.json`, versioned `"version": 1`, keyed by net name;
   - selectors: `nets`, `net_classes`, `pairs = true`, `buses`, `connections`, `current_paths = true`, `interfaces`,
     `net_types`; `pairs` also takes a list of `[P net, N net]` (Task 10a, the spec amended there); other keys `name`, `width` (a number in mm or `"current"`), `layers`, `neckdown` (default true),
@@ -115,6 +115,7 @@ with its reason. "Alt" is what changes if it is reversed.
 - D28 The spec's real-board check (the power legs as a `current_paths` phase) runs on a scratch copy under the lock in the Release task; numbers go to the user, not into commits. Controller ruling: the board is a project's, and commits stay project-agnostic. Alt: skip it.
 - Task 23, the circuit-capture skill change its charter puts under "ask first", is approved. User, 2026-10-07.
 - D29 On a board with inner copper layers, the example `current` phase (`settings --example`, `cli.board_example_phases`) routes on the board's outer copper layers only: `layers` is set to the first and last copper layers of the board's stack (never named in code), and a phase the project writes keeps its own `layers`. User, 2026-10-11, after usb-c-power-adapter's test (b) showed inner-layer current widths (about 2.6x the outer ones) taking In2.Cu and every via site under them (.superpowers/sdd/2026-10-07-routing-phases/usbc-starvation-report.md). Alt: the current phase on every layer.
+- D30 Wording: placemat has no default phases. A route with no `[[route.phase]]` is refused, and `settings --example` writes example phases for a project to start from; the refusal, the spec and the docs say "example phases". User, 2026-10-11. The plan's task text before this date keeps its old wording.
 
 Decided by the user on 2026-10-07:
 - `capture:` stays a basis prefix of a reference script's `why=` (a fact read from the capture's own annotations); the

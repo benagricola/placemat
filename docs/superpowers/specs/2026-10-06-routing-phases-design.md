@@ -27,7 +27,7 @@ reserving their lanes.
 
 ## Decisions taken with the user
 
-- Phases are required. There are no implicit stages; placemat writes an example `placemat.toml` with default phases
+- Phases are required. There are no implicit stages; placemat writes an example `placemat.toml` with example phases
   for a project to start from.
 - Connections are structured tables, never strings to parse.
 - Running one phase uses the earlier phases' copper when it still matches the board and routes any missing or stale
@@ -173,9 +173,9 @@ and applies to every phase.
 
 A route of a project with no `[[route.phase]]` is refused:
 
-    route: no routing phases in placemat.toml; `placemat settings --example` writes a placemat.toml with the default phases
+    route: no routing phases in placemat.toml; `placemat settings --example` writes a placemat.toml with example phases
 
-The default phases go in the existing `placemat settings --example` output (decided with the user: no separate
+The example phases go in the existing `placemat settings --example` output (decided with the user: no separate
 command). For a board, it writes a `[[route.phase]]` block: the differential pairs if the board has any, the interfaces
 and the net classes above Default, the nets with a stated current at `width = "current"`, then a final phase for the
 rest, each commented. These defaults reproduce today's stages.
@@ -271,7 +271,7 @@ for power legs and buses, and declared copper only for fixed geometry.
 - Settings:
   - parsing and validation of `[[route.phase]]`: each selector, a phase with two selectors refused, a duplicate name
     refused, a removed setting refused with its replacement named;
-  - `settings --example` on a board with pairs, classes and currents writes the default phases.
+  - `settings --example` on a board with pairs, classes and currents writes the example phases.
 - Phase engine:
   - order;
   - copper locked between phases;

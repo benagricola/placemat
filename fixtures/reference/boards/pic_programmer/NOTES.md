@@ -126,7 +126,7 @@ as on the human board). Beyond the fixed parts:
   declaration names is not searched but stays where `pcb layout` put it, with a `setup.undeclared` finding
   (`layout.py` `_report_undeclared`).
 
-`placemat.toml` keeps every setting at its default; the default route needs no phase of its own for this board.
+`placemat.toml` keeps every setting at its default; the example phases need no phase of their own for this board.
 
 ## Skill gaps
 

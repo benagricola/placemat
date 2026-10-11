@@ -270,7 +270,7 @@ def test_a_route_that_raises_fails_its_own_width_only(tmp_path, monkeypatch):
     assert (results[1].human_vias, results[1].human_track_mm) == (1, 2.0)
 
 
-def test_manifest_named_pairs_and_buses_are_written_before_defaults(tmp_path, monkeypatch):
+def test_manifest_named_pairs_and_buses_are_written_before_the_example_phases(tmp_path, monkeypatch):
     import dataclasses
     import tomllib
     import placemat.cli

@@ -1,4 +1,4 @@
-"""`placemat settings --example` writes the default routing phases: for a board, from what it has."""
+"""`placemat settings --example` writes example routing phases: for a board, from what it has."""
 import tomllib
 
 from placemat.cli import board_example_phases
@@ -33,7 +33,7 @@ def test_a_board_whose_capture_has_no_pair_gets_no_pair_phase(tmp_path):
     assert [p["name"] for p in board_example_phases(pcb)] == ["buses", "wide-clearance", "current", "signals"]
 
 
-def test_explicit_user_phases_replace_example_defaults(tmp_path):
+def test_a_projects_own_phases_replace_the_example_phases(tmp_path):
     text = example_toml()
     assert text.count('[[route.phase]]') == 1
     (tmp_path / "placemat.toml").write_text('[route]\n[[route.phase]]\nname = "power"\nnets = ["V"]\nwidth = 0.8\n')
@@ -42,7 +42,7 @@ def test_explicit_user_phases_replace_example_defaults(tmp_path):
     assert phases[0]["width"] == 0.8
 
 
-def test_default_interfaces_deduplicate_types_and_keep_diffpair_in_its_phase():
+def test_example_interfaces_deduplicate_types_and_keep_diffpair_in_its_phase():
     from placemat.route_phase import example_phases
     result = example_phases(pairs=True, interface_types=["Spi", "DiffPair", "Spi"], wide_classes=[], currents=False)
     assert result == [{"name": "diff-pairs", "pairs": True}, {"name": "buses", "interfaces": ["Spi"]}, {"name": "signals"}]

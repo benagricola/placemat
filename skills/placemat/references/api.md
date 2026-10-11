@@ -4067,7 +4067,7 @@ the code and its facts):
 
 | Code | When |
 |---|---|
-| `no_phases` | the project has no `[[route.phase]]`: `route: no routing phases in placemat.toml; \`placemat settings --example\` writes a placemat.toml with the default phases` |
+| `no_phases` | the project has no `[[route.phase]]`: `route: no routing phases in placemat.toml; \`placemat settings --example\` writes a placemat.toml with example phases` |
 | `unknown_phase` | a phase named to route up to is not one of the project's |
 | `capture` | the capture's `nets.layout.json` cannot be read, or was written for another netlist (`path`, the sidecar; `reason`; `detail`) |
 | `router_old` | the router lacks a flag the phases need (`--connections`; `--bus-nets` for a phase with buses) |
