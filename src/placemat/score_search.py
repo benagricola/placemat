@@ -8,6 +8,10 @@ import math
 
 from .score_delta import Delta
 
+# Whether a pruning scorer prunes at all: False measures the exhaustive search under the same callers (a measurement
+# switch, as placer.NATIVE_SWEEP is; never a setting).
+PRUNE = True
+
 
 class ScoreDomainError(ValueError):
     """A candidate exceeds the diagnostic domain, not physical feasibility.
@@ -63,7 +67,7 @@ class MSTScorer:
                     prepared.candidate, prepared.scoring, prepared.surface,
                     (cfg.score_escape_crossed, cfg.score_escape_closed, cfg.score_escape_via),
                     (baseline.get('escape_closed', 0), baseline.get('escape_via', 0)), self.best[0])
-                if self.prune and hasattr(scoring, 'configure_prune'):
+                if self.prune and PRUNE and hasattr(scoring, 'configure_prune'):
                     scoring.configure_prune(*self._bounds(rotations, face))
                 self._native[key] = scoring
         return self._native[key]

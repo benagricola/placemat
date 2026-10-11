@@ -1622,7 +1622,8 @@ def extra_walls(occ, box: Box, net: str) -> tuple:
 
 
 def _path_out_native(occ, start_shapes, foes, layers, win, track, via, toward, bans=(), delta=None, via_exit=True):
-    """Explicit native twin used by parity gates; no search adoption yet.
+    """The exact path search in Rust, `_path_out_exact`'s twin: what `path_out(exact=True, native=True)` runs, which the
+    judgement uses when the native module is built (`Escapes._native_paths`).
 
     Refused snapshots propagate rather than silently certifying a way out.
     The Python oracle remains independently callable by `_path_out_exact`.

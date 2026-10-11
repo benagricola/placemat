@@ -624,13 +624,20 @@ impl PreparedSurface {
         self.settings.depth
     }
 
-    /// (vias, away, walled) of a candidate whose wire and crossings `delta` has just solved (`wire_cross` at the
-    /// same x, y and turn): the escape judgements of `evaluate`, without its wire, crossings or layout terms.
-    pub(crate) fn escape_counts(&mut self, py: Python<'_>, candidate: &mut PreparedCandidate,
-        delta: &mut NativeDelta, x: f64, y: f64, turn: usize) -> PyResult<(usize, usize, usize)> {
+    /// `evaluate`'s first checks and the candidate's geometry: the snapshot identities, the placed shapes and their
+    /// validation. A staged caller runs it first, so a candidate it prunes is refused as `evaluate` refuses it.
+    pub(crate) fn place_candidate(&self, py: Python<'_>, candidate: &mut PreparedCandidate,
+        delta: &NativeDelta, x: f64, y: f64, turn: usize) -> PyResult<()> {
         self.check(candidate, delta)?;
         candidate.evaluate(py, (x, y), turn)?;
-        self.contacts.validate_candidate(py, candidate, turn)?;
+        self.contacts.validate_candidate(py, candidate, turn)
+    }
+
+    /// (vias, away, walled) of a candidate `place_candidate` has placed and whose wire and crossings `delta` has
+    /// just solved (`wire_cross` at the same x, y and turn): the escape judgements of `evaluate`, without its wire,
+    /// crossings or layout terms.
+    pub(crate) fn escape_counts(&mut self, py: Python<'_>, candidate: &mut PreparedCandidate,
+        delta: &mut NativeDelta, turn: usize) -> PyResult<(usize, usize, usize)> {
         let (vias, away, walled, _, _) = self.fields(py, candidate, delta, turn, false, &mut None)?;
         Ok((vias, away, walled))
     }

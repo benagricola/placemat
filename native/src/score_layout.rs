@@ -303,6 +303,25 @@ impl Grid {
             self.touched.push(index);
         }
     }
+    /// `change`'s refusals without its work: the turn index and every candidate pad inside the fixed frame.
+    pub fn check(&self, x: f64, y: f64, turn: usize) -> Result<(), String> {
+        if turn >= self.turns.len() {
+            return Err("NativeDelta congestion turn index invalid".into());
+        }
+        for &(_, b) in &self.turns[turn] {
+            let b = shifted(b, x, y);
+            let p = ((b.0 + b.2) / 2.0, (b.1 + b.3) / 2.0);
+            if p.0 < self.frame.0 - 1e-9
+                || p.0 > self.frame.2 + 1e-9
+                || p.1 < self.frame.1 - 1e-9
+                || p.1 > self.frame.3 + 1e-9
+            {
+                return Err("NativeDelta candidate pads exceed the fixed search frame".into());
+            }
+        }
+        Ok(())
+    }
+
     pub fn change(&mut self, x: f64, y: f64, turn: usize) -> Result<i64, String> {
         if turn >= self.turns.len() {
             return Err("NativeDelta congestion turn index invalid".into());
@@ -497,6 +516,17 @@ impl Layout {
             return Err("NativeDelta layout terms must be finite".into());
         }
         Ok(terms)
+    }
+
+    /// The congestion term's refusals (turn, frame), without its work.
+    pub fn check_congestion(&self, x: f64, y: f64, turn: usize) -> Result<(), String> {
+        if turn >= self.links.len() {
+            return Err("NativeDelta layout turn invalid".into());
+        }
+        match &self.grid {
+            Some(grid) => grid.check(x, y, turn),
+            None => Ok(()),
+        }
     }
 
     /// The congestion term, priced.

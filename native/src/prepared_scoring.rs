@@ -94,6 +94,12 @@ impl NativeDeltaScoring {
             // exact; the escape prices' bound throughout. A candidate past the limit stands below every one
             // weighed in full.
             let tolerance = 1e-9 * limit.abs().max(1.0);
+            // What `evaluate` refuses, refused before anything is pruned: the snapshot, the placed candidate,
+            // and the congestion frame.
+            surface.place_candidate(py, candidate, delta, x, y, turn)?;
+            delta.layout.as_ref()
+                .ok_or_else(|| PyValueError::new_err("prepared surface layout is not configured"))?
+                .check_congestion(x, y, turn).map_err(PyValueError::new_err)?;
             let (wire, cross) = delta.inner.wire_cross(x, y, turn).map_err(PyValueError::new_err)?;
             let crossed = delta.inner.escape_cross(turn, surface.depth()).map_err(PyValueError::new_err)?;
             let prune = self.prune.as_ref().unwrap();
@@ -120,7 +126,7 @@ impl NativeDeltaScoring {
                 self.pruned += 1;
                 return Ok((bound, i64::MAX));
             }
-            let (vias, closed, walled) = surface.escape_counts(py, candidate, delta, x, y, turn)?;
+            let (vias, closed, walled) = surface.escape_counts(py, candidate, delta, turn)?;
             ((wire, cross, link, over, area, congestion), crossed, vias, closed, walled)
         } else {
             let (raw, crossed, vias, closed, walled, _, _) =
