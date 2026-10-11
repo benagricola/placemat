@@ -13,35 +13,35 @@ M = {"v": 2, "airwire_mm": 100.0, "crossings": {}}
 
 
 def test_an_earlier_phase_outranks_clean_closure():
-    a = Standing(M, closures=(1.0, 0.8), clean=0.8, phase_contracts=('phase0', 'phase1'))
-    b = Standing(M, closures=(0.9, 1.0), clean=0.95, phase_contracts=('phase0', 'phase1'))
+    a = Standing(M, closures=(1.0, 0.8), clean=0.8)
+    b = Standing(M, closures=(0.9, 1.0), clean=0.95)
     assert rank(a, b, cfg=Settings()) == -1
 
 
 def test_area_is_traded_in_the_run_score():
     s = Settings()
-    small = Standing({**M, "area_mm2": 100.0, "airwire_mm": 300.0}, closures=(1.0,), clean=1.0, phase_contracts=('phase0',))
-    large = Standing({**M, "area_mm2": 140.0, "airwire_mm": 50.0}, closures=(1.0,), clean=1.0, phase_contracts=('phase0',))
+    small = Standing({**M, "area_mm2": 100.0, "airwire_mm": 300.0}, closures=(1.0,), clean=1.0)
+    large = Standing({**M, "area_mm2": 140.0, "airwire_mm": 50.0}, closures=(1.0,), clean=1.0)
     want = -1 if 100 * s.score_area + 300 < 140 * s.score_area + 50 else 1
     assert rank(small, large, cfg=s) == want
 
 
 def test_routed_quality_is_krts_key_on_complete_boards():
-    few = Standing({**M, "airwire_mm": 500.0, "vias": 2, "copper_mm": 90.0, "segments": 40}, closures=(1.0,), clean=1.0, phase_contracts=('phase0',))
-    many = Standing({**M, "vias": 12, "copper_mm": 80.0, "segments": 30}, closures=(1.0,), clean=1.0, phase_contracts=('phase0',))
+    few = Standing({**M, "airwire_mm": 500.0, "vias": 2, "copper_mm": 90.0, "segments": 40}, closures=(1.0,), clean=1.0)
+    many = Standing({**M, "vias": 12, "copper_mm": 80.0, "segments": 30}, closures=(1.0,), clean=1.0)
     assert rank(few, many, cfg=Settings()) == -1          # fewer vias first, whatever the run score
 
 
 def test_routed_quality_is_not_compared_on_incomplete_boards():
-    few = Standing({**M, "airwire_mm": 500.0, "vias": 2}, closures=(0.9,), clean=0.9, phase_contracts=('phase0',))
-    many = Standing({**M, "vias": 12}, closures=(0.9,), clean=0.9, phase_contracts=('phase0',))
+    few = Standing({**M, "airwire_mm": 500.0, "vias": 2}, closures=(0.9,), clean=0.9)
+    many = Standing({**M, "vias": 12}, closures=(0.9,), clean=0.9)
     assert rank(few, many, cfg=Settings()) == 1           # the run score decides
 
 
 def test_a_buildable_board_outranks_a_better_connected_one():
-    legal = Standing(M, closures=(0.9,), clean=0.9, phase_contracts=('phase0',))
-    narrow = Standing(M, validity=Validity(widths_failed=1), closures=(1.0,), clean=1.0, phase_contracts=('phase0',))
-    drc = Standing(M, validity=Validity(drc_new=2), closures=(1.0,), clean=1.0, phase_contracts=('phase0',))
+    legal = Standing(M, closures=(0.9,), clean=0.9)
+    narrow = Standing(M, validity=Validity(widths_failed=1), closures=(1.0,), clean=1.0)
+    drc = Standing(M, validity=Validity(drc_new=2), closures=(1.0,), clean=1.0)
     unplaced = Standing(M, validity=Validity(unplaced=(0, 1, 0)))
     assert rank(legal, narrow, cfg=Settings()) == -1
     assert rank(legal, drc, cfg=Settings()) == -1
@@ -66,22 +66,22 @@ def test_validity_is_valid_only_with_every_count_zero():
 
 
 def test_the_validity_key_orders_unplaced_by_priority_then_drc_then_widths_then_critical():
-    assert Validity(unplaced=(1, 2, 3), drc_new=4, widths_failed=5, critical=6).key() == (1, 2, 3, 4, 5, 6, 0)
-    assert Validity(drc_new=None).key() == (0, 0, 0, 0, 0, 0, 0)
+    assert Validity(unplaced=(1, 2, 3), drc_new=4, widths_failed=5, critical=6).key() == (1, 2, 3, 4, 5, 6)
+    assert Validity(drc_new=None).key() == (0, 0, 0, 0, 0, 0)
     # a high-priority part left out is worse than any number of default ones
     assert Validity(unplaced=(1, 0, 0)).key() > Validity(unplaced=(0, 9, 0), drc_new=9).key()
 
 
 def test_two_invalid_boards_compare_by_fewest_failures_before_closure():
-    one = Standing(M, validity=Validity(drc_new=1), closures=(0.5,), clean=0.5, phase_contracts=('phase0',))
-    two = Standing(M, validity=Validity(drc_new=2), closures=(1.0,), clean=1.0, phase_contracts=('phase0',))
+    one = Standing(M, validity=Validity(drc_new=1), closures=(0.5,), clean=0.5)
+    two = Standing(M, validity=Validity(drc_new=2), closures=(1.0,), clean=1.0)
     assert rank(one, two, cfg=Settings()) == -1
     assert rank(two, one, cfg=Settings()) == 1
 
 
 def test_two_invalid_boards_with_the_same_failures_go_on_to_closure():
-    a = Standing(M, validity=Validity(critical=1), closures=(1.0,), clean=1.0, phase_contracts=('phase0',))
-    b = Standing(M, validity=Validity(critical=1), closures=(0.9,), clean=0.9, phase_contracts=('phase0',))
+    a = Standing(M, validity=Validity(critical=1), closures=(1.0,), clean=1.0)
+    b = Standing(M, validity=Validity(critical=1), closures=(0.9,), clean=0.9)
     assert rank(a, b, cfg=Settings()) == -1
 
 
@@ -126,14 +126,14 @@ def test_the_quality_key_reads_vias_copper_and_segments_and_ranks_the_unmeasured
 
 
 def test_the_quality_key_is_not_compared_when_either_board_is_invalid():
-    few = Standing({**M, "airwire_mm": 500.0, "vias": 2}, validity=Validity(critical=1), closures=(1.0,), clean=1.0, phase_contracts=('phase0',))
-    many = Standing({**M, "vias": 12}, validity=Validity(critical=1), closures=(1.0,), clean=1.0, phase_contracts=('phase0',))
+    few = Standing({**M, "airwire_mm": 500.0, "vias": 2}, validity=Validity(critical=1), closures=(1.0,), clean=1.0)
+    many = Standing({**M, "vias": 12}, validity=Validity(critical=1), closures=(1.0,), clean=1.0)
     assert rank(few, many, cfg=Settings()) == 1           # both invalid alike: the run score decides
 
 
 def test_a_routed_standing_is_read_from_the_route_report():
-    report = SimpleNamespace(phases=[{"final_closure_clean": 1.0, "comparison_contract": "a"}, {"final_closure_clean": 0.75, "comparison_contract": "b"}], widths_failed=2,
-                             drc_new=3, closure_clean=0.8, vias=7, track_mm=123.4, segments=55, critical_checks=0, critical_unknown=[], final_findings={"copper": 1})
+    report = SimpleNamespace(phases=[{"final_closure_clean": 1.0}, {"final_closure_clean": 0.75}], widths_failed=2,
+                             drc_new=3, closure_clean=0.8, vias=7, track_mm=123.4, segments=55)
     s = Standing.of_route({**M, "unplaced": {"low": 1}, "findings": {"copper": 1}}, report)
     assert s.closures == (1.0, 0.75) and s.clean == 0.8
     assert s.validity == Validity(unplaced=(0, 0, 1), drc_new=3, widths_failed=2, critical=1)
@@ -141,96 +141,6 @@ def test_a_routed_standing_is_read_from_the_route_report():
 
 
 def test_a_route_with_no_drc_has_no_drc_count():
-    report = SimpleNamespace(phases=[], widths_failed=0, drc_new=None, closure_clean=1.0, vias=0, track_mm=0.0, segments=0, critical_checks=0, critical_unknown=[], final_findings={})
+    report = SimpleNamespace(phases=[], widths_failed=0, drc_new=None, closure_clean=1.0, vias=0, track_mm=0.0, segments=0)
     s = Standing.of_route(dict(M), report)
-    assert s.validity.drc_new is None and not s.validity.valid and s.validity.unmeasured == ("drc_new",) and s.closures == ()
-
-
-def test_final_route_validity_overrides_placement_drc_and_retains_missing_evidence():
-    clean = {'drc_new': 0, 'widths_failed': 0, 'closure_clean': 1.0, 'phases': [],
-             'vias': 2, 'track_mm': 12.0, 'segments': 4, 'critical_checks': 0, 'critical_unknown': [], 'final_findings': {}}
-    final_clean = Standing.of_route({**M, 'drc': 9}, clean)
-    final_dirty = Standing.of_route({**M, 'drc': 0}, {**clean, 'drc_new': 1, 'critical_checks': 0, 'critical_unknown': [], 'final_findings': {}})
-    unknown = Standing.of_route({**M, 'drc': 0, 'vias': 0}, {**clean, 'drc_new': None, 'critical_checks': 0, 'critical_unknown': [], 'final_findings': {}})
-    assert final_clean.validity.valid and final_clean.validity.drc_new == 0
-    assert not final_dirty.validity.valid and final_dirty.validity.drc_new == 1
-    assert not unknown.validity.valid and unknown.validity.unmeasured == ('drc_new',)
-    assert rank(final_clean, final_dirty, Settings()) < 0
-    assert rank(final_clean, unknown, Settings()) < 0
-    missing_quality = Standing.of_route({**M, 'vias': 0, 'copper_mm': 0, 'segments': 0},
-                                       {k: v for k, v in clean.items() if k not in ('vias', 'track_mm', 'segments')})
-    assert quality_key(missing_quality.measures) == (math.inf, math.inf, math.inf)
-
-
-@pytest.mark.parametrize('phases', [
-    [{'comparison_contract': 'different', 'final_closure_clean': 1.0}],
-    [],
-    [{'final_closure_clean': 1.0}],
-])
-def test_routed_standings_refuse_different_or_unidentified_phase_obligations(phases):
-    report = {'drc_new': 0, 'widths_failed': 0, 'closure_clean': 1.0,
-              'phases': [{'comparison_contract': 'stable', 'final_closure_clean': 1.0}], 'critical_checks': 0, 'critical_unknown': [], 'final_findings': {}}
-    a = Standing.of_route(M, report)
-    b = Standing.of_route(M, {**report, 'phases': phases})
-    with pytest.raises(ValueError, match='incomparable phase obligations'):
-        rank(a, b, Settings())
-
-
-@pytest.mark.parametrize('key,value', [('drc_new', False), ('drc_new', -1),
-                                      ('widths_failed', float('nan')), ('closure_clean', float('nan'))])
-def test_invalid_route_evidence_remains_unmeasured(key, value):
-    report = {'drc_new': 0, 'widths_failed': 0, 'closure_clean': 1.0, 'phases': [], 'critical_checks': 0, 'critical_unknown': [], 'final_findings': {}}
-    standing = Standing.of_route(M, {**report, key: value})
-    assert not standing.validity.valid
-    assert key in standing.validity.unmeasured
-
-
-@pytest.mark.parametrize('phases', [None, {}, 'not measured', [None]])
-def test_absent_or_malformed_phase_record_cannot_certify_a_final_route(phases):
-    report = {'drc_new': 0, 'widths_failed': 0, 'closure_clean': 1.0, 'critical_checks': 0, 'critical_unknown': [], 'final_findings': {}}
-    if phases is not None:
-        report['phases'] = phases
-    unknown = Standing.of_route(M, report)
-    known = Standing.of_route(M, {**report, 'phases': []})
-    assert not unknown.validity.valid and 'phases' in unknown.validity.unmeasured
-    assert unknown.phase_contracts is None
-    assert known.validity.valid and known.phase_contracts == ()
-    with pytest.raises(ValueError, match='incomparable phase obligations'):
-        rank(unknown, known, Settings())
-
-
-@pytest.mark.parametrize('field,value', [('vias', -1), ('vias', 1.5), ('segments', -1),
-                                        ('segments', 1.5), ('track_mm', -0.5)])
-def test_invalid_final_quality_cannot_beat_known_quality(field, value):
-    report = {'drc_new': 0, 'widths_failed': 0, 'closure_clean': 1.0, 'phases': [],
-              'vias': 3, 'track_mm': 10.0, 'segments': 4, 'critical_checks': 0, 'critical_unknown': [], 'final_findings': {}}
-    invalid = Standing.of_route({**M, 'vias': 0, 'copper_mm': 0, 'segments': 0}, {**report, field: value})
-    valid = Standing.of_route(M, report)
-    assert rank(valid, invalid, Settings()) < 0
-
-
-def test_final_critical_evidence_replaces_stale_placement_checks_and_escape_walls():
-    before = {**M, 'critical_checks': 2, 'findings': {'escape_walled': 3}}
-    report = {'drc_new': 0, 'widths_failed': 0, 'closure_clean': 1.0, 'phases': [],
-              'critical_checks': 0, 'critical_unknown': [], 'final_findings': {'escape_walled': 0}}
-    final = Standing.of_route(before, report)
-    assert final.validity.valid and final.validity.critical == 0
-    assert before['critical_checks'] == 2 and before['findings']['escape_walled'] == 3
-    missing = Standing.of_route(before, {k: v for k, v in report.items()
-                                        if k not in ('critical_checks', 'critical_unknown', 'final_findings')})
-    assert not missing.validity.valid
-    assert missing.validity.critical == 0  # no stale placement evidence presented as final
-    assert set(missing.validity.unmeasured) == {'critical_checks', 'critical_unknown', 'critical_findings'}
-    assert rank(final, missing, Settings()) < 0
-
-
-def test_huge_decoded_route_closure_is_unmeasured():
-    from placemat.score import Standing
-    report = {'closure_clean': 10 ** 1000, 'drc_new': 0, 'widths_failed': 0,
-              'critical_checks': 0, 'critical_unknown': [], 'final_findings': {},
-              'phases': [{'name': 'REST', 'comparison_contract': 'original',
-                          'final_closure_clean': 10 ** 1000}]}
-    result = Standing.of_route({'v': 2}, report)
-    assert result.clean is None and result.closures == (None,)
-    assert 'closure_clean' in result.validity.unmeasured
-    assert 'phase_closure' in result.validity.unmeasured
+    assert s.validity.drc_new is None and s.validity.valid and s.closures == ()

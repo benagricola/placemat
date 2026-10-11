@@ -495,20 +495,10 @@ def read_layer_types(path) -> dict:
     return {layer.value: role for layer, role in layer_types(board).items()}
 
 
-def _track_form(obj):
-    """Actual native kind, never inferred from endpoint chord tolerance."""
-    kind = obj.Type()
-    if kind == pcbnew.PCB_TRACE_T:
-        return "straight"
-    if kind == pcbnew.PCB_ARC_T:
-        return "arc"
-    return None
-
-
 def _copper(board, groups_of, err_nm: int = CLEAR_ERR_NM) -> tuple[CopperItem, ...]:
     items = []
 
-    def add(kind, obj, net, owner=None, width=0.0, drill=0.0, anchors=(), length=0.0, vertices=(), filled=True, track_form=None):
+    def add(kind, obj, net, owner=None, width=0.0, drill=0.0, anchors=(), length=0.0, vertices=(), filled=True):
         cu = [l for l in obj.GetLayerSet().CuStack() if board.IsLayerEnabled(l)]
         if not cu:
             return                      # nothing on a layer this board has
@@ -517,7 +507,7 @@ def _copper(board, groups_of, err_nm: int = CLEAR_ERR_NM) -> tuple[CopperItem, .
             return
         items.append(CopperItem(kind, net, _copper_layers(board, obj.GetLayerSet()), outs,
                                 Box.of_points([p for o in outs for p in o]), owner, width, drill,
-                                tuple((mm(v.x), mm(v.y)) for v in anchors), length, vertices, filled, track_form))
+                                tuple((mm(v.x), mm(v.y)) for v in anchors), length, vertices, filled))
 
     for fp in board.GetFootprints():
         for pad in fp.Pads():
@@ -533,7 +523,7 @@ def _copper(board, groups_of, err_nm: int = CLEAR_ERR_NM) -> tuple[CopperItem, .
         else:
             # GetLength() is the track's own path - an arc's, not the straight line between its ends
             add("track", t, t.GetNetname(), owner, mm(t.GetWidth()), anchors=(t.GetStart(), t.GetEnd()),
-                length=mm(t.GetLength()), track_form=_track_form(t))
+                length=mm(t.GetLength()))
     for d in board.GetDrawings():
         if isinstance(d, pcbnew.PCB_SHAPE) and d.GetLayerSet().CuStack():
             kw = {}

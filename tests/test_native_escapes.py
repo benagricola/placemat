@@ -116,7 +116,7 @@ def test_native_box_handoff_path_matches_python_with_holes_bans_and_layers(monke
     from placemat.occupancy import ban_shape
     from placemat.values import Box, Location
     from tests.fixtures import board_geometry
-    from tests.test_final_board import _placed
+    from tests.fixtures import placed as _placed
     from tests.test_surface_escapes import _shape_board
     module = geometry._native
     if module is None or not hasattr(module, 'surface_box_path_out'):

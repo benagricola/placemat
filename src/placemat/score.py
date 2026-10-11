@@ -134,15 +134,14 @@ class Validity:
     drc_new: int | None = None   # "real" DRC errors beyond the board's baseline (D14); None when no DRC ran
     widths_failed: int = 0       # connections whose required width is not met on the final board
     critical: int = 0            # critical findings the measures count (HARD_FINDINGS)
-    unmeasured: tuple = ()       # required final-route evidence that was not measured
 
     @property
     def valid(self) -> bool:
         return not any(self.key())
 
     def key(self) -> tuple:
-        """(*unplaced, drc_new, widths_failed, critical, unmeasured), lower better."""
-        return (*self.unplaced, self.drc_new or 0, self.widths_failed, self.critical, len(self.unmeasured))
+        """(*unplaced, drc_new, widths_failed, critical), lower better: two invalid boards compare by it."""
+        return (*self.unplaced, self.drc_new or 0, self.widths_failed, self.critical)
 
     @classmethod
     def of(cls, measures: dict, drc_new: int | None = None, widths_failed: int = 0) -> "Validity":
@@ -151,8 +150,7 @@ class Validity:
         unplaced = measures.get("unplaced") or {}
         found = measures.get("findings") or {}
         return cls(unplaced=tuple(int(unplaced.get(p, 0)) for p in _PRIORITIES), drc_new=drc_new,
-                   widths_failed=int(widths_failed or 0), critical=sum(int(found.get(k, 0)) for k in HARD_FINDINGS)
-                   + int(measures.get('critical_checks') or 0))
+                   widths_failed=int(widths_failed or 0), critical=sum(int(found.get(k, 0)) for k in HARD_FINDINGS))
 
 
 @dataclass(frozen=True)
@@ -162,82 +160,15 @@ class Standing:
     validity: Validity = Validity()
     closures: tuple = ()        # each phase's final clean closure, in phase order; () when not routed
     clean: float | None = None  # the route's clean closure; None when not routed
-    phase_contracts: tuple | None = () # None when the final phase evidence is missing
-    routed: bool = False       # includes a routed result whose closure could not be measured
-    phase_names: tuple | None = ()  # original full phase order; None when names are missing
 
     @classmethod
     def of_route(cls, measures: dict, report) -> "Standing":
         """A routed board from its route report (step 1's RouteReport): the phases' closures and the clean closure, the
         DRC errors beyond the baseline and the failed widths into the validity tier, and the routed vias, copper and
         segments into the measures, for the quality key."""
-        from dataclasses import replace
-        if not isinstance(report, dict):
-            report = report.as_dict() if hasattr(report, 'as_dict') else vars(report)
-        report = report.get('route_report', report)
-        def count(value):
-            return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
-        def closure(value):
-            return value if not isinstance(value, bool) and isinstance(value, (int, float)) \
-                and 0.0 <= value <= 1.0 and math.isfinite(value) else None
-        m = dict(measures)
-        # Never retain placement-era quality when final quality is unavailable.
-        for key, source in (('vias', 'vias'), ('copper_mm', 'track_mm'), ('segments', 'segments')):
-            m.pop(key, None)
-            value = report.get(source, report.get(key))
-            value = count(value) if key in ('vias', 'segments') else _quality_term(value)
-            if value is not None and value != math.inf:
-                m[key] = value
-        missing = []
-        m.pop('critical_checks', None)
-        critical_checks = count(report.get('critical_checks'))
-        if critical_checks is None:
-            missing.append('critical_checks')
-        else:
-            m['critical_checks'] = critical_checks
-        unknown_checks = report.get('critical_unknown')
-        m.pop('critical_unknown', None)
-        if not isinstance(unknown_checks, list) or unknown_checks:
-            missing.append('critical_unknown')
-        if isinstance(unknown_checks, list):
-            m['critical_unknown'] = list(unknown_checks)
-        final_findings = report.get('final_findings')
-        m['findings'] = dict(m.get('findings') or {})
-        # Placement-era critical copper/escape evidence is diagnostic, never
-        # substituted for a missing final judgement.
-        for kind in HARD_FINDINGS:
-            m['findings'].pop(kind, None)
-        if isinstance(final_findings, dict) and all(count(v) is not None for v in final_findings.values()):
-            m['findings'].update(final_findings)
-        else:
-            missing.append('critical_findings')
-        drc = count(report.get('drc_new'))
-        widths = count(report.get('widths_failed'))
-        if drc is None:
-            missing.append('drc_new')
-        if widths is None:
-            missing.append('widths_failed')
-        clean = closure(report.get('closure_clean'))
-        if clean is None:
-            missing.append('closure_clean')
-        phases = report.get('phases')
-        phases_known = isinstance(phases, (list, tuple)) and all(isinstance(p, dict) for p in phases)
-        if not phases_known:
-            missing.append('phases')
-            phases = ()
-        closures = tuple(closure(p.get('final_closure_clean')) for p in phases)
-        contracts = tuple(p.get('comparison_contract') if isinstance(p.get('comparison_contract'), str)
-                          else None for p in phases) if phases_known else None
-        if any(c is None for c in closures):
-            missing.append('phase_closure')
-        if contracts is not None and any(not c for c in contracts):
-            missing.append('phase_contract')
-        validity = replace(Validity.of(m, drc_new=drc, widths_failed=widths), unmeasured=tuple(missing))
-        names = tuple(p.get('name') for p in phases) if phases_known else None
-        if names is not None and (any(not isinstance(n, str) or not n for n in names)
-                                  or len(set(names)) != len(names)):
-            names = None
-        return cls(m, validity, closures, clean, contracts, True, names)
+        m = dict(measures, vias=report.vias, copper_mm=report.track_mm, segments=report.segments)
+        return cls(m, Validity.of(m, drc_new=report.drc_new, widths_failed=report.widths_failed),
+                   tuple(p["final_closure_clean"] for p in report.phases), report.closure_clean)
 
 
 QUALITY_TERMS = ("vias", "copper_mm", "segments")
@@ -248,7 +179,7 @@ def _quality_term(v):
     # a bool is not a count
     if isinstance(v, bool) or not isinstance(v, (int, float)):
         return math.inf
-    if v >= 0 and (isinstance(v, int) or math.isfinite(v)):
+    if isinstance(v, int) or math.isfinite(v):
         return v
     return math.inf
 
@@ -261,7 +192,7 @@ def quality_key(measures: dict) -> tuple:
 
 
 def _routed(s: Standing) -> bool:
-    return s.routed or s.clean is not None
+    return s.clean is not None
 
 
 def _complete(s: Standing) -> bool:
@@ -281,7 +212,7 @@ def validity_order(a: Standing, b: Standing) -> int:
     return 0 if va else _sign(a.validity.key(), b.validity.key())
 
 
-def rank(a: Standing, b: Standing, cfg, *, phase_priority=None) -> int:
+def rank(a: Standing, b: Standing, cfg) -> int:
     """-1 when `a` ranks above `b`, 1 below, 0 a tie (D11-D17):
     1. validity: a valid board above an invalid one; two invalid boards by `Validity.key()`;
     2. the phases' closures in order (higher better, exact), when both are routed;
@@ -290,62 +221,17 @@ def rank(a: Standing, b: Standing, cfg, *, phase_priority=None) -> int:
        exact (D17);
     5. the run score, within its noise band (area is a term of it).
     A tie (0) keeps the incumbent: callers replace a held board only on -1, and never replace a valid board with an
-    invalid one (D12).
-
-    ``phase_priority`` is the explore run's explicit named phase order (D23).
-    Complete original contracts must still match before any tier compares.
-    Only the selected phase closures precede whole closure; omitted phases
-    remain obligations, and are not appended to the selected priorities.
-    Final-call acceptance always uses the default full configured order.
-    """
-    indices = None
-    if phase_priority is not None:
-        if not isinstance(phase_priority, (tuple, list)) or any(not isinstance(n, str) or not n for n in phase_priority):
-            raise ValueError('Phase priority must be an ordered list of phase names')
-        if len(set(phase_priority)) != len(phase_priority):
-            raise ValueError('Phase priority contains duplicate names')
-        if not (_routed(a) and _routed(b)):
-            raise ValueError('Phase priority requires two routed boards')
-    if _routed(a) and _routed(b):
-        if (a.phase_contracts is None or b.phase_contracts is None
-                or len(a.closures) != len(b.closures) or len(a.phase_contracts) != len(a.closures)
-                or len(b.phase_contracts) != len(b.closures) or a.phase_contracts != b.phase_contracts
-                or any(not c for c in a.phase_contracts)):
-            raise ValueError('Routed boards have incomparable phase obligations')
-        if a.phase_names is not None and b.phase_names is not None and a.phase_names != b.phase_names:
-            raise ValueError('Routed boards have incomparable phase names')
-        if phase_priority is not None:
-            if (a.phase_names is None or b.phase_names is None
-                    or len(a.phase_names) != len(a.closures)
-                    or len(b.phase_names) != len(b.closures)
-                    or a.phase_names != b.phase_names
-                    or len(set(a.phase_names)) != len(a.phase_names)):
-                raise ValueError('Routed boards lack comparable complete phase names')
-            if any(name not in a.phase_names for name in phase_priority):
-                raise ValueError('Phase priority names an unknown phase')
-            indices = tuple(a.phase_names.index(name) for name in phase_priority)
-    return _rank_values(a, b, cfg, indices=indices)
-
-
-def _rank_values(a: Standing, b: Standing, cfg, *, indices=None) -> int:
-    """Value tiers after a private consumer has proved complete contracts.
-
-    This helper performs no compatibility or authority validation. Public
-    callers use rank; the owned logical consumer must verify its separate
-    original fixed-ask projection before reaching these shared value tiers.
-    """
+    invalid one (D12)."""
     s = validity_order(a, b)
     if s:
         return s
     va = a.validity.valid
     if _routed(a) and _routed(b):
-        ordered = range(len(a.closures)) if indices is None else indices
-        for i in ordered:
-            ca, cb = a.closures[i], b.closures[i]
-            s = _sign(cb if cb is not None else -math.inf, ca if ca is not None else -math.inf)
+        for ca, cb in zip(a.closures, b.closures):
+            s = _sign(cb, ca)
             if s:
                 return s
-        s = _sign(b.clean if b.clean is not None else -math.inf, a.clean if a.clean is not None else -math.inf)
+        s = _sign(b.clean, a.clean)
         if s:
             return s
         if va and _complete(a) and _complete(b):
@@ -362,23 +248,15 @@ def placement_key(row, ranks=None):
     digest, so the recorded objective remains authoritative on resume. Validity
     precedes that objective using available placement evidence (including known
     DRC counts); plan-only rows do not certify DRC. Optional pin-remapped
-    objectives replace it only with a bound physical comparison receipt. Seed
+    objectives replace it. Seed
     order breaks exact ties deterministically across worker completion orders,
     with the plain seed 0 retained on a tie. Missing evidence ranks last.
     """
     seed, objective, measures = row
     if measures is None:
-        return (1, True, True, (), math.inf, seed)
+        return (1, True, (), math.inf, seed)
     validity = Validity.of(measures, drc_new=measures.get("drc"))
-    if seed in (ranks or {}) or 'placement_comparison' in measures:
-        from .score_virtual import standing
-        validity, objective = standing(row, measures.get('placement_comparison'))
-        if 'placement_comparison_unmeasured' in validity.unmeasured:
-            # Unknown proposals never beat measured invalid placements either.
-            # Within unknown rows retain the deterministic ensemble incumbent;
-            # their source counts cannot certify the absent virtual candidate.
-            return (0, True, True, (), math.inf, seed)
-    return (0, False, not validity.valid, validity.key(), objective, seed)
+    return (0, not validity.valid, validity.key(), (ranks or {}).get(seed, objective), seed)
 
 
 # Measured from the plan itself, not counted from its findings: unplaced by

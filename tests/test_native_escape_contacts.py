@@ -98,7 +98,7 @@ def test_prepared_contacts_match_python_drawn_chain_and_pad_contact_after_moves(
     from placemat.score_delta import Delta
     from placemat.values import Location
     from tests.fixtures import board_geometry, pad, track
-    from tests.test_final_board import _placed
+    from tests.fixtures import placed as _placed
     from tests.test_surface_escapes import _part_of
     module = geometry._native
     assert module is not None and hasattr(module, 'PreparedContacts')
@@ -169,7 +169,7 @@ def test_carried_member_shape_matches_python_contact_and_path_pool_split(monkeyp
     from placemat.escapes import judging, search_near
     from placemat.score_delta import Delta
     from tests.fixtures import board_geometry, pad
-    from tests.test_final_board import _placed
+    from tests.fixtures import placed as _placed
     from tests.test_surface_escapes import _part_of
     module = geometry._native
     assert module is not None and hasattr(module, 'PreparedContacts')

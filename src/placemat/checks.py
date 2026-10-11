@@ -1961,8 +1961,6 @@ def record(rec, verdicts, outcomes=()) -> list:
     rec.metrics["checks_failed"] = len(failed)
     rec.metrics["checks_accepted"] = len(accepted)
     rec.metrics["checks_unjudged"] = len(unjudged)
-    if "measures" in rec.metrics:
-        rec.metrics["measures"]["critical_checks"] = sum(v.severity == "critical" for v in verdicts)
     held = [o.line() for o in outcomes]
     if not verdicts:
         return ["no Pm.* facts on this board: no design checks ran"] + held

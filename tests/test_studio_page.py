@@ -3825,17 +3825,3 @@ out.html = runs();
     assert "9 -&gt; unmeasured common placement score (independent proposal)" in out["html"]
     assert "diagnostic only" in out["html"]
     assert "NaN" not in out["html"]
-
-
-@needs_node
-def test_source_route_diagnostic_cannot_present_virtual_remap_closure(tmp_path):
-    out = run_more(tmp_path, EXPLORE_ROUTES + r"""
-ev("S.xv.done.routes[0].score_remapped = 1; S.xv.done.routes[0].remap_refusal = {code: 'logical_terminal_proof_missing', facts: {}}; S.xv.done.taken_seed = null; S.xv.done.routed_comparison_refusals = [{code: 'logical_terminal_proof_missing'}]");
-out.html = runs();
-""")
-    three = out['html'][out['html'].index('data-xroute="3"'):out['html'].index('data-xroute="4"')]
-    assert 'source-board diagnostic only' in three and 'logical_terminal_proof_missing' in three
-    assert 'remapped-route comparison unsupported' in three
-    assert 'after its pin remap' not in three and 'taken' not in three
-    assert 'Remapped-route comparison unsupported; source routes are diagnostics.' in out['html']
-    assert 'every route failed' not in out['html']

@@ -4225,10 +4225,10 @@ function xvRoutesHTML(X) {
     const v = xvBySeed(r.seed) || {seed: r.seed}, took = r.seed === taken;
     const body = r.error ? pill("error", "bad") + " " + esc(r.error.type + ": " + (r.error.message || "").split("\n")[0])
       : esc(pct(r.closure_clean) + " clean, " + pct(r.closure) + " raw, " + r.open_after + " open, " + fmtDur(1000 * r.seconds)) + (r.valid === false ? " " + pill("DRC not clean", "warn") : "");
-    return '<div class="xpin' + (took ? " on" : "") + '" data-xroute="' + r.seed + '"><div class="xpinh"><b>' + esc(seedWord(v)) + "</b><span>" + f1(r.score) + (r.remapped ? xvRemapped(r) : "") + "</span>" +
-      (took ? pill("taken", "good") : "") + "</div><div>" + body + (r.remap_refusal ? "; source-board diagnostic only; remapped-route comparison unsupported (" + esc(r.remap_refusal.code) + ")" : r.remapped ? ", routed with its pin remap on its pads" : "") + "</div></div>";
+    return '<div class="xpin' + (took ? " on" : "") + '" data-xroute="' + r.seed + '"><div class="xpinh"><b>' + esc(seedWord(v)) + "</b><span>" + f1(r.score) + xvRemapped(r) + "</span>" +
+      (took ? pill("taken", "good") : "") + "</div><div>" + body + (r.remapped ? ", routed with its pin remap on its pads" : "") + "</div></div>";
   }).join("");
-  return '<div class="xroutes"><div class="cst">Routes</div>' + waits + rows + (X.done && taken == null ? (X.done.routed_comparison_refusals ? "<div>Remapped-route comparison unsupported; source routes are diagnostics.</div>" : "<div>every route failed: the best score is taken</div>") : "") + "</div>";
+  return '<div class="xroutes"><div class="cst">Routes</div>' + waits + rows + (X.done && taken == null ? "<div>every route failed: the best score is taken</div>" : "") + "</div>";
 }
 function drawExplore() {
   const svg = typeof B !== "undefined" && B.svg; if (!svg || !svg.querySelectorAll) return;

@@ -362,8 +362,6 @@ def standing(rec: RunRecord):
     from . import score as _score
     m = rec.metrics["measures"]
     route = rec.metrics.get("route") or {}
-    if route:
-        return _score.Standing.of_route(m, route)
     drc_new = m.get("drc", 0) if "drc_real" in rec.metrics else None
     return _score.Standing(m, _score.Validity.of(m, drc_new=drc_new, widths_failed=route.get("widths_failed", 0)),
                            tuple(p["final_closure_clean"] for p in route.get("phases") or ()),
@@ -378,10 +376,7 @@ def is_better(now: RunRecord, best: RunRecord | None, cfg=None) -> bool:
         return False
     if best is None:
         return True
-    try:
-        return _score.rank(standing(now), standing(best), _cfg(cfg)) < 0
-    except ValueError:  # Different phase obligations are not a board regression or improvement.
-        return False
+    return _score.rank(standing(now), standing(best), _cfg(cfg)) < 0
 
 
 def regression_of(now: RunRecord, best: RunRecord | None, cfg=None) -> dict | None:
@@ -394,17 +389,14 @@ def regression_of(now: RunRecord, best: RunRecord | None, cfg=None) -> dict | No
         return None
     cfg = _cfg(cfg)
     a, b = standing(now), standing(best)
-    try:
-        if _score.rank(a, b, cfg) <= 0:
-            return None
-    except ValueError:
+    if _score.rank(a, b, cfg) <= 0:
         return None
     out = {"best_run": best.run_id}
     if a.validity.valid != b.validity.valid or a.validity.key() != b.validity.key():
         return dict(out, tier="validity", now=list(a.validity.key()), best=list(b.validity.key()),
-                    names=["unplaced_high", "unplaced_default", "unplaced_low", "drc_new", "widths_failed", "critical", "unmeasured"])
+                    names=["unplaced_high", "unplaced_default", "unplaced_low", "drc_new", "widths_failed", "critical"])
     routed = a.clean is not None and b.clean is not None
-    if routed and a.closures != b.closures:
+    if routed and a.closures[:len(b.closures)] != b.closures[:len(a.closures)]:
         return dict(out, tier="closures", now=list(a.closures), best=list(b.closures))
     if routed and a.clean != b.clean:
         return dict(out, tier="clean", now=a.clean, best=b.clean)

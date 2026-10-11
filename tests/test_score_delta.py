@@ -47,7 +47,7 @@ def test_python_escape_delta_matches_whole_and_carries_unpriced_wall_evidence():
     from placemat.score_delta import Delta
     from placemat.values import Location
     from tests.fixtures import board_geometry, pad, track
-    from tests.test_final_board import _placed
+    from tests.fixtures import placed as _placed
     from tests.test_surface_escapes import _part_of, _round_pad
     main = _part_of('P1', 'p1', [_round_pad('P1', 'p1', 1, 'S', 30, 30, 1.0)], 30, 30)
     target = _part_of('T1', 't1', [pad('T1', 't1', 1, 'S', 10, 30, 1.0, 1.0)], 10, 30)
@@ -155,7 +155,7 @@ def test_sparse_candidate_view_preserves_raw_nearest_ties_and_multiland_anchor_i
     from placemat.score_delta import Delta
     from placemat.values import Face, Location
     from tests.fixtures import board_geometry, pad
-    from tests.test_final_board import _placed
+    from tests.fixtures import placed as _placed
     from tests.test_surface_escapes import _part_of
     def part(ref, x, y):
         return _part_of(ref, ref.lower(), [pad(ref, ref.lower(), 1, 'S', x, y, 0.3, 0.3)], x, y)

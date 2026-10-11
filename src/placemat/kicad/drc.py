@@ -250,18 +250,6 @@ def unconnected_items(data: dict, insts: dict | None = None) -> list:
     return out
 
 
-def open_net_counts(data):
-    """The first named net of each unconnected DRC item, as run_drc counts it."""
-    counts = Counter()
-    for record in data.get("unconnected_items", []):
-        for item in record.get("items", []):
-            match = re.search(r"\[([^\]]+)\]", item.get("description", ""))
-            if match:
-                counts[match.group(1)] += 1
-                break
-    return counts
-
-
 def run_drc(pcb, out_json, refill_zones: bool | None = None, timeout: int | None = None,
             real_kinds=None, outstanding_kinds=None, allow=None, frame_only: bool = False, run=None) -> DrcReport:
     """Run kicad-cli DRC (zones refilled for the check only; the board file is
@@ -300,5 +288,10 @@ def run_drc(pcb, out_json, refill_zones: bool | None = None, timeout: int | None
     report.libraries = library_table(pcb)
     unconnected = data.get("unconnected_items", [])
     report.unconnected = len(unconnected)
-    report.open_nets = open_net_counts(data)
+    for x in unconnected:
+        for i in x.get("items", []):
+            m = re.search(r"\[([^\]]+)\]", i.get("description", ""))
+            if m:
+                report.open_nets[m.group(1)] += 1
+                break
     return report

@@ -161,20 +161,6 @@ def test_all_lands_of_one_physical_pin_get_same_net():
                if shape.kind in ('pad', 'through') and shape.label == '1')
 
 
-def test_required_electrical_intent_never_inherits_stale_success():
-    board, plan, inp, group = scene()
-    geometry = plan.occupancy.geometry
-    changed = replace(geometry, footprints=tuple(replace(fp, fields={**fp.fields, 'Pm.I': 'A:3A'})
-                                                 if fp.ref == 'U1' else fp for fp in geometry.footprints),
-                      _by_ref={}, _by_inst={})
-    plan.occupancy.geometry = changed
-    plan.geometry = changed
-    board.geometry = changed
-    result = Finalists(board, plan).evaluate(inp, ((('U1',), group.results[0]),))
-    assert result.validity.unmeasured == ('final electrical geometry unavailable: U1',)
-    assert not result.validity.valid
-
-
 def test_bend_generator_gain_can_hide_a_common_objective_loss():
     board, plan, inp, _ = scene(points=[(11, 22), (18, 12), (9, 26), (8, 25)],
                                 paired=True, source_nets=('B', 'D', 'C', 'A'))
@@ -304,7 +290,7 @@ def test_stale_input_and_ambiguous_source_refuse(change):
     result = Finalists(board, plan).evaluate(inp, ((('U1',), group.results[0]),))
     assert result.reasons
     assert result.refusals[0]['code'] == ('ambiguous_reference' if change == 'duplicate' else 'study_context_stale')
-    assert not result.validity.valid
+    assert result.key[0]                    # a refused finalist ranks below every judged one
     assert (dict(plan.occupancy.items), tuple(plan.occupancy.copper)) == before
 
 

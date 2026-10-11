@@ -776,36 +776,6 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
                 metrics["measures"].update(routed_quality(report.routed_pcb))
                 rec.timing_s["route"] = round(time.time() - t0, 1)
                 say("route", "%s  (%.0fs)" % (report.summary(), rec.timing_s["route"]))
-                # Placement checks remain diagnostics; the routed PCB supplies
-                # authoritative current paths and escape validity.
-                from . import final_board
-                metrics['placement_checks'] = {'verdicts': rec.verdicts, 'acceptances': rec.acceptances}
-                metrics['placement_measures'] = dict(metrics['measures'],
-                    findings=dict(metrics['measures'].get('findings') or {}))
-                check_start = time.time()
-                try:
-                    final = final_board.judge(board, plan, report.routed_pcb, metrics['measures'])
-                except Exception as e:
-                    metrics['route']['critical_checks'] = None
-                    metrics['route']['final_check_error'] = '%s: %s' % (type(e).__name__, e)
-                    raise RunFailure('checks', 'Final routed checks failed',
-                                     {'error': metrics['route']['final_check_error']}) from e
-                metrics['measures'] = final.measures
-                metrics['route'].update(final.evidence())
-                metrics['checks_from'] = str(report.routed_pcb)
-                for line in checks.record(rec, final.verdicts, final.outcomes):
-                    say('checks', line)
-                from .findings import FindingKind
-                escaped = {FindingKind.ESCAPE_CROSSED, FindingKind.ESCAPE_VIA,
-                           FindingKind.ESCAPE_CLOSED, FindingKind.ESCAPE_WALLED, FindingKind.PAIR_CROSSED}
-                stale_ids = {id(f) for f in stale}
-                plan.findings[:] = [f for f in plan.findings if id(f) not in stale_ids
-                                    and getattr(f, 'kind', None) not in escaped]
-                plan.findings.extend(final.findings)
-                suggestions_mod.bind(plan.findings, board)
-                for f in final.findings:
-                    console.finding(f, 'route')
-                rec.timing_s['checks_final'] = round(time.time() - check_start, 1)
                 for breach in report.keepout_breaches:
                     say("route", breach, level="finding")
                 if report.has_findings():

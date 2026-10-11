@@ -46,8 +46,7 @@ def _copper_item(op, owner: str, layers):
     """The CopperItem the board reader would hold for `op` (kicad/read.py _copper); None for a text."""
     if isinstance(op, Track):
         return CopperItem("track", op.net, frozenset([op.layer]), (op.polygon,), op.box, owner, op.width, 0.0,
-                          ((op.start.x, op.start.y), (op.end.x, op.end.y)), op.length,
-                          track_form="straight" if op.mid is None else "arc")
+                          ((op.start.x, op.start.y), (op.end.x, op.end.y)), op.length)
     if isinstance(op, Via):
         return CopperItem("via", op.net, frozenset(op.layers) if op.layers else frozenset(layers), (op.polygon,), op.box, owner,
                           op.size, op.drill, ((op.at.x, op.at.y),))

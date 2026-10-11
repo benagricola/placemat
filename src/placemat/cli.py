@@ -66,9 +66,9 @@ def parser() -> argparse.ArgumentParser:
                           "The route in hand and the one waiting when the search ends are finished after it, so the run "
                           "can last past the --explore SECONDS")
     run.add_argument("--rank-remapped", action="store_true", default=None,
-                     help="with --explore: judge simultaneous pin finalists by the common placement score; "
-                          "routed remap comparison requires a logical-terminal proof and currently refuses "
-                          "(default [explore] rank_remapped)")
+                     help="with --explore: give every variant the pin map study and rank the variants on the run score "
+                          "less what its best pin remaps save, judged together on the run score; with --route-best a "
+                          "variant is routed with those remaps on its pads (default [explore] rank_remapped)")
     run.add_argument("--resume", action="store_true",
                      help="with --explore: continue the saved explore of this script (its untried seeds, the rest of "
                           "its time) or refuse, saying what changed; without it a saved explore that is this one is "

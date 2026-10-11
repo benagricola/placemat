@@ -100,9 +100,16 @@ def make_pdf(path, body: str):
 
 
 def placement_findings(plan) -> list:
-    """The plan's findings less the escape findings: a routing diagnosis the
-    geometry tests are not about."""
-    return [f for f in plan.findings if not getattr(f, "kind", "").startswith("escape_")]
+    """The plan's findings less the escape findings, a routing diagnosis, and the `turn.better` notices, advice on the
+    run score: neither is what the geometry tests are about."""
+    return [f for f in plan.findings if not getattr(f, "kind", "").startswith("escape_")
+            and getattr(f, "cause", None) is not FindingCause.TURN_BETTER]
+
+
+def unturned_findings(plan) -> list:
+    """The plan's findings less the `turn.better` notices: advice on the run score, which a test of where a part may
+    stand is not about."""
+    return [f for f in plan.findings if getattr(f, "cause", None) is not FindingCause.TURN_BETTER]
 
 
 def declared_findings(plan) -> list:
@@ -113,3 +120,14 @@ def declared_findings(plan) -> list:
     return [f for f in plan.findings if "no declaration places it" not in f
             and not getattr(f, "kind", "").startswith("escape_")
             and getattr(f, "cause", None) is not FindingCause.TURN_BETTER]
+
+
+def placed(geometry):
+    """(board, plan): every footprint of `geometry` placed where it stands on a 50 x 50 mm outline, and resolved."""
+    from placemat.layout import Board
+    from placemat.values import Part
+    board = Board(geometry, keep_going=True)
+    board.rect(width=50, height=50)
+    for fp in geometry.footprints:
+        board.place(Part(fp.inst), at=fp.location, rotation=fp.rotation, face=fp.face)
+    return board, board.resolve()

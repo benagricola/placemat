@@ -7,9 +7,8 @@ An open board (a manifest board with test "b") is run from a clean copy of fixtu
 `placemat run --route --route-full`: the script is linted first and a lint failure is a failed result. The result is
 compared with results.json["b"] and carries the human board's vias and track length and test (a)'s clean closure of
 the same board. With --modules the module fixtures (every fixtures/*/modules/*/*_layout.py) are run with
-`placemat run --route` instead of the boards. Complete routed evidence is compared by shared validity, original
-phase closure, whole closure, routed quality and common score; legacy scalar rows remain diagnostics. Results of runs
-whose placemat, router or zener versions differ in a component other than those named in
+`placemat run --route` instead of the boards, and compared with results.json["modules"]: closure, then the area of the
+fitted frame. Results of runs whose placemat, router or zener versions differ in a component other than those named in
 --changing are not compared. --update rewrites the entries of the boards or modules it ran in results.json, after each
 one, and keeps the rest. A refused or failed run is a result with its failure kind, not an error of the runner; so is a
 board or module whose preparation raises, with the exception's type as its kind.
@@ -18,11 +17,9 @@ Real boards: it takes the realboard lock (lock.py) for the whole run, so it wait
 from __future__ import annotations
 
 import argparse
-from copy import deepcopy
 import dataclasses
 import hashlib
 import json
-import math
 import pathlib
 import shutil
 import subprocess
@@ -71,9 +68,6 @@ class BResult:
     inputs_digest: str = ""   # of the capture's generator inputs: a changed capture is a difference, not a regression
     placement: dict = dataclasses.field(default_factory=dict)   # placement_facts: kept when the route fails or is refused
     measures: dict = dataclasses.field(default_factory=dict)    # the run's measures (score.py), routed quality included
-    route_report: dict = dataclasses.field(default_factory=dict)
-    score_settings: dict = dataclasses.field(default_factory=dict)
-    reference_drc: dict = dataclasses.field(default_factory=dict)  # distinct prepared-baseline comparison evidence
 
 
 @dataclasses.dataclass(frozen=True)
@@ -89,8 +83,6 @@ class MResult:
     inputs_digest: str = ""
     placement: dict = dataclasses.field(default_factory=dict)
     measures: dict = dataclasses.field(default_factory=dict)    # the run's measures (score.py), routed quality included
-    route_report: dict = dataclasses.field(default_factory=dict)
-    score_settings: dict = dataclasses.field(default_factory=dict)
 
 
 def asdict(result) -> dict:
@@ -210,7 +202,7 @@ def run_b(board: fetch.Board, ref_dir: pathlib.Path, work: pathlib.Path, *, prep
     folder = work / "board"
     _copy_folder(ref_dir, folder)
     copied = folder / script.name
-    cfg = _apply_overrides(copied, overrides or {})
+    _apply_overrides(copied, overrides or {})
     record, seconds = placemat_run(copied, FULL_ROUTE)
     versions["krt"] = krt_version(folder)
     placement = placement_facts(record, folder, script=copied)
@@ -224,9 +216,7 @@ def run_b(board: fetch.Board, ref_dir: pathlib.Path, work: pathlib.Path, *, prep
     new = route_ref.new_violations(prepare.violations_of(route["drc_after"]), prepared.baseline)
     return result(closure_clean=route.get("closure_clean", NOT_RUN), open=route.get("open_after", 0), new_violations=new,
                   vias=routed.vias, track_mm=routed.track_mm, run_score=run_score(record, folder, script=copied), seconds=round(seconds, 1),
-                  versions=versions, placement=placement, measures=record["metrics"].get("measures") or {},
-                  route_report=deepcopy(route), score_settings=_score_settings(cfg),
-                  reference_drc={"baseline": "prepared_reference", "new_violations": len(new)})
+                  versions=versions, placement=placement, measures=record["metrics"].get("measures") or {})
 
 
 def _area(metrics: dict) -> float:
@@ -258,7 +248,7 @@ def run_module(name: str, script: pathlib.Path, work: pathlib.Path, *, versions:
     versions = dict(versions if versions is not None else route_ref.current_versions())
     digest = generation_inputs(script)
     copy = _copy_family(script, pathlib.Path(work) / "workspace")
-    cfg = _apply_overrides(copy, overrides or {})
+    _apply_overrides(copy, overrides or {})
     record, seconds = placemat_run(copy)
     versions["krt"] = krt_version(copy.parent)
     placement = placement_facts(record, copy.parent, script=copy)
@@ -268,12 +258,7 @@ def run_module(name: str, script: pathlib.Path, work: pathlib.Path, *, versions:
                        placement)
     metrics = record["metrics"]
     return MResult(name, metrics.get("closure_clean", NOT_RUN), _area(metrics), run_score(record, copy.parent, script=copy), round(seconds, 1),
-                   versions, inputs_digest=digest, placement=placement, measures=metrics.get("measures") or {},
-                   route_report=deepcopy(metrics.get("route") or {}), score_settings=_score_settings(cfg))
-
-
-def _score_settings(cfg):
-    return {key: getattr(cfg, key) for key in cfg.keys() if key.startswith("score_")}
+                   versions, inputs_digest=digest, placement=placement, measures=metrics.get("measures") or {})
 
 
 def _differ(old: dict, new, changing: set[str]) -> list[str]:
@@ -284,141 +269,61 @@ def _differ(old: dict, new, changing: set[str]) -> list[str]:
     return differ + (["inputs"] if new.inputs_digest and old.get("inputs_digest", "") != new.inputs_digest else [])
 
 
+def _worse_closure(old: dict, new) -> bool:
+    return bool(new.failure) and not old.get("failure") or new.closure_clean < old["closure_clean"]
+
+
 def _compared(old: dict | None, new, changing: set[str], value) -> route_ref.Comparison:
     if old is None:
         return route_ref.Comparison("new", [])
     differ = _differ(old, new, changing)
-    verdict = value(old, new)
     if differ:
-        return route_ref.Comparison("not comparable", differ, "" if verdict == "not comparable" else verdict)
-    if verdict == "not comparable":
-        return route_ref.Comparison(verdict, ["routed evidence/settings"])
-    return route_ref.Comparison(verdict, [])
+        return route_ref.Comparison("not comparable", differ, value(old, new))
+    return route_ref.Comparison(value(old, new), [])
 
 
-def _ranked(old: dict, new) -> str:
-    """Compare complete routed evidence at identical effective score settings.
-
-    Legacy closure/area values remain display diagnostics; they cannot certify
-    a routed comparison without final phase, width and critical evidence.
-    """
+def _ranked(old: dict, new) -> str | None:
+    """same, better or worse by `score.rank` when both runs recorded their measures and neither failed: the new
+    violations as the DRC errors beyond the baseline (a board's; None for a module) and the clean closure, closures ()
+    as a run records no phases yet. None otherwise: a record from before the measures is judged as it was."""
+    if new.failure or old.get("failure") or not new.measures or not old.get("measures"):
+        return None
     from placemat import score
-    from placemat.settings import Settings, SettingsError, _validate
-    if new.failure and not old.get("failure"):
-        return "worse"
-    current = asdict(new)
-    prices = current.get("score_settings")
-    expected = _score_settings(Settings())
-    if (not isinstance(prices, dict) or set(prices) != set(expected)
-            or prices != old.get("score_settings")):
-        return "not comparable"
-    for key, value in prices.items():
-        if type(value) not in (int, float):
-            return "not comparable"
-        try:
-            finite = math.isfinite(value)
-        except OverflowError:
-            finite = False
-        if not finite:
-            return "not comparable"
-        try:
-            _validate(key, value, 'reference score settings')
-        except SettingsError:
-            return "not comparable"
-    if (new.failure or old.get("failure") or not new.measures or not old.get("measures")
-            or new.measures.get("v") != score.MEASURES_VERSION
-            or old["measures"].get("v") != score.MEASURES_VERSION):
-        return "not comparable"
-    cfg = dataclasses.replace(Settings(), **prices)
+    from placemat.settings import Settings
 
-    def standing(row):
-        report = row.get("route_report")
-        if not isinstance(report, dict) or not report:
-            return None
-        if not _known_widths(report):
-            return None
-        result = score.Standing.of_route(row["measures"], report)
-        if result.validity.unmeasured or not result.phase_names or not result.phase_contracts:
-            return None
-        reference = row.get("reference_drc")
-        if "new_violations" in row:
-            if (not isinstance(reference, dict) or reference.get("baseline") != "prepared_reference"
-                    or type(reference.get("new_violations")) is not int
-                    or reference["new_violations"] != len(row["new_violations"])):
-                return None
-            result = dataclasses.replace(result, validity=dataclasses.replace(
-                result.validity, drc_new=reference["new_violations"]))
-        return result
-    a, b = standing(current), standing(old)
-    if a is None or b is None:
-        return "not comparable"
-    if (a.phase_contracts != b.phase_contracts or a.phase_names != b.phase_names
-            or len(a.closures) != len(b.closures)):
-        return "not comparable"
-    return {-1: "better", 0: "same", 1: "worse"}[score.rank(a, b, cfg)]
-
-
-def _known_widths(report):
-    """Require graded unknown evidence or complete serialized phase checks."""
-    if 'required_width_unknown' in report:
-        return type(report['required_width_unknown']) is list and not report['required_width_unknown']
-    phases = report.get('phases')
-    if type(phases) is not list or not phases:
-        return False
-    for phase in phases:
-        if type(phase) is not dict:
-            return False
-        asked, joined = phase.get('final_asked'), phase.get('final_joined')
-        opened, policy = phase.get('final_open'), phase.get('width_policy')
-        if (type(asked) is not int or type(joined) is not int or not 0 <= joined <= asked
-                or type(opened) is not list or joined + len(opened) != asked or type(policy) is not list
-                or (asked and not policy)):
-            return False
-        if phase.get('final_closure_clean') != (round(joined / asked, 4) if asked else 1.0):
-            return False
-        required_nets = set()
-        for obligation in opened:
-            if (type(obligation) is not dict or obligation.get('width_policy_unknown', False) is not False
-                    or obligation.get('width_unknown', False) is not False
-                    or type(obligation.get('net')) is not str or not obligation['net']):
-                return False
-            required_nets.add(obligation['net'])
-        known_nets = set()
-        for scope in policy:
-            if type(scope) is not dict or scope.get('name') != phase.get('name'):
-                return False
-            nets = scope.get('by_net')
-            if type(nets) is not dict or (asked and not nets):
-                return False
-            if any(type(net) is not str or not net for net in nets):
-                return False
-            known_nets.update(nets)
-            for entry in nets.values():
-                if type(entry) is not dict or entry.get('status') != 'known':
-                    return False
-                widths = entry.get('widths')
-                if type(widths) is not dict or not widths:
-                    return False
-                for layer, width in widths.items():
-                    if type(layer) is not str or not layer or type(width) not in (int, float):
-                        return False
-                    try:
-                        finite = math.isfinite(width)
-                    except OverflowError:
-                        finite = False
-                    if not finite or width <= 0:
-                        return False
-        if not required_nets <= known_nets:
-            return False
-    return True
+    def standing(r: dict):
+        m = r["measures"]
+        drc = len(r["new_violations"]) if "new_violations" in r else m.get("drc")
+        return score.Standing(m, score.Validity.of(m, drc_new=drc), (), r["closure_clean"])
+    return {-1: "better", 0: "same", 1: "worse"}[score.rank(standing(asdict(new)), standing(old), Settings())]
 
 
 def b_by_value(old: dict, new: BResult) -> str:
-    return _ranked(old, new)
+    """same, better or worse on the values alone: by `score.rank` when both recorded their measures (`_ranked`), else
+    worse is a lower clean closure or a failure the recorded run had not."""
+    ranked = _ranked(old, new)
+    if ranked is not None:
+        return ranked
+    if _worse_closure(old, new):
+        return "worse"
+    if new.closure_clean > old["closure_clean"] or (old.get("failure") and not new.failure):
+        return "better"
+    return "same"
 
 
 def module_by_value(old: dict, new: MResult) -> str:
-    return _ranked(old, new)
+    """same, better or worse on the values alone: by `score.rank` when both recorded their measures (`_ranked`: area is a
+    term of the run score, D16), else worse is a lower clean closure, or at equal closure a larger area."""
+    ranked = _ranked(old, new)
+    if ranked is not None:
+        return ranked
+    if _worse_closure(old, new):
+        return "worse"
+    if new.closure_clean > old["closure_clean"]:
+        return "better"
+    if new.area_mm2 > old["area_mm2"]:
+        return "worse"
+    return "better" if new.area_mm2 < old["area_mm2"] else "same"
 
 
 def compare_b(old: dict | None, new: BResult, changing: set[str]) -> route_ref.Comparison:

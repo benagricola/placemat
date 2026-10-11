@@ -8,8 +8,7 @@ executable map or turn without a common current-board judgment.
 
 Plan-bound findings, explore summaries and longer advice rebuild that physical
 context. Generator-only diagnostics may use `Board.pin_study_cache`; common
-finalist judgments are never reused from it. Nothing here writes a board or
-certifies routed terminal-contract equivalence.
+finalist judgments are never reused from it. Nothing here writes a board.
 """
 from __future__ import annotations
 
@@ -347,7 +346,6 @@ def study_findings(pads, parts, names, quiet, partners, netclasses, settings, co
             baseline = evaluator.evaluate(inp)
             combined = evaluator.evaluate(inp, tuple(selected))
             proved = (bool(selected) and not baseline.refusals and not combined.refusals
-                      and not baseline.validity.unmeasured and not combined.validity.unmeasured
                       and combined.key < baseline.key)
             if proved:
                 _stamp_maps(inp, facts_of, kept)
@@ -502,7 +500,7 @@ def plan_summary(board, plan, refs=None, settings=None) -> list:
     """Independent group judgments in the current common placement context.
 
     Generator breakdowns are diagnostics; adoption of several groups requires
-    a separate simultaneous judgment. No routed contract is certified here.
+    a separate simultaneous judgment.
     """
     choices = _plan_choices(board, plan, refs, settings)
     if not choices:
@@ -530,18 +528,7 @@ def plan_summary(board, plan, refs=None, settings=None) -> list:
 def plan_remap(board, plan):
     """Judge chosen independent finalists simultaneously before placement ranking.
 
-    This is a placement proposal, not a routed writer or phase equivalence proof.
     No sum of independent gains certifies the combined physical candidate.
-    """
-    proposal = _plan_remap_proposal(board, plan)
-    return proposal[0] if proposal is not None else None
-
-
-def _plan_remap_proposal(board, plan):
-    """Keep the exact combined finalist available to a live routing worker.
-
-    The returned data is a placement proposal, never routing authority.
-    Public callers receive only its diagnostic through ``plan_remap``.
     """
     choices = _plan_choices(board, plan)
     if not choices:
@@ -564,18 +551,16 @@ def _plan_remap_proposal(board, plan):
                        "map": _map(inp, group.refs, group.present_assign, candidate.assign),
                        "turns": _turns(inp, candidate.poses), "reason": selection.reason})
     final = evaluator.evaluate(inp, tuple(picked))
-    measured = not (baseline.refusals or final.refusals or baseline.validity.unmeasured or final.validity.unmeasured)
+    measured = not (baseline.refusals or final.refusals)
     # Ranking's scalar shortcut is allowed only within the same validity tier.
     gain = baseline.total - final.total if measured else 0.0
     actionable = bool(picked) and measured and final.key < baseline.key
     scalar_gain = gain if actionable and final.validity.key() == baseline.validity.key() else 0.0
-    diagnostic = {"scope": "placement", "saving": scalar_gain, "gain": gain,
+    return {"scope": "placement", "saving": scalar_gain, "gain": gain,
             "baseline": baseline.record(), "final": final.record(),
             "actionable": actionable, "groups": groups,
             "reason": ("validity repair" if actionable and final.validity.key() < baseline.validity.key()
-                       else "common objective gain" if actionable else "no certified combined improvement"),
-            "routed_comparison": {"code": "logical_terminal_proof_missing", "facts": {}}}
-    return diagnostic, inp, tuple(picked), final
+                       else "common objective gain" if actionable else "no certified combined improvement")}
 
 
 def _incoming_advice_problem(advice):
@@ -670,14 +655,12 @@ def longer_advice(board, plan, advice: dict, budget_steps: int) -> tuple:
     incoming = Finalists(board, plan, s).evaluate(inp, ((tuple(advice["refs"]),
                                                        SimpleNamespace(assign=assign, poses=tuple(poses))),))
     g["incoming"] = incoming.record()
-    if incoming.refusals or incoming.validity.unmeasured:
-        g["incoming_refusal"] = (incoming.refusals[0] if incoming.refusals else
-                                 {"code": "common_judgment_unmeasured",
-                                  "facts": {"subjects": list(incoming.validity.unmeasured)}})
+    if incoming.refusals:
+        g["incoming_refusal"] = incoming.refusals[0]
         return None, g
     from .score import Validity
     best = g["best"]
-    if (Validity(**best["validity"]).key(), best["total"]) >= incoming.key:
+    if (False, Validity(**best["validity"]).key(), best["total"]) >= incoming.key:
         return None, g
     return {"refs": g["refs"], "rotation": g["rotation"], "turns": g["turns"], "map": g["map"],
             "total": best["total"], "score_scope": "placement", "common": best,

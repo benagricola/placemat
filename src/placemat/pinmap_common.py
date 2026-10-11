@@ -108,13 +108,11 @@ class Evaluation:
     total: float
     refusals: tuple = ()
     occupancy: object = field(default=None, repr=False, compare=False)
-    board: object = field(default=None, repr=False, compare=False)
-    plan: object = field(default=None, repr=False, compare=False)
-    measures: object = field(default=None, repr=False, compare=False)
 
     @property
     def key(self):
-        return self.validity.key(), self.total
+        """(refused, validity key, total), lower better: a refused finalist ranks below every judged one."""
+        return bool(self.refusals), self.validity.key(), self.total
 
     @property
     def reasons(self):
@@ -167,7 +165,7 @@ class Finalists:
         best = min(range(len(finals)), key=lambda index: finals[index].key)
         chosen = finals[best]
         gain = baseline.total - chosen.total if math.isfinite(baseline.total) and math.isfinite(chosen.total) else 0.0
-        if baseline.refusals or chosen.refusals or chosen.validity.unmeasured:
+        if baseline.refusals or chosen.refusals:
             return Selection(baseline, finals, best, gain, 'unmeasured candidate', False)
         if chosen.validity.key() < baseline.validity.key():
             return Selection(baseline, finals, best, gain, 'validity repair', True)
@@ -393,27 +391,13 @@ class Finalists:
                     back_faces -= int(step.back_face and step.placement.face is Face.BACK)
                     back_faces += int(step.placement.face is Face.FRONT)
             terms['back_face'] = self.settings.score_back_face * back_faces
-            measures['back_face'] = back_faces
             selected = {ref for refs, _ in groups for ref in refs}
             pin_failures = sum(len(part.slots.breaks) for part in inp.parts if present or part.ref not in selected)
             validity = score.Validity.of(measures)
             validity = replace(validity, critical=validity.critical + pin_failures)
-            from placemat import checks
-            facts = checks.facts(self.plan.occupancy.geometry)
-            required = tuple(sorted(ref for ref, fact in facts.items()
-                                    if fact.current_a is not None or fact.currents is not None
-                                    or fact.sensitive or fact.aggressor))
-            if required:
-                # Occupancy polygons are the placement oracle, not a lossless
-                # electrical readback of track widths, arcs and filled pours.
-                # A writer/read/check proof is required before these candidates
-                # may claim the source's electrical success.
-                validity = replace(validity, unmeasured=tuple(
-                    f'final electrical geometry unavailable: {ref}' for ref in required))
-            return Evaluation(terms, validity, math.fsum(terms.values()), occupancy=occ,
-                              board=board, plan=candidate_plan, measures=measures)
+            return Evaluation(terms, validity, math.fsum(terms.values()), occupancy=occ)
         except CandidateRefused as error:
-            return Evaluation({}, score.Validity(unmeasured=(error.code,)), math.inf, (error.record(),))
+            return Evaluation({}, score.Validity(), math.inf, (error.record(),))
 
     def _bind_input(self, inp):
         """Require a study of this exact current physical and logical context."""

@@ -1243,7 +1243,7 @@ def pins_remap(f, settings):
     picks = [f["best"]]
     here = f['rotations'][0]
     if (f["best"] != 0 and here.get('common', {}).get('total') is not None
-            and not here['common'].get('refusals') and not here['common']['validity'].get('unmeasured')
+            and not here['common'].get('refusals')
             and here["total"] < f["present"]["total"] - 1e-9
             and here['common']['validity'] == f['common']['finalists'][f['best']]['validity']):
         picks.append(0)

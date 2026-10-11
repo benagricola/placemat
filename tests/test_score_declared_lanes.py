@@ -47,23 +47,3 @@ def test_blocker_move_rechecks_other_parts_declared_lanes_without_global_mutatio
         assert counts[0] > counts[1], 'a blocker-only move must affect a different parts declared escape'
     finally:
         occ.unlift({'C1'})
-
-
-def test_final_declared_lane_measure_replaces_stale_placement_count(monkeypatch):
-    from pathlib import Path
-    from placemat import final_board
-    from placemat.occupancy import Occupancy
-    monkeypatch.setattr('placemat.layout.Board._report_turns', lambda *args: None)
-    board, _ = _board([44, 45], bypass_at=(25.35, 28.0))
-    plan = board.resolve()
-    measures = score.plan_measures(board, plan)
-    measures['findings']['escape_lane'] = 999
-    monkeypatch.setattr('placemat.kicad.read.read_board', lambda path: board.geometry)
-    final = final_board.judge(board, plan, Path('routed.kicad_pcb'), measures)
-    assert final.measures['findings']['escape_lane'] == board._declared_lanes_blocked(
-        # This source geometry models the final board before lane copper was
-        # drawn; final judgement must use that loaded copper, not plan copper.
-        Occupancy(
-            board.geometry, board.edge_margin, board_shape=plan.occupancy.board_shape,
-            settings=board.settings, component_spacing=board.component_spacing, rules=board._rules), plan)
-    assert final.measures['findings']['escape_lane'] != 999

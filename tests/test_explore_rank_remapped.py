@@ -133,23 +133,18 @@ class SupportedPoolBoard:
         return out
 
 
-def test_routed_remap_without_logical_proof_is_source_diagnostic_only(tmp_path, events):
+def test_the_routing_worker_makes_the_remap_on_the_board_it_routes(tmp_path, events):
     report, _ = explore.search(SupportedPoolBoard(), tmp_path / "Board_layout.py", seconds=30, jobs=1,
                                 seeds=[0, 104], keys=['u1'], route_best=True, variants_dir=tmp_path / "explore",
-                                router=RemapRouter(tmp_path / "routes.log"), accept=True)
-    routed = {row["seed"]: row for row in report["routes"]}
+                                router=RemapRouter(tmp_path / "routes.log"))
     log = [json.loads(line) for line in (tmp_path / "routes.log").read_text().splitlines()]
-    assert not [row for row in log if row.get('kind') == 'remap']
-    assert report['routed_comparison_refusals']
-    assert 'taken_seed' not in report
-    assert not report['accepted'] and report['accept_refusal']['code'] == 'routed_remap_comparison_unsupported'
-    for row in routed.values():
-        assert row['remap_refusal']['code'] == 'logical_terminal_proof_missing'
-        assert row['route_scope'] == 'source_diagnostic' and not row['comparison_supported']
-        assert 'remapped' not in row
-        line = explore.route_line(row)
-        assert 'source-board diagnostic only' in line and 'unsupported' in line
-        assert 'after its pin remap' not in line
+    remaps = [row for row in log if row.get('kind') == 'remap']
+    assert remaps and all(row["groups"][0]["refs"] == ["U1"] for row in remaps)
+    routed = [row for row in report["routes"] if row.get("remapped")]
+    assert routed
+    for row in routed:
+        assert row["remapped"]["pads"] >= 1 and row["remapped"]["saving"] >= 0
+        assert explore.route_line(row).endswith("; routed with its pin remap made on its pads")
 
 
 class RemapRouter(eb.StandInRouter):
@@ -163,14 +158,11 @@ class RemapRouter(eb.StandInRouter):
 
 
 def test_the_checkpoint_ranks_by_the_remapped_score_and_a_resume_keeps_it(tmp_path):
-    from tests.test_score_virtual import proof
-    rows = [proof(seed=seed, objective=value, source_critical=0, final_critical=0, gain=gain)
-            for seed, value, gain in [(0, 100.0, 4.0), (1, 98.0, 0.0), (2, 99.0, 8.0)]]
     ck = checkpoint.Checkpoint(tmp_path, {"script": "s", "lock": "l"}, ["r1"])
-    ck.start(100.0, rows[0][2], 10.0, None, rank=96.0)
+    ck.start(100.0, {}, 10.0, None, rank=96.0)
     payload = {"entries": [], "orders": {}}
-    ck.variant(1, 98.0, rows[1][2], 1.0, payload, rank=98.0)       # better by run score, worse ranked
-    ck.variant(2, 99.0, rows[2][2], 2.0, payload, rank=91.0)
+    ck.variant(1, 98.0, {"m": 1}, 1.0, payload, rank=98.0)       # better by run score, worse ranked
+    ck.variant(2, 99.0, {"m": 2}, 2.0, payload, rank=91.0)
     ck.close()
     assert checkpoint.read_best(tmp_path)["seed"] == 2 and checkpoint.read_best(tmp_path)["score_remapped"] == 91.0
     prior = checkpoint.Checkpoint(tmp_path, {"script": "s", "lock": "l"}, ["r1"]).load()

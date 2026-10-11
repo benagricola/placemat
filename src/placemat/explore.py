@@ -212,36 +212,20 @@ class Routing:
 
 
 class VariantRouter:
-    """Write and route the actual source placement for a variant.
-
-    Virtual pin-map placement evidence does not certify this source route.
-    Routed remap comparison requires a proved writer and fresh logical-role
-    projection; unsupported requests carry an explicit refusal.
-    """
+    """How the routing worker writes a variant's board and routes it: as a run writes its own (`_write_variant`), and
+    placemat's quick route; with `explore.rank_remapped`, the variant's pin remap made on the board written
+    (kicad.remap.apply_remap)."""
 
     def write(self, make_board, board, plan, folder):
         return _write_variant(make_board, board, plan, folder)
 
-    def route(self, pcb, work, exclude_nets=(), quick=True, resume=True, _authority_factory=None, capture_path=None,
-              pour_nets=()):
-        from .kicad import route as route_mod
-        optional = {'_authority_factory': _authority_factory} if _authority_factory is not None else {}
-        if capture_path is not None:
-            optional['capture_path'] = capture_path
-        if pour_nets:
-            optional['pour_nets'] = pour_nets
-        import os
-        if 'KRT_ROUTE_DEADLINE_UTC' in os.environ:
-            from .pinmap_explore_route import _deadline
-            import time
-            from .settings import active
-            optional['timeout'] = max(0.0, _deadline(active()) - time.time())
-        return route_mod.route_board(pcb, work, exclude_nets=exclude_nets, quick=quick, resume=resume, **optional)
+    def remap(self, pcb, groups) -> dict:
+        from .kicad.remap import apply_remap
+        return apply_remap(pcb, groups)
 
-    def compare_remap(self, board, plan, pcb, folder, proposal, *, excluded, pours, resume, deadline):
-        from .pinmap_explore_route import paired
-        return paired(self, board, plan, pcb, folder, proposal, excluded=excluded, pours=pours,
-                      resume=resume, deadline=deadline)
+    def route(self, pcb, work, exclude_nets=(), quick=True, resume=True):
+        from .kicad import route as route_mod
+        return route_mod.route_board(pcb, work, exclude_nets=exclude_nets, quick=quick, resume=resume)
 
 
 def explore(make_board, focus, seconds: float, jobs: int | None = None, seeds=None, lock=None,
@@ -270,16 +254,14 @@ def explore(make_board, focus, seconds: float, jobs: int | None = None, seeds=No
     partial result as `.partial`, goes on up. `checkpoint` (checkpoint.py)
     is told of the baseline, every variant and each new best as they come.
 
-    With `routing`, a routing worker process (`_route_work`) routes the
+    With `routing`, a routing worker process (`_route_work`) quick-routes the
     plain placement first, then each new best by run score as it comes; while
     it routes, only the latest new best waits, and a best overtaken before
     its route starts is not routed. It takes one of the `jobs`; with one job
     the search has it, and the routes run after the search. When the search
     ends the worker finishes the route in hand and the one waiting. Each
     route is said, sent as an `explore_route` event and kept in `routes`; one
-    that fails, or a worker that dies, is an entry with its `error`. Ordinary
-    routes are quick; explicit pin-finalist comparisons use the full configured
-    scope within one shared deadline and remain non-publishable diagnostics."""
+    that fails, or a worker that dies, is an entry with its `error`."""
     import multiprocessing as mp
     import os
     import queue
@@ -303,7 +285,6 @@ def explore(make_board, focus, seconds: float, jobs: int | None = None, seeds=No
         else:                                   # the baseline is the saved one: it is the same board and settings
             baseline, base_m = prior.baseline, prior.measures
         base_rank = ranked(base_board, plain, baseline)     # studied again on a resume: the study is deterministic
-        _bind_comparison(base_board, plain, base_rank, 0, baseline, base_m)
     ranks = dict(prior.ranks) if prior is not None else {}  # {seed: score_remapped}: what the variants are ranked by
     if base_rank:
         ranks[0] = base_rank["score_remapped"]
@@ -616,7 +597,10 @@ def _total(board, m) -> float:
 
 
 def remap_of(board, plan) -> dict | None:
-    """A simultaneously judged common placement proposal; routed proof is separate."""
+    """The pin map study's best maps of a resolved variant, judged together on the run score (`explore.rank_remapped`,
+    pinmap.plan_remap): {"saving": mm, "gain", "baseline", "final", "actionable", "reason", "groups"}. A group is one
+    whose best map lowers the run score: {"refs", "present" and "best" (its run score), "map" and "turns"}; a turn
+    carries "pivot", the point the study turns its part about. None for a board with no `Pm.PinPool` part."""
     from . import pinmap
     return pinmap.plan_remap(board, plan)
 
@@ -640,21 +624,6 @@ def ranked(board, plan, total: float) -> dict:
         return {}
     r["seconds"] = round(time.perf_counter() - t0, 3)
     return {"score_remapped": total - r["saving"], "remap": r}
-
-
-def _bind_comparison(board, plan, extra, seed, total, measures):
-    """Publish the same physical receipt to live and checkpoint ranking."""
-    if not extra:
-        return
-    from .score_virtual import FIELD, receipt
-    proposal = extra.get('remap') or {}
-    if 'baseline' not in proposal or 'final' not in proposal:
-        measures[FIELD] = {'v': 1, 'scope': 'placement', 'state': 'unknown'}
-        return
-    proof = receipt(board, plan, proposal, seed, total, measures)
-    measures[FIELD] = proof
-    if proof['state'] == 'measured':
-        extra['score_remapped'] = proof['objective']
 
 
 def _context_of(make_board):
@@ -724,7 +693,6 @@ def _work(idx, make_board, focus, lock, reuse, order, deadline, counter, out, pa
                 total = _total(b, m)
                 payload = _payload(b, p, focus)     # every variant carries its lock entries: any of them can be accepted
                 extra = {"placements": _placements(p, focus), "order": _order(p, focus), **ranked(b, p, total)}
-                _bind_comparison(b, p, extra if 'remap' in extra else {}, seed, total, m)
             out.put(("v", seed, total, m, payload, round(time.time() - t0, 3), extra))
     except BaseException:
         out.put(("err", idx, traceback.format_exc()))
@@ -734,13 +702,11 @@ def _work(idx, make_board, focus, lock, reuse, order, deadline, counter, out, pa
 
 def _route_work(make_board, focus, lock, reuse, routing, rq, out, parent):
     """The routing worker: take a seed from `rq` until None, resolve that variant (seed 0 the plain placement), write
-    its board in its own folder (`routing.folder`/seed-S) and route it there, the plane nets and `routing.exclude`
+    its board in its own folder (`routing.folder`/seed-S) and quick-route it there, the plane nets and `routing.exclude`
     left out, and send its entry {"seed", "dir", "seconds", and "closure_clean", "closure", "open_before", "open_after",
     "valid", or "error" {"type", "message"}}. A process of its own, as the search's workers are: KiCad's writer runs on
     its main thread, and it reports nothing to the command's readers (channel.disable, as channel.paused does in a run's
-    own process). Ordinary routes are quick; explicit pin-finalist comparisons
-    use full configured scope and one shared deadline. A SIGTERM ends it and
-    the router it is running."""
+    own process). A SIGTERM ends it and the router it is running."""
     import os
     import signal
     import time
@@ -756,15 +722,13 @@ def _route_work(make_board, focus, lock, reuse, routing, rq, out, parent):
     if os.getppid() != parent:
         return
     router = routing.router if routing.router is not None else VariantRouter()
-    logical_incumbent = None
     try:
         while True:
             seed = rq.get()
             if seed is None:
                 break
             d = Path(routing.folder) / ("seed-%d" % seed)
-            entry = {"seed": seed, "dir": str(d), "route_scope": "source"}
-            r = None
+            entry = {"seed": seed, "dir": str(d)}
             t0 = time.perf_counter()
             try:
                 with _context_of(make_board):
@@ -772,91 +736,16 @@ def _route_work(make_board, focus, lock, reuse, routing, rq, out, parent):
                     p = b.resolve(reuse=reuse, lock=lock) if seed == 0 else \
                         b.resolve(reuse=reuse, explore=Explore(seed, focus), lock=lock)
                     pcb = router.write(make_board, b, p, d)
-                    from .explore_capture import prepare, verify_capture
-                    from .pinmap_common import CandidateRefused
-                    requested_capture = getattr(routing, 'capture', None)
-                    src = getattr(make_board, 'src', None)
-                    source_pcb = getattr(src, 'pcb', None)
-                    if source_pcb is not None or requested_capture is not None:
-                        entry['capture_copy'] = prepare(source_pcb, pcb, requested_capture)
-                    from .pinmap import _plan_remap_proposal
-                    proposal = _plan_remap_proposal(b, p) if b.settings.explore_rank_remapped else None
-                    remap = proposal[0] if proposal is not None else None
-                    excluded = set(p.plane_nets) | set(routing.exclude)
-                    if remap and remap["groups"]:
-                        from .pinmap_common import CandidateRefused
-                        from .pinmap_explore_route import budget, compare_live, PairedUnavailable
-                        entry['route_scope'] = 'full_configured_shared_deadline'
-                        entry['routing_mode'] = 'full_configured_shared_deadline'
-                        with budget(b.settings) as deadline:
-                            entry['route_deadline_utc'] = deadline
-                            try:
-                                compare_remap = getattr(router, 'compare_remap', None)
-                                if compare_remap is None:
-                                    raise CandidateRefused('logical_terminal_proof_missing',
-                                                           'router has no live logical comparison interface')
-                                r, checked, live = compare_remap(b, p, pcb, d, proposal, excluded=set(routing.exclude),
-                                                                pours=set(p.plane_nets), resume=routing.resume,
-                                                                deadline=deadline)
-                                logical_incumbent = compare_live(logical_incumbent, live, checked,
-                                    phase_priority=getattr(routing, 'rank', None) or None)
-                                entry['logical_comparison'] = checked
-                                entry['remap_adoption_refusal'] = checked['adoption_refusal']
-                            except CandidateRefused as error:
-                                entry['remap_refusal'] = error.record()
-                                entry['comparison_supported'] = False
-                                entry['route_scope'] = 'source_diagnostic'
-                                if isinstance(error, PairedUnavailable):
-                                    r = error.source
-                                else:
-                                    source_scope = {'exclude_nets': set(routing.exclude), 'quick': False,
-                                                    'resume': routing.resume}
-                                    if p.plane_nets:
-                                        source_scope['pour_nets'] = set(p.plane_nets)
-                                    r = router.route(pcb, d / 'route', **source_scope)
-                            if getattr(r, 'routed_pcb', None) is not None:
-                                from . import final_board, score
-                                from .pinmap_explore_route import _remaining
-                                _remaining(deadline)
-                                entry['final_check_evidence'] = final_board.judge(
-                                    b, p, r.routed_pcb, score.plan_measures(b, p)).evidence()
-                                _remaining(deadline)
-                    else:
-                        r = router.route(pcb, d / 'route', exclude_nets=excluded, quick=True, resume=routing.resume)
-                        entry['routing_mode'] = 'quick'
-                    if entry.get('capture_copy') is not None:
-                        verify_capture(entry['capture_copy'])
-                # Keep the authoritative final report intact, apart from worker
-                # identity/timing. Legacy test routers report only what they measured.
-                from copy import deepcopy
-                raw = r.as_dict() if hasattr(r, 'as_dict') else dict(vars(r))
-                entry['route_report'] = deepcopy(raw)
-                final = deepcopy(raw)
-                if getattr(r, 'routed_pcb', None) is not None:
-                    from . import final_board, score
-                    evidence = entry.get('final_check_evidence')
-                    if evidence is None:
-                        evidence = final_board.judge(b, p, r.routed_pcb, score.plan_measures(b, p)).evidence()
-                    entry['final_check_evidence'] = deepcopy(evidence)
-                    final.update(evidence)
-                for key in ('closure_clean', 'closure', 'open_before', 'open_after', 'valid',
-                            'drc_new', 'widths_failed', 'phases', 'vias', 'track_mm', 'segments',
-                            'critical_checks', 'critical_unknown', 'final_findings'):
-                    if key in final:
-                        entry[key] = final[key]
+                    remap = ranked(b, p, 0.0).get("remap")
+                    if remap and remap["groups"]:            # routed as it would stand once the remap is made
+                        entry["remapped"] = dict(router.remap(pcb, remap["groups"]), saving=remap["saving"])
+                    r = router.route(pcb, d / "route", exclude_nets=set(p.plane_nets) | set(routing.exclude), quick=True,
+                                     resume=routing.resume)
+                entry.update(closure_clean=r.closure_clean, closure=r.closure, open_before=r.open_before,
+                             open_after=r.open_after, valid=r.valid)
             except Exception as e:
                 entry["error"] = {"type": type(e).__name__, "message": str(e)}
-                completed = getattr(e, 'completed_source_route', None) or r
-                if completed is not None:
-                    from copy import deepcopy
-                    entry['route_report'] = deepcopy(completed.as_dict())
-                    entry['completed_source_diagnostic'] = True
             entry["seconds"] = round(time.perf_counter() - t0, 3)
-            if entry.get('capture_copy') is not None:
-                try:
-                    verify_capture(entry['capture_copy'])
-                except (CandidateRefused, OSError) as error:
-                    entry['error'] = {'type': type(error).__name__, 'message': str(error)}
             out.put(("route", seed, entry))
     finally:
         out.put(("rend",))
@@ -1036,10 +925,8 @@ def search(make_board, script, seconds: float, jobs: int | None = None, keys=(),
     nothing is written to the lock whatever `accept` says - the decision is
     the user's - and the stop goes on up with the report as `.explore`.
 
-    `route_best` (None: [explore] route_best) routes the plain placement and each new best as the search finds
+    `route_best` (None: [explore] route_best) quick-routes the plain placement and each new best as the search finds
     them, each on its own board written in `variants_dir` (explore's `routing`, `router` the board writer and router);
-    ordinary routes are quick, while requested pin-finalist comparisons use full
-    configured scope with one deadline shared by both routes and verification.
     with routes, the variant taken - reported as `taken_seed`, its moves the report's, and what `accept` writes - is the
     best clean closure, ties going to the better score, and the best score when every route failed. Without
     `variants_dir` (a preview) nothing is routed and the report says so. `route_resume` False routes every stage of
@@ -1095,18 +982,9 @@ def search(make_board, script, seconds: float, jobs: int | None = None, keys=(),
         report["routes"], report["routes_skipped"] = [], "no_board"
     elif on:
         report["routes"] = result.routes
-        refusals = [r["remap_refusal"] for r in result.routes if r.get("remap_refusal")]
-        if refusals:
-            report["routed_comparison_refusals"] = refusals
-        try:
-            closed = _taken(result.routes, {r[0]: r[2] for r in result.results}, base.settings)
-        except ValueError as error:
-            closed = None
-            report['route_comparison_refusal'] = {
-                'code': 'source_route_contracts_incomparable', 'facts': {'reason': str(error)}}
+        closed = _taken(result.routes, {r[0]: r[2] for r in result.results}, base.settings)
         if closed is not None:
             taken = report["taken_seed"] = closed
-            report['taken_scope'] = 'source_placement'
     if saved(taken):
         report["accept"] = accept_command(script, taken)
     have = {0: (base, current)}
@@ -1120,11 +998,7 @@ def search(make_board, script, seconds: float, jobs: int | None = None, keys=(),
                 report["moves"].append(m)
     # before the accept: the variants are studied under the lock they were ranked under
     _study(report, make_board, entries, focus, result, have)
-    if accept and report.get("routed_comparison_refusals") and "taken_seed" not in report:
-        report["accept_refusal"] = {"code": "routed_remap_comparison_unsupported", "facts": {}}
-    if accept and report.get('route_comparison_refusal'):
-        report['accept_refusal'] = report['route_comparison_refusal']
-    if accept and taken and not report.get("accept_refusal"):
+    if accept and taken:
         placed = [k for k in focus if chosen.placement(k) is not None]
         total = next(r[1] for r in result.results if r[0] == taken)
         new = _lock.entries(board, chosen, placed, release, run_id, round(total, 1))
@@ -1169,29 +1043,25 @@ def _write_variant(make_board, board, plan, folder: Path) -> Path:
     return pcb
 
 
-def _taken(routes: list, measures: dict, cfg, phase_priority=None):
+def _taken(routes: list, measures: dict, cfg):
     """The seed of the routed variant that ranks first (`score.rank`: the validity tier, the clean closure, the quality
     key once fully routed, the run score, exactly: `_exact`) by its measures (`measures`, {seed: measures}) and its route's
-    clean closure and phase contracts from the authoritative final report;
-    the earlier seed of a tie; None when every route failed. An explicit
-    phase_priority uses the per-run named order after complete-contract validation."""
+    clean closure;
+    the earlier seed of a tie; None when every route failed. A route record has no phases: its closures are ()."""
     import functools
     from . import score as _score
+    closed = sorted((r for r in routes if "error" not in r), key=lambda r: r["seed"])
+    if not closed:
+        return None
     cfg = _exact(cfg)
 
     def standing(r):
         m = dict(measures.get(r["seed"]) or {})
-        raw = dict(r.get('route_report', r))
-        raw.update(r.get('final_check_evidence') or {})
-        return _score.Standing.of_route(m, raw)
-    closed = sorted((r for r in routes if "error" not in r
-                     and (not r.get("remap_refusal") or standing(r).validity.valid)),
-                    key=lambda r: r["seed"])
-    if not closed:
-        return None
-    def compare(a, b):
-        return _score.rank(standing(a), standing(b), cfg, phase_priority=phase_priority)
-    return min(closed, key=functools.cmp_to_key(compare))["seed"]
+        for k in _score.QUALITY_TERMS:
+            if k in r:
+                m[k] = r[k]
+        return _score.Standing(m, _score.Validity.of(m), (), r["closure_clean"])
+    return min(closed, key=functools.cmp_to_key(lambda a, b: _score.rank(standing(a), standing(b), cfg)))["seed"]
 
 
 def _send_done(report, kept: bool, **more) -> None:
@@ -1531,17 +1401,14 @@ def route_line(r: dict) -> str:
     """One route of the routing worker (`_route_work`), as it is said when it comes: its closure, clean and raw, the
     signal items it left open and the time it took, or that writing or routing it failed."""
     at = "  route, seed %d at %.1f mm%s: " % (r["seed"], r["score"], ", %.1f mm after its pin remap" % r["score_remapped"]
-                                               if r.get("score_remapped") is not None and r.get("remapped") else "")
-    if r.get('routing_mode') == 'full_configured_shared_deadline':
-        at += 'full configured scope with shared deadline; '
+                                               if r.get("score_remapped") is not None else "")
     if r.get("error"):
         message = (r["error"]["message"] or "").splitlines()
         return at + "the route failed with %s%s" % (r["error"]["type"], ": " + message[0] if message else "")
     return at + "closure %.1f%% clean (%.1f%% raw), %d open, in %s%s%s" % (
         100 * r["closure_clean"], 100 * r["closure"], r["open_after"], duration(r["seconds"]),
         "" if r.get("valid", True) else "; the placement's DRC was not clean before routing",
-        ("; source-board diagnostic only; remapped-route comparison unsupported (%s)" % r["remap_refusal"]["code"]
-         if r.get("remap_refusal") else "; routed with its pin remap made on its pads" if r.get("remapped") else ""))
+        "; routed with its pin remap made on its pads" if r.get("remapped") else "")
 
 
 def budget_passed_line(ev: dict) -> str:
@@ -1581,11 +1448,8 @@ def routes_summary(report) -> list:
     t = report.get("taken_seed")
     taken = ("taken by closure: seed %d%s" % (t, ", the current placement" if t == 0 else "")) if t is not None \
         else "every route failed: the best score is taken"
-    full = sum(r.get('routing_mode') == 'full_configured_shared_deadline' for r in routes)
-    mode = ('routed (%d full configured with shared deadlines, %d quick)' % (full, len(routes) - full)
-            if full else 'quick-routed')
-    return ["  routes: %d variant%s %s in %s, alongside the search; %s" % (
-        len(routes), "" if len(routes) == 1 else "s", mode, duration(sum(r["seconds"] for r in routes)), taken)]
+    return ["  routes: %d variant%s quick-routed in %s, alongside the search; %s" % (
+        len(routes), "" if len(routes) == 1 else "s", duration(sum(r["seconds"] for r in routes)), taken)]
 
 
 def pin_map_lines(report) -> list:

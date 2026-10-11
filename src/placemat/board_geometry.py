@@ -331,7 +331,6 @@ class CopperItem:
     length_mm: float = 0.0      # tracks and arcs: pcbnew's own GetLength(), the path itself, not its chord
     vertices: tuple = ()        # graphic polygons: the drawn outlines as written, not grown by the stroke (width_mm)
     filled: bool = True         # graphic polygons: filled, else only the stroke is copper
-    track_form: str | None = None  # native/arranged straight | arc; unknown for legacy constructors
 
 
 @dataclass(frozen=True)

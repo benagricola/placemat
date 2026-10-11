@@ -5,13 +5,11 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
-## To 0.100
+## Unreleased
 
 - **Pin advice now requires a current common physical judgment.** Standalone study records are explicitly generator-only (`score_scope="generator"`, `generator_gain`, `common_unavailable`) and offer no executable map or turn. Plan-bound rows expose common `total`, validity and refusal records, with generator breakdowns labeled separately. Update clients reading facts v4: generator weighted crossings are not common saving, unknown totals are `null`, and validity repairs can have negative soft gain. Independent module/group gains cannot certify a combined stamp.
 
 - **Saved pin advice is rejudged before a longer search compares it.** Its old scalar does not survive changes to weights or geometry as evidence. Legacy proof-less advice refuses with `common_proof_missing`; unsupported cell rebasing refuses with `cell_advice_rebase_unavailable`; malformed saved payloads return stable `incoming_*_invalid` codes. Regenerate advice from a current plan rather than editing the stored total.
-
-- **Routed pin remap comparison is explicitly unsupported pending its logical-terminal proof.** A `source_diagnostic` route of the unchanged board is not remapped closure evidence. `logical_terminal_proof_missing` withholds that comparison and `routed_remap_comparison_unsupported` prevents acceptance through it. No source route/policy/cache record certifies changed pad membership; exact supported writer/readback and fresh phase/width receipts remain required.
 
 - **`pins.pair_weight`, `pins.impedance_weight` and `pins.length_weight` are retired.** Set `score.crossing_pair_net` and `score.impedance` for both placement and pin candidate generation. The generator normalizes airwire to crossing units as `1 / score.crossing`, or zero when that price is zero. The old independent values are refused with a message naming their replacement; remove them from `placemat.toml` and `--set`. Pin cache records now bind every shared generator weight.
 
