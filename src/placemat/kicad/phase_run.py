@@ -395,21 +395,24 @@ def _closest_points(a, b) -> tuple:
     return best
 
 
-def _nearest_on_segment(seg, poly) -> tuple:
-    """The point of segment `seg` nearest polygon `poly` and its distance (0 inside it or on its edge)."""
-    from ..geometry import point_in_polygon, point_segment_distance, segments_intersect
+def _nearest_on_segment(seg, poly, within=math.inf) -> tuple:
+    """The point of segment `seg` nearest polygon `poly` and its distance (0 inside it or on its edge), looking only
+    at the edges whose box comes within `within` of the segment's; (None, inf) when none is that near."""
+    from ..geometry import point_in_polygon, segments_intersect
     a, b = seg
     for p in (a, b):
         if point_in_polygon(p, poly):
             return p, 0.0
-    edges = list(zip(poly, poly[1:] + poly[:1]))
-    best = None
-    for q1, q2 in edges:
+    x0, x1 = min(a[0], b[0]) - within, max(a[0], b[0]) + within
+    y0, y1 = min(a[1], b[1]) - within, max(a[1], b[1]) + within
+    best = (None, math.inf)
+    for q1, q2 in zip(poly, poly[1:] + poly[:1]):
+        if max(q1[0], q2[0]) < x0 or min(q1[0], q2[0]) > x1 or max(q1[1], q2[1]) < y0 or min(q1[1], q2[1]) > y1:
+            continue
         if segments_intersect(a, b, q1, q2):
-            p, q, d = _closest_points((a, b), (q1, q2))
-            return p, 0.0
-        p, q, d = _closest_points((a, b), (q1, q2))
-        if best is None or d < best[1]:
+            return _closest_points((a, b), (q1, q2))[0], 0.0
+        p, _, d = _closest_points((a, b), (q1, q2))
+        if d < best[1]:
             best = (p, d)
     return best
 
@@ -497,8 +500,8 @@ def _net_copper(geometry, net, cache) -> dict | None:
         for r in regions:
             if r[2] != layer or not tbox[id(t)].overlaps(boxes[r[0]], 1e-6):
                 continue
-            p, d = _nearest_on_segment(t.anchors, r[3])
-            if d <= t.width_mm / 2 + 1e-6:
+            p, d = _nearest_on_segment(t.anchors, r[3], t.width_mm / 2 + 1e-6)
+            if p is not None and d <= t.width_mm / 2 + 1e-6:
                 extra.setdefault(id(t), []).append(p)
                 forced.setdefault(r[0], set()).add((pt(p), layer))
     for t in straight:
@@ -561,7 +564,7 @@ def _net_copper(geometry, net, cache) -> dict | None:
                 if a[2] == b[2] and near(boxes[a[0]], boxes[b[0]]) and poly_distance(a[3], b[3]) <= 1e-6]
     layer_pairs = [(a[0], b[0]) for x, a in enumerate(regions) for b in regions[:x]
                    if a[5] is not None and a[5] == b[5] and a[2] != b[2]]      # a plated pad joins its layers
-    cache[key] = {"adj": adj, "at_joint": at_joint, "regions": regions, "inside": inside, "touching": touching,
+    cache[key] = {"adj": adj, "at_joint": at_joint, "reach": reach, "regions": regions, "inside": inside, "touching": touching,
                   "layer_pairs": layer_pairs, "own": {r[0]: (r[3],) for r in regions}}
     return cache[key]
 
@@ -637,13 +640,26 @@ def joining_spans(geometry, o, *, full_width=False, neck_mm=0.0, step=None, cach
         memo[id(polys)] = sorted(out)               # polys are _net_copper's own tuples, kept by the cache
         return memo[id(polys)]
 
+    def joint_hubs(region, n):
+        """hubs for a joint: its copper taken as the disc of its half width there (laid["reach"])."""
+        need = need_of(region)
+        if not full_width or need is None:
+            return [("r", region[0])]
+        fill = fill_of(region)
+        tau = fill.level(_fill_need(fill, need))
+        memo = cache.setdefault(("joint hubs", step, region[0], tau), {})
+        if n not in memo:
+            memo[n] = sorted({("r", region[0], fill.part(c, tau))
+                              for c in fill.touching_disc(n[0], laid["reach"].get(n, 0.0), tau)})
+        return memo[n]
+
     for region in regions:
         key, _, _, poly, tag, _ = region
         if tag:
             for h in hubs(region, own[key]):
                 link(tag, h, 0.0, None)
         for n in inside[key]:
-            for h in hubs(region, at_joint.get(n) or own[key]):
+            for h in joint_hubs(region, n):
                 link(n, h, 0.0, None)
     for a, b in touching + layer_pairs:
         for ha in hubs(a, own[b[0]]):
@@ -699,6 +715,12 @@ def joining_spans(geometry, o, *, full_width=False, neck_mm=0.0, step=None, cach
         walk.append(u)
         into.append(track)
 
+    def cells_at(fill, node, tau):
+        """The cells of `fill` at least `tau` deep that a node's copper reaches: a region's polygon, or a joint's disc."""
+        if node[0] == "r":
+            return fill.touching(own[node[1]], tau)
+        return fill.touching_disc(node[0], laid["reach"].get(node, 0.0), tau)
+
     def copper_of(node):
         if node in ("A", "B"):
             return None
@@ -717,7 +739,22 @@ def joining_spans(geometry, o, *, full_width=False, neck_mm=0.0, step=None, cach
             continue
         if walk[k + 1][0] == "r" and walk[k + 1][1] == node[1] or walk[k - 1][0] == "r" and walk[k - 1][1] == node[1]:
             continue
-        spans += _crossing(fill_of(region), region[1], region[2], before, after, need_of(region))
+        memo = cache.setdefault(("crossings", step), {})
+        need = need_of(region)
+        if full_width and need is not None:
+            # the full-width search passed it at its width: its length at that width, with no width search
+            mk = ("wide", region[0], walk[k - 1], walk[k + 1], need)
+            if mk not in memo:
+                fill = fill_of(region)
+                tau = fill.level(_fill_need(fill, need))
+                length = fill.path_length(cells_at(fill, walk[k - 1], tau), cells_at(fill, walk[k + 1], tau), tau)
+                memo[mk] = [(FillStretch(region[1], frozenset((region[2],)), need, None, fill.s), length or 0.0)]
+            spans += memo[mk]
+            continue
+        mk = (region[0], id(before), id(after), need)               # before and after are _net_copper's own tuples
+        if mk not in memo:
+            memo[mk] = _crossing(fill_of(region), region[1], region[2], before, after, need)
+        spans += memo[mk]
     return spans
 
 

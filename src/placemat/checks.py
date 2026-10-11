@@ -1108,6 +1108,29 @@ class _Fill:
         limit = (far / s) ** 2
         return {c for c in cells if copper_sq[c] <= limit + 1e-9}
 
+    def touching_disc(self, point, r: float, tau: float) -> set:
+        """`touching` for a disc of radius `r` at `point` (a via, or a track's round end): the cells at least `tau`
+        deep whose disc of radius `radius(tau)` reaches it, within half a step. Read from the cell centres in a
+        window round the disc, with no raster of the copper."""
+        s, nx, ny, sq = self.s, self.nx, self.ny, self.sq
+        far = self.radius(tau) + r + s / 2.0
+        px, py = point
+        q0 = max(0, int((px - far - self.x0) / s))
+        r0 = max(0, int((py - far - self.y0) / s))
+        q1 = min(nx, int(math.ceil((px + far - self.x0) / s)) + 1)
+        r1 = min(ny, int(math.ceil((py + far - self.y0) / s)) + 1)
+        far2 = far * far + 1e-9
+        out = set()
+        for row in range(r0, r1):
+            dy = self.y0 + (row + 0.5) * s - py
+            for q in range(q0, q1):
+                c = row * nx + q
+                if sq[c] >= tau:
+                    dx = self.x0 + (q + 0.5) * s - px
+                    if dx * dx + dy * dy <= far2:
+                        out.add(c)
+        return out
+
     def _reach(self, start: set, goal: set, tau: float):
         """A path of fill cells from `start` to `goal`, 8-connected, every
         cell on it in either set or at least `tau` (squared cells) from the
@@ -1263,6 +1286,20 @@ class _Fill:
                              "width_mm": 2.0 * self.radius(sq[path[low]]), "at": self.centre(path[low])})
             k = j + 1
         return runs
+
+    def path_length(self, start: set, goal: set, tau: float) -> float | None:
+        """The length of a path of cells at least `tau` deep from a cell of `start` to one of `goal` (`_reach`,
+        breadth first); None when there is none."""
+        if not start or not goal:
+            return None
+        hit, parent = self._reach(start, goal, tau)
+        if hit is None:
+            return None
+        total, c = 0.0, hit
+        while parent[c] is not None:
+            total += self._step(parent[c], c)
+            c = parent[c]
+        return total
 
     def narrow_runs(self, entry, exit_, need: float) -> dict | None:
         """The widest path through the fill from `entry` to `exit_` (`width`) and where it is narrower than `need`:

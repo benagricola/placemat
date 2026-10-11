@@ -376,3 +376,15 @@ def test_the_narrow_runs_of_a_fill_are_its_spokes_each_measured_where_it_lies():
     runs = got["runs"]
     assert len(runs) == 2 and all(0.3 <= r["width_mm"] <= 0.4 for r in runs)
     assert runs[0]["to_mm"] < 3.0 and runs[1]["from_mm"] > got["length_mm"] - 3.0
+
+
+def test_a_discs_touching_cells_are_those_of_its_polygon():
+    from placemat.checks import _Fill
+    from placemat.geometry import circle_polygon
+    from placemat.values import Location
+    fill = _Fill(_WIDE, 0.05)
+    for at, r in (((12.0, 10.0), 0.3), ((20.0, 10.6), 0.5), ((40.8, 10.0), 0.2)):
+        tau = fill.level(1.0)
+        disc = fill.touching_disc(at, r, tau)
+        poly = fill.touching((circle_polygon(Location(*at), r, 64),), tau)
+        assert len(disc ^ poly) <= 0.1 * max(len(poly), 1)
