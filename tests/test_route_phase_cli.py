@@ -98,3 +98,24 @@ def test_an_unmeasured_join_reads_width_not_measured():
          "open": [{"net": "SW", "from": {"ref": "Q1", "pad": "2"}, "to": {"ref": "L1", "pad": "1"},
                    "width_unknown": True}]}
     assert any("SW Q1.2-L1.1 width not measured" in line for line in phase_lines([p]))
+
+
+def test_a_phase_names_the_connections_it_left_to_their_pours():
+    """Ruling S13: a current phase's connections on a pour net are served by the pour; the line counts them per net."""
+    gnd = {"net": "GND", "from": {"ref": "J1", "pad": "2"}, "to": {"ref": "U1", "pad": "3"}, "widths": {"F.Cu": 1.0},
+           "amps": 2.0}
+    (line,) = phase_lines([{"name": "current", "selector": "current_paths", "asked": 1, "joined": 1,
+                            "closure_clean": 1.0, "seconds": 1.0, "open": [],
+                            "pour_served": [gnd, dict(gnd, to={"ref": "U2", "pad": "1"}),
+                                            dict(gnd, net="VB")]}])
+    assert line.endswith("; left to their pours: GND 2 connections, VB 1 connection")
+
+
+def test_a_phase_record_carries_the_connections_left_to_their_pours():
+    from placemat.kicad.phase_run import phase_record
+    from placemat.kicad.phase_select import Selection, Task
+    t = Task("GND", ("J1", "2"), ("U1", "3"), (("F.Cu", 1.0),), 2.0)
+    sel = Selection("current", "current_paths", pour_served=(t,), layers=("F.Cu",))
+    phase = type("P", (), {"record": lambda self: {"name": "current"}})()
+    assert phase_record(phase, 0, sel, [], [], 1.0, 0)["pour_served"] == [t.record()]
+    assert phase_record(phase, 0, None, [], [], 1.0, 0)["pour_served"] == []

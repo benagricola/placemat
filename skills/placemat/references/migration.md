@@ -26,6 +26,11 @@ section for each hand-written pattern a newer form replaces.
 
 - **Routing phases.** Pair phase widths come from net classes; omit an explicit phase width.
 
+- **Routing phases.** A current phase (`current_paths`, or `width = "current"`) no longer routes a pour net. The pour
+  carries that net's current, so its connections are listed as left to the pour and are not counted in the phase's
+  closure. Before, the phase routed the whole pour net as tracks at the widest current width, which could take the
+  board's room from every later phase. Scripts need no change.
+
 - **A route that fails keeps the placed board.** When `run --route` places the board and the route then fails or is
   refused, the layout folder keeps the placed, unrouted board instead of going back to the last run's, and the run
   says so; `run.json`'s `failure.layout` is `placed_unrouted`. Run the same command again to route it: the route

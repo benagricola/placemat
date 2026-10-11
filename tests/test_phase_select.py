@@ -202,9 +202,29 @@ def test_capture_pairs_the_board_lacks_or_none_are_refused():
     assert e.value.facts["kind"] == "pair"
 
 
-def test_the_pour_nets_of_a_task_set_are_named():
+def test_a_current_phase_leaves_a_pour_nets_connections_to_its_pour():
+    """Ruling S13: the pour carries a pour net's current, so a current phase routes none of its connections; they are
+    kept on the selection as served by the pour, and no pour call is planned."""
+    from placemat.kicad.phase_run import obligations_of, plan_calls
     s = one({"name": "p", "current_paths": True}, pour_nets={"VB"})
-    assert s.pour_nets == ("VB",) and s.tasks
+    assert s.pour_nets == () and not s.tasks
+    assert s.pour_served and {t.net for t in s.pour_served} == {"VB"}
+    assert plan_calls(s, {}, 0.15, set()) == []
+    assert obligations_of([s], [], set()) == [[]]
+
+
+def test_a_current_width_on_named_nets_leaves_a_pour_net_to_its_pour():
+    s = one({"name": "p", "nets": ["VB"], "width": "current"}, pour_nets={"VB"})
+    assert s.tasks == () and s.pour_nets == () and {t.net for t in s.pour_served} == {"VB"}
+    c = one({"name": "p", "width": "current", "connections": [{"from": {"part": "J1", "pad": "1"},
+                                                             "to": {"part": "Q1", "pad": "1"}}]}, pour_nets={"VB"})
+    assert c.tasks == () and c.pour_nets == () and len(c.pour_served) == 1
+
+
+def test_a_connection_at_a_class_width_on_a_pour_net_still_routes_in_its_pour_call():
+    s = one({"name": "p", "connections": [{"from": {"part": "J1", "pad": "1"}, "to": {"part": "Q1", "pad": "1"}}]},
+            pour_nets={"VB"})
+    assert s.pour_nets == ("VB",) and s.tasks and s.pour_served == ()
 
 
 def test_pairs_by_name_need_no_capture_and_keep_p_first():
