@@ -390,7 +390,7 @@ def _net_copper(geometry, net, cache) -> dict | None:
     the vias joining their layers; "at_joint", the copper meeting at each joint; "regions", each filled polygon on
     each layer, (key, kind, layer, polygon, (ref, pad, footprint uuid) for a pad, pad identity for a pad); "inside", the joints
     joined to each region; "touching", the regions on one layer that touch; "layer_pairs", one pad's regions on two layers; "own",
-    each region's polygon as a tuple. None when the net has a curved track (its centreline is not measured)."""
+    each region's polygon as a tuple."""
     from ..geometry import circle_polygon, point_in_polygon, point_segment_distance, poly_distance
     from ..values import Box, Location
     key = ("net", net)
@@ -401,9 +401,9 @@ def _net_copper(geometry, net, cache) -> dict | None:
         return (round(p[0], 3), round(p[1], 3))
 
     tracks = [c for c in geometry.copper if c.net == net and c.kind == "track" and len(c.anchors) == 2]
-    if any(abs(t.length_mm - math.dist(*t.anchors)) > 1e-3 for t in tracks):
-        cache[key] = None
-        return None
+    # a curved track (an arc: longer than its chord) is one piece between its two ends at its own length and width;
+    # it is not split at a joint along it, which can leave such a joint unjoined, never a path falsely clean
+    arcs = [t for t in tracks if abs(t.length_mm - math.dist(*t.anchors)) > 1e-3]
     vias = [c for c in geometry.copper if c.net == net and c.kind == "via" and c.anchors]
     adj = {}
 
@@ -427,7 +427,13 @@ def _net_copper(geometry, net, cache) -> dict | None:
     # a track's round end is copper too: a disc of its half width at each joint
     at_joint = {k: tuple(v) + (circle_polygon(Location(*k[0]), reach[k]),) if reach.get(k) else tuple(v)
                 for k, v in at_joint.items()}
+    curved = {id(t) for t in arcs}
+    for t in arcs:
+        layer = next(iter(t.layers))
+        link((pt(t.anchors[0]), layer), (pt(t.anchors[1]), layer), t.length_mm, t)
     for t in tracks:                                # a track is split at every joint on it (a T, a via mid-track)
+        if id(t) in curved:
+            continue
         layer = next(iter(t.layers))
         (ax, ay), (bx, by) = t.anchors
         dx, dy = bx - ax, by - ay
@@ -499,7 +505,7 @@ def joining_spans(geometry, o, *, full_width=False, neck_mm=0.0, step=None, cach
     where the path passes through filled copper - a zone's filled polygons as KiCad filled them (the copper a
     fabricator gets), a filled drawn polygon, or a pad that is not one of the obligation's ends. Vias join the layers
     they span. A track end anywhere inside an end pad's copper outline joins that pad. None when no such path joins
-    the two ends (curved tracks are not measured: None when the net has one).
+    the two ends.
 
     `full_width`: only copper at the obligation's width on its layer, apart from narrow tracks wholly within `neck_mm`
     of an end (the neck budget below); a fill or pad is passed only where a disc that wide travels through it.

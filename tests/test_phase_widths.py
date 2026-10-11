@@ -1,5 +1,7 @@
 """Widths delivered by each named routing phase."""
 """A phase with a width is judged on the routed board, on the copper each of its calls added, per layer."""
+import pytest
+
 from placemat.kicad.route_widths import board_widths, findings_of
 from placemat.values import CopperLayer
 from tests.fixtures import board_geometry, footprint, track
@@ -277,3 +279,25 @@ def test_a_short_track_whose_end_rounds_off_its_own_line_still_joins():
     end = 19.9000017
     geometry = _board(_track((5, 10), (end, 10), 1.0), _track((end, 10), (20.5, 10), 1.0), _track((20.5, 10), (40, 10), 1.0))
     assert joining_spans(geometry, _OB) is not None
+
+
+def _arc(a, b, width, bulge=1.2):
+    from dataclasses import replace
+    from tests.test_route_widths_board import _track
+    t = _track(a, b, width)
+    return replace(t, length_mm=t.length_mm * bulge)        # a curved track: longer than its chord
+
+
+def test_an_arc_at_full_width_is_measured_by_its_own_length(monkeypatch, tmp_path):
+    from tests.test_route_widths_board import _board, _track
+    geometry = _board(_track((5, 10), (15, 10), 1.0), _arc((15, 10), (30, 10), 1.0), _track((30, 10), (40, 10), 1.0))
+    assert _judge(monkeypatch, tmp_path, geometry) == {"joined": True, "violated": False, "under": {}}
+
+
+def test_a_narrow_arc_is_under_its_width(monkeypatch, tmp_path):
+    from placemat.kicad.phase_run import joining_spans
+    from tests.test_route_widths_board import _board, _track
+    geometry = _board(_track((5, 10), (15, 10), 1.0), _arc((15, 10), (30, 10), 0.3), _track((30, 10), (40, 10), 1.0))
+    assert _judge(monkeypatch, tmp_path, geometry)["under"] == {"F.Cu": 0.3}
+    spans = joining_spans(geometry, _OB)
+    assert sum(length for _, length in spans) == pytest.approx(10 + 15 * 1.2 + 10, abs=1e-6)

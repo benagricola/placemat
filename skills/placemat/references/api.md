@@ -4035,8 +4035,8 @@ last phase's board is `router_out.kicad_pcb`, and `routed.kicad_pcb` is made fro
 - `open`: each obligation not clean, with `outcome` (its task record's `status`; null for a whole-net call),
   `evidence` (the router's own record of why, as it gave it; null when it gave none), `violated: true` when joined
   but its net has a real DRC error, `under` (`{layer: mm}`) when joined narrower than asked, and `width_unknown: true`
-  when joined but no copper path between its pads could be measured (its net has a track drawn as an arc, or the
-  router gave no width for it, below).
+  when joined but no copper path between its pads could be measured (copper joined only partway along a curved
+  track, which is measured end to end at its own length, or a net the router gave no width for, below).
 - `final_asked`, `final_closure_clean`, `final_open`: the same obligations as `asked`, judged again on the final
   board, after the last phase and the clean-up. A short or a narrow join left by a later phase shows in the final
   fields; a fault is not attributed to a phase.
