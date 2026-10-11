@@ -305,9 +305,13 @@ def test_a_narrow_arc_is_under_its_width(monkeypatch, tmp_path):
 
 # KiCad 10's connectivity joins same-net copper wherever it overlaps (pcbnew 10.0.6, GetConnectedItems after a zone
 # fill), not only at track ends. Each case: does a copper path join U1.1 (5.2, 10) to U2.1 (40, 10)?
-def _via(at):
-    from tests.test_route_widths_board import _via as via
-    return via(at)
+def _via(at, diameter=1.0):
+    from placemat.board_geometry import CopperItem
+    from placemat.values import Box
+    x, y, r = at[0], at[1], diameter / 2
+    outline = ((x - r, y - r), (x + r, y - r), (x + r, y + r), (x - r, y + r))
+    return CopperItem("via", "V", frozenset([CopperLayer.F, CopperLayer.B]), (outline,), Box.of_points(outline), None,
+                      diameter, 0.3, anchors=(at,))
 
 
 def _rect(x0, y0, x1, y1):
@@ -325,11 +329,15 @@ def _overlap_cases():
         "track end 0.6 mm outside a fill, width 1.0": (False, [_zone(_LEFT), _track((20.6, 10), (40, 10), 1.0)], []),
         "track end 0.3 mm outside the end pad, width 1.0": (True, [_track((5, 10), (39.2, 10), 1.0)], []),
         "track end 0.3 mm outside the end pad, width 0.4": (False, [_track((5, 10), (39.2, 10), 0.4)], []),
-        "via centre 0.3 mm outside a fill, diameter 0.6 + 0.3": (True, [_zone(_LEFT), _via((20.3, 10)), _track(
+        "via of diameter 1.0, centre 0.3 mm outside a fill": (True, [_zone(_LEFT), _via((20.3, 10)), _track(
             (20.3, 10), (30, 10), 1.0, layer=B), _via((30, 10)), _track((30, 10), (40, 10), 1.0)], []),
+        "via of diameter 0.5, centre 0.3 mm outside a fill": (False, [_zone(_LEFT), _via((20.3, 10), 0.5), _track(
+            (20.3, 10), (30, 10), 1.0, layer=B), _via((30, 10)), _track((30, 10), (40, 10), 1.0)], []),
+        "track through a pad's centre and one 0.3 mm off it, ends outside": (True, [
+            _track((5, 10), (21, 10), 0.2), _track((19.4, 10.3), (40, 10.3), 0.2)], [pad]),
         "track crossing a fill, both ends outside": (True, [_zone(_rect(14, 5, 16, 20)), _track((5, 10), (25, 10), 1.0),
                                                             _track((10, 15), (40, 15), 1.0)] + up, []),
-        "tracks crossing a pad, ends outside": (True, [_track((5, 9.7), (21, 9.7), 0.2),
+        "tracks crossing a pad 0.3 mm off its centre, ends outside": (True, [_track((5, 9.7), (21, 9.7), 0.2),
                                                        _track((19.4, 10.3), (40, 10.3), 0.2)], [pad]),
         "track side over a fill edge": (True, [_zone(_LEFT), _track((20.4, 5), (20.4, 15), 1.0),
                                                _track((20.4, 15), (40, 15), 1.0)] + up, []),
@@ -387,7 +395,7 @@ def test_a_discs_touching_cells_are_those_of_its_polygon():
         tau = fill.level(1.0)
         disc = fill.touching_disc(at, r, tau)
         poly = fill.touching((circle_polygon(Location(*at), r, 64),), tau)
-        assert len(disc ^ poly) <= 0.1 * max(len(poly), 1)
+        assert len(disc ^ poly) <= 0.03 * max(len(poly), 1)
 
 
 # a 4 mm pour with a 0.4 mm spoke into U1's pad and a 0.8 mm neck 5 mm long at x 20 to 25, its own end at U2's pad
