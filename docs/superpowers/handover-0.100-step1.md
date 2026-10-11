@@ -26,8 +26,9 @@ The user decided on 2026-10-11 to take it out of step 1:
 Kept and simplified (1dfdfab2): the width query. Before routing, `kicad/width_policy.py` asks the router
 (py_router/nominal_width_policy.py, on the fork's placemat/upstream-2026-10b and so on placemat/connections) which
 width it will draw each selected net at, per phase and layer, and each join is judged against that width. It runs
-through the same helper as every router call (phase_run.run_router), keeps no hashes of router or board files, and
-returns failures as {code, facts}. A router without the script is refused (`width_policy_unavailable`).
+through the same helper as every router call (route.run_router), keeps no hashes of router or board files, and
+returns failures as {code, facts}. A query that gives no answer refuses the route: `width_policy_unavailable`
+when the router has no such script, `width_policy_failed` for a timeout, a non-zero exit or a malformed answer.
 
 Also fixed (b079eaf5): the plan, spec and test for `run --route-rank` are back to Task 20's design, which the code
 follows; the retired-setting refusal no longer reads "set set"; migration.md has the `[route] islands` example.
@@ -63,12 +64,11 @@ result worse than the recorded baseline, goes to the user before work on it star
 
 - Run placemat in the worktree as `PYTHONPATH=<worktree>/src /home/ben/work/placemat/.venv/bin/python`. Tests need
   `KRT_DIR=/home/ben/work/KRT-phases` and `MNB_ECOSYSTEM=/home/ben/Documents/Hardware/mnb-ecosystem`. The worktree's
-  src/placemat/_version.py is a copy of main's. /tmp/placemat-step1-venv has an editable install of the branch with
-  its own native build, if the main venv's native module does not match.
+  src/placemat/_version.py is a copy of main's.
 - ~/work/KRT-upstream and ~/work/pcb are live for every session; they move to the fork commits only in Task 26.
   Other sessions own the other KRT-* worktrees: never write there.
-- Real-board runs: `flock /tmp/claude-1000/-home-ben-work-placemat/5d67ca9e-2758-4c31-8023-db2f60969045/scratchpad/realboard.lock`
-  (the reference runners take it themselves: do not wrap them in it again). Stop and ask below 20 GB free disk.
+- Real-board runs one at a time under the real-board lock named in the ledger folder's constraints.md (the reference
+  runners take it themselves: do not wrap them in it again). Stop and ask below 20 GB free disk.
 
 ## Done
 
