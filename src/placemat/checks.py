@@ -1332,10 +1332,10 @@ class _Fill:
 
     def _run_width(self, path: list, k: int, j: int, tau: float, entry, exit_) -> float:
         """The width of the widest disc that travels from the cell before run k..j of `path` (or, for a run at the
-        start, the copper `entry`) to the cell after it (or `exit_`), within the box of those cells grown by
-        sqrt(tau) + 2 cells: the highest level below `tau` at which a breadth-first search there joins them
-        (`_highest`). The window leaves out only a detour through another neck between
-        the same two wide parts."""
+        start, the copper `entry`) to the cell after it (or `exit_`), anywhere in the fill: the highest level below
+        `tau` at which `_reach` joins them (`_highest`). It is searched first within the box of those cells grown by
+        sqrt(tau) + 2 cells, then confirmed by one search of the whole fill at the next level up; a way round that
+        leaves the box and is wider (a bypass about a hole) is then searched for over the whole fill."""
         n, sq, nx, ny = len(path), self.sq, self.nx, self.ny
         cells = path[max(k - 1, 0):min(j + 1, n - 1) + 1]
         grow = int(math.sqrt(tau)) + 2
@@ -1360,8 +1360,20 @@ class _Fill:
                 return None
             hit, _ = self._reach(start, goal, t, box=(r0, r1, q0, q1))
             return None if hit is None else True
+        def joins_anywhere(t):
+            a = {path[k - 1]} if k > 0 else (self.touching(entry, t) if entry is not None else {path[0]})
+            b = {path[j + 1]} if j + 1 < n else (self.touching(exit_, t) if exit_ is not None else {path[-1]})
+            hit, _ = self._reach(a, b, t) if a and b else (None, {})
+            return None if hit is None else True
         floor = min(sq[path[i]] for i in range(k, j + 1))
-        top = _highest([t for t in self.levels if floor <= t < tau], joins)
+        levels = [t for t in self.levels if floor <= t < tau]
+        top = _highest(levels, joins)
+        i = top[2] if top is not None else -1
+        # a join in the window is a join; a failure there may only mean the way round leaves it. One search of the
+        # whole fill at the next level up says whether a wider way exists; only then is the rest searched unbounded
+        if i + 1 < len(levels) and joins_anywhere(levels[i + 1]):
+            wider = _highest(levels[i + 1:], joins_anywhere)
+            top = wider if wider is not None else top
         return 2.0 * self.radius(top[0] if top is not None else floor)
 
     def path_length(self, start: set, goal: set, tau: float) -> float | None:

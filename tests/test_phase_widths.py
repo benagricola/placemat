@@ -449,3 +449,21 @@ def test_each_run_of_a_crossing_is_searched_once(monkeypatch):
     first = fill.narrow_runs(pads["U1"], pads["U2"], 1.0)
     again = fill.narrow_runs(pads["U1"], pads["U2"], 1.0)
     assert first == again and len(calls) == len(first["runs"])
+
+
+# two 4 mm pours joined by a 0.3 mm neck and, round a hole, a 0.7 mm bypass about 40 mm long; a 0.2 mm spoke into
+# U2's pad. The polygon is KiCad's fractured form: the hole reached by a slit from the outline.
+_RING = ((4.5, 8), (18, 8), (18, 9.85), (22, 9.85), (22, 8), (34, 8), (34, 9.9), (39.7, 9.9), (39.7, 10.1),
+         (34, 10.1), (34, 12), (30.7, 12), (30.7, 20), (10, 20),
+         (10.7, 19.3), (30, 19.3), (30, 12), (22, 12), (22, 10.15), (18, 10.15), (18, 12), (10.7, 12), (10.7, 19.3),
+         (10, 20), (10, 12), (4.5, 12))
+
+
+def test_a_runs_width_is_the_widest_way_between_its_two_sides_however_far_it_goes():
+    from placemat.checks import _Fill
+    from tests.test_route_widths_board import _board
+    pads = {fp.ref: (fp.pads[0].outlines[0],) for fp in _board().footprints}
+    runs = _Fill(_RING, 0.05).narrow_runs(pads["U1"], pads["U2"], 1.0)["runs"]
+    neck, spoke = runs
+    assert 0.6 <= neck["width_mm"] <= 0.75                  # the bypass, not the 0.3 mm neck the path takes
+    assert 0.1 <= spoke["width_mm"] <= 0.2
