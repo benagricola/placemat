@@ -179,10 +179,10 @@ def placemat_run(script: pathlib.Path, extra: tuple = ()) -> tuple[dict | None, 
             return failed(type(error).__name__, str(error))
         raise
     facts["returncode"] = proc.returncode
-    log(proc.stdout, proc.stderr)
     try:
         fresh = [p for p in records.glob("*/run.json") if before.get(p) != _run_identity(p)]
     except OSError as error:
+        log(proc.stdout, proc.stderr)
         return failed("malformed run record", str(error))
     record = None
     malformed = None

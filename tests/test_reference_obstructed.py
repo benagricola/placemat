@@ -27,7 +27,7 @@ def test_the_board_is_two_carriers_and_a_part_between_them():
     assert abs(gap - 0.84) < 1e-6 and abs(edge_gap - 0.57) < 1e-6
     assert edge_gap >= 0.5
     assert 0.2 < gap - 2 * 0.2 < 1.367
-    assert edge_gap - 0.5 - 0.2 / 2 < 0     # no legal 0.2 mm (or wider) edge bypass
+    assert edge_gap < 0.5 + 0.2 + 0.2     # no legal edge bypass: edge clearance + a 0.2 mm track + pad clearance
 
 
 def test_the_recorded_result_names_the_blocker():

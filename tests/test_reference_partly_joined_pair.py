@@ -19,7 +19,7 @@ def test_the_static_capture_and_phases_name_the_existing_pair():
     assert [(p.name, p.selector) for p in phases] == [("diff-pairs", "pairs"), ("signals", "rest")]
 
 
-def test_mnb_modules_have_a_signal_fallback_and_usbc_selects_capture_pairs():
+def test_module_family_has_a_signal_fallback_and_a_module_selects_capture_pairs():
     import tomllib
     from placemat.route_phase import parse_phases
     family = ROOT / "fixtures/mnb"

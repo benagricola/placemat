@@ -15,6 +15,13 @@ with failure evidence naming U1. The `signals` phase then joins VB at the
 required-width obligation stays unfulfilled: final clean closure 0 and one
 failed width. This distinguishes connectivity from meeting electrical intent.
 
+The recorded `signals` phase asks 0. A rest phase asks only the input board's
+open connections on nets no earlier phase names (`phase_run.obligations_of`,
+ruling S10), and `legs` names VB. The signals call still routes every net open
+when it runs, VB among them, and that call makes the 0.2 mm join: the record
+has VB open after the legs call (`legs.open`, no `under`) and joined under
+width on the final board (`legs.final_open`, `under` F.Cu 0.2).
+
 Regenerate with `PYTHONPATH=src .venv/bin/python fixtures/obstructed_route/make.py`.
 The generator assigns deterministic board-item UUIDs and saves using KiCad's
 current format. Record and compare the actual router evidence with
