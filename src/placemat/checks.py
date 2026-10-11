@@ -1325,8 +1325,10 @@ class _Fill:
             length, at = 0.0, self.centre(path[(k + j) // 2])
         if whole is not None and k == 0 and j == n - 1:
             return whole[0], whole[1], length
-        key = (path[k - 1] if k > 0 else ("entry", id(entry)), path[j + 1] if j + 1 < n else ("exit", id(exit_)), tau)
-        if key not in self._runs:                       # kept per (the two ends, tau): a crossing is split again
+        # the width depends only on the two sides (a cell, or the copper itself: polygons are tuples, kept by value)
+        # and the level; the search over the whole fill makes it the same whatever path or window found the run
+        key = (path[k - 1] if k > 0 else ("entry", entry), path[j + 1] if j + 1 < n else ("exit", exit_), tau)
+        if key not in self._runs:
             self._runs[key] = self._run_width(path, k, j, tau, entry, exit_)
         return self._runs[key], at, length
 

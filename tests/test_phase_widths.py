@@ -467,3 +467,17 @@ def test_a_runs_width_is_the_widest_way_between_its_two_sides_however_far_it_goe
     neck, spoke = runs
     assert 0.6 <= neck["width_mm"] <= 0.75                  # the bypass, not the 0.3 mm neck the path takes
     assert 0.1 <= spoke["width_mm"] <= 0.2
+
+
+def test_a_runs_width_is_kept_by_the_copper_it_joins_not_by_object_identity(monkeypatch):
+    from placemat.checks import _Fill
+    from tests.test_route_widths_board import _board
+    pads = {fp.ref: (fp.pads[0].outlines[0],) for fp in _board().footprints}
+    fill = _Fill(_SPOKE_AND_NECK, 0.05)
+    calls = []
+    real = _Fill._run_width
+    monkeypatch.setattr(_Fill, "_run_width", lambda self, *a: calls.append(a) or real(self, *a))
+    first = fill.narrow_runs(pads["U1"], pads["U2"], 1.0)
+    n = len(calls)
+    again = fill.narrow_runs(tuple(list(pads["U1"])), tuple(list(pads["U2"])), 1.0)     # equal copper, new objects
+    assert again["runs"] == first["runs"] and len(calls) == n
