@@ -423,3 +423,29 @@ def test_a_crossing_with_no_path_at_its_width_is_measured_not_taken_as_no_length
     monkeypatch.setattr(_Fill, "path_length", lambda *a: None)
     spans = joining_spans(_board(_zone(_WIDE)), _OB, full_width=True)
     assert spans is not None and sum(length for _, length in spans) > 30
+
+
+def test_neck_length_reads_run_extents_with_no_run_search(monkeypatch):
+    from placemat.checks import _Fill
+    from tests.test_route_widths_board import _board
+    pads = {fp.ref: (fp.pads[0].outlines[0],) for fp in _board().footprints}
+    fill = _Fill(_SPOKE_AND_NECK, 0.05)
+    assert fill.width(pads["U1"], pads["U2"]) is not None
+
+    def no_search(*a, **k):
+        raise AssertionError("neck_length searched a run's width")
+    monkeypatch.setattr(_Fill, "_run_width", no_search)
+    assert fill.neck_length(pads["U1"], pads["U2"], 1.0) > 0
+
+
+def test_each_run_of_a_crossing_is_searched_once(monkeypatch):
+    from placemat.checks import _Fill
+    from tests.test_route_widths_board import _board
+    pads = {fp.ref: (fp.pads[0].outlines[0],) for fp in _board().footprints}
+    fill = _Fill(_SPOKE_AND_NECK, 0.05)
+    calls = []
+    real = _Fill._run_width
+    monkeypatch.setattr(_Fill, "_run_width", lambda self, *a: calls.append(a) or real(self, *a))
+    first = fill.narrow_runs(pads["U1"], pads["U2"], 1.0)
+    again = fill.narrow_runs(pads["U1"], pads["U2"], 1.0)
+    assert first == again and len(calls) == len(first["runs"])
