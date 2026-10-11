@@ -850,9 +850,8 @@ def open_entry(o, j, record, net_evidence) -> dict:
     """An obligation left open, with what the router said of it: its `record` (records_of; None for a whole-net call)
     gives `outcome` and `evidence`, or the net's `net_evidence` does; None when the router gave none. Router facts
     only: placemat infers no cause here (Task 6a)."""
-    rec = record
-    out = dict(o, outcome=rec.get("status") if rec else None,
-               evidence=rec.get("evidence") if rec else (net_evidence or {}).get(o["net"]))
+    out = dict(o, outcome=record.get("status") if record else None,
+               evidence=record.get("evidence") if record else (net_evidence or {}).get(o["net"]))
     if j["joined"] and j["violated"]:
         out["violated"] = True
     if j.get("width_unknown"):

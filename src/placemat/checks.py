@@ -1191,7 +1191,10 @@ class _Fill:
         # the widest level at which a path still joins them: a narrower disc passes wherever a
         # wider one does, so the levels that join them are the lower ones
         levels = self.levels
-        top = _highest(levels, lambda t: (lambda got: got if got[0] is not None else None)(attempt(t)))
+        def joined(t):
+            got = attempt(t)
+            return got if got[0] is not None else None
+        top = _highest(levels, joined)
         found = None if top is None else (top[0],) + top[1]
         lo = top[2] + 1 if top is not None else 0
         if found is None:
