@@ -2,6 +2,7 @@ import json
 import shutil
 
 from fixtures.reference import fetch, place_ref, prepare, route_ref
+from placemat import score
 
 VERSIONS = {"placemat": "0", "krt": "0", "pcb": "0"}
 BOARD = fetch.Board(name="x", repo="github:o/r", commit="c", files={}, board="x.kicad_pcb", licence="MIT", tests=("a", "b"),
@@ -110,7 +111,7 @@ def test_results_with_measures_are_ranked_by_score_rank():
     """With the run's measures recorded, a board or module is judged by `score.rank`: a new violation outranks closure
     (D11), a fitted module's area is traded in the run score (D16), and a complete board's routed quality decides
     before the score (D17)."""
-    m = {"v": 2, "airwire_mm": 100.0, "crossings": {}, "area_mm2": 100.0, "vias": 5, "copper_mm": 50.0, "segments": 20}
+    m = {"v": score.MEASURES_VERSION, "airwire_mm": 100.0, "crossings": {}, "area_mm2": 100.0, "vias": 5, "copper_mm": 50.0, "segments": 20}
     old = place_ref.asdict(_b(measures=m))
     assert place_ref.compare_b(old, _b(measures=m, closure_clean=0.9), {"placemat"}).status == "worse"
     assert place_ref.compare_b(old, _b(measures=dict(m, vias=4)), {"placemat"}).status == "better"
@@ -353,7 +354,7 @@ def dataclasses_replace(obj, **over):
 
 
 def test_module_drc_errors_outrank_better_closure_and_score():
-    m = {'v': 2, 'drc': 0, 'airwire_mm': 100.0}
+    m = {'v': score.MEASURES_VERSION, 'drc': 0, 'airwire_mm': 100.0}
     old = place_ref.asdict(_m(measures=m, closure_clean=0.9))
     dirty = _m(measures=dict(m, drc=1, airwire_mm=1.0), closure_clean=1.0)
     assert place_ref.compare_module(old, dirty, {'placemat'}).status == 'worse'
@@ -367,7 +368,7 @@ def test_place_only_records_measures_and_overrides_only_copied_workspace(tmp_pat
     original.write_text("[score]\narea = 0.25\n")
     record = {"status": "ok", "metrics": {"placed": 2, "crossings": 0, "airwire_mm": 5.0,
               "extent": [10.0, 5.0],
-              "measures": {"v": 2, "airwire_mm": 5.0, "area_mm2": 50.0}}}
+              "measures": {"v": score.MEASURES_VERSION, "airwire_mm": 5.0, "area_mm2": 50.0}}}
     def run(copied, **kwargs):
         from placemat.settings import load
         assert kwargs == {"route": False}
@@ -390,7 +391,7 @@ def test_place_only_records_measures_and_overrides_only_copied_workspace(tmp_pat
 
 def test_placement_comparison_reweights_measures_and_keeps_validity_first():
     row = {'versions': VERSIONS, 'inputs_digest': 'd', 'failure': '',
-           'measures': {'v': 2, 'airwire_mm': 100.0, 'area_mm2': 100.0, 'drc': 0}}
+           'measures': {'v': score.MEASURES_VERSION, 'airwire_mm': 100.0, 'area_mm2': 100.0, 'drc': 0}}
     new = dict(row, score_settings={'score_area': 1.0},
                measures=dict(row['measures'], airwire_mm=90.0, area_mm2=120.0))
     assert place_ref.compare_placement(row, new, {'placemat'}) == 'worse'
@@ -442,7 +443,7 @@ def test_routed_cli_applies_settings_only_to_copy_and_scores_with_them(tmp_path,
         assert kwargs.get('route', True) is True
         seen.append(copied)
         return {'status': 'ok', 'metrics': {'closure_clean': 0.75, 'placed': 2,
-            'extent': [10.0, 5.0], 'measures': {'v': 2, 'airwire_mm': 5.0, 'area_mm2': 50.0},
+            'extent': [10.0, 5.0], 'measures': {'v': score.MEASURES_VERSION, 'airwire_mm': 5.0, 'area_mm2': 50.0},
             'route': {'routed_pcb': str(tmp_path / 'routed.kicad_pcb'),
                       'closure_clean': 0.75, 'open_after': 1, 'drc_after': {'violations': []}}}}, 1.0
 

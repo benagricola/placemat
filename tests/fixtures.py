@@ -108,7 +108,9 @@ def placement_findings(plan, unturned: bool = False) -> list:
 
 def unturned_findings(plan) -> list:
     """The plan's findings less the `turn.better` notices: advice on the run score. Only for a scene whose turn notice
-    is a real gain the test is not about; anywhere else a turn notice is a finding like any other."""
+    the test is not about and is either a real gain on airwire or crossings, or congestion-only advice of a single
+    `score.congestion_step` (the worst cell on a step boundary); anywhere else a turn notice is a finding like any
+    other."""
     return [f for f in plan.findings if getattr(f, "cause", None) is not FindingCause.TURN_BETTER]
 
 

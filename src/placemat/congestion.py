@@ -44,9 +44,9 @@ def rudy(pads, board: Box, layers: int, pitch: float, cell: float = 0.5, skip=fr
     ny = max(1, int(math.ceil(board.height / cell)))
     x_org, y_org = board.left, board.top
     by_net = {}
-    for net, box, _ in pads:
+    for net, pad_box, _ in pads:
         if net and net not in skip:
-            by_net.setdefault(net, []).append(box.center)
+            by_net.setdefault(net, []).append(pad_box.center)
     demand = [[0.0] * nx for _ in range(ny)]
     total = 0.0
     for net in sorted(by_net):

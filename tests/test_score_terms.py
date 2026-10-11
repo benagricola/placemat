@@ -146,7 +146,7 @@ from placemat.settings import Settings  # noqa: E402
 
 
 def test_link_and_area_are_priced():
-    m = {"v": 2, "link_mm": 12.5, "area_mm2": 100.0, "airwire_mm": 10.0, "airwire_impedance_mm": 4.0, "crossings": {},
+    m = {"v": score.MEASURES_VERSION, "link_mm": 12.5, "area_mm2": 100.0, "airwire_mm": 10.0, "airwire_impedance_mm": 4.0, "crossings": {},
          "rudy_steps": 2}
     s = Settings()
     t = score.terms(m, s)
@@ -158,7 +158,7 @@ def test_link_and_area_are_priced():
 
 def test_crossings_by_kind():
     s = Settings()
-    m = {"v": 2, "crossings": {"plain+plain": 2, "impedance+plain": 1, "pair_net+plain": 1, "impedance+pair_net": 1,
+    m = {"v": score.MEASURES_VERSION, "crossings": {"plain+plain": 2, "impedance+plain": 1, "pair_net+plain": 1, "impedance+pair_net": 1,
                                "plane": 3, "pair": 1}}
     want = s.score_crossing * (2 + s.score_impedance + 2 * s.score_crossing_pair_net
                                + s.score_crossing_plane * 3) + s.score_pair_crossing

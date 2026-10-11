@@ -9,7 +9,7 @@ from placemat import score
 from placemat.score import Standing, Validity, quality_key, rank
 from placemat.settings import Settings, SettingsError, load
 
-M = {"v": 2, "airwire_mm": 100.0, "crossings": {}}
+M = {"v": score.MEASURES_VERSION, "airwire_mm": 100.0, "crossings": {}}
 
 
 def test_an_earlier_phase_outranks_clean_closure():

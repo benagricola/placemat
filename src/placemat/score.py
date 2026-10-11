@@ -8,6 +8,9 @@ the one board comparison runs, explore variants and the bench are judged by.
 A run records its measures, not its score (`measures` below), so the score
 is worked out whenever two runs are compared: a weight changed in
 placemat.toml re-ranks the runs already recorded, the stored best included.
+A setting that changes how a measure is counted does not: `score.congestion_step`
+and `score.congestion_box` set how `rudy_steps` is counted, and a stored run keeps
+the count it was recorded with.
 
 measures:
     v            MEASURES_VERSION: how the measures below were counted; a run recorded under another version is
@@ -40,7 +43,8 @@ import math
 from dataclasses import dataclass
 
 # How the measures are counted. A run recorded under another version is not comparable (report.comparable).
-MEASURES_VERSION = 2
+# 3: rudy_steps counts each net's box at least score.congestion_box each way.
+MEASURES_VERSION = 3
 
 TERMS = ("link_over", "label", "escape_crossed", "escape_closed", "escape_via", "escape_lane", "setup", "crossings",
          "airwire", "link", "giveway", "push", "back_face", "congestion", "area")

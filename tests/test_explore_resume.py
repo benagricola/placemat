@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from placemat import checkpoint, lock
+from placemat import checkpoint, lock, score
 from placemat.explore import search
 from tests import explore_boards as eb
 from tests.test_stop import DRIVER, ROOT, _wait_for
@@ -180,7 +180,7 @@ def test_a_real_stop_then_a_resume_skips_the_seeds_already_tried(tmp_path):
 def test_checkpoint_keeps_valid_incumbent_over_lower_invalid_score(tmp_path, failure):
     parts = {k: 'digest' for k in checkpoint.PARTS}
     ck = checkpoint.Checkpoint(tmp_path / 'state', parts, [])
-    valid = {'v': 2, 'unplaced': {}, 'findings': {}, 'airwire_mm': 20.0}
+    valid = {'v': score.MEASURES_VERSION, 'unplaced': {}, 'findings': {}, 'airwire_mm': 20.0}
     invalid = dict(valid, airwire_mm=1.0, **failure)
     payload = {'entries': [], 'orders': []}
     ck.start(30.0, valid, 60, range(3))
@@ -199,7 +199,7 @@ def test_checkpoint_keeps_valid_incumbent_over_lower_invalid_score(tmp_path, fai
 def test_checkpoint_and_result_use_seed_order_on_objective_tie(tmp_path):
     parts = {k: 'digest' for k in checkpoint.PARTS}
     ck = checkpoint.Checkpoint(tmp_path / 'state', parts, [])
-    m = {'v': 2, 'airwire_mm': 20.0}
+    m = {'v': score.MEASURES_VERSION, 'airwire_mm': 20.0}
     payload = {'entries': [], 'orders': []}
     ck.start(30.0, m, 60, range(10))
     ck.variant(9, 20.0, m, 1.0, payload)

@@ -5673,8 +5673,9 @@ the worst cell's share of capacity and where it is, the 99th percentile cell
 and the overflow; the run prints the worst cell as `congestion`. On a study
 of the fixture modules the worst cell was the one congestion measure that
 picked the better-routing of two placements more often than chance (about
-three times in four). The search does not weigh it; explore ranks variants
-by it (`score.congestion`), as does every run's score.
+three times in four), measured with a one-cell net box and not re-measured
+at `score.congestion_box`. The search, the turn check and every run's score
+weigh it at `score.congestion`, and explore ranks variants by it.
 
 Every verb whose default appears here takes an explicit argument that still
 wins: `board.plane(..., inset=1.0)` beats `copper.plane_inset`.
