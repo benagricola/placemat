@@ -172,7 +172,7 @@ def test_regenerated_reference_uses_pinned_import_and_reports_failures(tmp_path,
     result = prepare.regenerate(BOARD, src, tmp_path / 'work')
     assert result.read_text() == 'generated'
     assert calls == [(['pcb', 'import', str(src / 'tiny.kicad_pro'), str(tmp_path / 'work' / 'regenerated')], None),
-                     (['pcb', 'layout', '-S', 'errors', 'tiny.zen'], tmp_path / 'work' / 'regenerated')]
+                     (['pcb', 'layout', '--no-open', '-S', 'errors', 'tiny.zen'], tmp_path / 'work' / 'regenerated')]
     diagnostics = 'full error context\n' * 100 + 'bad project'
     monkeypatch.setattr(prepare.subprocess, 'run', lambda command, **kw: subprocess.CompletedProcess(command, 1, 'full stdout', diagnostics))
     with pytest.raises(RuntimeError, match='(?s)pcb import failed .*bad project'):

@@ -162,7 +162,8 @@ def regenerate(board: fetch.Board, src: pathlib.Path, work: pathlib.Path) -> pat
     out = pathlib.Path(work) / REGENERATED
     shutil.rmtree(out, ignore_errors=True)
     for command, cwd in ((["pcb", "import", str(project), str(out)], None),
-                         (["pcb", "layout", "-S", "errors", project.stem + ".zen"], out)):
+                         # --no-open: `pcb layout` otherwise opens the board in KiCad's GUI and leaves it running
+                         (["pcb", "layout", "--no-open", "-S", "errors", project.stem + ".zen"], out)):
         _generation_step(command, cwd, work, "regenerated-" + command[1], "pcb " + command[1])
     pcb = out / "layout" / (project.stem + ".kicad_pcb")
     if not pcb.exists():
