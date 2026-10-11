@@ -209,6 +209,7 @@ class RouteReport:
     net_clearances: dict = field(default_factory=dict)
     net_clearance_trapped: list = field(default_factory=list)
     net_clearance_facts: list = field(default_factory=list)
+    duplicate_references: list = field(default_factory=list)   # phase_select.duplicate_references on the routed nets
     # The router's dangling copper taken off the routed copy (route_cleanup.py, KiCad's TRACKS_CLEANER): Cleanup.record(),
     # {"tracks": {net: n}, "vias": {net: n}, "merged": {net: n}, "unconnected": [before, after],
     # "kept_unrouted": [nets left unconnected whose dangling router copper was kept],
@@ -240,7 +241,7 @@ class RouteReport:
     final_judged: list = field(default_factory=list)
 
     def has_findings(self) -> bool:
-        return bool(self.widths or self.net_clearance_facts)
+        return bool(self.widths or self.net_clearance_facts or self.duplicate_references)
 
     def findings(self, stated: dict | None = None) -> list:
         """Width findings followed by capture-clearance setup findings."""
@@ -248,9 +249,11 @@ class RouteReport:
         return findings_of(self.widths, stated) + self.setup_findings()
 
     def setup_findings(self) -> list:
-        """The `setup.net_clearance` findings: the ones `route_board` hands to `on_setup` before it routes."""
+        """The setup findings `route_board` hands to `on_setup` before it routes: `setup.net_clearance` and
+        `setup.duplicate_reference`."""
         from ..findings import Finding, FindingCause as C
-        return [Finding(C.SETUP_NET_CLEARANCE, dict(f)) for f in self.net_clearance_facts]
+        return ([Finding(C.SETUP_NET_CLEARANCE, dict(f)) for f in self.net_clearance_facts]
+                + [Finding(C.SETUP_DUPLICATE_REFERENCE, dict(f)) for f in self.duplicate_references])
 
     def summary(self) -> str:
         head = "route %s: closure %.1f%% clean (%.1f%% raw), %d -> %d open signal item(s)" % (
@@ -307,7 +310,7 @@ class RouteReport:
                 "pours_kept": list(self.pours_kept),
                 "resumed": list(self.resumed), "record": self.record, "widths": list(self.widths),
                 "net_clearances": dict(self.net_clearances),
-                "net_clearance_trapped": list(self.net_clearance_trapped), "dangling_removed": dict(self.dangling_removed),
+                "net_clearance_trapped": list(self.net_clearance_trapped), "duplicate_references": list(self.duplicate_references), "dangling_removed": dict(self.dangling_removed),
                 "phases": list(self.phases), "phases_without_copper": list(self.phases_without_copper),
                 "widths_failed": self.widths_failed, "drc_new": self.drc_new, "vias": self.vias,
                 "track_mm": self.track_mm, "segments": self.segments}
@@ -1380,6 +1383,10 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     stated = {n: c for n, c in (capture.clearances() if capture else {}).items() if n in geometry.nets}
     trapped = net_clearance.trapped(geometry, stated, judged={n for n in open0 if open0[n]}) if stated else []
     clearance_findings = net_clearance.findings(trapped)
+    from ..findings import Finding, FindingCause
+    from .phase_select import duplicate_references
+    shared = duplicate_references(geometry, set().union(*(_phase_nets(picked[p.name]) for p in run_list)))
+    clearance_findings += [Finding(FindingCause.SETUP_DUPLICATE_REFERENCE, f) for f in shared]
     if clearance_findings and on_setup is not None:
         on_setup(clearance_findings)
     class_clearances = net_clearance.class_clearances(rpy, router_dir_path, pcb_in, geometry.nets, env)
@@ -1472,7 +1479,9 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
                          breaches, plane_dropped, list(kept_pours), resumed)
     report.net_clearances = stated
     report.net_clearance_trapped = trapped
-    report.net_clearance_facts = [dict(f.facts) for f in clearance_findings]
+    report.net_clearance_facts = [dict(f.facts) for f in clearance_findings
+                                  if f.cause is FindingCause.SETUP_NET_CLEARANCE]
+    report.duplicate_references = shared
     report.violations = {n: by_net[n] for n in sc.shorted}
     from .route_widths import read_widths
     judged_width_nets = {w["net"] for rec in records for w in rec.get("widths", [])}

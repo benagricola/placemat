@@ -86,6 +86,7 @@ class Footprint:
     net_tie_groups: tuple = field(default=(), compare=False)   # the groups, each its pad numbers (FOOTPRINT::MapPadNumbersToNetTieGroups); () reads net_tie_pads as one
     models: tuple = field(default=(), compare=False)   # ((file, offset xyz, rotation xyz, scale xyz, shown, opacity), ...): its 3D models
     courtyard_drawn: bool = field(default=True, compare=False)   # False when it draws none: courtyard_box is then its physical box (kicad/read.py courtyard_box)
+    uuid: str = field(default="", compare=False)   # KiCad's own identity of the footprint (m_Uuid): tells apart two that share a reference
 
     @property
     def box(self) -> Box:

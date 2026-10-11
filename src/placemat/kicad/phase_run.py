@@ -171,7 +171,8 @@ def _failed(rc, log, what):
 
 def joined_pairs(pcb_path, pairs) -> list:
     """Whether each pair's two ends are joined on the board, by KiCad's own connectivity (BuildConnectivity, the same
-    test route_cleanup.pad_groups makes): an end is every pad of that footprint with that number."""
+    test route_cleanup.pad_groups makes): an end, (ref, pad) or (ref, pad, footprint uuid), is every pad of that
+    footprint with that number; without the uuid, of every footprint with that reference."""
     from .quiet import import_pcbnew, quiet_stderr
     from .write import load_board
     import_pcbnew()
@@ -183,12 +184,17 @@ def joined_pairs(pcb_path, pairs) -> list:
     cn = board.GetConnectivity()
     pads = {}
     for p in board.GetPads():
-        pads.setdefault((p.GetParentFootprint().GetReference(), p.GetNumber()), []).append(p)
+        fp = p.GetParentFootprint()
+        pads.setdefault((fp.GetReference(), p.GetNumber()), []).append((fp.m_Uuid.AsString(), p))
+
+    def end_pads(end):
+        fp = end[2] if len(end) > 2 else None
+        return [p for u, p in pads.get((end[0], end[1]), ()) if fp is None or u == fp]
     out = []
     for a, b in pairs:
-        ends_b = {p.m_Uuid.AsString() for p in pads.get(tuple(b), ())}
+        ends_b = {p.m_Uuid.AsString() for p in end_pads(tuple(b))}
         joined = False
-        for pa in pads.get(tuple(a), ()):
+        for pa in end_pads(tuple(a)):
             if pa.m_Uuid.AsString() in ends_b:
                 joined = True
                 break
@@ -206,7 +212,12 @@ def joined_ends(pcb_path, tasks) -> list:
 
 
 def _end_key(e) -> tuple:
-    return (e.get("ref"), e.get("pad"), tuple(e.get("at") or ()))
+    return (e.get("ref"), e.get("pad"), e.get("fp"), tuple(e.get("at") or ()))
+
+
+def _end_pair(e) -> tuple:
+    """An end as joined_pairs takes it: (ref, pad), with the footprint's uuid when the end names one."""
+    return (e["ref"], e["pad"], e["fp"]) if e.get("fp") else (e["ref"], e["pad"])
 
 
 def _ob_key(o) -> tuple:
@@ -273,8 +284,8 @@ def judge_obligations(pcb_path, obligations, drc_json, neck_mm=0.0, is_real=None
         is_real = kinds.__contains__
     violated = {n for e in real_errors(data, is_real) for n in e["nets"]}
     pads = [o for o in obligations if o["from"].get("ref") and o["to"].get("ref")]
-    joined = dict(zip(map(_ob_key, pads), joined_pairs(pcb_path, [((o["from"]["ref"], o["from"]["pad"]),
-                                                                    (o["to"]["ref"], o["to"]["pad"])) for o in pads])))
+    joined = dict(zip(map(_ob_key, pads), joined_pairs(pcb_path, [(_end_pair(o["from"]), _end_pair(o["to"]))
+                                                                   for o in pads])))
     loose = [o for o in obligations if _ob_key(o) not in joined]
     open_nets = {c["net"] for c in open_connections(pcb_path, drc_json)} if loose else set()
     geometry = (read_board(str(pcb_path)) if any(o.get("widths") and joined.get(_ob_key(o)) for o in obligations)
@@ -377,7 +388,7 @@ def _net_copper(geometry, net, cache) -> dict | None:
     """One net's copper as joining_spans searches it, the same for every obligation on the net (kept in `cache`):
     "adj", the track pieces between joints (track ends and vias, a track split at every joint on its centreline) and
     the vias joining their layers; "at_joint", the copper meeting at each joint; "regions", each filled polygon on
-    each layer, (key, kind, layer, polygon, (ref, pad) for a pad, pad identity for a pad); "inside", the joints
+    each layer, (key, kind, layer, polygon, (ref, pad, footprint uuid) for a pad, pad identity for a pad); "inside", the joints
     joined to each region; "touching", the regions on one layer that touch; "layer_pairs", one pad's regions on two layers; "own",
     each region's polygon as a tuple. None when the net has a curved track (its centreline is not measured)."""
     from ..geometry import circle_polygon, point_in_polygon, point_segment_distance, poly_distance
@@ -442,8 +453,8 @@ def _net_copper(geometry, net, cache) -> dict | None:
                 continue
             for layer in pad.layers:
                 for j, poly in enumerate(pad.outlines):
-                    regions.append((("pad", fp.ref, pad.number, i, layer.value, j), "pad", layer, poly,
-                                    (fp.ref, pad.number), (fp.ref, i, j)))
+                    regions.append((("pad", fp.ref, fp.uuid, pad.number, i, layer.value, j), "pad", layer, poly,
+                                    (fp.ref, pad.number, fp.uuid), (fp.ref, fp.uuid, i, j)))
     for i, copper in enumerate(geometry.copper):
         if copper.net == net and copper.kind in ("poly", "zone") and copper.filled:
             regions += [(("fill", i, layer.value, j), copper.kind, layer, poly, None, None)
@@ -502,9 +513,14 @@ def joining_spans(geometry, o, *, full_width=False, neck_mm=0.0, step=None, cach
     cache = {} if cache is None else cache
     fills = cache.setdefault(("fills", step), {})
 
-    ends = {"A": (o["from"].get("ref"), o["from"].get("pad")), "B": (o["to"].get("ref"), o["to"].get("pad"))}
-    if not any((fp.ref, p.number) == ends["A"] and p.net == net for fp in geometry.footprints for p in fp.pads) or \
-            not any((fp.ref, p.number) == ends["B"] and p.net == net for fp in geometry.footprints for p in fp.pads):
+    ends = {"A": o["from"], "B": o["to"]}
+
+    def names(end, pad_end):                        # pad_end: (ref, pad number, footprint uuid)
+        return (end.get("ref"), end.get("pad")) == pad_end[:2] and end.get("fp") in (None, pad_end[2])
+    if not any(names(ends["A"], (fp.ref, p.number, fp.uuid)) and p.net == net for fp in geometry.footprints
+               for p in fp.pads) or \
+            not any(names(ends["B"], (fp.ref, p.number, fp.uuid)) and p.net == net for fp in geometry.footprints
+                    for p in fp.pads):
         return None
     laid = _net_copper(geometry, net, cache)
     if laid is None:
@@ -516,8 +532,8 @@ def joining_spans(geometry, o, *, full_width=False, neck_mm=0.0, step=None, cach
         adj.setdefault(b, []).append((a, length, piece))
 
     at_joint, inside, own = laid["at_joint"], laid["inside"], laid["own"]
-    regions = [(key, kind, layer, poly, next((t for t, e in ends.items() if e == end), None) if end else None, ident)
-               for key, kind, layer, poly, end, ident in laid["regions"]]
+    regions = [(key, kind, layer, poly, next((t for t, e in ends.items() if names(e, end)), None) if end else None,
+                ident) for key, kind, layer, poly, end, ident in laid["regions"]]
     by_key = {r[0]: r for r in regions}
     touching = [(by_key[a], by_key[b]) for a, b in laid["touching"]]
     layer_pairs = [(by_key[a], by_key[b]) for a, b in laid["layer_pairs"]]
@@ -717,8 +733,9 @@ def open_connections(pcb_path, drc_json) -> list:
     """Each connection the DRC reports open (`unconnected_items`), named by its two ends' pads. KiCad gives each item's
     uuid; a pad end is that pad, a track, via or zone end is the first pad (by ref, pad) joined to it through copper
     (CONNECTIVITY_DATA.GetConnectedPads), and an end that is no pad and joins none is {"ref": None, "pad": None,
-    "at": [x, y]} (mm, the DRC's position). The net is the item's own, never read from the description. Ends are in
-    (ref, pad) order."""
+    "at": [x, y]} (mm, the DRC's position). A pad end of a footprint whose reference another footprint shares also
+    names the footprint's uuid, {"ref", "pad", "fp"}. The net is the item's own, never read from the description. Ends
+    are in (ref, pad) order."""
     from .quiet import import_pcbnew, quiet_stderr
     from .write import load_board
     import_pcbnew()
@@ -733,8 +750,17 @@ def open_connections(pcb_path, drc_json) -> list:
     for it in list(board.GetPads()) + list(board.GetTracks()) + list(board.Zones()):
         items[it.m_Uuid.AsString()] = it
 
+    refs = {}
+    for fp in board.GetFootprints():
+        refs[fp.GetReference()] = refs.get(fp.GetReference(), 0) + 1
+
     def key(pad):
-        return (pad.GetParentFootprint().GetReference(), pad.GetNumber())
+        fp = pad.GetParentFootprint()
+        return (fp.GetReference(), pad.GetNumber(), fp.m_Uuid.AsString())
+
+    def named(k):
+        """An end by its pad; with its footprint's uuid when another footprint has the same reference."""
+        return {"ref": k[0], "pad": k[1], "fp": k[2]} if refs.get(k[0], 0) > 1 else {"ref": k[0], "pad": k[1]}
 
     def end(raw):
         pos = raw.get("pos") or {}
@@ -743,10 +769,9 @@ def open_connections(pcb_path, drc_json) -> list:
         if it is None:
             return "", loose
         if it.GetClass() == "PAD":
-            ref, pad = key(it)
-            return it.GetNetname(), {"ref": ref, "pad": pad}
+            return it.GetNetname(), named(key(it))
         joined = sorted(key(p) for p in cn.GetConnectedPads(it))
-        return it.GetNetname(), ({"ref": joined[0][0], "pad": joined[0][1]} if joined else loose)
+        return it.GetNetname(), (named(joined[0]) if joined else loose)
 
     out = []
     for u in raw_items:
@@ -754,7 +779,7 @@ def open_connections(pcb_path, drc_json) -> list:
         if len(raw) < 2:
             continue
         (na, a), (nb, b) = end(raw[0]), end(raw[1])
-        a, b = sorted((a, b), key=lambda e: (e["ref"] is None, e["ref"] or "", e["pad"] or ""))
+        a, b = sorted((a, b), key=lambda e: (e["ref"] is None, e["ref"] or "", e["pad"] or "", e.get("fp") or ""))
         out.append({"net": na or nb, "from": a, "to": b})
     return out
 

@@ -470,6 +470,14 @@ def _setup_net_clearance(f):
                                      f["short_mm"], f["net"]))
 
 
+@renders(C.SETUP_DUPLICATE_REFERENCE, "ref", "nets", "footprints")
+def _setup_duplicate_reference(f):
+    places = [_loc(fp["at"]) for fp in f["footprints"]]
+    return ("%d footprints share the reference %s, at %s, on %s: each is routed and judged as its own part; give each a "
+            "reference of its own to tell them apart in reports" % (len(places), f["ref"], ", ".join(places[:-1]) +
+                                                                     " and " + places[-1], ", ".join(f["nets"])))
+
+
 @renders(C.SETUP_ACCEPT, "variant", "check", "subject")
 def _setup_accept(f):
     if f["variant"] == "unmatched":

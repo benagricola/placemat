@@ -564,3 +564,18 @@ def test_a_changed_width_or_rule_routes_every_phase_again(rig, monkeypatch, chan
     report = rig.route(leg, FB, {'name': 'signals'}, settings=settings)
     assert [record['reused'] for record in report.phases] == [False, False, False]
     assert len(rig.calls()) > n
+
+
+@needs_kicad
+def test_a_reference_two_footprints_share_routes_and_is_said_as_a_setup_finding(rig, tmp_path):
+    text = rig.pcb.read_text()
+    second = ('\t(footprint "t:p" (layer "F.Cu") (at 125 115)\n\t\t(property "Reference" "J1" (at 0 -2 0) '
+              '(layer "F.SilkS"))\n\t\t(pad "1" smd rect (at 0 0) (size 0.6 0.6) (layers "F.Cu" "F.Mask") (net "FB"))\n\t)\n')
+    i = text.index("\t(segment")
+    rig.pcb.write_text(text[:i] + second + text[i:])
+    said = []
+    report = rig.route(FB, on_setup=said.extend)
+    (f,) = [f for f in said if f.cause.value == "setup.duplicate_reference"]
+    assert f.facts["ref"] == "J1" and f.facts["nets"] == ["FB"] and len(f.facts["footprints"]) == 2
+    assert [g.facts for g in report.setup_findings() if g.cause.value == "setup.duplicate_reference"] == [f.facts]
+    assert report.phases[0]["asked"] == 2

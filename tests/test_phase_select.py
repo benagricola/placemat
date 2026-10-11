@@ -245,18 +245,20 @@ def test_current_interface_keeps_bus_and_derived_width_tasks():
     assert got.buses == (("VB",),) and got.tasks and all(t.amps is not None for t in got.tasks)
 
 
-@pytest.mark.parametrize('other_net', ['VB', 'OTHER'])
-def test_selected_terminal_shared_by_distinct_footprints_is_refused(other_net):
-    g = board_geometry([footprint('TP4', 5, 5, nets=('VB', '')),
-                        footprint('TP4', 15, 15, nets=(other_net, '')),
-                        footprint('J1', 25, 25, nets=('VB', ''))])
+def test_a_reference_two_footprints_share_routes_and_is_named_by_a_finding():
+    from placemat.kicad.phase_select import duplicate_references
+    a = replace(footprint('TP4', 5, 5, nets=('VB', '')), uuid='fp-a')
+    b = replace(footprint('TP4', 15, 15, nets=('VB', '')), uuid='fp-b')
+    g = board_geometry([a, b, footprint('J1', 25, 25, nets=('VB', '')), footprint('TP5', 35, 5, nets=('X', '')),
+                        footprint('TP5', 45, 5, nets=('X', ''))])
     phase = parse_phases([{'name': 'power', 'nets': ['VB']}])[0]
-    kwargs = dict(open_nets={'VB'}, excluded=set(), pour_nets=set(), route_layers=LAYERS, rise_c=10, copper_oz=1)
-    with pytest.raises(PhaseError) as error:
-        select(phase, g, None, **kwargs)
-    assert error.value.code == 'ambiguous_terminal'
-    assert (error.value.facts['ref'], error.value.facts['pad']) == ('TP4', '1')
-    assert [o['footprint_index'] for o in error.value.facts['owners']] == [0, 1]
+    sel = select(phase, g, None, open_nets={'VB'}, excluded=set(), pour_nets=set(), route_layers=LAYERS,
+                 rise_c=10, copper_oz=1)
+    assert sel.nets == ('VB',)
+    assert duplicate_references(g, {'VB'}) == [
+        {'ref': 'TP4', 'nets': ['VB'], 'footprints': [{'uuid': 'fp-a', 'at': [5.0, 5.0]},
+                                                       {'uuid': 'fp-b', 'at': [15.0, 15.0]}]}]
+    assert duplicate_references(g, {'VB', 'X'})[1]['ref'] == 'TP5'
 
 
 def test_repeated_pad_shapes_within_one_footprint_are_legitimate():

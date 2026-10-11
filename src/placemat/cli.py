@@ -792,9 +792,9 @@ def cmd_route(args) -> int:
                         ", ".join(report.resumed))
         for breach in report.keepout_breaches:
             console.say("route", breach)
-        from .findings import FindingCause
+        from .findings import FindingKind
         for f in short:
-            if f.cause is not FindingCause.SETUP_NET_CLEARANCE:        # said before the route started
+            if f.cause.kind is not FindingKind.SETUP:                  # said before the route started
                 console.finding(f, "route")
         for net, n in sorted(report.open_nets.items(), key=lambda kv: -kv[1])[:15]:
             console.say("route", "%-20s %d open" % (net, n))

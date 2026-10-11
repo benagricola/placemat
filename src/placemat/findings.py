@@ -111,6 +111,7 @@ class FindingCause(str, Enum):
     SETUP_NATIVE = (FindingKind.SETUP, "setup.native")
     SETUP_PINS = (FindingKind.SETUP, "setup.pins")
     SETUP_NET_CLEARANCE = (FindingKind.SETUP, "setup.net_clearance")
+    SETUP_DUPLICATE_REFERENCE = (FindingKind.SETUP, "setup.duplicate_reference")
     ROUTE_DROPPED = (FindingKind.ROUTE, "route.dropped")
     ROUTE_WIDTH = (FindingKind.ROUTE, "route.width")
     VIAS_GAVE_WAY = (FindingKind.VIAS, "vias.gave_way")
