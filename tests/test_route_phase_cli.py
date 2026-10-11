@@ -90,3 +90,11 @@ def test_a_failed_width_query_reads_as_its_failure_and_log():
     text = refused_text('width_policy_failed', {'router': 'krt', 'failure': 'timeout', 'seconds': 60.0,
                                                 'log': 'work/width_policy.log'})
     assert text == "route: the router's width query gave no widths: timeout; its output is in work/width_policy.log"
+
+
+def test_an_unmeasured_join_reads_width_not_measured():
+    from placemat.kicad.route import phase_lines
+    p = {"name": "legs", "selector": "connections", "joined": 0, "asked": 1, "closure_clean": 0.0, "seconds": 1.0,
+         "open": [{"net": "SW", "from": {"ref": "Q1", "pad": "2"}, "to": {"ref": "L1", "pad": "1"},
+                   "width_unknown": True}]}
+    assert any("SW Q1.2-L1.1 width not measured" in line for line in phase_lines([p]))

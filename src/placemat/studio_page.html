@@ -2777,7 +2777,7 @@ function phasesHTML(phases) {
       (p.final_asked != null ? p.final_asked - (p.final_open || []).length : p.joined);
     const pct = (100 * closure).toFixed(1) + "%", w = (p.widths || []).length;
     const open = (p.final_open || p.open || []).map(o => o.violated ? o.net + " has a DRC error" : o.net + " " + phaseEnd(o.from) + "-" + phaseEnd(o.to) +
-      (o.width_unknown ? " width unproven" : o.under ? " under " + Object.entries(o.under).map(([l, w]) => l + " " + w).join(", ") : ""));
+      (o.width_unknown ? " width not measured" : o.under ? " under " + Object.entries(o.under).map(([l, w]) => l + " " + w).join(", ") : ""));
     return '<div class="row"><span class="n wrap"><b>' + esc(p.name) + "</b> " + esc(p.selector + ": " + joined + " of " + asked + " joined clean, ") +
       (closure < 1 ? pill(pct, "warn") : esc(pct)) + esc(", " + fmtDur(1000 * p.seconds) + (p.reused ? ", reused" : "")) +
       (w ? " " + pill(w + (w === 1 ? " width finding" : " width findings"), "bad") : "") +

@@ -294,7 +294,7 @@ class RouteReport:
         if self.phases:
             head += "  phases: " + ", ".join("%s %.0f%%" % (p["name"], 100 * p["closure_clean"]) for p in self.phases)
         if self.widths_failed:
-            head += "  %d connection(s) under or unproven at their width" % self.widths_failed
+            head += "  %d connection(s) under their width or not measured" % self.widths_failed
         if self.drc_new:
             head += "  %d new DRC error(s)" % self.drc_new
         if self.widths:
@@ -1597,7 +1597,7 @@ def phase_lines(phases: list, without_copper=()) -> list:
                 opened.append("%s %s-%s under %s" % (o["net"], _phase_end(o["from"]), _phase_end(o["to"]), " ".join(
                     "%s %g" % (layer, mm) for layer, mm in sorted(o["under"].items()))))
             elif o.get("width_unknown"):
-                opened.append("%s %s-%s width unproven" % (o["net"], _phase_end(o["from"]), _phase_end(o["to"])))
+                opened.append("%s %s-%s width not measured" % (o["net"], _phase_end(o["from"]), _phase_end(o["to"])))
             else:
                 opened.append("%s %s-%s%s" % (o["net"], _phase_end(o["from"]), _phase_end(o["to"]), _router_said(o)))
         if opened:

@@ -95,7 +95,7 @@ def test_numeric_rest_keeps_width_obligations():
     assert asked[0]["widths"] == {"F.Cu": 0.8}
 
 
-def test_unknown_required_width_is_not_clean_and_counts_as_unproven():
+def test_an_unmeasured_width_is_not_clean_and_counts_as_failed():
     from placemat.kicad.phase_run import is_clean, widths_failed
     result = {"joined": True, "violated": False, "under": {}, "width_unknown": True}
     obligation = {"net": "V", "from": {}, "to": {}}

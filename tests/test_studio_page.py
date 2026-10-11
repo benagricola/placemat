@@ -3847,5 +3847,5 @@ ev("renderFindings()"); out.run = els["#tab-findings"].innerHTML;
         assert "2 of 4 joined clean, " in html and "50.0%" in html
         assert "4 of 4 joined clean" not in html
         assert "VB J1.2-Q1.1 under F.Cu 0.5" in html
-        assert "SW Q1.2-L1.1 width unproven" in html
+        assert "SW Q1.2-L1.1 width not measured" in html
     assert "Routing phases" in out["route"] and "Routing phases" in out["run"]
