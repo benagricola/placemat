@@ -114,7 +114,8 @@ def test_each_phase_asks_what_the_input_board_has_open_and_is_judged_again_on_th
     report = rig.route(FB, {"name": "signals"})
     assert [(p["asked"], p["joined"]) for p in report.phases] == [(1, 0), (1, 0)]     # FB; then VIN, not FB again
     assert [p["final_closure_clean"] for p in report.phases] == [0.0, 0.0]
-    assert {o["net"] for o in report.phases[1]["final_open"]} == {"FB", "VIN"}  # final rest contract covers all nets
+    assert [o["net"] for o in report.phases[1]["final_open"]] == ["VIN"]        # the rest phase leaves FB to fb
+    assert [p["final_asked"] for p in report.phases] == [p["asked"] for p in report.phases]
     assert (report.vias, report.track_mm, report.segments, report.drc_new) == (0, 0.0, 0, 0)
 
 

@@ -254,35 +254,6 @@ def obligations_of(selections, input_open, skip) -> list:
     return out
 
 
-
-def comparison_obligations(selections, geometry, skip) -> list:
-    """Stable electrical obligations for comparing placements, independent of DRC airwire topology.
-
-    Explicit tasks retain their declared ends and widths. Whole-net selections are judged by a deterministic
-    spanning set of all selected pads. These pairs are used only to judge connectivity, never to direct routing.
-    """
-    from .phase_select import validate_terminals
-    out = []
-    for sel in selections:
-        validate_terminals(sel.phase, sel, geometry, excluded=skip if not sel.tasks else ())
-        if sel.tasks:
-            out.append(_unique([t.record() for t in sel.tasks]))
-            continue
-        nets = (set(sel.nets) | set(sel.pour_nets) | {n for b in sel.buses for n in b}
-                | {n for pair in sel.pairs for n in pair}) - set(skip)
-        obs = []
-        for net in sorted(nets):
-            pads = sorted({(fp.ref, p.number) for fp in geometry.footprints for p in fp.pads if p.net == net})
-            if len(pads) < 2:
-                continue
-            widths = {layer: sel.width for layer in sel.layers} if sel.width else None
-            a = pads[0]
-            obs += [{"net": net, "from": {"ref": a[0], "pad": a[1]}, "to": {"ref": b[0], "pad": b[1]},
-                     "widths": dict(widths) if widths else None} for b in pads[1:]]
-        out.append(obs)
-    return out
-
-
 def judge_obligations(pcb_path, obligations, drc_json, neck_mm=0.0, is_real=None) -> list:
     """Each obligation on a board, in order: {"joined", "violated", "under"}. joined: KiCad's connectivity joins the two
     ends' pads (joined_pairs); an obligation with an end that is no pad is joined when its net has no open connection

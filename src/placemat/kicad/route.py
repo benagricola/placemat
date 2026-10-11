@@ -1223,16 +1223,16 @@ def finalize_copper(raw_board, pcb_out, given, source_pcb, drc_path):
     return cleanup, run_drc(pcb_out, drc_path, refill_zones=False)
 
 
-def recheck_final_phases(report, comparison_asked, run_list, width_receipt, pcb_out, drc_path, after, cfg):
-    """Ruling S6: every phase's obligations (`comparison_asked`, fixed before routing) judged again on the routed board
-    `pcb_out`, after the last phase and the clean-up. Fills each phase record's final_* counts, `report.final_judged`,
+def recheck_final_phases(report, asked, run_list, width_receipt, pcb_out, drc_path, after, cfg):
+    """Ruling S6: every phase's obligations (`asked`, obligations_of, fixed from the input board before routing) judged
+    again on the routed board `pcb_out`, after the last phase and the clean-up. Fills each phase record's final_* counts, `report.final_judged`,
     `report.widths_failed` and `report.asked`."""
     from .phase_run import is_clean, judge_obligations, outcome_of, phase_neck
-    if not (len(report.phases) == len(comparison_asked) == len(run_list)):
+    if not (len(report.phases) == len(asked) == len(run_list)):
         raise ValueError("final phase/obligation count mismatch")
     report.final_judged = []
     report.widths_failed = 0
-    for rec, obs, phase in zip(report.phases, comparison_asked, run_list):
+    for rec, obs, phase in zip(report.phases, asked, run_list):
         rec["width_policy"] = [p for p in width_receipt['policies'] if p['name'] == phase.name]
         rec["final_asked"] = len(obs)
         got = judge_obligations(pcb_out, obs, drc_path, phase_neck(cfg, phase), after.is_real)
@@ -1254,7 +1254,7 @@ def recheck_final_phases(report, comparison_asked, run_list, width_receipt, pcb_
                                   **({"under": dict(j["under"])} if j["joined"] and j["under"] else {}),
                                   **({"width_unknown": True} if j.get("width_unknown") else {}))
                              for o, j, ok in zip(obs, got, clean) if not ok]
-    report.asked = comparison_asked
+    report.asked = asked
 
 
 def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: str | None = None,
@@ -1355,8 +1355,6 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     # below edit pcb_in); the rest phase never takes a pour net (D15)
     asked = obligations_of([picked[p.name] for p in run_list], open_connections(pcb_in, work / "drc_before.json"),
                            excluded | pours)
-    from .phase_run import comparison_obligations
-    comparison_asked = comparison_obligations([picked[p.name] for p in run_list], geometry, excluded)
     open0 = {n: v for n, v in before.open_nets.items() if n not in counted}
     valid = not before.real
     guard_footprint_copper(str(pcb_in))          # after the placement's own DRC: the guards are the router's
@@ -1379,8 +1377,6 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
         raise RouteRefused("width_policy_failed", router=str(router_dir_path), failure=failure["code"],
                            **failure["facts"])
     asked = width_policy.apply(asked, [picked[p.name] for p in run_list], run_list, width_receipt)
-    comparison_asked = width_policy.apply(comparison_asked, [picked[p.name] for p in run_list], run_list,
-                                          width_receipt)
     stated = {n: c for n, c in (capture.clearances() if capture else {}).items() if n in geometry.nets}
     trapped = net_clearance.trapped(geometry, stated, judged={n for n in open0 if open0[n]}) if stated else []
     clearance_findings = net_clearance.findings(trapped)
@@ -1483,7 +1479,7 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     report.widths = [w for rec in records for w in rec.get("widths", [])] + read_widths(summaries, judged_width_nets)
     report.dangling_removed = cleanup.record()
     report.phases = records
-    recheck_final_phases(report, comparison_asked, run_list, width_receipt, pcb_out,
+    recheck_final_phases(report, asked, run_list, width_receipt, pcb_out,
                          work / "drc_after.json", after, cfg)
     report.drc_new = new_error_count(work / "drc_before.json", work / "drc_after.json", after.is_real)
     report.vias, report.track_mm, report.segments = routed_copper(pcb, pcb_out)

@@ -146,20 +146,6 @@ def test_pair_width_is_refused_instead_of_ignored():
     assert err.value.code == "pair_width"
 
 
-def test_comparison_obligations_use_pad_membership_not_placement():
-    from placemat.kicad.phase_run import comparison_obligations
-    from placemat.kicad.phase_select import Selection
-    from dataclasses import replace
-    geometry = board_geometry([footprint("U1", 5, 10, nets=("V", "X")),
-                               footprint("U2", 15, 10, nets=("V", "Y")),
-                               footprint("U3", 25, 10, nets=("V", "Z"))])
-    selection = Selection("power", "nets", nets=("V",), layers=("F.Cu",), width=0.5)
-    (a,) = comparison_obligations([selection], geometry, set())
-    moved = replace(geometry, footprints=tuple(reversed(geometry.footprints)))
-    (b,) = comparison_obligations([selection], moved, set())
-    assert a == b and len(a) == 2
-
-
 def test_compliant_neck_path_is_found_beside_a_shorter_narrow_path():
     from placemat.kicad.phase_run import joining_spans, width_shortfall
     from tests.test_route_widths_board import _track, _board
