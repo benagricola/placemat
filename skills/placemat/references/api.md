@@ -3966,7 +3966,7 @@ A phase has at most one selector:
 A phase with none is the rest: every connection still open when it runs, pour nets left out. A phase selects only
 connections still open when it runs; a connection an earlier phase joined is not routed again. A pair is selected
 when either member remains open. The connected member's input copper stays fixed; the pair router may report
-`single_ended` fallback for the remaining member, which does not certify coupled pair geometry. A selector that names a
+`single_ended` fallback for the remaining member, which routes it as a single track, not as half of a coupled pair. A selector that names a
 net, class, part, pad, type or layer the board lacks, or a glob that matches nothing, refuses the route naming it
 (`route.phase 'NAME': no net 'X' on this board`); so does a selector the board's generator cannot answer (`interfaces`,
 `net_types` and `pairs = true` need the capture's `nets.layout.json` beside the board).
@@ -4015,12 +4015,18 @@ last phase's board is `router_out.kicad_pcb`, and `routed.kicad_pcb` is made fro
 
 - `asked`: how many obligations the phase has. An obligation is a pad pair, `{"net", "from": {"ref", "pad"}, "to":
   {"ref", "pad"}, "widths": {layer: mm} | null}`: a task phase's tasks; a net phase's connections the unrouted input
-  board has open on its nets; the rest phase's open connections no earlier phase names. They are fixed from the input
-  board before any phase runs, so a route cannot change its own denominator.
+  board has open on its nets; the rest phase's open connections on nets no earlier phase names. They are fixed from
+  the input board before any phase runs, so a route cannot change its own denominator. When two footprints share a
+  reference, an end on one of them also names its footprint's KiCad uuid (`"fp"`), and is judged on that footprint.
 - `joined`, `closure_clean`: the obligations clean on the board after the phase (a DRC of it, guards off and zones
   filled) and their share (1.0 with none asked). Clean is joined by copper (KiCad's connectivity), its net in no real
   error of that DRC (the `real` bucket at severity error, as `drc_new` counts them), not narrower than asked along the
-  track path that joins its two pads (a thin branch to another pad does not count), and not a `joined_narrow` outcome.
+  copper path that joins its two pads (a thin branch to another pad does not count), and not a `joined_narrow`
+  outcome. The path is its tracks and any stretch of a pour's fill, a filled copper polygon or another pad it passes
+  through; such a stretch is as wide as the widest disc that can travel through that copper from where the path
+  enters it to where it leaves (the measure the current-path check uses, read to within one `[check] zone_step`). A
+  track end joins an end pad anywhere inside the pad's copper, and joins a pour or pad within half the track's width
+  of its edge, as KiCad joins them.
   Along that path, copper closer than the neck allowance to either end is the router's pad neck-down and is not
   counted (the router's neck length plus taper, 3 mm by default; none with `neckdown = false`), but the allowance
   reaches at most half the path from each end: every connection keeps copper at its full width, and on a path too
@@ -4028,30 +4034,28 @@ last phase's board is `router_out.kicad_pcb`, and `routed.kicad_pcb` is made fro
   the copper is split into tracks does not change it.
 - `open`: each obligation not clean, with `outcome` (its task record's `status`; null for a whole-net call),
   `evidence` (the router's own record of why, as it gave it; null when it gave none), `violated: true` when joined
-  but its net has a real DRC error, and `under` (`{layer: mm}`) when joined narrower than asked.
-- `final_asked`, `final_closure_clean`, `final_open`: the stable comparison obligations judged on the final board,
-  after the last phase and the clean-up. Explicit tasks retain their selected ends and widths. Whole-net selections
-  use all selected pad identities and net membership, with a deterministic spanning set solely to judge their
-  connectivity; these pairs never direct routing. They do not depend on placement coordinates or the router's airwire
-  topology. Initial `asked` and `open`
-  remain diagnostic records. A short, narrow or unproven join left by a later phase shows in the final fields; a fault
-  is not attributed to a phase.
+  but its net has a real DRC error, `under` (`{layer: mm}`) when joined narrower than asked, and `width_unknown: true`
+  when joined but no copper path between its pads could be measured (its net has a track drawn as an arc, or the
+  router gave no width for it, below).
+- `final_asked`, `final_closure_clean`, `final_open`: the same obligations as `asked`, judged again on the final
+  board, after the last phase and the clean-up. A short or a narrow join left by a later phase shows in the final
+  fields; a fault is not attributed to a phase.
 
 The report also has `vias`, `track_mm` and `segments` (the copper the route added on the final board, as the router's
 own quality key counts a board's: vias, the straight segments' length end to end, and their count; arcs are left out
 as there), `drc_new` (errors in the DRC's `real` bucket on
 the final board that the unrouted board does not have, matched by type, nets and position within 0.05 mm; warnings and
 the other buckets never count; null when a DRC wrote no report) and `widths_failed` (obligations joined on the final
-board narrower than asked along their path, reported `joined_narrow` by the router, or lacking a required-width
-proof (`width_unknown`)). Unproven width is conservative uncertified evidence, not a measured narrow path or proof
-of physical impossibility. The board-wide `closure`, `closure_clean` and `open_nets` are as before.
+board narrower than asked along their path, reported `joined_narrow` by the router, or with a width that could not be
+measured (`width_unknown`)). The board-wide `closure`, `closure_clean` and `open_nets` are as before.
 
 The width each join is judged against comes from the router: before any copper changes, the route asks the
-configured router which width it will draw each selected net at in each phase and layer (net class, design rule and
-router flags, as the router itself resolves them). Global flags precede phase flags; explicit connection tasks keep
-their declared widths. Differential calls have their own flag scope. Default rest keeps an earlier pair's width; an
-explicit rest width or a phase-local `--track-width` adds a single-ended width. Widths derived from impedance are not
-resolved. A net the router leaves unresolved is `width_unknown`. The answer is saved as `width_policy.json` (per
+configured router which width it will draw each selected net at in each phase and on each layer, as the router works
+it out from the net class, the design rules and its flags (`[route] router_args` first, then the phase's own). A
+connection task is judged at the widths its phase gives it. A pair phase's nets are asked with the flags of its pair
+call. A rest phase with no width of its own judges the nets of an earlier pair phase at that pair's width; with a
+width of its own, or its own `--track-width`, their single tracks are asked at that width as well. A width the router
+would take from an impedance is not asked. A net the router gives no width for is `width_unknown`. The answer is saved as `width_policy.json` (per
 phase and net: `status` and `widths`), the query's output as `width_policy.log`. A query that gives no answer refuses
 the route (below).
 
@@ -4066,12 +4070,20 @@ the code and its facts):
 | `router_old` | the router lacks a flag the phases need (`--connections`; `--bus-nets` for a phase with buses) |
 | `width_policy_unavailable` | the router has no width query (`py_router/nominal_width_policy.py`, on the placemat fork) or its interpreter will not start (`router`, `script`; `error` and `errno` when it will not start); routing stops before changing copper |
 | `width_policy_failed` | the router's width query gave no answer (`router`; `failure`: `timeout` with `seconds`, `failed` with `exit_code`, or `malformed` with `problem`; `log`, its output); routing stops before changing copper |
-| `ambiguous_terminal` | a selected reference/pad belongs to multiple distinct footprints (`name`, `ref`, `pad`, `owners` with footprint index, instance and position). Give each footprint a unique reference. Repeated physical pad shapes within one footprint remain supported; excluded terminals do not create obligations. |
+| `router_owned` | `[route] router_args` or a phase's `router_args` names, by the router's own flag list, a flag placemat sets itself (`phase`, null for `[route]`; `flag`; `owned`, the router flag it names). The settings refuse the plain cases when they are read; this catches an abbreviation only the router's list resolves |
 | `pair_flag` | a phase that routes pairs gives in `router_args` a flag the pair router (route_diff.py) does not take, by the router's own capability listing (`phase`, `flag`): its pair call would fail |
 | `router_refused` | the router refused a task placemat selected (`facts`: `phase`, `tasks` each `{net, from, to, reason}`); the route stops |
 
 A phase that cannot be obeyed on the board (a selector naming nothing, a layer the board lacks, a current not stated)
 is refused the same way, with its own code.
+
+A flag in `router_args` is read as the router reads it: the flag itself, or the one flag of the router's own list it
+abbreviates (`--clearance-c` is `--clearance-ceiling`); an abbreviation of two or more flags names none.
+
+**Footprints that share a reference.** KiCad allows two footprints with one reference. The route goes ahead, judging
+each connection end on its own footprint (`"fp"` above), and says it with a `setup.duplicate_reference` warning before
+routing: `ref`, `nets` (the routed nets their pads are on) and `footprints` (each `uuid` and `at`). `route.json` lists
+them under `duplicate_references`.
 
 **Nets with DRC violations.** The route's summary line ends `with DRC violations: NET (hole_to_hole)` for each net
 with a real DRC violation in the routed copy; the closure counts such a net as unrouted ("clean"). `route.json` and
@@ -5100,6 +5112,7 @@ its kind.
 | `setup` (an undeclared part, a lane reserved that no track uses, a part outside its frame's declared reach, an `accept` that matched no verdict, the native module not in use: `setup.native`, a pin annotation the pin map study runs without or a present map that breaks its own rule: `setup.pins`) | warning | the script is incomplete or wrong |
 | `setup` (a layer a keepout or rule names that the board lacks, a rule not carried to this board, a look-ahead dropped for want of room, an `accept` that was not needed, a search that spent its budget and took the best spot so far) | notice | placemat carried on without it |
 | `setup` (`setup.net_clearance`: a pad trapped by another net's capture clearance) | warning | the router cannot lead the pad out |
+| `setup` (`setup.duplicate_reference`: two footprints on routed nets share a reference) | warning | reports and the router's connection tasks name a pad by reference |
 | `route` (`route.dropped`) | notice | an adopted route dropped because a part it joins moved; the router routes it again |
 | `route` (`route.width`: a net's copper delivered under the width asked) | critical when the net's phase sets a width (it carries current), or when the current its narrowest copper carries is under the current the parts state for it (`Pm.I`); warning otherwise | the net is narrower than declared where it carries current; facts `net`, `stage`, `requested_mm`, `delivered_min_mm`, `length_under_mm`, `length_mm`, `share`, `declared`, `max_a`, `bottleneck_mm`, `stated_a` |
 | `vias` (shared, moved, re-routed, left its pad, shortened, a field re-laid) | notice | carried vias gave way as designed |
@@ -5654,9 +5667,9 @@ the existing copper and lists earlier phases without copper. Each phase reports 
 connections, elapsed time, reused status, width findings and structured router evidence for open connections.
 The studio shows those records at the head of the Findings tab.
 
-Final phase comparison uses stable selected pad membership, independent of the placement's airwire topology.
-The report retains diagnostic airwire pairs separately. Required widths are checked on joining paths, including
-intermediate pads and filled copper. An unsupported path has `width_unknown` and cannot count as clean.
+Each phase is judged again on the final board on the same pad pairs it was asked to join. Widths are checked on the
+copper path that joins each pair, tracks and the fills and pads it passes through, each measured. A join whose path
+cannot be measured has `width_unknown` and does not count as clean.
 A pair phase takes its width from the net class; an explicit phase width is refused.
 
 `settings <board> --example` writes default phases for capture pairs, interfaces, wide-clearance classes,
@@ -5672,4 +5685,4 @@ Each phase record in `route.json` is judged again on the finished board. `final_
 connections that are joined, at their width and with no DRC error on their net; `final_connected`
 counts connections that are joined at all. Of the joined ones, `final_width_known_under` counts
 paths measured narrower than asked and `final_width_unknown` counts paths whose width could not be
-measured; one path can be in both. A report from before these fields has none of them.
+measured; a path is in at most one of them. A report from before these fields has none of them.

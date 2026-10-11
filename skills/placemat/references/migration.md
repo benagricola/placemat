@@ -18,7 +18,11 @@ section for each hand-written pattern a newer form replaces.
 
 - **Routing phases.** Net clearance comes from the capture's clearance field. Trapped-pad findings are `setup.net_clearance`.
 
-- **Routing phases.** Required-width paths that cannot be proved are explicitly unproven and never counted as clean joins.
+- **Routing phases.** A join's width is measured along the copper that joins its two pads, through any pour fill or
+  pad on the way; a join whose path cannot be measured is `width_unknown` and is not counted clean.
+
+- **Routing phases.** Two footprints may share a reference: the route goes ahead and says so with a
+  `setup.duplicate_reference` warning.
 
 - **Routing phases.** Pair phase widths come from net classes; omit an explicit phase width.
 
