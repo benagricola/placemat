@@ -737,7 +737,9 @@ def _route_work(make_board, focus, lock, reuse, routing, rq, out, parent):
                         b.resolve(reuse=reuse, explore=Explore(seed, focus), lock=lock)
                     pcb = router.write(make_board, b, p, d)
                     remap = ranked(b, p, 0.0).get("remap")
-                    if remap and remap["groups"]:            # routed as it would stand once the remap is made
+                    # routed as it would stand once the remap is made: only a remap whose groups, judged together,
+                    # lower the run score (pinmap.plan_remap's `actionable`)
+                    if remap and remap["actionable"] and remap["groups"]:
                         entry["remapped"] = dict(router.remap(pcb, remap["groups"]), saving=remap["saving"])
                     r = router.route(pcb, d / "route", exclude_nets=set(p.plane_nets) | set(routing.exclude), quick=True,
                                      resume=routing.resume)
@@ -1457,6 +1459,8 @@ def pin_map_lines(report) -> list:
     remapping, and the pose that takes, or that it ran past its wall-clock guard; a variant whose study failed says so. Then the time the study took after the
     explore's own."""
     from .finding_text import at_pose
+    def total(t):                           # a refused judgment has no total
+        return "unmeasured" if t is None else "%.1f" % t
     out = []
     maps = report.get("pin_maps") or ()
     for v in maps:
@@ -1471,7 +1475,7 @@ def pin_map_lines(report) -> list:
                 continue
             turned = [t for t in g["turns"] if t["turn_deg"] or t["flip"]]
             out.append("  pin map, seed %d at %.1f mm: %s %s -> %s common placement score after remapping%s" % (
-                v["seed"], v["score"], " and ".join(g["refs"]), g["present"]["total"], g["best"]["total"],
+                v["seed"], v["score"], " and ".join(g["refs"]), total(g["present"]["total"]), total(g["best"]["total"]),
                 ", " + at_pose(turned) if turned else ""))
     if maps:
         out.append("  pin map study: %d variant%s in %.2f s, after the explore's time" % (

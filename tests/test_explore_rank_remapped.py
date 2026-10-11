@@ -147,6 +147,54 @@ def test_the_routing_worker_makes_the_remap_on_the_board_it_routes(tmp_path, eve
         assert explore.route_line(row).endswith("; routed with its pin remap made on its pads")
 
 
+def _route_in_process(monkeypatch, tmp_path, remap):
+    """The routing worker run in this process on the plain placement, with pinmap.plan_remap giving `remap`: the
+    entry it sends and the router's log. The worker's process set-up (signals, the parent-death signal, the channel
+    and the time cap switched off) is stubbed out, as it would change this process."""
+    import os
+    import queue
+    import signal
+    from placemat import channel, pinmap, stop, timecap
+    monkeypatch.setattr(pinmap, "plan_remap", lambda board, plan: remap)
+    monkeypatch.setattr(signal, "signal", lambda *args: None)
+    monkeypatch.setattr(stop, "parent_death_signal", lambda: None)
+    monkeypatch.setattr(channel, "disable", lambda: None)
+    monkeypatch.setattr(timecap, "disable", lambda: None)
+    rq, out = queue.Queue(), queue.Queue()
+    rq.put(0)
+    rq.put(None)
+    log = tmp_path / "routes.log"
+    routing = explore.Routing(folder=tmp_path / "explore", router=RemapRouter(log))
+    explore._route_work(SupportedPoolBoard(), ("u1",), None, None, routing, rq, out, os.getppid())
+    (kind, seed, entry), end = out.get_nowait(), out.get_nowait()
+    assert (kind, seed, end) == ("route", 0, ("rend",)) and "error" not in entry, entry
+    return entry, [json.loads(line) for line in log.read_text().splitlines()]
+
+
+def _group(ref, net, pin):
+    return {"refs": [ref], "present": 100.0, "best": 98.0, "reason": "common objective gain",
+            "map": [{"ref": ref, "net": net, "from": {"pin": "1", "name": "1"}, "to": {"pin": pin, "name": pin}}],
+            "turns": []}
+
+
+def test_a_remap_whose_groups_together_do_not_lower_the_run_score_is_not_made_on_the_routed_board(tmp_path,
+                                                                                                    monkeypatch):
+    """Two groups, each better alone, judged together and found no better (pinmap.plan_remap's `actionable` false):
+    the variant is routed as it stands, as it is ranked at its plain run score."""
+    rejected = {"scope": "placement", "saving": 0.0, "gain": -0.5, "actionable": False,
+                "reason": "no certified combined improvement", "baseline": {}, "final": {},
+                "groups": [_group("U1", "A", "2"), _group("U2", "B", "3")]}
+    entry, log = _route_in_process(monkeypatch, tmp_path, rejected)
+    assert not [row for row in log if row.get("kind") == "remap"]
+    assert "remapped" not in entry and not explore.route_line(dict(entry, score=10.0)).endswith(
+        "; routed with its pin remap made on its pads")
+    taken = dict(rejected, actionable=True, saving=2.0, gain=2.0, reason="common objective gain")
+    entry, log = _route_in_process(monkeypatch, tmp_path / "taken", taken)
+    (made,) = [row for row in log if row.get("kind") == "remap"]
+    assert [g["refs"] for g in made["groups"]] == [["U1"], ["U2"]]
+    assert entry["remapped"]["saving"] == 2.0 and entry["remapped"]["pads"] == 2
+
+
 class RemapRouter(eb.StandInRouter):
     """The stand-in router, with the remap logged as a line of its own (`kind` "remap") and counted as kicad.remap's."""
 

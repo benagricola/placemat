@@ -4516,8 +4516,8 @@ score that changed in brackets, then one line per item that would move. `metrics
 With pin pools on the board, the best `pins.explore_top` variants are studied
 under the lock before acceptance. Each group reports its current common
 placement total and its independently judged finalist total (`pin map, seed 3
-at 120.4 mm: U1 140 -> 122 common placement score after remapping`), with its
-pose when it changes. Unknown totals remain unmeasured. These independent
+at 120.4 mm: U1 140.2 -> 122.4 common placement score after remapping`), with its
+pose when it changes. A total a refused judgment does not have prints as `unmeasured`. These independent
 summary lines cannot certify several maps together. The last line gives the
 study's elapsed time; `pin_maps` records each variant's `seed`, `score`,
 `groups`, `seconds` and any study `error`. Only the combined judgment below
@@ -4577,8 +4577,11 @@ explore record and its `explore_done` event keep `routes` in the order they came
 `seconds` (its resolve, its board and its route) and `closure_clean`, `closure`, `open_before`, `open_after`, `valid`,
 or `error` (`type`, `message`) - and `taken_seed` when a route closed.
 
-With `--rank-remapped` as well, the best clean closure's ties go to the better `score_remapped`, and a variant whose
-best remap removes crossings is routed with that remap made on the board in its folder (kicad/remap.py): each pad the
+With `--rank-remapped` as well, a variant whose remap is `actionable` (its groups' best maps, judged together on the
+board, lower the run score or repair its validity) is routed with that remap made on the board in its folder
+(kicad/remap.py); a variant whose combined remap is not actionable is routed as it stands. The variant taken is ranked
+as without the setting (`score.rank` on its measures and its route's clean closure): `score_remapped` does not enter.
+The remap is made so: each pad the
 map names takes its new net, a pad a net leaves and none takes has no net, an escape or fanout laid from a pad (its
 net's tracks and vias reaching it end to end, reaching no other pad) takes the pad's new net, and copper that runs on
 to another pad of the old net is deleted for the router to lay again. A part the remap's best pose turns is turned
@@ -4586,7 +4589,8 @@ about the centre of its courtyard box and the copper laid from its pads is delet
 overlap a neighbour. A pose that flips a part or turns a part in a cell is not made: the part keeps its pose with the
 remap's nets on its pads. The script and the capture are untouched. The route's line says `seed 3 at 120.4 mm,
 116.4 mm after its pin remap: ...; routed with its pin remap made on its pads`, and its entry has `remapped`
-(`pads`, `tracks` given a new net, `deleted`, `turned`, `not_turned`, `saving`, `crossings`). A rerun of the same run carries `explore/` over,
+(`pads`, `tracks` given a new net, `deleted`, `turned`, `not_turned`, and `saving`, the remap's run-score saving in mm,
+0 for a validity repair). A rerun of the same run carries `explore/` over,
 so a resumed explore takes the route stages its variants finished. A preview writes no board and routes none
 (`routes: none; a preview writes no board to route`). A quick route of a small module takes about 2 s; on a large
 board about 5 minutes, so a 15-minute explore routes the plain placement and a few of its bests.
