@@ -5713,9 +5713,8 @@ class Board:
                     continue
                 from .prepared_escape import prepare
                 rotations = [base.rotation] + [base.rotation + rot - here for rot in others]
-                # The rest board's escape fields judged once (natively, `escape_native`), each turn rejudging only
-                # the fields it can change: the native cache, as the search keeps it.
-                prepared, _ = prepare(delta, rotations, base.face, rest_cache=True)
+                # No rest cache: a handful of turns judged in full costs less than judging the rest board first.
+                prepared, _ = prepare(delta, rotations, base.face)
 
                 def measured(q, turn):
                     if prepared is None:
@@ -12205,6 +12204,7 @@ class _LaneEnv:
         self.own = [sh for shapes in pads.values() for sh in shapes]
         self.ref = decl.ref
         self._obstacles = None
+        self._holes = None
 
     def clearance(self, net_a: str, net_b: str, owner_b=None) -> float:
         if owner_b:
@@ -12234,14 +12234,14 @@ class _LaneEnv:
         out = list(occ.copper_conflicts(shape))
         if self.ref in occ.pending:                     # a candidate: its own pads are not in the occupancy yet
             out += [why for o in self.own if (why := occ._conflict(shape, o, None, exact=True))]
-        for ref, g in occ.items.items():
-            if ref in occ.pending:
-                continue
-            for o in g.shapes:
-                if o.kind == "npth" and shape.box.overlaps(o.box, gap=occ._copper_reach):
-                    why = occ._conflict(shape, o, None, exact=True)
-                    if why:
-                        out.append(why)
+        if self._holes is None:                         # the placed items' unplated holes, in the items' order
+            self._holes = [o for ref, g in occ.items.items() if ref not in occ.pending
+                           for o in g.shapes if o.kind == "npth"]
+        for o in self._holes:
+            if shape.box.overlaps(o.box, gap=occ._copper_reach):
+                why = occ._conflict(shape, o, None, exact=True)
+                if why:
+                    out.append(why)
         return out
 
 

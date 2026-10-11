@@ -450,10 +450,14 @@ class _Near(list):
 def judging(occ):
     """The Escapes the escape findings and the run score are judged with: the board's own when it keeps
     `score.escape_depth` (the depth of the walled lanes' and hand-offs' path search), else one at that depth, built
-    without corridors (the judgement does not read them)."""
+    without corridors (the judgement does not read them). Its exact path searches run in Rust when the native twin is
+    built (`native_judge`)."""
     depth = occ.settings.score_escape_depth
     esc = occ.escapes()
-    return esc if depth == esc.depth else Escapes(occ, mirror=False, depth=depth, corridors=False)
+    if depth != esc.depth:
+        esc = Escapes(occ, mirror=False, depth=depth, corridors=False)
+    esc.native_paths = native_judge()
+    return esc
 
 
 def _pads_of(shapes, ref) -> dict:
@@ -511,7 +515,8 @@ class Escapes:
         # Without corridors the index holds only the blockers and the lanes: what the surface judgement, its
         # supplemental lane and hand-off checks and the findings read. `confirmed`, `count` and `closed` need them.
         self.corridors = corridors
-        # The supplemental lane and hand-off checks' exact path search in Rust (`path_out(native=True)`), its twin.
+        # The exact path searches (the judgement's, the supplemental lane and hand-off checks') in Rust
+        # (`path_out(native=True)`), their twin.
         self.native_paths = False
         self._pairs: dict = {}          # (net, net, owner, wire) -> the pair's clearance (`Occupancy.pair_clearance`)
         self._pairs_of = None           # the rules and geometry `_pairs` was read under
@@ -682,6 +687,10 @@ class Escapes:
         return c.via or targets is None or any(c.direction[0] * dx + c.direction[1] * dy > 1e-9 for dx, dy in targets)
 
     # ------------------------------------------------------------ surface lanes
+    def _native_paths(self) -> bool:
+        """Whether the exact path searches run in Rust: asked for (`native_paths`) and built (`native_judge`)."""
+        return self.native_paths and native_judge()
+
     def _lanes_of(self, ref) -> tuple:
         hit = self._lane_cache.get(ref)
         if hit is None:
@@ -825,7 +834,8 @@ class Escapes:
         near = search_near(occ) if near is None else near
 
         def search(toward) -> bool:
-            return bool(path_out(occ, ref, number, depth=reach, toward=toward, near=near, exact=True, via_exit=False))
+            return bool(path_out(occ, ref, number, depth=reach, toward=toward, near=near, exact=True, via_exit=False,
+                                 native=self._native_paths()))
         if not quiet:
             toward = self._toward_lanes(lanes, aim, pads[number][2].center)
             if any(not shut[id(l)] for l in toward):
@@ -1090,7 +1100,7 @@ class Escapes:
         if not own and path_out(occ, ref, number, self.depth, near=near):
             return None                     # not even the foes' boxes wall it
         if path_out(occ, ref, number, self.depth, near=near, own=own, exact=True,
-                    via_exit=occ.settings.place_escape_lane_via_exit, native=self.native_paths):
+                    via_exit=occ.settings.place_escape_lane_via_exit, native=self._native_paths()):
             return None
         if not blame:
             return []
@@ -1130,7 +1140,7 @@ class Escapes:
         reach = Box.union([box] + [s.box for s in own])
         near = list(self._bgrid.near(reach.inflate(self.depth + 1.0)))
         if path_out(occ, ref, number, self.depth, near=near, own=own, exact=True,
-                    via_exit=occ.settings.place_escape_lane_via_exit, native=self.native_paths):
+                    via_exit=occ.settings.place_escape_lane_via_exit, native=self._native_paths()):
             return None
         if not blame:
             return []
