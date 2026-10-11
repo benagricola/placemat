@@ -100,3 +100,17 @@ def test_an_ordinary_boards_connections_file_names_no_footprint(tmp_path):
     written = phase_run.write_connections(sel.tasks, tmp_path / "c.json", ["F.Cu", "B.Cu"]).read_text()
     assert written == json.dumps([{"net": "VB", "from": {"ref": "J1", "pad": "1"}, "to": {"ref": "TP4", "pad": "1"},
                                    "widths": {"F.Cu": 0.5, "B.Cu": 0.5}}], indent=1) + "\n"
+
+
+def test_each_task_on_a_shared_reference_takes_its_own_router_record():
+    a = {"net": "VB", "from": {"ref": "J1", "pad": "1"}, "to": {"ref": "TP4", "pad": "1", "fp": "fp-a"}}
+    b = dict(a, to={"ref": "TP4", "pad": "1", "fp": "fp-b"})
+    plain = [dict(a, to={"ref": "TP4", "pad": "1"}, status="routed"), dict(a, to={"ref": "TP4", "pad": "1"},
+                                                                          status="joined_before")]
+    assert [r["status"] for r in phase_run.records_of([a, b], plain)] == ["routed", "joined_before"]
+    echoed = [dict(b, status="joined_before"), dict(a, status="routed")]   # a router that echoes "fp"
+    assert [r["status"] for r in phase_run.records_of([a, b], echoed)] == ["routed", "joined_before"]
+    report = phase_run.phase_record(type("P", (), {"record": lambda self: {"name": "c"}})(), 0, None, [a, b],
+                                    [{"joined": False, "violated": False, "under": {}}] * 2, 1.0, 1,
+                                    connections=plain)
+    assert [o["outcome"] for o in report["open"]] == ["routed", "joined_before"]

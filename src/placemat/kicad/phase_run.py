@@ -814,23 +814,48 @@ def _ref_pad(end):
     return (end.get("ref"), end.get("pad")) if isinstance(end, dict) else None
 
 
-def _record_of(o, connections):
-    """The router's record of an obligation's task, matched by net and each end's ref and pad (the router does not
-    echo "fp")."""
-    return next((r for r in connections if r.get("net") == o["net"] and _ref_pad(r.get("from")) == _ref_pad(o["from"])
-                 and _ref_pad(r.get("to")) == _ref_pad(o["to"])), None)
+def _task_key(o) -> tuple:
+    return (o.get("net"), _ref_pad(o.get("from")), _ref_pad(o.get("to")))
+
+
+def _fp_agrees(record_end, end) -> bool:
+    """A record's end names the same footprint as the obligation's: it names none, or the same uuid."""
+    fp = (record_end or {}).get("fp")
+    return fp is None or fp == (end or {}).get("fp")
+
+
+def records_of(obligations, connections) -> list:
+    """The router's record of each obligation's task, in order (None for an obligation no record names: a whole-net
+    call). A record is matched by net and each end's ref and pad, and by the footprint uuid ("fp") on an end where the
+    record names one; among records that tell two tasks apart by nothing else (a router that does not echo "fp"),
+    by position: the router writes its records in task order."""
+    connections = list(connections)
+    seen, out = {}, []
+    for o in obligations:
+        key = _task_key(o)
+        fits = [r for r in connections if _task_key(r) == key and _fp_agrees(r.get("from"), o.get("from"))
+                and _fp_agrees(r.get("to"), o.get("to"))]
+        if any((r.get("from") or {}).get("fp") or (r.get("to") or {}).get("fp") for r in fits):
+            fits = [r for r in fits if (r.get("from") or {}).get("fp") or (r.get("to") or {}).get("fp")]
+            out.append(fits[0] if fits else None)
+            continue
+        i = seen.get(key, 0)
+        seen[key] = i + 1
+        out.append(fits[i] if i < len(fits) else (fits[0] if fits else None))
+    return out
 
 
 def outcome_of(o, connections):
     """The status of the obligation's --connections record; None when no record names it (a whole-net call)."""
-    rec = _record_of(o, connections)
+    rec = records_of([o], connections)[0]
     return rec.get("status") if rec else None
 
 
-def open_entry(o, j, connections, net_evidence) -> dict:
+def open_entry(o, j, connections, net_evidence, record=False) -> dict:
     """An obligation left open, with what the router said of it: its record's `outcome` and `evidence`, or the net's
-    `net_evidence`; None when the router gave none. Router facts only: placemat infers no cause here (Task 6a)."""
-    rec = _record_of(o, connections)
+    `net_evidence`; None when the router gave none. `record`: its record when the caller matched it (records_of).
+    Router facts only: placemat infers no cause here (Task 6a)."""
+    rec = records_of([o], connections)[0] if record is False else record
     out = dict(o, outcome=rec.get("status") if rec else None,
                evidence=rec.get("evidence") if rec else (net_evidence or {}).get(o["net"]))
     if j["joined"] and j["violated"]:
@@ -850,11 +875,12 @@ def phase_record(phase, index, sel, obligations, judged, seconds, calls, pairs=N
     connections = list(connections)
     rec = dict(phase.record(), index=index, seconds=round(seconds, 1), reused=False, calls=calls, pairs=pairs,
                connections=connections, bus_groups=list(bus_groups), widths=[])
-    clean = [is_clean(j, outcome_of(o, connections)) for o, j in zip(obligations, judged)]
+    records = records_of(obligations, connections)
+    clean = [is_clean(j, r.get("status") if r else None) for j, r in zip(judged, records)]
     rec.update(asked=len(obligations), joined=sum(clean),
                closure_clean=round(sum(clean) / len(obligations), 4) if obligations else 1.0,
-               open=[open_entry(o, j, connections, net_evidence or {})
-                     for o, j, ok in zip(obligations, judged, clean) if not ok])
+               open=[open_entry(o, j, connections, net_evidence or {}, record=r)
+                     for o, j, r, ok in zip(obligations, judged, records, clean) if not ok])
     return rec
 
 
@@ -1194,7 +1220,7 @@ def widths_failed(records, asked, final_judged) -> int:
     """Obligations joined on the final board under their width on their joining path, and joined_narrow outcomes."""
     n = 0
     for rec, obs, got in zip(records, asked, final_judged):
-        for o, j in zip(obs, got):
-            if j["joined"] and (j["under"] or j.get("width_unknown", False) or outcome_of(o, rec.get("connections") or []) == "joined_narrow"):
+        for j, r in zip(got, records_of(obs, rec.get("connections") or [])):
+            if j["joined"] and (j["under"] or j.get("width_unknown", False) or (r or {}).get("status") == "joined_narrow"):
                 n += 1
     return n

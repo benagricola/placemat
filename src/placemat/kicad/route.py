@@ -1261,7 +1261,7 @@ def recheck_final_phases(report, asked, run_list, width_receipt, pcb_out, drc_pa
     """Ruling S6: every phase's obligations (`asked`, obligations_of, fixed from the input board before routing) judged
     again on the routed board `pcb_out`, after the last phase and the clean-up. Fills each phase record's final_* counts, `report.final_judged`,
     `report.widths_failed` and `report.asked`."""
-    from .phase_run import is_clean, judge_obligations, outcome_of, phase_neck
+    from .phase_run import is_clean, judge_obligations, phase_neck, records_of
     if not (len(report.phases) == len(asked) == len(run_list)):
         raise ValueError("final phase/obligation count mismatch")
     report.final_judged = []
@@ -1272,7 +1272,7 @@ def recheck_final_phases(report, asked, run_list, width_receipt, pcb_out, drc_pa
         got = judge_obligations(pcb_out, obs, drc_path, phase_neck(cfg, phase), after.is_real)
         report.final_judged.append(got)
         connections = rec.get("connections") or []
-        outcomes = [outcome_of(o, connections) for o in obs]
+        outcomes = [r.get("status") if r else None for r in records_of(obs, connections)]
         if not (len(got) == len(obs) == len(outcomes)):
             raise ValueError("final phase judgment/obligation count mismatch")
         # joined on the final board narrower than asked along its path, or reported joined_narrow by the router (D3)
