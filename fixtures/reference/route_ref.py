@@ -18,6 +18,7 @@ import json
 import os
 import pathlib
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -301,85 +302,33 @@ def current_versions() -> dict:
     return {"placemat": _git_head(str(pathlib.Path(placemat.__file__).resolve().parent)), "pcb": pcb_version()}
 
 
-def run_owned(cmd, *, timeout, env=None):
-    """Capture one owned process group, reaping it on timeout, interruption or error.
-
-    The wait is bounded by `timeout`; stopping adds up to five seconds of TERM
-    grace and one second to drain pipes after KILL. TERM/INT during Popen is
-    deferred until the owned group is known. The helper runs on the main thread
-    so it can restore the caller's signal handlers.
-    """
-    import math
-    import signal
-    import threading
-    if threading.current_thread() is not threading.main_thread():
-        raise RuntimeError("reference process supervisor requires the main thread")
-    if not math.isfinite(timeout) or timeout <= 0:
-        raise RuntimeError("invalid reference process timeout")
-    child_env = dict(os.environ if env is None else env)
-    proc = None
-    pending = None
-    previous = {sig: signal.getsignal(sig) for sig in (signal.SIGTERM, signal.SIGINT)}
-
-    def interrupted(sig, frame):
-        nonlocal pending
-        if proc is None:
-            pending = sig
-        else:
-            raise SystemExit(128 + sig)
-
-    def stop_owned():
-        try:
-            os.killpg(proc.pid, signal.SIGTERM)
-        except ProcessLookupError:
-            pass
-        stdout, stderr = None, None
-        try:
-            return proc.communicate(timeout=5)
-        except BaseException as error:
-            stdout = getattr(error, "output", None)
-            stderr = getattr(error, "stderr", None)
-        try:
-            os.killpg(proc.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        try:
-            return proc.communicate(timeout=1)
-        except BaseException as error:
-            # A detached writer can keep a pipe open: preserve the latest partial
-            # output, close our read ends and reap only the process we spawned.
-            stdout = getattr(error, "output", None) or stdout
-            stderr = getattr(error, "stderr", None) or stderr
-            for stream in (proc.stdout, proc.stderr):
-                if stream is not None:
-                    stream.close()
-            proc.wait()
-            return stdout, stderr
-
+def _kill_group(proc) -> None:
     try:
-        for sig in previous:
-            signal.signal(sig, interrupted)
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-                                start_new_session=True, env=child_env)
-        if pending is not None:
-            raise SystemExit(128 + pending)
+        os.killpg(proc.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+
+
+def run_owned(cmd, *, timeout, env=None) -> subprocess.CompletedProcess:
+    """`cmd` in a session of its own, its output captured as text. Its process group (the router it starts with it) is
+    killed when the call returns or raises. subprocess.TimeoutExpired after `timeout` seconds; an exception carries
+    the output so far as `output` and `stderr`."""
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                            start_new_session=True, env=env)
+    try:
         stdout, stderr = proc.communicate(timeout=timeout)
-        return subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
     except BaseException as error:
-        if proc is not None:
-            for sig in previous:
-                signal.signal(sig, signal.SIG_IGN)
-            stdout, stderr = stop_owned()
-            if stdout:
-                error.output = stdout
-            if stderr:
-                error.stderr = stderr
-        elif pending is not None:
-            raise SystemExit(128 + pending)
+        _kill_group(proc)
+        error.output, error.stderr = proc.communicate()
         raise
     finally:
-        for sig, handler in previous.items():
-            signal.signal(sig, handler)
+        _kill_group(proc)
+    return subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
+
+
+def stop_on_term() -> None:
+    """SIGTERM raises SystemExit, so a stopped runner unwinds through run_owned and kills its child group."""
+    signal.signal(signal.SIGTERM, lambda signum, frame: sys.exit(128 + signum))
 
 
 def _route(pcb: pathlib.Path, work: pathlib.Path, toml: str | None, *, env=None) -> dict:
@@ -571,4 +520,5 @@ def _run_boards(boards, root, recorded, versions, changing, results, comparisons
 
 
 if __name__ == "__main__":
+    stop_on_term()
     sys.exit(main())

@@ -128,8 +128,8 @@ def test_failed_route_cannot_reuse_stale_report(tmp_path, monkeypatch, rc, fresh
         assert not report.exists()
         if fresh:
             report.write_text('{"error": "failed invocation"}')
-        return SimpleNamespace(returncode=rc, communicate=lambda **_: ("", "failed"))
-    monkeypatch.setattr(route_ref.subprocess, "Popen", fail)
+        return SimpleNamespace(returncode=rc, stdout="", stderr="failed")
+    monkeypatch.setattr(route_ref, "run_owned", fail)
     with pytest.raises(RuntimeError):
         route_ref._route(tmp_path / "board.kicad_pcb", work, None)
     assert report.exists() == fresh and diagnostic.read_text() == "prior diagnostic"
@@ -144,14 +144,14 @@ def test_local_provenance_write_failure_is_not_reported_as_success(tmp_path, mon
 
 
 def test_reference_route_runs_in_its_own_session(tmp_path, monkeypatch):
-    from types import SimpleNamespace
     seen = {}
     work = tmp_path / "route"
     work.mkdir()
-    def run(*args, **kwargs):
+    real = route_ref.subprocess.Popen
+    def run(cmd, **kwargs):
         seen.update(kwargs)
         (work / "route.json").write_text('{"closure_clean": 0.5}')
-        return SimpleNamespace(returncode=0, communicate=lambda **_: ("", ""))
+        return real(["true"], **kwargs)
     monkeypatch.setattr(route_ref.subprocess, "Popen", run)
     assert route_ref._route(tmp_path / "board.kicad_pcb", work, None, env={"A": "1"})["closure_clean"] == 0.5
     assert seen["env"] == {"A": "1"}

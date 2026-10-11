@@ -146,12 +146,9 @@ def _process_text(value) -> str:
 
 
 def placemat_run(script: pathlib.Path, extra: tuple = ()) -> tuple[dict | None, float]:
-    """Run one placement in an owned process group; only RC0 and a fresh run.json can be adopted.
-
-    Logs and the process facts are kept beside the copied script.
-    A malformed fresh record, nonzero exit or timeout is a failed result. Signals
-    and KeyboardInterrupt reap the owned group before propagating.
-    """
+    """`placemat run <script>` with RUN_ARGS and `extra` (route_ref.run_owned): (run.json as a dict, seconds). Only exit 0
+    and a run.json this invocation wrote or rewrote give a result; a malformed record, a nonzero exit or the timeout is a
+    failed result. Logs and the process facts are kept beside the copied script."""
     script = pathlib.Path(script)
     started = time.monotonic()
     records = script.parent / ".placemat" / "runs"
@@ -160,8 +157,7 @@ def placemat_run(script: pathlib.Path, extra: tuple = ()) -> tuple[dict | None, 
     audits.mkdir(parents=True, exist_ok=True)
     audit = pathlib.Path(tempfile.mkdtemp(prefix="invocation-", dir=audits))
     cmd = [sys.executable, "-m", "placemat", "run", str(script), *RUN_ARGS, *extra]
-    facts = {"argv": cmd, "cwd": str(pathlib.Path.cwd()), "protocol": "fresh record, RC0, owned process group",
-             "timeout_s": RUN_TIMEOUT_S}
+    facts = {"argv": cmd, "cwd": str(pathlib.Path.cwd()), "timeout_s": RUN_TIMEOUT_S}
 
     def log(stdout, stderr):
         (audit / "stdout.log").write_text(_process_text(stdout))
@@ -523,4 +519,5 @@ def _run_modules(chosen, root, recorded, versions, changing, results, comparison
 
 
 if __name__ == "__main__":
+    route_ref.stop_on_term()
     sys.exit(main())

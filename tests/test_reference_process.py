@@ -116,26 +116,20 @@ def test_timeout_logs_partial_bytes_and_returns_no_success(tmp_path, monkeypatch
 
 
 @pytest.mark.parametrize("signum", [signal.SIGTERM, signal.SIGINT])
-@pytest.mark.parametrize("during_spawn", [False, True])
-def test_signals_reap_only_owned_child_and_restore_handlers(tmp_path, signum, during_spawn):
+def test_a_stopped_runner_reaps_its_child_group(tmp_path, signum):
+    """The runners' main installs stop_on_term, so TERM, like INT, unwinds through run_owned's cleanup."""
     pidfile = tmp_path / "child.pid"
-    restored = tmp_path / "restored"
-    worker_code = f'''import os,signal,sys
+    worker_code = f'''import sys
 from pathlib import Path
 from fixtures.reference import route_ref
-previous={{s:signal.getsignal(s) for s in (signal.SIGTERM,signal.SIGINT)}}
+route_ref.stop_on_term()
 real=route_ref.subprocess.Popen
 def spawn(cmd,**kw):
  p=real(cmd,**kw)
  Path({str(pidfile)!r}).write_text(str(p.pid))
- if {during_spawn!r}:os.kill(os.getpid(),{int(signum)})
  return p
 route_ref.subprocess.Popen=spawn
-try:route_ref.run_owned([sys.executable,'-c','import time; time.sleep(100)'],timeout=10)
-except SystemExit:
- assert all(signal.getsignal(s)==h for s,h in previous.items())
- Path({str(restored)!r}).write_text('restored')
- raise
+route_ref.run_owned([sys.executable,'-c','import time; time.sleep(100)'],timeout=10)
 '''
     sentinel = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(100)"], start_new_session=True)
     worker = subprocess.Popen([sys.executable, "-c", worker_code], start_new_session=True,
@@ -145,12 +139,10 @@ except SystemExit:
         deadline = time.monotonic() + 5
         while not pidfile.exists() and worker.poll() is None and time.monotonic() < deadline:
             time.sleep(0.01)
-        assert pidfile.exists()
+        assert pidfile.exists(), worker.stderr.read() if worker.poll() is not None else "no child"
         child = int(pidfile.read_text())
-        if not during_spawn:
-            os.kill(worker.pid, signum)
-        assert worker.wait(timeout=5) == 128 + signum, worker.stderr.read()
-        assert restored.read_text() == "restored"
+        os.kill(worker.pid, signum)
+        assert worker.wait(timeout=5) != 0
         with pytest.raises(ProcessLookupError):
             os.kill(child, 0)
         assert sentinel.poll() is None
@@ -165,15 +157,6 @@ except SystemExit:
                 pass
         sentinel.terminate()
         sentinel.wait(timeout=5)
-
-
-def test_supervisor_refuses_a_thread_without_launching(monkeypatch):
-    import concurrent.futures
-    monkeypatch.setattr(route_ref.subprocess, "Popen", lambda *a, **k: pytest.fail("thread spawned"))
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-        future = pool.submit(route_ref.run_owned, ["unused"], timeout=1)
-        with pytest.raises(RuntimeError, match="main thread"):
-            future.result()
 
 
 def test_a_slow_spawn_is_still_bounded_and_reaped(monkeypatch):
@@ -191,12 +174,12 @@ def test_a_slow_spawn_is_still_bounded_and_reaped(monkeypatch):
         os.kill(seen[0], 0)
 
 
-def test_stubborn_term_child_retains_output_from_shutdown_grace(tmp_path, monkeypatch):
+def test_a_timed_out_child_keeps_its_output_so_far(tmp_path, monkeypatch):
     path = script(tmp_path)
     real = subprocess.Popen
     seen = []
     child = """import signal,sys,time
-signal.signal(signal.SIGTERM,lambda *a:(print('during TERM grace',flush=True),print('grace stderr',file=sys.stderr,flush=True)))
+signal.signal(signal.SIGTERM,signal.SIG_IGN)
 print('before timeout',flush=True)
 print('before stderr',file=sys.stderr,flush=True)
 time.sleep(100)
@@ -206,11 +189,11 @@ time.sleep(100)
         seen.append(proc.pid)
         return proc
     monkeypatch.setattr(route_ref.subprocess, "Popen", spawn)
-    monkeypatch.setattr(place_ref, "RUN_TIMEOUT_S", 0.1)
+    monkeypatch.setattr(place_ref, "RUN_TIMEOUT_S", 0.5)
     got, _ = place_ref.placemat_run(path)
     assert place_ref._failure(got)[0] == place_ref.TIMEOUT
     (audit,) = (path.parent / ".placemat/reference-runs").iterdir()
-    assert (audit / "stdout.log").read_text() == "before timeout\nduring TERM grace\n"
-    assert (audit / "stderr.log").read_text() == "before stderr\ngrace stderr\n"
+    assert (audit / "stdout.log").read_text() == "before timeout\n"
+    assert (audit / "stderr.log").read_text() == "before stderr\n"
     with pytest.raises(ProcessLookupError):
         os.kill(seen[0], 0)
