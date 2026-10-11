@@ -3996,9 +3996,12 @@ pieces the pours leave apart. Every pour net's partial inner-layer pours are kep
 route's layers, whatever the phase's own `layers`, from the first phase on; a pour net's call takes its own net's guard
 off for itself alone. A pour net no phase names is left to its pours and is not counted in the closure. The rest
 phase never takes a pour net. A `current_paths` phase does not route the pour nets it picks up: the pour carries the
-net's current, so their connections are not routed, asked or counted, and the phase lists them as `pour_served` (the
-console line says "left to their pours: GND 46 connections"). A pour net a phase names, by `nets`, a class,
-`connections` or another selector, routes in its own call as above, `width = "current"` or not.
+net's current. Their connections are asked of the pour, with no width: after the phase each is judged as the
+phase's other connections are, and one the pour does not join is open and counted in the phase's closure. The
+phase lists them as `pour_served` ({net, from, to, joined}); its line counts the joined ones and names the others
+("left to their pours: GND 12 connections; not reached by the pour: GND J1.2-U1.3"), and says "routed by phase
+NAME" when a later phase routes that net (`pour_routed_by` in `route.json`). A pour net a phase names, by `nets`,
+a class, `connections` or another selector, routes in its own call as above, `width = "current"` or not.
 
 **Kept results.** Each phase's result is kept in the route's work folder (`<run dir>/route/`, or `.placemat/route/`, or
 `--out`) as it finishes, its routed board first, then its judgement (a failure judging it, such as a DRC that wrote no

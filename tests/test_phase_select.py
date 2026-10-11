@@ -210,7 +210,8 @@ def test_a_current_paths_phase_leaves_a_pour_nets_connections_to_its_pour():
     assert s.pour_nets == () and not s.tasks
     assert s.pour_served and {t.net for t in s.pour_served} == {"VB"}
     assert plan_calls(s, {}, 0.15, set()) == []
-    assert obligations_of([s], [], set()) == [[]]
+    (asked,) = obligations_of([s], [], set())
+    assert len(asked) == len(s.pour_served) and all(o["pour_served"] and o["widths"] is None for o in asked)
 
 
 def _gnd_carriers():

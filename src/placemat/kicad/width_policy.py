@@ -167,6 +167,9 @@ def apply(obligations, selections, phases, policy):
         own = []
         for obligation in obs:
             item = dict(obligation)
+            if item.get("pour_served"):             # asked of the pour, with no width (ruling S13)
+                own.append(item)
+                continue
             if not sel.tasks:
                 entry = records.get((phase.name, item["net"]))
                 if entry is not None and entry["status"] == "known":

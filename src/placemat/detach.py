@@ -300,7 +300,7 @@ def summary_lines(o: dict) -> list:
                 "-" if r.get("congestion") is None else "%.2f/cm2" % r["congestion"]))
         if r.get("route"):
             from .kicad.route import phase_lines
-            lines += phase_lines(r["route"].get("phases", []))
+            lines += phase_lines(r["route"].get("phases", []), (), r["route"].get("pour_routed_by"))
         if "score" in r:
             lines.append("  score %.1f mm%s" % (r["score"], (": " + ", ".join("%s %.1f" % kv for kv in r["terms"].items()))
                                                 if r.get("terms") else ""))

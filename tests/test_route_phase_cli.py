@@ -100,23 +100,48 @@ def test_an_unmeasured_join_reads_width_not_measured():
     assert any("SW Q1.2-L1.1 width not measured" in line for line in phase_lines([p]))
 
 
-def test_a_phase_names_the_connections_it_left_to_their_pours():
-    """Ruling S13: a current_paths phase's connections on a pour net are served by the pour; the line counts them
-    per net."""
-    gnd = {"net": "GND", "from": {"ref": "J1", "pad": "2"}, "to": {"ref": "U1", "pad": "3"}, "widths": {"F.Cu": 1.0},
-           "amps": 2.0}
-    (line,) = phase_lines([{"name": "current", "selector": "current_paths", "asked": 1, "joined": 1,
-                            "closure_clean": 1.0, "seconds": 1.0, "open": [],
-                            "pour_served": [gnd, dict(gnd, to={"ref": "U2", "pad": "1"}),
-                                            dict(gnd, net="VB")]}])
-    assert line.endswith("; left to their pours: GND 2 connections, VB 1 connection")
+def test_a_phase_names_the_connections_it_left_to_their_pours_and_the_ones_the_pour_missed():
+    """Ruling S13: a current_paths phase's connections on a pour net are asked of the pour; the line counts the ones it
+    joins per net and names each one it does not join."""
+    gnd = {"net": "GND", "from": {"ref": "J1", "pad": "2"}, "to": {"ref": "U1", "pad": "3"}}
+    missed = dict(gnd, to={"ref": "U2", "pad": "1"})
+    (line,) = phase_lines([{"name": "current", "selector": "current_paths", "asked": 4, "joined": 3,
+                            "closure_clean": 0.75, "seconds": 1.0,
+                            "open": [dict(missed, widths=None, pour_served=True, outcome=None, evidence=None)],
+                            "pour_served": [dict(gnd, joined=True), dict(gnd, to={"ref": "U3", "pad": "1"}, joined=True),
+                                            dict(missed, joined=False), dict(gnd, net="VB", joined=True)]}])
+    assert line == ("phase current (current_paths): 3 of 4 joined clean (75.0%), 1 s; left to their pours: "
+                    "GND 2 connections, VB 1 connection; not reached by the pour: GND J1.2-U2.1")
 
 
-def test_a_phase_record_carries_the_connections_left_to_their_pours():
+def test_a_pour_net_a_later_phase_routes_is_said_so():
+    gnd = {"net": "GND", "from": {"ref": "J1", "pad": "2"}, "to": {"ref": "U1", "pad": "3"}, "joined": True}
+    phases = [{"name": "current", "selector": "current_paths", "asked": 1, "joined": 1, "closure_clean": 1.0,
+               "seconds": 1.0, "open": [], "pour_served": [gnd]},
+              {"name": "gnd", "selector": "nets", "asked": 1, "joined": 1, "closure_clean": 1.0, "seconds": 1.0,
+               "open": []}]
+    assert phase_lines(phases, (), {"GND": "gnd"})[0].endswith("; left to their pours: GND 1 connection routed by phase gnd")
+    assert phase_lines(phases, (), {"GND": "current"})[0].endswith("; left to their pours: GND 1 connection")
+
+
+def test_a_phase_record_carries_each_connection_left_to_its_pour_and_whether_it_joined():
     from placemat.kicad.phase_run import phase_record
-    from placemat.kicad.phase_select import Selection, Task
-    t = Task("GND", ("J1", "2"), ("U1", "3"), (("F.Cu", 1.0),), 2.0)
-    sel = Selection("current", "current_paths", pour_served=(t,), layers=("F.Cu",))
+    a = {"net": "GND", "from": {"ref": "J1", "pad": "2"}, "to": {"ref": "U1", "pad": "3"}, "widths": None,
+         "pour_served": True}
+    b = dict(a, to={"ref": "U2", "pad": "1"})
     phase = type("P", (), {"record": lambda self: {"name": "current"}})()
-    assert phase_record(phase, 0, sel, [], [], 1.0, 0)["pour_served"] == [t.record()]
+    judged = [{"joined": True, "violated": False, "under": {}}, {"joined": False, "violated": False, "under": {}}]
+    rec = phase_record(phase, 0, None, [a, b], judged, 1.0, 0)
+    assert rec["pour_served"] == [{"net": "GND", "from": a["from"], "to": a["to"], "joined": True},
+                                  {"net": "GND", "from": b["from"], "to": b["to"], "joined": False}]
+    assert (rec["asked"], rec["joined"]) == (2, 1) and [o["to"] for o in rec["open"]] == [b["to"]]
     assert phase_record(phase, 0, None, [], [], 1.0, 0)["pour_served"] == []
+
+
+def test_a_phase_with_only_connections_left_to_pours_is_not_named_as_having_no_copper():
+    from types import SimpleNamespace as N
+    from placemat.kicad.phase_select import Selection, Task
+    from placemat.kicad.route import without_copper
+    t = Task("GND", ("J1", "2"), ("U1", "3"), (("F.Cu", 1.0),), 2.0)
+    sels = [Selection("current", "current_paths", pour_served=(t,)), Selection("fb", "nets", nets=("FB",))]
+    assert without_copper(sels, N(copper=())) == ["fb"]

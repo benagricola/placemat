@@ -254,9 +254,13 @@ def obligations_of(selections, input_open, skip) -> list:
     Pure: selections are phase_select.Selection."""
     out, named = [], set()
     for sel in selections:
-        if sel.tasks:
+        if sel.tasks or sel.pour_served:
             obs = [dict({k: v for k, v in t.record().items() if k in ("net", "from", "to")}, widths=dict(t.widths))
                    for t in sel.tasks]
+            # ruling S13: a current_paths phase's connections on pour nets are asked of the pour, joined or not, with
+            # no width (the pour carries the current)
+            obs += [dict({k: v for k, v in t.record().items() if k in ("net", "from", "to")}, widths=None,
+                         pour_served=True) for t in sel.pour_served]
         elif sel.rest:
             obs = [dict(o, widths={layer: sel.width for layer in sel.layers} if sel.width else None) for o in input_open if o["net"] not in skip and o["net"] not in named]
         else:
@@ -866,12 +870,14 @@ def phase_record(phase, index, sel, obligations, judged, seconds, calls, pairs=N
                  net_evidence=None) -> dict:
     """What one phase did: its definition, `asked` (its obligations), `joined` (those clean on the board after it),
     `closure_clean` (joined / asked, 1.0 when nothing is asked), `open` (open_entry of each one not clean), its time,
-    router calls, pair outcome, --connections records and bus groups, and `pour_served`: the task records a
-    current_paths phase left to their pours (ruling S13). `reused` is set by the route."""
+    router calls, pair outcome, --connections records and bus groups, and `pour_served`: each connection a
+    current_paths phase left to its pour (ruling S13), {"net", "from", "to", "joined"}, joined as judged after the
+    phase; one the pour does not join is also open. `reused` is set by the route."""
     connections = list(connections)
     rec = dict(phase.record(), index=index, seconds=round(seconds, 1), reused=False, calls=calls, pairs=pairs,
                connections=connections, bus_groups=list(bus_groups), widths=[],
-               pour_served=[t.record() for t in getattr(sel, "pour_served", ())])
+               pour_served=[dict({k: o[k] for k in ("net", "from", "to")}, joined=bool(j["joined"]))
+                            for o, j in zip(obligations, judged) if o.get("pour_served")])
     records = records_of(obligations, connections)
     clean = [is_clean(j, r.get("status") if r else None) for j, r in zip(judged, records)]
     rec.update(asked=len(obligations), joined=sum(clean),

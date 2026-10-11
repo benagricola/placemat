@@ -785,7 +785,7 @@ def cmd_route(args) -> int:
     else:
         console.say("route", report.summary())
         from .kicad.route import phase_lines
-        for line in phase_lines(report.phases, report.phases_without_copper):
+        for line in phase_lines(report.phases, report.phases_without_copper, report.pour_routed_by):
             console.say("route", line)
         if report.resumed:
             console.say("route", "took %s from an earlier route of the same inputs (--no-resume routes again)" %
@@ -1859,9 +1859,10 @@ def _dispatch(args) -> int:
 
 
 def board_example_phases(pcb) -> list:
-    """The example phases `settings --example` writes for a board (spec "No phases"): its differential pairs and its interface types when the
-    capture exports them, its net classes above the Default's clearance, current paths when any part states a current
-    (on the first and last copper layers of its stack when it has inner ones), then the rest."""
+    """The example phases `settings --example` writes for a board (spec "No phases"): its differential pairs and its
+    interface types when the capture exports them, its net classes above the Default's clearance, current paths when
+    any part states a current (on the first and last copper layers of its stack when it has inner ones), then the
+    rest."""
     from .capture_nets import capture_beside
     from .checks import carriers_of
     from .kicad.read import read_board

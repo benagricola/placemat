@@ -809,7 +809,7 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
                 rec.timing_s["route"] = round(time.time() - t0, 1)
                 say("route", "%s  (%.0fs)" % (report.summary(), rec.timing_s["route"]))
                 from .kicad.route import phase_lines
-                for line in phase_lines(report.phases, report.phases_without_copper):
+                for line in phase_lines(report.phases, report.phases_without_copper, report.pour_routed_by):
                     say("route", line)
                 for breach in report.keepout_breaches:
                     say("route", breach, level="finding")

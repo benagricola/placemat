@@ -208,15 +208,18 @@ Not user decisions. Each line gives the ruling, its reason, and what it costs if
   Reason: rank compares final boards, and a denominator a candidate can change is no comparison. Cost if wrong: one
   more pcbnew load and DRC read per route, and closure figures that differ from the old per-net counts.
 - S13 A `current_paths` phase never routes a pour net. A pour net it picks up because it carries a stated current is
-  served by its pour, which carries that current: its tasks make no router call, are left out of the phase's
-  obligations as the rest phase leaves pour nets out, and are listed in the phase record as `pour_served` (task
-  records), which the route's phase line counts per net. A pour net a phase names (`nets`, `net_classes`,
-  `connections` and the other selectors), with or without `width = "current"`, still routes as D15 says (ruling S5).
-  Reason: routing a pour net for its current laid the whole net as tracks at the widest task width on every layer
-  (usb-c-power-adapter's GND: 9.79 mm, the inner-layer width, on F.Cu, In2.Cu and B.Cu), which took the board from
-  every later phase and did not finish within test (b)'s hour; a net the project names is routed as asked (the user,
-  2026-10-11). Cost if wrong: a carrier pad the pour does not reach is left unrouted and is not counted in the
-  phase's closure.
+  served by its pour, which carries that current: its tasks make no router call. They are asked of the pour: each is
+  an obligation of the phase with no width (`pour_served: true`), judged after the phase with the phase's own join
+  judgement, so one the pour does not join is open and counted in the phase's closure. The phase record lists them
+  as `pour_served` ({net, from, to, joined}); the phase line counts the joined ones per net ("left to their pours"),
+  names each one not joined ("not reached by the pour: GND J1.2-U1.3") and says when a later phase routes the net
+  ("routed by phase NAME", from `RouteReport.pour_routed_by`). A pour net a phase names (`nets`, `net_classes`,
+  `connections` and the other selectors), with or without `width = "current"`, still routes as D15 says (ruling
+  S5). Reason: routing a pour net for its current laid the whole net as tracks at the widest task width on every
+  layer (usb-c-power-adapter's GND: 9.79 mm, the inner-layer width, on F.Cu, In2.Cu and B.Cu), which took the board
+  from every later phase and did not finish within test (b)'s hour; a net the project names is routed as asked, and
+  a pour that misses a carrier pad is a failure, not a silence (the user, 2026-10-11; amended the same day after
+  review). Cost if wrong: a carrier pad the pour misses stays open until a phase that names the net routes it.
 - The "Decisions (to confirm)" heading became "Decisions", each entry naming who decided it. Reason: nothing applied is
   pending confirmation. Cost if wrong: none.
 

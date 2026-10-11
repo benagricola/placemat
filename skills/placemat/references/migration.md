@@ -27,8 +27,8 @@ section for each hand-written pattern a newer form replaces.
 - **Routing phases.** Pair phase widths come from net classes; omit an explicit phase width.
 
 - **Routing phases.** A `current_paths` phase no longer routes the pour nets it picks up. The pour carries such a
-  net's current, so its connections are listed as left to the pour and are not counted in the phase's closure.
-  Before, the phase routed the whole pour net as tracks at the widest current width, which could take the board's
+  net's current, so its connections are asked of the pour: one the pour joins is listed as left to it, one it does
+  not join is open in the phase's closure and named in the route's line. Before, the phase routed the whole pour net as tracks at the widest current width, which could take the board's
   room from every later phase. A pour net a phase names (`nets`, a class, `connections`) is still routed. Scripts
   need no change.
 

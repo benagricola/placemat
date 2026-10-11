@@ -142,7 +142,7 @@ def test_each_phase_asks_a_set_fixed_from_the_input_board():
     sw = {"net": "SW", "from": {"ref": "L1", "pad": "1"}, "to": {"ref": "U1", "pad": "1"}}
     leg = {"net": "VB", "from": {"ref": "J2", "pad": "1"}, "to": {"ref": "Q1", "pad": "1"}}
     task = N(record=lambda: dict(leg, widths={"F.Cu": 1.0}), widths=(("F.Cu", 1.0),))
-    none = dict(tasks=(), rest=False, nets=(), pour_nets=(), buses=(), pairs=(), width=None, layers=())
+    none = dict(tasks=(), pour_served=(), rest=False, nets=(), pour_nets=(), buses=(), pairs=(), width=None, layers=())
     sels = [N(**dict(none, tasks=(task,))), N(**dict(none, nets=("FB",), width=0.3, layers=("F.Cu",))),
             N(**dict(none, rest=True))]
     got = phase_run.obligations_of(sels, [fb, vin, sw], skip={"SW"})
@@ -340,7 +340,7 @@ def test_each_pad_pair_is_asked_once():
     from types import SimpleNamespace as N
     fb = {"net": "FB", "from": {"ref": "J1", "pad": "1"}, "to": {"ref": "U1", "pad": "2"}}
     flipped = {"net": "FB", "from": {"ref": "U1", "pad": "2"}, "to": {"ref": "J1", "pad": "1"}}
-    sel = N(tasks=(), rest=True, nets=(), pour_nets=(), buses=(), pairs=(), width=None, layers=())
+    sel = N(tasks=(), pour_served=(), rest=True, nets=(), pour_nets=(), buses=(), pairs=(), width=None, layers=())
     assert phase_run.obligations_of([sel], [fb, dict(fb), flipped], skip=set()) == [[dict(fb, widths=None)]]
 
 
@@ -640,3 +640,51 @@ def test_a_refused_task_on_a_shared_reference_names_its_footprint(rig, monkeypat
             {"from": {"part": "U1", "pad": "2"}, "to": {"part": "J1", "pad": "1"}}]})
     ends = [t["to"] if t["to"]["ref"] == "J1" else t["from"] for t in e.value.facts["tasks"]]
     assert len({end["fp"] for end in ends}) == 2
+
+
+def _vin_pour(pcb, left, right):
+    """Both parts carry current (Pm.I) and VIN has a filled F.Cu pour over x = left..right, y = 108..112."""
+    import pcbnew
+    pcb.write_text(pcb.read_text().replace('(property "Reference"', '(property "Pm.I" "1A") (property "Reference"'))
+    brd = pcbnew.LoadBoard(str(pcb))
+    z = pcbnew.ZONE(brd)
+    z.SetLayer(pcbnew.F_Cu)
+    z.SetNetCode(brd.GetNetcodeFromNetname("VIN"))
+    o = z.Outline()
+    o.NewOutline()
+    for x, y in ((left, 108), (right, 108), (right, 112), (left, 112)):
+        o.Append(pcbnew.FromMM(x), pcbnew.FromMM(y))
+    brd.Add(z)
+    pcbnew.ZONE_FILLER(brd).Fill(brd.Zones())
+    brd.Save(str(pcb))
+
+
+@needs_kicad
+@pytest.mark.parametrize("left, right, joined", [(112.5, 127, True), (125.6, 127, False)])
+def test_a_current_paths_phase_asks_the_pour_for_its_pour_nets_connections(rig, left, right, joined):
+    """Ruling S13: VIN's connection is not routed; the pour over both carriers' VIN pads joins it, a pour over one
+    leaves it open, counted in the phase's closure and named in its line."""
+    from placemat.kicad.route import phase_lines
+    _vin_pour(rig.pcb, left, right)
+    report = rig.route({"name": "current", "current_paths": True, "width": "current"}, pour_nets={"VIN"})
+    calls = rig.calls()
+    assert not any("VIN" in c for c in calls)                     # no call routes VIN
+    (p,) = report.phases
+    (served,) = p["pour_served"]
+    assert served["net"] == "VIN" and served["joined"] is joined
+    vin_open = [o for o in p["open"] if o["net"] == "VIN"]
+    assert bool(vin_open) is not joined and p["asked"] == 2       # FB's task and VIN's, asked of the pour
+    (line,) = phase_lines(report.phases, (), report.pour_routed_by)
+    if joined:
+        assert "left to their pours: VIN 1 connection" in line and "not reached" not in line
+    else:
+        assert "not reached by the pour: VIN " in line and "left to their pours" not in line
+
+
+@needs_kicad
+def test_a_later_phase_that_names_the_pour_net_routes_it(rig):
+    _vin_pour(rig.pcb, 125.6, 127)
+    report = rig.route({"name": "current", "current_paths": True, "width": "current"}, {"name": "vin", "nets": ["VIN"]},
+                       pour_nets={"VIN"})
+    assert report.pour_routed_by == {"VIN": "vin"}
+    assert any("VIN" in _nets(c) for c in rig.calls())

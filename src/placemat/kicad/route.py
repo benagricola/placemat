@@ -229,6 +229,8 @@ class RouteReport:
     phases: list = field(default_factory=list)
     # With `only`: the earlier phases none of whose nets has a track on the board (D26).
     phases_without_copper: list = field(default_factory=list)
+    # {pour net: the first phase that routes it in a pour call (D15)}, for the phase lines (phase_lines).
+    pour_routed_by: dict = field(default_factory=dict)
     # Obligations joined on the final board whose joining path is under their width, joined_narrow included (Task 15).
     widths_failed: int = 0
     # Real-bucket DRC errors on the final board beyond the input board's (drc.real_errors, drc.new_errors); None when
@@ -315,7 +317,7 @@ class RouteReport:
                 "net_clearances": dict(self.net_clearances),
                 "net_clearance_trapped": list(self.net_clearance_trapped), "duplicate_references": list(self.duplicate_references), "dangling_removed": dict(self.dangling_removed),
                 "phases": list(self.phases), "phases_without_copper": list(self.phases_without_copper),
-                "widths_failed": self.widths_failed, "drc_new": self.drc_new, "vias": self.vias,
+                "pour_routed_by": dict(self.pour_routed_by), "widths_failed": self.widths_failed, "drc_new": self.drc_new, "vias": self.vias,
                 "track_mm": self.track_mm, "segments": self.segments}
 
 
@@ -1224,7 +1226,8 @@ def without_copper(selections, geometry) -> list:
     """The phases (their Selections, taken on every net of the board) none of whose nets has a track on `geometry`
     (D26: `--only` routes against the board's copper, so the board is what is read), by name, in order."""
     tracked = {c.net for c in geometry.copper if c.kind in ("track", "via")}
-    return [sel.phase for sel in selections if not (_phase_nets(sel) & tracked)]
+    # a phase with nothing to route (a current_paths phase whose connections are all left to pours) is not listed
+    return [sel.phase for sel in selections if _phase_nets(sel) and not (_phase_nets(sel) & tracked)]
 
 
 def ctx_for(ctx, rev, name: str):
@@ -1438,7 +1441,7 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     from .. import __version__
     settings_part = {k: v for k, v in sorted(json.loads(cfg.json()).items())
                      if k.startswith("route_") and k not in ("route_router_dir", "route_phase")}
-    base = digest("phase-judgement-v6", file_digest(pcb), file_digest(pcb.with_suffix(".kicad_pro")), file_digest(pcb.with_suffix(".kicad_dru")),
+    base = digest("phase-judgement-v7", file_digest(pcb), file_digest(pcb.with_suffix(".kicad_pro")), file_digest(pcb.with_suffix(".kicad_dru")),
                   capture.digest if capture else "", sorted(excluded), sorted(pours), layers, quick, iterations, probe,
                   router_version(router_dir_path), __version__, settings_part, cfg.check_rise_c)     # rise_c: current widths
     state.set_order(["only:" + run_list[0].name] if only else [p.name for p in run_list])
@@ -1524,6 +1527,9 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     report.widths = [w for rec in records for w in rec.get("widths", [])] + read_widths(summaries, judged_width_nets)
     report.dangling_removed = cleanup.record()
     report.phases = records
+    for p in run_list:
+        for n in picked[p.name].pour_nets:
+            report.pour_routed_by.setdefault(n, p.name)
     recheck_final_phases(report, asked, run_list, width_receipt, pcb_out,
                          work / "drc_after.json", after, cfg)
     report.drc_new = new_error_count(work / "drc_before.json", work / "drc_after.json", after.is_real)
@@ -1580,18 +1586,23 @@ def _router_said(o: dict) -> str:
     return out + (" against " + "/".join(met) if met else "")
 
 
-def phase_lines(phases: list, without_copper=()) -> list:
+def phase_lines(phases: list, without_copper=(), pour_routed_by=None) -> list:
+    """Each phase's line. `pour_routed_by`: {pour net: the first phase that routes it in a pour call}
+    (RouteReport.pour_routed_by); a net a phase left to its pour that a later phase routes says so."""
     out = []
-    for p in phases:
+    names = [p["name"] for p in phases]
+    for i, p in enumerate(phases):
         line = "phase %s (%s): %d of %d joined clean (%.1f%%), %.0f s%s" % (
             p["name"], p["selector"], p["joined"], p["asked"], 100 * p["closure_clean"], p["seconds"],
             ", reused" if p.get("reused") else "")
         final = p.get("final_closure_clean")
         if final is not None and final != p["closure_clean"]:
             line += ", final %.1f%%" % (100 * final)
-        opened, said = [], set()
+        opened, said, unreached = [], set(), []
         for o in p.get("final_open", p.get("open")) or ():
-            if o.get("violated"):
+            if o.get("pour_served") and not o.get("violated"):
+                unreached.append(o)
+            elif o.get("violated"):
                 if o["net"] not in said:
                     said.add(o["net"])
                     opened.append("%s has a DRC error" % o["net"])
@@ -1607,9 +1618,16 @@ def phase_lines(phases: list, without_copper=()) -> list:
         served = {}
         for t in p.get("pour_served") or ():
             served[t["net"]] = served.get(t["net"], 0) + 1
-        if served:
-            line += "; left to their pours: " + ", ".join(
-                "%s %d connection%s" % (n, k, "" if k == 1 else "s") for n, k in served.items())
+        for o in unreached:
+            served[o["net"]] = served.get(o["net"], 0) - 1
+        later = {n: by for n, by in (pour_routed_by or {}).items() if by in names[i + 1:]}
+        left = ["%s %d connection%s%s" % (n, k, "" if k == 1 else "s", " routed by phase %s" % later[n] if n in later
+                                         else "") for n, k in served.items() if k > 0]
+        if left:
+            line += "; left to their pours: " + ", ".join(left)
+        if unreached:
+            line += "; not reached by the pour: " + ", ".join(
+                "%s %s-%s" % (o["net"], _phase_end(o["from"]), _phase_end(o["to"])) for o in unreached)
         out.append(line)
     if without_copper:
         out.append("earlier phases with no copper on this board: " + ", ".join(without_copper))
