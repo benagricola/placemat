@@ -279,7 +279,7 @@ def judge_obligations(pcb_path, obligations, drc_json, neck_mm=0.0, is_real=None
     out = []
     for o in obligations:
         j = joined[_ob_key(o)] if _ob_key(o) in joined else o["net"] not in open_nets
-        under = {}
+        under, spans = {}, None
         if j and o.get("widths") and geometry is not None:
             spans = joining_spans(geometry, o, full_width=True)
             if spans is None and neck_mm > 0:
@@ -287,9 +287,9 @@ def judge_obligations(pcb_path, obligations, drc_json, neck_mm=0.0, is_real=None
             if spans is None:
                 spans = joining_spans(geometry, o)
             under = width_shortfall(spans, o["widths"], neck_mm) if spans is not None else {}
+        # unknown only where no joining path could be measured; a measured shortfall is `under` alone
         unknown = bool(j and (o.get("width_policy_unknown") or
-                              (o.get("widths") and (geometry is None or spans is None or
-                                                    getattr(spans, "width_unknown", False) or bool(under)))))
+                              (o.get("widths") and (spans is None or getattr(spans, "width_unknown", False)))))
         out.append({"joined": j, "violated": o["net"] in violated, "under": under, **({"width_unknown": True} if unknown else {})})
     return out
 

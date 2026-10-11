@@ -227,3 +227,16 @@ def test_joined_pour_width_unknown_reaches_final_cleanliness(monkeypatch, tmp_pa
     assert judged == {"joined": True, "violated": False, "under": {}, "width_unknown": True}
     assert not phase_run.is_clean(judged, None)
     assert phase_run.widths_failed([{}], [[ob]], [[judged]]) == 1
+
+
+def test_a_measured_shortfall_is_under_and_not_width_unknown(monkeypatch, tmp_path):
+    from placemat.kicad import phase_run
+    from tests.test_route_widths_board import _board, _track
+    geometry = _at_track_terminals(_board(_track((5, 10), (40, 10), 0.2)))
+    monkeypatch.setattr("placemat.kicad.read.read_board", lambda _: geometry)
+    monkeypatch.setattr(phase_run, "joined_pairs", lambda *_: [True])
+    drc = tmp_path / "drc.json"
+    drc.write_text('{"violations": [], "unconnected_items": []}')
+    ob = {"net": "V", "from": {"ref": "U1", "pad": "1"}, "to": {"ref": "U2", "pad": "1"}, "widths": {"F.Cu": 1}}
+    (judged,) = phase_run.judge_obligations("board.kicad_pcb", [ob], drc, is_real=lambda _: True)
+    assert judged == {"joined": True, "violated": False, "under": {"F.Cu": 0.2}}
