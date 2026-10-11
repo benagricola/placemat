@@ -1294,15 +1294,25 @@ class _Fill:
     def _covered(self, c: int, tau: float) -> bool:
         """Whether cell `c` lies inside a disc of radius `radius(tau)` centred on a cell at least `tau` deep: the fill
         is that wide there, though `c` itself is nearer its edge."""
+        memo = self._cover.setdefault(tau, {}) if hasattr(self, "_cover") else self.__dict__.setdefault(
+            "_cover", {}).setdefault(tau, {})
+        if c in memo:
+            return memo[c]
         s, nx, ny, sq = self.s, self.nx, self.ny, self.sq
         reach = int(math.ceil(self.radius(tau) / s))
         r, q = divmod(c, nx)
         lim = (self.radius(tau) / s) ** 2 + 1e-9
+        hit = False
         for rr in range(max(0, r - reach), min(ny, r + reach + 1)):
-            for qq in range(max(0, q - reach), min(nx, q + reach + 1)):
-                if (rr - r) ** 2 + (qq - q) ** 2 <= lim and sq[rr * nx + qq] >= tau:
-                    return True
-        return False
+            row, dr = rr * nx, (rr - r) ** 2
+            if dr > lim:
+                continue
+            span = int(math.sqrt(lim - dr))
+            if any(sq[row + qq] >= tau for qq in range(max(0, q - span), min(nx, q + span + 1))):
+                hit = True
+                break
+        memo[c] = hit
+        return hit
 
     def _run(self, path: list, k: int, j: int, tau: float, entry, exit_) -> tuple:
         """One narrow run of `split`, cells k..j of `path`: (width, point, length). The width is that of the widest
