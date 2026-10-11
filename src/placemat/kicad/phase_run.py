@@ -827,8 +827,9 @@ def _fp_agrees(record_end, end) -> bool:
 def records_of(obligations, connections) -> list:
     """The router's record of each obligation's task, in order (None for an obligation no record names: a whole-net
     call). A record is matched by net and each end's ref and pad, and by the footprint uuid ("fp") on an end where the
-    record names one; among records that tell two tasks apart by nothing else (a router that does not echo "fp"),
-    by position: the router writes its records in task order."""
+    record names one: route_calls gives each record its task's own ends (`answered`), so tasks on a shared reference
+    are told apart whatever call or order they were sent in. Records nothing else tells apart are the answers to one
+    task stated more than once, taken in order."""
     connections = list(connections)
     seen, out = {}, []
     for o in obligations:
@@ -963,6 +964,15 @@ def connection_summary(path, pending, phase, log):
     return data
 
 
+def answered(pending, recs) -> list:
+    """The router's records of one call, each naming the task it answers: the router writes one record per task it
+    was sent, in order (connection_summary checks the count and each end's ref and pad), so record i's ends become
+    task i's own, its footprint uuid ("fp") included where the task has one. A task stated twice, or tasks on a shared
+    reference split across calls, keep their own records."""
+    from .phase_select import end_record
+    return [dict(r, **{"from": end_record(t.start), "to": end_record(t.end)}) for t, r in zip(pending, recs)]
+
+
 def route_calls(ctx, index, phase, sel, board) -> PhaseOutcome:
     """Route one phase's calls (plan_calls) on `board`, in order, each on the board the one before left, its copper
     locked. The outcome's `routed` is what judge_phase needs. A task the router refuses stops the route (RouteRefused
@@ -1021,7 +1031,7 @@ def route_calls(ctx, index, phase, sel, board) -> PhaseOutcome:
                 lock_copper(str(part))
                 out.summaries.append((phase.name, k, psum))
                 data = connection_summary(psum, pending, phase.name, log)
-                recs = data.get("connections") or []
+                recs = answered(pending, data.get("connections") or [])
                 if call.kind == "bus_tasks":
                     bus_groups += data.get("bus_groups") or []
                 refused = refused_records(recs)

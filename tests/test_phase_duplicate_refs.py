@@ -114,3 +114,28 @@ def test_each_task_on_a_shared_reference_takes_its_own_router_record():
                                     [{"joined": False, "violated": False, "under": {}}] * 2, 1.0, 1,
                                     connections=plain)
     assert [o["outcome"] for o in report["open"]] == ["routed", "joined_before"]
+
+
+def _task(fp, width=0.5):
+    from placemat.kicad.phase_select import Task
+    return Task("VB", ("J1", "1"), ("TP4", "1", fp), (("F.Cu", width),))
+
+
+def _plain(task, status):
+    return {"net": task.net, "from": {"ref": "J1", "pad": "1"}, "to": {"ref": "TP4", "pad": "1"},
+            "widths": dict(task.widths), "status": status}
+
+
+def test_a_task_stated_twice_does_not_shift_the_records_of_the_tasks_after_it():
+    sent = [_task("fp-a"), _task("fp-a"), _task("fp-b")]
+    recs = phase_run.answered(sent, [_plain(sent[0], "routed"), _plain(sent[1], "joined_before"),
+                                     _plain(sent[2], "failed")])
+    asked = phase_run._unique([dict(t.record(), widths=dict(t.widths)) for t in sent])
+    assert [r["status"] for r in phase_run.records_of(asked, recs)] == ["routed", "failed"]
+
+
+def test_shared_reference_tasks_split_across_calls_take_their_own_records():
+    a, b = _task("fp-a", 0.3), _task("fp-b", 0.8)          # b goes in the first call (widest first), a in the second
+    recs = phase_run.answered([b], [_plain(b, "routed")]) + phase_run.answered([a], [_plain(a, "failed")])
+    asked = [dict(a.record(), widths=dict(a.widths)), dict(b.record(), widths=dict(b.widths))]
+    assert [r["status"] for r in phase_run.records_of(asked, recs)] == ["failed", "routed"]
