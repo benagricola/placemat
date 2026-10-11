@@ -3,168 +3,139 @@
 For the session that continues step 1. It updates docs/superpowers/handover-0.100.md, which still holds for the lanes,
 the shared machine, the release line and the merge rules; read that first, then this, then the plan.
 
-State as of 2026-10-07 evening. Step 0 (the reference set) is merged on main (175358af) and released with 0.99.35.
+State as of 2026-10-11. Step 0 (the reference set) is merged on main (175358af) and released with 0.99.35. Step 1 is
+not merged, pushed or released.
 
-## Reviewer-led continuation on 2026-10-07
+## What happened on 2026-10-08 to 2026-10-11
 
-The historical task state below is superseded by this continuation and the worktree's ignored execution ledger.
-The reviewer assigned step 1 to one agent and the router/reference lane to its child, with independent review before
-merging to main. Main was merged into the feature branch at 9b4f8be4; step 1 has not been merged, pushed or released.
+Another agent continued step 1 from 5ec25683 to 9a9e0620. It did Tasks 14 to 25 largely as the plan says, then,
+when its reference comparison found worse boards, built a second routing attempt for the last router call (a
+"final-call escape candidate", with call replay and a second manufacturing grader) instead of reporting the numbers
+and waiting. No user decision covered that work. The reviews of it are in
+.superpowers/sdd/2026-10-07-routing-phases/continuation-review-{plan,subsystems,krt,gates}.md.
 
-- Parent scoped review accepted the Placemat changes through 45dbfd89 and the repeated-current-alias correction
-  f57d94fa. Tasks 15/16/18/18a/19/20/22/25 now have implementation and targeted validation. Required-width proof
-  explicitly fails closed when geometry cannot establish it; final phase comparisons use stable electrical intent.
-- Task 24's current-name correction handles qualified names and repeated aliases conservatively. Circuit-capture
-  documentation changes are local commits 1efad41 and 1475634 (versions 0.1.7 and 0.1.8), awaiting reviewed publication.
-- Router changes and Tasks 5a/5b/5c/17/17a reference work remain in the child lane. A bounded legacy-first fallback
-  is undergoing router gates because unconditional pocket recovery regressed previously complete ESP routes.
-  No unexplained reference regression may be accepted or repinned.
-- Task 26 remains open: final whole-suite, reference comparisons, slow-test list, and release gates. The earlier
-  broad run omitted KRT_DIR and lacked local socket access; it is diagnostic evidence, not a successful gate.
-  The unchanged main OCR confidence test also failed independently; see /tmp/placemat-main-ocr-baseline.log.
-  Its assertion contradicted the documented line-admission/weakest-word confidence contract. The reviewer's exact
-  approved test-only correction from step 2 c18d0f81 is cherry-picked as 4a9140b2; 53 PDF/datasheet tests pass with
-  OCR implementation and thresholds unchanged.
-- Use /tmp/placemat-step1-venv/bin/python for branch validation. It has genuine editable branch metadata and a
-  locally built native extension, with read-only dependency paths shared from main. Reinstall the editable package
-  after commits so installed metadata matches the checkout. Always set PYTHONPATH to this branch and KRT_DIR to
-  the finalized connections worktree, and use approved local socket access for server tests.
-- Isolated targeted gates passed: version/phase commands/capture selectors 41 tests; full width/selector/settings/
-  capture/check/studio/resume scope 345 passed, 4 skipped; socket-capable studio/CLI scope 50 passed. Vulture is clean.
-  These support scoped review and do not replace the final whole-suite or real-board gates.
-- Step 2 owns final routed-board electrical judgments and the common Standing/report adapter in its Task 17 after
-  consuming reviewed step 1. The final integrated review must check that routed results supersede placement checks.
+The user decided on 2026-10-11 to take it out of step 1:
+- placemat: kicad/final_*, replay_*, manufacturing_*, issued_calls, pour_identity, board_forms,
+  ordinary_route_authority, route_execution_scope, their hooks in route.py, phase_run.py and runner.py, their tests
+  and the plan 2026-10-08-final-call-escape-candidate.md are removed (e371e315). The runner calls route_board
+  directly again. placemat no longer sets KRT_ROUTE_DEADLINE_UTC; each router call is bounded by its own timeout.
+- KRT fork: the proof and final-call code is removed (cleanup-krt-report.md in the ledger folder).
+- The work is kept on branches: placemat `park/final-call-continuation` (9a9e0620, local only); KRT
+  `park/final-call-continuation` (ef771bd7) and `park/final-call-continuation-base` (abd487bc), on `fork`.
 
-Required-width proof was tightened in b677898a after review found false certificates through filled copper and
-intermediate pads. Each polygon/layer is separate. A required-width track path may certify a connection; filled
-regions and intermediate pad interiors cannot currently certify corridor width. Endpoint pads certify only a track
-node at their actual anchor: an offset entry through the pad interior is also unmeasured. Unrestricted diagnostic
-paths retain measured narrow track spans and explicitly set width_unknown for those interiors. This limitation can
-make a physically adequate pour or offset pad entry unproven; it must not be hidden by repinning a reference result.
-The focused graph/width regressions and independent reviewer gate passed; physical/reference gates remain pending.
+Kept and simplified (1dfdfab2): the width query. Before routing, `kicad/width_policy.py` asks the router
+(py_router/nominal_width_policy.py, on the fork's placemat/upstream-2026-10b and so on placemat/connections) which
+width it will draw each selected net at, per phase and layer, and each join is judged against that width. It runs
+through the same helper as every router call (phase_run.run_router), keeps no hashes of router or board files, and
+returns failures as {code, facts}. A router without the script is refused (`width_policy_unavailable`).
 
-Keep the real-board lock and two-worker limits below. Reference runners acquire the lock internally: do not wrap
-them in another flock on the same file. The reviewer must approve concrete final changes before merge or release.
+Also fixed (b079eaf5): the plan, spec and test for `run --route-rank` are back to Task 20's design, which the code
+follows; the retired-setting refusal no longer reads "set set"; migration.md has the `[route] islands` example.
 
 ## Read, in order
 
 1. ~/.claude/CLAUDE.md, this repo's CLAUDE.md, CHARTER.md and the memory index (loaded for you).
 2. docs/superpowers/handover-0.100.md.
 3. The plan: docs/superpowers/plans/2026-10-07-routing-phases.md, in particular "Decisions" (who decided each) and
-   "Controller rulings". It is the source of truth for every task's content and has been amended four times today.
-4. The spec: docs/superpowers/specs/2026-10-06-routing-phases-design.md (amended for structured `--connections` ends and
-   `pairs` by net names).
+   "Controller rulings". It is the source of truth for every task's content.
+4. The spec: docs/superpowers/specs/2026-10-06-routing-phases-design.md.
 5. Research: docs/superpowers/research/2026-10-07/ (zener-stage2-trace.md, krt-connections-design.md,
-   krt-rebase-regressions.md).
-6. The execution ledger, with every task's review findings, fix rounds, deferred minors and rulings:
-   .superpowers/sdd/2026-10-07-routing-phases/progress.md (git-ignored, on this machine). The task briefs, reports
-   and review diffs are in the same folder. constraints.md there is what every subagent brief carried.
+   krt-rebase-regressions.md, splitflap-pin10/).
+6. The ledger: .superpowers/sdd/2026-10-07-routing-phases/progress.md (git-ignored, on this machine), with the task
+   briefs, reports, review diffs and the 2026-10-11 reviews in the same folder. constraints.md there is what every
+   agent brief carries.
 
-All the 0.100 documents (roadmap, the step specs, plans, handovers and ledgers) are listed in
-docs/superpowers/plan-0.100-index.md. The sibling step's handover is docs/superpowers/handover-0.100-step2.md and its
-ledger is .superpowers/sdd/2026-10-07-one-score/progress.md.
+All the 0.100 documents are listed in docs/superpowers/plan-0.100-index.md. The sibling step's handover is
+docs/superpowers/handover-0.100-step2.md and its ledger is .superpowers/sdd/2026-10-07-one-score/progress.md.
 
 Method: superpowers:subagent-driven-development, as the user chose. One implementer per task, a task review, fix
-rounds with a scoped re-review, the ledger updated after every step.
+rounds with a scoped re-review, the ledger updated after every step. Anything the plan does not cover, and any
+result worse than the recorded baseline, goes to the user before work on it starts.
 
 ## Branches and worktrees
 
-| Repo | Worktree | Branch | Head | Pushed |
-|---|---|---|---|---|
-| placemat | /home/ben/work/placemat/.claude/worktrees/routing-phases | step1-routing-phases (from ec11d554) | 908feac3, plus Task 13's fix round in progress | no (local) |
-| KRT fork | /home/ben/work/KRT-phases | placemat/connections | 6d50f0ed | `fork` |
-| KRT fork base | /home/ben/work/KRT-base-10b | placemat/upstream-2026-10b | 78a16663 | `fork` |
-| Zener fork | /home/ben/work/pcb-phases | feat/nets-layout-json | 318b4b0d | `origin` (benagricola/pcb) |
+| Repo | Worktree | Branch | Pushed |
+|---|---|---|---|
+| placemat | /home/ben/work/placemat/.claude/worktrees/routing-phases | step1-routing-phases (main merged in at 9b4f8be4) | no (local) |
+| KRT fork | /home/ben/work/KRT-phases | placemat/connections | `fork` |
+| KRT fork base | /home/ben/work/KRT-base-10b | placemat/upstream-2026-10b | `fork` |
+| Zener fork | /home/ben/work/pcb-phases | feat/nets-layout-json (318b4b0d) | `origin` (benagricola/pcb) |
 
-- The placemat branch is behind main: main has 0.99.35 and the consolidation session's fixes. Merge main into the branch
-  before the gate. Until then three tests/test_version.py tests fail in the worktree for that reason alone. The worktree's
-  src/placemat/_version.py is a copy of main's.
 - Run placemat in the worktree as `PYTHONPATH=<worktree>/src /home/ben/work/placemat/.venv/bin/python`. Tests need
-  `KRT_DIR` (now required, no default) and `MNB_ECOSYSTEM=/home/ben/Documents/Hardware/mnb-ecosystem`; use
-  `KRT_DIR=/home/ben/work/KRT-phases` for the step's router.
+  `KRT_DIR=/home/ben/work/KRT-phases` and `MNB_ECOSYSTEM=/home/ben/Documents/Hardware/mnb-ecosystem`. The worktree's
+  src/placemat/_version.py is a copy of main's. /tmp/placemat-step1-venv has an editable install of the branch with
+  its own native build, if the main venv's native module does not match.
 - ~/work/KRT-upstream and ~/work/pcb are live for every session; they move to the fork commits only in Task 26.
-  Other sessions own KRT-ab, KRT-agent, KRT-align, KRT-base, KRT-dev, KRT-escape, KRT-fan, KRT-t1base: never write there.
+  Other sessions own the other KRT-* worktrees: never write there.
 - Real-board runs: `flock /tmp/claude-1000/-home-ben-work-placemat/5d67ca9e-2758-4c31-8023-db2f60969045/scratchpad/realboard.lock`
-  (the reference runners take it themselves). Disk is 97% full (61 GB free); stop and ask below 20 GB.
+  (the reference runners take it themselves: do not wrap them in it again). Stop and ask below 20 GB free disk.
 
-## Done (reviewed, fix rounds closed)
+## Done
 
 | Task | What | Commits |
 |---|---|---|
 | 1 | Zener branch pushed; worktrees | - |
-| 2, 3 | Zener: `clearance` on stdlib net types; nets.layout.json stage 1 (types, fields, generator, netlist sha256; only `clearance` parsed as a length; Ohm labelled) | 0d906642, 15c8857c, 10b389aa |
-| 21 | Zener stage 2: interface instances and DiffPair pairs in the sidecar (a pair appears once per instance path; placemat dedupes by (p, n)) | e1c8958e |
-| - | Zener: upstream's AGENTS.md removed; 4 release snapshots updated (d2b9f749's annotations parameter) | 7ffeab17, 318b4b0d |
-| 4 | KRT: clearance floored at the board's min_clearance; every neck at min_track_width (fork divergences) | rebased; see docs/fork-divergences.md on connections |
-| 5 | KRT: `--connections` (structured ends, per-layer widths, statuses incl. joined_narrow fallback, refusal reasons incl. layer_width_missing; unknown nets give records) | rebased |
-| 5a (part) | KRT fork rebased onto upstream 364b4572; router made deterministic (item uuids derived from content and a board seed); pic_programmer's dogbone-guard regression fixed | 5a629cfa, 321049bc, 78a16663 on the base |
-| 7 | Surface tests (CLI, settings, removed forms), vulture, native dead-code build | 12fc44a5, 25f1fba6 |
-| 8 | `[[route.phase]]` form | bacba130, 84679b6d |
-| 9 | Reading nets.layout.json (stale sidecar refused) | 1077daee |
-| 10, 10a | Phase selection; pairs by net names | 4bf119f5, d2e9bce3, ce70e2fc, b508b06d |
-| 11 | A phase's router calls (glob characters escaped per flag) | 6f9f1c2a, 624e65b4 |
-| 12 | Kept-result chain over phases | d8769e5b, 8d0713e4 |
-| - | placemat determinism: KIIDs seeded per load (write.load_board); close-via merge by geometric rank; no machine paths (router from `[route] router_dir` or `$KRT_DIR`, else refused; tests env-only) | 76f4b774, 3a79ddf6, 1cc97938, f2e8c9a4 |
+| 2, 3 | Zener: `clearance` on stdlib net types; nets.layout.json stage 1 | 0d906642, 15c8857c, 10b389aa |
+| 21 | Zener stage 2: interface instances and DiffPair pairs in the sidecar | e1c8958e |
+| 4, 5 | KRT: clearance and neck floors; `--connections` | on placemat/connections |
+| 5a (part) | KRT fork rebased onto upstream 364b4572; router made deterministic | on the base |
+| 6, 6a | KRT: `--bus-nets`; per-connection failure evidence (6a's later regression 61235acc reverted in the KRT cleanup) | on placemat/connections |
+| 7 | Surface tests, vulture, native dead-code build | 12fc44a5, 25f1fba6 |
+| 8-13 | Phase form, sidecar, selection, calls, kept-result chain, phase engine | through 5ec25683 |
+| 14 | A failed or stopped route keeps the placed board | 0eea60d3 |
+| 15, 16, 18, 18a, 19, 20 | Widths judged per phase; net clearance from the capture; `route --phase/--only`; studio phase report; default phases; `--route-rank` | 10f86d83, e675b3fd, 0d0a5d77, e2d5fb91 |
+| 17, 17a | Fixtures and reference set on phases; the obstructed-route fixture | 46536594 .. 5dc3930f |
+| 22 | Pairs and interfaces from the capture | e2d5fb91, 0d0a5d77 |
+| 23, 24 | circuit-capture rules (local 1efad41, 1475634: 0.1.7, 0.1.8, not pushed); skill gaps | e2d5fb91, 33d09a61 |
+| 25 | Fixed stages, `[route] islands`, `pair_layers`, `net_halos`, `route --islands`, class-pattern pairs removed and refused | e2d5fb91, b079eaf5 |
 
-## In flight when this was written
+Two changes in that work that the user has not approved, and should know about:
+- b677898a: a join through a pour or through a pad's interior is `width_unknown`, and so never clean. The plan said
+  such a join meets its width. The user decided on 2026-10-11 to replace this by measuring the pour's real width
+  (below); until then it lowers clean closure on boards with pours.
+- Fixture changes on the reference set: the obstructed-route board is 13 mm high, not 12 (the plan's geometry broke
+  its own edge rule), and routes with `KICAD_NET_RESCUE=0`; the hand modules had a fitted-pour migration.
 
-- **Task 13 (phase engine):** built (83d70735, 908feac3). Its review found 4 Important and 7 Minor items, and the fix
-  round was dispatched to the implementer. The ledger lists all 11 items. If the fix round has no commit on the branch,
-  re-dispatch it from the ledger. The user decided the neck rule there: the neck allowance covers copper within neck_mm of
-  each pad only up to half the path's length from each end, so a short connection keeps full width in its middle.
-- **splitflap_driver regression (KRT test test_run23_summary_min), fix decided, not yet confirmed done.**
-  - The problem: on the rebased router, U7 pin 10 (+3V3) stays open on 3 of 6 order-jitter seeds (6/6 before the
-    rebase).
-  - The pictures and their captions are in docs/superpowers/research/2026-10-07/splitflap-pin10/ (passing.png,
-    failing.png, mechanism.png, captions.md).
-  - What happens: upstream 39dd0327 stops treating finished nets as stub-proximity sources. That changes costs
-    elsewhere on the board. Earlier routes shift, and CLOCK_IN's bottom-layer tap to U7 pin 11 ends up across the space
-    +3V3 used to escape through.
-  - Pin 10 is then walled into a closed 4.7 mm2 pocket. Four taps fail, and the router's rip ladder rips Net-(U5-Pad9),
-    /SENSOR_D and /LATCH_IN, never the copper walling pin 10. It accepts the result with pin 10 open.
-  - In the passing run one tap fails, and the ladder rips MOTOR_F_PHASE_A (the net under the pad), so the retry joins.
-  - The fix (the user's choice after seeing the pictures): in the fork's rip ladder, when a failed tap's endpoint is boxed
-    in, first rip the nets whose copper bounds that endpoint's reachable region. Find the region with a flood from the
-    endpoint on the router's grid at the task's width and clearance, and order the nets by how much of the boundary
-    each owns. Then fall back to the ladder's existing choices, keeping its attempt limits and acceptance rule. Mark it
-    as a FORK DIVERGENCE.
-  - It may share the pocket code with Task 6a's `blocked_by`.
-  - Rejected alternatives: re-pinning the test, and undoing 39dd0327's one line as a divergence.
-  - Done means:
-    - test_run23_summary_min passes on all of seeds 0-5;
-    - KRT `--fast` shows only the known failure (test_887_iso_render);
-    - placemat's test (a) is no worse on any of the eight boards, before against after.
-  - Status at handover: an agent was building it on placemat/upstream-2026-10b (worktree /home/ben/work/KRT-base-10b,
-    from 78a16663). Its report goes to task-ripwall-report.md in the ledger folder. If there is no commit after 78a16663
-    on that branch, build it from this description. After it and Task 6a land, rebase placemat/connections onto the
-    base. Then re-record test (a) (Task 5a).
-- **Task 6 (`--bus-nets`)** is done (e0870e1c, 3a818aae on placemat/connections; a net in two stated groups stays in
-  the first). **Task 6a (failure evidence)** is being built on placemat/connections.
-- **Task 13** is complete (83d70735, 908feac3, f5a3e38f, 0e4fbe7b, 5ec25683). Release gate: the clearance docs
-  (api.md, SKILL.md, migration) already describe Task 16's behaviour, so Task 16 must land before 0.100.0.
-- **Task 14** (a failed or stopped route keeps the placed board) was dispatched next.
+## Reference results so far
+
+None of step 1's measurements is in fixtures/reference/results.json, which still holds step 0's baseline (plus the
+obstructed-route row). The continuation's runs are in /home/ben/work/placemat-review-scratch-20261007/, taken at
+several placemat and KRT commits, none of them the current head. continuation-review-gates.md has the tables. Worse
+than step 0:
+- test (b) pic_programmer: one connection lost (/pic_sockets/VCC_PIC, C6.1 to JP1.2): its tap via site is taken by
+  DATA-RB7 copper routed earlier.
+- test (b) usb-c-power-adapter: open connections 8 to 39. The `current` phase, ahead of `signals`, joins 67 of 70
+  current-path connections (25 before) and leaves signals stranded.
+- test (a) esp-rust-board, both widths: a short and clearance faults between the USB pair and GND.
+- test (a) watchy, both widths: worse than the recorded step 0, from the KRT rebase (the rerun of step 0 on the
+  rebased router gives the same numbers).
 
 ## Next, in order
 
-1. Close Task 13's fix round (re-review), then Task 14 (a failed or stopped route keeps the placed board).
-2. Finish Task 5a: after the splitflap decision, re-record test (a) on the rebased base (KRT_DIR at a worktree of the
-   base without the step's commits, `route_ref.py --changing krt --update`). The user accepted esp-rust-board's one
-   extra starved_thermal from upstream 8013c817 into the new baseline: record its cause in the manifest notes. Watchy is
-   84.3% with placemat's via merge. Then Tasks 5b (test (b) against the regenerated board; the pcb fork's git commit in
-   results) and 5c (the 11 hand-placed modules from the user's project, copying approved), in sequence: all three write
-   results.json.
-3. KRT Task 6 (`--bus-nets`; must accept the `\!` escape) and 6a (per-connection failure evidence: reliable router
-   facts first, diagnosis optional with unknown valid, router facts kept apart from placemat inferences). The router-old
-   refusal currently requires `--bus-nets` only when a phase has buses or interfaces.
-4. Tasks 15-20, 17a, 18a, 22-24 per the plan; then 25 (Remove, including the dead stage code route_islands,
-   route_class_stages, islands_on_board, island_layers_on_board, joined_ends) and 26 (merge main, full suite, gates,
-   `--update` runs, vulture, then merge and release 0.100.0; the user cuts 1.0, never you).
+1. The user's decisions of 2026-10-11:
+   - The splitflap pocket rule (rip the nets that wall in a boxed pin first; research splitflap-pin10/): find why
+     esp-rust-board gets worse with the rule always on, before choosing when it applies. An investigation was
+     dispatched on 2026-10-11.
+   - Pour and pad-interior joins: measure the pour's real width, the narrowest neck of filled copper along the join,
+     in place of b677898a's "unknown, never clean".
+   - The current-first default phase stays; fix why usb-c-power-adapter's signals are stranded after it.
+2. route_ref: `placemat route` exits 1 when the input board already had DRC faults, and the runner now raises
+   RouteFailure on that, so 7 of the 8 human boards in test (a) read closure 0. Measure such a board as step 0 did
+   (read route.json and count new DRC against the unrouted board), or ask the user to exclude them.
+3. Task 5a: re-record test (a) on the rebased router (`route_ref.py --changing krt --update` with KRT_DIR at the base
+   without the step's commits). The user accepted esp-rust-board's one extra starved_thermal from upstream 8013c817
+   into that baseline; record its cause in the manifest notes.
+4. Tasks 5b and 5c: test (b) against the regenerated boards, and baselines for the 11 hand-placed modules
+   (fairing_hand/*); all of these write results.json.
+5. Task 26: run all three runners with `--update` at the final placemat and KRT heads; a line that prints `worse` or
+   `held back` goes to the user with the numbers. Then the full suite, vulture and the native dead-code build at that
+   head, merge, and release 0.100.0 (the user cuts 1.0, never you). The D28 real-board check is also open.
 
-## Decisions the user made today (all recorded in the plan)
+## Decisions the user made (all recorded in the plan or the ledger)
 
 - Step 0 follow-ups pulled into step 1: corner holes held with `overhang=`; a courtyard over a hole follows the board's
   severity (both shipped in 0.99.35); test (b) compares with the regenerated board; the 11 hand-placed modules join test
-  (b) now; results record the pcb fork's commit.
+  (b); results record the pcb fork's commit.
 - KRT: keep the floors (D6); rebase onto upstream first (D9); keep upstream 8013c817 and accept esp's +1 DRC; find and
   fix nondeterminism (done: random item uuids).
 - `pairs = [["P","N"], ...]` by net names for boards without a capture (D18 replaced); test (a) exercises it on
@@ -172,155 +143,27 @@ rounds with a scoped re-review, the ledger updated after every step.
 - D14 every pad of both carrier parts; D19 placement pairs stay for step 1.
 - Studio shows the per-phase report; the default-phases test has pairs; stated buses skip detection; a numeric width is
   ignored on current_paths.
-- Failure evidence filled in step 1 (Task 6a), shaped by the reviewer's answer; an obstructed-route fixture (Task 17a).
+- Failure evidence filled in step 1 (Task 6a); an obstructed-route fixture (Task 17a).
 - The final-board comparison is step 2's `score.rank`; step 1 supplies its inputs (Ruling S6): phases[i]
-  ["final_closure_clean"] over the phase's fixed pad-pair obligations re-judged on the final board, widths_failed
-  (joined_narrow included), drc_new (real errors beyond the unrouted baseline), vias, track_mm (straight segments as
-  KRT's quality key), segments. A width-failed join is never a clean join (S7); widths are judged on each obligation's
-  joining path (S8).
-- Short connections keep full width mid-path (see Task 13 above).
-- No machine paths anywhere (memory: no-machine-paths). Zener fork snapshots are updated without asking when a change
-  explains them; an unexplained snapshot change goes to the user with its diff (memory: zener-fork).
-- Refine and loop specs: coordinated neighbourhood rebuilding added (972c5e72, bdfa0ac3) - steps 3-4, not step 1.
+  ["final_closure_clean"] over the phase's fixed pad-pair obligations judged again on the final board, widths_failed
+  (joined_narrow included), drc_new, vias, track_mm, segments. A width-failed join is never a clean join (S7); widths
+  are judged on each obligation's joining path (S8).
+- The neck allowance covers copper within neck_mm of each pad only up to half the path's length from each end, so a
+  short connection keeps full width in its middle.
+- splitflap: when a pin is boxed in, rip the nets whose copper bounds its reachable pocket first (2026-10-07; see
+  Next for the open question on esp-rust-board).
+- No machine paths in code, tests, fixtures or docs. Zener fork snapshots are updated without asking when a change
+  explains them; an unexplained snapshot change goes to the user with its diff.
+- 2026-10-11: the four decisions above (machinery removed and parked; pocket rule investigation; pour width measured;
+  current-first kept and its starvation fixed).
 
 ## Working notes
 
-- Run touched test files with `--full` before handing back: slow tests hid two regressions today.
+- Run touched test files with `--full` before handing back: slow tests hid regressions before.
 - Agents in a shared worktree commit only their own paths; tasks that write results.json or edit kicad/route.py run one
   at a time.
-- The one-score session (step 2) consumes step 1's RouteReport fields; tell it if a field name changes.
-- The consolidation session (`placemat`) releases 0.99.x from main and knows the close-via fix ships with step 1.
-
-## Reviewer completion gates (2026-10-07, latest)
-
-- Whole repository `pytest --full -n2` at clean `b6cc86b0` passed: 6,707 passed, 22 skipped, no failures or errors,
-  1,216.29 seconds. The genuine isolated editable install reported `0.99.35.post1.dev69+gb6cc86b0f`; its actual
-  native library and PCB executable hashes were recorded. `step1-final-full.xml`, `.log` and start/end provenance
-  artifacts are retained in the review scratch directory. All five recorded checkout HEAD/status identities matched
-  before and after the run, and the PCB executable hash was unchanged. Parent independently read and accepted the gate.
-- Skipped coverage: 14 track/via airwire-end oracle cases, two optional `FIT_REFERENCE` cases, two optional disc-board
-  cases, one antenna-datasheet case and three connector-datasheet cases. The required reference, current core comparison,
-  generated USB-C and partly joined pair physical checks remain separate completion requirements.
-- `tests/slow_tests.txt` was refreshed only from that completed XML: 230 cases exceeded the two-second threshold.
-  This is a measured scheduling list, not evidence that any skipped optional case passed.
-- The legal obstruction fixture record `4550801d` came from the actual run, with original manufacturing rules retained.
-  Its focused physical reproduction plus reference/local tests passed 43 cases, no skips or failures. The earlier broad
-  default run's sole missing-record failure is resolved by this actual record and focused gate. The old illegal fixture
-  observations remain diagnostic only.
-- The frozen full gate used PCB executable SHA256 `902f2d6327459fde16e425a4b68012166b8d68725f6237a607f0f3bdc16a1e99`.
-  Actual generated sidecars embedded Git `10b389aa12c1` despite the checkout being `318b4b0d`; build metadata was stale.
-  Exact original build source is not claimed. A controlled clean tracked-source rebuild and independent actual interface
-  capture proof are required before the remaining generation/comparison runs; the executable was not replaced during
-  the full gate.
-- Remaining: common-contract grading of saved baseline/candidate copper, historical hand-module matching and C/M
-  references, final A/B/M gates, generated USB-C and partly joined pair physical integration, and the scratch-only D28
-  comparison. No main merge, fork push or release is authorized by this gate alone.
-
-- Post-gate runtime correction `f6ad747a`/`7570b3d9`: a fresh generated export wins over a saved same-name or blocked
-  ancestor path; the original remains in `kept/` and collision notes are logged. The generation-level regression
-  reproduced a stale sidecar before the fix. Fresh/cached exports, saved handwritten files and generated file/symlink
-  prefixes pass 38 focused full tests; parent independently repeated and accepted them. The same old helper exists on
-  main, so this was preexisting. A final whole full suite must cover this latest production code after batching.
-- Controlled PCB rebuild completed from clean tracked `318b4b0d` source with offline two-job Cargo: executable SHA256
-  `9464bb2aa1fccbd945e90e7cf984da8d657633967c1b6dd069c1916a491d097f`, correct embedded `318b4b0d19ce`, actual independent
-  DiffPair/member capture proof passed. Old executable and clean source digest/archive remain in review scratch.
-  `BACKLOG.md` records the permanent linked-worktree build-metadata follow-up; no PCB build-script source change landed.
-- Both scratch core variants passed fresh official capture generation with the controlled PCB executable: identical
-  board/sidecar bytes, qualified switch-net clearance and actual effective class-map floor 2 mm, resolved stdlib hashes
-  identical to the finalized fork. The exact local sibling part closure was added identically after the first missing-file
-  refusal. Original project inputs were untouched. Actual per-phase map provenance and the two full routing comparisons
-  remain required; no project-specific metrics are recorded here.
-- Shared reference subprocess boundary `aa1f0652`/`660b2c34` is accepted after parent independently repeated 60
-  focused full tests. Route and placement calls own their process groups, defer interruption across spawn, preserve
-  late shutdown logs, reject expired deadlines, and require fresh valid placement records with successful process
-  status. Original failed artifacts remain inspectable; unrelated processes remain untouched.
-- Family phase prerequisites are explicit: fairing root `5c2bde04` supplies the planned class-width signals phase;
-  MNB root and USB-C child `b132c7fc` supply signals and pairs-then-signals respectively. Parent accepted source scope;
-  physical family/reference gates remain pending. The original USB-C fixture had no phase settings, so its attempted
-  route correctly refused `no_phases`; that refusal is not a successful baseline route.
-- Actual partly joined pair proof passed: initial P connected/N open, one pair-router call, both finally connected,
-  original locked P track coordinates, layer, width and UUID unchanged, no new manufacturing violations. The router
-  explicitly reported a single-ended fallback, so this proves OR selection and counterpart preservation, not coupled
-  geometry. The portable fixture regression still requires its actual reproduction/final full gate.
-- USB-C capture proof is narrower: its pair copper already existed, so the actual pair phase made zero calls. Named
-  interface capture and phase integration passed; synthetic N-only-open selection is not actual routing evidence.
-  Saved original/captured DRC reports retain the same manufacturing faults, and no manufacturing-success pin is taken.
-- Scratch core comparison uses equal bounded fresh full searches and preserves runtime source hashes across subsequent
-  fixture/harness-only commits. The completed declared result was recovered without rerouting after the collector
-  counted its label symlink and canonical run path twice; both resolved to the same file. Actual saved-board checks
-  retain raw measurements and apply identical original settings and acceptance intent to both variants. Width-unknown,
-  current-path failure and unjudged outcomes remain distinct from manufacturing validity. The second comparison and
-  all project-specific numeric findings remain outside repository documentation.
-
-## Final reference review and remaining gate (2026-10-08)
-
-- Frozen `a32a232f` completed all prescribed final feature invocations: 18 module references and 11 historical
-  hand-module comparisons. Each owned process completed with unchanged runtime/input identities; no truth pins were
-  changed. The module USB-C case had preexisting pair joins and zero pair calls, so it establishes captured interface
-  integration rather than newly routed coupled geometry. Manufacturing faults remain explicit.
-- Same-contract saved-copper audits completed for 16 A rows, one priority USB row and 11 historical C rows under
-  original project/custom rules and effective width authorities. Parent independently verified receipts and unchanged
-  source/helper identities. Selected-terminal ambiguity withheld two A rows; empty selected obligations are not a full
-  board certificate. Module references have no historical baseline and carry no invented old/new comparison.
-- The priority reference retains a genuine lost selected connection under identical original-rule grading. Its nominal
-  rescue was attempted and blocked by different preceding copper; the rejected proximity-skip hypothesis is preserved
-  as such. Required-width unknowns prevent certification. The USB comparison improves priority current connectivity
-  while losing signal connectivity; this is a mixed result, not an overall routing gain. One historical module retains
-  equal joins but one additional unproved width. No retuning, repinning or successful adoption claim hides these results.
-- The optional final-call candidate planner remains inactive. Its initial custody domain excludes the affected prior
-  task pipeline, and unavailable full width/Standing authority independently prevents adoption. Retained adapter and
-  bounded worker integration are separate reviewed work; hashes or transport descriptors do not authorize adoption.
-- Reviewed production follow-up `d69b6cba` binds the complete private final report, including asked/final judgments,
-  and defers stop delivery across width-query spawn until its owned process group is retained. TERM/HUP/INT regressions
-  and policy/finalization tests passed 30 cases. The timeout regression observes terminated zombies separately from
-  running children; production PID-existence semantics remain unchanged. The historical intermittent assertion's
-  precise cause remains unproved.
-- The required Step 1 whole-suite gate completed at frozen `b593226ea9566338cb3a223936fefad27dfd914d`, genuine
-  isolated distribution `0.99.35.post1.dev95+gb593226ea`: 6,982 passed, 22 skipped, zero failures/errors in 1,073.71 s.
-  `pytest --full -n2 -p no:cacheprovider` used the reviewed two-tier locks, private PCB cache and original 3,600 s
-  owned-process bound. All fifteen start/end identity comparisons passed; supervisor/helper identities and the original
-  PCB cache were unchanged. No earlier failed or incomplete suite is relabelled as a success.
-- Current unused-code and public-surface checks passed at the same tested source: the full XML records the exact
-  prescribed vulture command and CLI/settings/removed-document checks, all unskipped. The separate offline native
-  build with `RUSTFLAGS="-D dead_code"`, two Cargo jobs and a task-owned target passed in 10.98 s. Source, helper and
-  installed-native identities were unchanged; the installed binary was not replaced. Its initial supervisor API setup
-  failure occurred before Cargo and remains preserved separately from the successful actual build.
-- Post-run handover updates and `tests/slow_tests.txt` classification come from the completed XML using the existing
-  2.0 s threshold. They are documentation and test timing metadata, not a new implementation or a full-suite pass at a
-  later documentation commit. The tested source/native/test implementation hashes remain attached to the `b593226e`
-  receipt. Main merge, release and fork pushes remain withheld: the no-worse gate still requires an explicit user
-  decision on the held comparisons. Combined final electrical/current and Standing gates remain separately owned by
-  the parent and Step 2.
-- Detailed owned receipts are indexed by `step1-finite-reference-handback.json` in the review scratch directory;
-  real project identities and numeric comparison evidence remain in fixture/bench records.
-
-## Parent worker boundary snapshot (2026-10-08)
-
-- Reviewed executor hooks retain one actual pre-guard read and a same-byte private snapshot, original rules and one
-  validated width receipt. A process-local custody registry seals only the actual completed ordinary phase ledger,
-  full report and artifact bytes. Public grader constructors, JSON packets and copied reports cannot mint custody.
-  Missing optional evidence preserves ordinary routing; cancellation still propagates. No optional router strategy
-  is activated by these hooks.
-- The JSON codec and owned worker share the original absolute deadline. Parent validation binds actual child runtime,
-  independently remeasured original DRC/count/selection evidence, output/report hashes and exact held/fixed manifest
-  intent before private import. Typed canonical comparisons reject numeric/boolean aliases. Original zones retain
-  their complete definitions; refill metadata is the only intended zone exception in the shared preservation helper.
-- Parent independently passed the 114-case boundary gate and the subsequent 22-case owned-worker/preservation group;
-  the final parent boundary suite passed 118 cases. An actual KiCad/controlled copying-router regression passed one
-  ordinary call with unavailable optional authority, unchanged runtime identities and intact ordinary route output.
-  These are pure boundary/process controls and limited ordinary-path coverage, not actual saved-board authority proof.
-- The coherent retained factory and child critical/preservation/runtime reply passed the parent's small legal
-  saved-board gate at combined `60050fdfbed07a33b6e61d7c0e3b81cad53f9e01`, genuine `dev217` distribution and retained
-  native binary. One actual KiCad/native/DRC case passed in 12.12 s, using a controlled straight-span router rather
-  than KRT search. Fresh final authority reported legal manufacturing, known required widths, full closure and no
-  unjudged critical checks. Original fixed-copper deletion, zone-priority mutation, held-pose mutation and changed
-  original source all refused. The unfilled original zone remains positive coverage; only demonstrated derived fill
-  state is normalized alongside filled polygons/segments, while zone design intent stays exact.
-- The earlier 6,859-pass/22-skip/one-failure whole run is preserved as failed evidence. Its long-TMPDIR socket defect
-  was corrected and the latest `b593226e` whole run passed as recorded above. The 22 final skips are fourteen known
-  track/via airwire-position oracle cases, three missing connector datasheets, two optional fitted-reference inputs,
-  two optional disc-board inputs and one missing antenna datasheet. These are coverage limitations, not new successes.
-- Constructor phase contracts now use their strict JSON wire representation once, preserving their exact serialized
-  digest and actual phase objects; the real tuple-valued phase regression passed independently. The small worker gate
-  retains prior setup/boundary failures separately. No optional escape strategy, routing-improvement certificate,
-  no-worse waiver or main merge is activated by the worker proof or whole-suite result.
+- The one-score session (step 2) consumes step 1's RouteReport fields; tell it if a field name changes. Step 2's
+  `final_authority` and `final_check_worker` belong to the parked work and should not be merged without the user.
+- The consolidation session releases 0.99.x from main and knows the close-via fix ships with step 1.
+- The last whole-suite pass (`pytest --full -n 2`) was at b593226e, before the continuation's last commits and the
+  2026-10-11 cleanup; it does not stand for the current head.
