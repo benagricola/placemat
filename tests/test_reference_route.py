@@ -96,9 +96,10 @@ def test_run_a_judges_the_route_json_against_the_baseline(tmp_path, monkeypatch)
         return [V("clearance", ("A", "B"), (1.0, 1.0))] if path.name == prepare.BASELINE else [
             V("clearance", ("A", "B"), (1.0, 1.0)), V("short", ("A", "C"), (5.0, 5.0))]
 
-    from types import SimpleNamespace
-    import placemat.kicad.read
-    monkeypatch.setattr(placemat.kicad.read, "read_board", lambda p: SimpleNamespace(netclasses={}, default_clearance=0.2))
+    import placemat.cli
+    from placemat.route_phase import default_phases
+    monkeypatch.setattr(placemat.cli, "board_default_phases", lambda pcb: default_phases(
+        pairs=False, interface_types=[], wide_classes=[], currents=False))
     monkeypatch.setattr(route_ref, "_route", route)
     monkeypatch.setattr(route_ref, "_krt_version", lambda pcb: "krt1")
     monkeypatch.setattr(prepare, "measure", lambda pcb: (2, prepare.HumanCopper(4, 50.0)))
@@ -270,13 +271,13 @@ def test_a_route_that_raises_fails_its_own_width_only(tmp_path, monkeypatch):
 
 
 def test_manifest_named_pairs_and_buses_are_written_before_defaults(tmp_path, monkeypatch):
-    from types import SimpleNamespace
     import dataclasses
     import tomllib
-    import placemat.kicad.read
-    from placemat.route_phase import parse_phases
-    monkeypatch.setattr(placemat.kicad.read, "read_board", lambda _: SimpleNamespace(
-        netclasses={"R": SimpleNamespace(name="RF", clearance=0.4)}, default_clearance=0.2))
+    import placemat.cli
+    from placemat.route_phase import default_phases, parse_phases
+    # the board's defaults are placemat's own (cli.board_default_phases), not a copy of its calculation
+    monkeypatch.setattr(placemat.cli, "board_default_phases", lambda pcb: default_phases(
+        pairs=False, interface_types=[], wide_classes=["RF"], currents=False))
     board = dataclasses.replace(route_ref.fetch.load_manifest()[0], phases=(
         {"name": "usb", "pairs": [["USB_D+", "USB_D-"]]},
         {"name": "i2c", "buses": [["SDA", "SCL"]]}))

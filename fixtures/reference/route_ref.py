@@ -387,15 +387,11 @@ def _route(pcb: pathlib.Path, work: pathlib.Path, toml: str | None, *, env=None)
 
 
 def phases_for(board: fetch.Board, pcb: pathlib.Path) -> str:
-    """Manifest obligations first, then uncaptured board defaults."""
-    from placemat.kicad.read import read_board
-    from placemat.route_phase import default_phases, phases_toml
-    graph = read_board(str(pcb))
-    default = {nc.clearance for nc in graph.netclasses.values() if nc.name == "Default"}
-    base = min(default) if default else graph.default_clearance
-    wide = sorted({nc.name for nc in graph.netclasses.values() if nc.clearance > base + 1e-9})
-    return phases_toml(list(board.phases) + default_phases(
-        pairs=False, interface_types=[], wide_classes=wide, currents=False))
+    """The manifest's phases, then the phases `placemat route` gives the board with none set (cli.board_default_phases).
+    The prepared board has no capture beside it, so its defaults take no pairs or interfaces."""
+    from placemat.cli import board_default_phases
+    from placemat.route_phase import phases_toml
+    return phases_toml(list(board.phases) + board_default_phases(pcb))
 
 
 def run_a(board: fetch.Board, work: pathlib.Path, *, track_mm: float | None = None,
