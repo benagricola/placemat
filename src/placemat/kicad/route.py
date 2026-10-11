@@ -1438,7 +1438,7 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     from .. import __version__
     settings_part = {k: v for k, v in sorted(json.loads(cfg.json()).items())
                      if k.startswith("route_") and k not in ("route_router_dir", "route_phase")}
-    base = digest("phase-judgement-v4", file_digest(pcb), file_digest(pcb.with_suffix(".kicad_pro")), file_digest(pcb.with_suffix(".kicad_dru")),
+    base = digest("phase-judgement-v5", file_digest(pcb), file_digest(pcb.with_suffix(".kicad_pro")), file_digest(pcb.with_suffix(".kicad_dru")),
                   capture.digest if capture else "", sorted(excluded), sorted(pours), layers, quick, iterations, probe,
                   router_version(router_dir_path), __version__, settings_part, cfg.check_rise_c)     # rise_c: current widths
     state.set_order(["only:" + run_list[0].name] if only else [p.name for p in run_list])
