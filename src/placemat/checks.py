@@ -1135,16 +1135,18 @@ class _Fill:
                         out.add(c)
         return out
 
-    def _reach(self, start: set, goal: set, tau: float):
+    def _reach(self, start: set, goal: set, tau: float, box=None):
         """A path of fill cells from `start` to `goal`, 8-connected, every
         cell on it in either set or at least `tau` (squared cells) from the
         fill's edge: (the goal cell it reached, or None, and each cell
         reached's parent). Breadth first, so it stops as soon as it
-        arrives."""
-        if self._native is not None:
+        arrives. `box`: (first row, last row, first column, last column),
+        the cells it may visit; None, the whole fill (native when built)."""
+        if self._native is not None and box is None:
             hit, parent = self._native.reach(list(start), list(goal), tau)
             return hit, parent
-        nx, ny, inside, sq = self.nx, self.ny, self.inside, self.sq
+        nx, ny, sq = self.nx, self.ny, self.sq
+        r0, r1, q0, q1 = box if box is not None else (0, ny - 1, 0, nx - 1)
         parent = {c: None for c in start}
         todo = deque(start)
         while todo:
@@ -1153,15 +1155,16 @@ class _Fill:
                 return c, parent
             r, q = divmod(c, nx)
             for rr in (r - 1, r, r + 1):
-                if not 0 <= rr < ny:
+                if not r0 <= rr <= r1:
                     continue
                 for qq in (q - 1, q, q + 1):
-                    if not 0 <= qq < nx:
+                    if not q0 <= qq <= q1:
                         continue
                     n = rr * nx + qq
-                    if n in parent or not inside[n]:
+                    if n in parent:
                         continue
-                    if sq[n] >= tau or n in goal:
+                    # a cell at least tau > 0 deep is inside the fill: sq is 0 outside it
+                    if sq[n] >= tau or (n in goal and sq[n] > 0):
                         parent[n] = c
                         todo.append(n)
         return None, parent
@@ -1355,23 +1358,8 @@ class _Fill:
             start, goal = ends(t)
             if not start or not goal:
                 return None
-            seen, todo = set(start), deque(start)
-            while todo:
-                c = todo.popleft()
-                if c in goal:
-                    return True
-                r, q = divmod(c, nx)
-                for rr in (r - 1, r, r + 1):
-                    if not r0 <= rr <= r1:
-                        continue
-                    for qq in (q - 1, q, q + 1):
-                        if not q0 <= qq <= q1:
-                            continue
-                        d = rr * nx + qq
-                        if d not in seen and (sq[d] >= t or d in goal):
-                            seen.add(d)
-                            todo.append(d)
-            return None
+            hit, _ = self._reach(start, goal, t, box=(r0, r1, q0, q1))
+            return None if hit is None else True
         floor = min(sq[path[i]] for i in range(k, j + 1))
         top = _highest([t for t in self.levels if floor <= t < tau], joins)
         return 2.0 * self.radius(top[0] if top is not None else floor)
