@@ -354,3 +354,25 @@ def test_copper_joins_where_it_overlaps_as_kicad_joins_it(case):
     geometry = _board(*copper)
     geometry = replace(geometry, footprints=geometry.footprints + tuple(parts))
     assert (joining_spans(geometry, dict(_OB, widths={"F.Cu": 0.2, "B.Cu": 0.2})) is not None) == joined
+
+
+_SPOKED = ((5.5, 9.8), (7.7, 9.8), (7.7, 8), (37.5, 8), (37.5, 9.8), (39.7, 9.8), (39.7, 10.2), (37.5, 10.2),
+           (37.5, 12), (7.7, 12), (7.7, 10.2), (5.5, 10.2))       # a 4 mm pour, a 0.4 mm spoke into each end pad
+
+
+def test_a_pour_with_a_spoke_at_each_end_pad_is_narrow_only_at_the_spokes(monkeypatch, tmp_path):
+    geometry = __import__("tests.test_route_widths_board", fromlist=["_board"])._board(_zone(_SPOKED))
+    assert _judge(monkeypatch, tmp_path, geometry, neck_mm=3.0)["under"] == {}
+    assert 0.3 <= _judge(monkeypatch, tmp_path, geometry, neck_mm=0.0)["under"]["F.Cu"] <= 0.4
+
+
+def test_the_narrow_runs_of_a_fill_are_its_spokes_each_measured_where_it_lies():
+    from placemat.checks import _Fill
+    from tests.test_route_widths_board import _board
+    g = _board()
+    pads = {fp.ref: (fp.pads[0].outlines[0],) for fp in g.footprints}
+    fill = _Fill(_SPOKED, 0.05)
+    got = fill.narrow_runs(pads["U1"], pads["U2"], 1.0)
+    runs = got["runs"]
+    assert len(runs) == 2 and all(0.3 <= r["width_mm"] <= 0.4 for r in runs)
+    assert runs[0]["to_mm"] < 3.0 and runs[1]["from_mm"] > got["length_mm"] - 3.0

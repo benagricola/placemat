@@ -342,46 +342,31 @@ class FillStretch:
     tolerance_mm: float = 0.0
 
 
-def _cells_length(fill, cells) -> float:
-    total = 0.0
-    for a, b in zip(cells, cells[1:]):
-        (r0, q0), (r1, q1) = divmod(a, fill.nx), divmod(b, fill.nx)
-        total += fill.s * (math.sqrt(2.0) if (r0 != r1 and q0 != q1) else 1.0)
-    return total
-
-
-def _fill_tau(fill, need) -> float:
-    """The level (squared cells from the fill's edge) whose disc is `need` wide, less one step: `_Fill.radius`
-    inverted, as `_Fill.neck_length` reads a width."""
-    return (max(need - fill.s, 0.0) / (2.0 * fill.s) + 0.5) ** 2
+def _fill_need(fill, need):
+    """The width a fill is judged at for `need`: one raster step less, the measure's own resolution (a fill exactly
+    `need` wide reads up to one step narrower)."""
+    return None if need is None else max(need - fill.s, 0.0)
 
 
 def _crossing(fill, kind, layer, entry, exit_, need) -> list:
     """The (FillStretch, length) pieces of a path through `fill` from the copper `entry` to the copper `exit_` (tuples
-    of polygons): the widest path through it (`_Fill.width`), split as `_Fill.neck_length` splits it when its
-    narrowest point is under `need` - the run from the entry and the run to the exit that are at least `need` wide,
-    and the stretch between them at its narrowest width. [] when the two touch each other."""
-    got = fill.width(entry, exit_)
+    of polygons), entry first: its narrow runs under `need` (`_Fill.narrow_runs`, judged at `_fill_need`) each at its
+    narrowest width, and the stretches between them at `need`. [] when the two touch each other."""
+    got = fill.narrow_runs(entry, exit_, _fill_need(fill, need) or 0.0)
     if got is None:
         return []
-    narrowest, at, _ = got
     layers = frozenset((layer,))
-    kept = fill._paths.get((id(entry), id(exit_)))
-    cells = kept[2] if kept is not None and kept[0] is entry and kept[1] is exit_ else None
-    if cells is None:                                   # no path of cells: narrower than one step throughout
-        return [(FillStretch(kind, layers, narrowest, at, fill.s), 0.0)]
-    if need is None or narrowest >= need - fill.s:
-        return [(FillStretch(kind, layers, narrowest, at, fill.s), _cells_length(fill, cells))]
-    tau = _fill_tau(fill, need)
-    from_entry = fill._reach(fill.touching(entry, tau), set(), tau)[1]
-    from_exit = fill._reach(fill.touching(exit_, tau), set(), tau)[1]
-    last = max((k for k, c in enumerate(cells) if c in from_entry), default=-1)
-    first = min((k for k, c in enumerate(cells) if c in from_exit and k > last), default=len(cells))
-    lo, hi = max(last, 0), min(first, len(cells) - 1)
-    wide = FillStretch(kind, layers, need, at, fill.s)
-    return [(wide, _cells_length(fill, cells[:lo + 1])),
-            (FillStretch(kind, layers, narrowest, at, fill.s), _cells_length(fill, cells[lo:hi + 1])),
-            (wide, _cells_length(fill, cells[hi:]))]
+    if need is None or not got["runs"]:
+        return [(FillStretch(kind, layers, got["width_mm"], got["at"], fill.s), got["length_mm"])]
+    out, done = [], 0.0
+    for r in got["runs"]:
+        if r["from_mm"] > done:
+            out.append((FillStretch(kind, layers, need, r["at"], fill.s), r["from_mm"] - done))
+        out.append((FillStretch(kind, layers, r["width_mm"], r["at"], fill.s), r["to_mm"] - r["from_mm"]))
+        done = r["to_mm"]
+    if got["length_mm"] > done:
+        out.append((FillStretch(kind, layers, need, got["at"], fill.s), got["length_mm"] - done))
+    return out
 
 
 def _closest_points(a, b) -> tuple:
@@ -644,17 +629,11 @@ def joining_spans(geometry, o, *, full_width=False, neck_mm=0.0, step=None, cach
         if not full_width or need is None:
             return [("r", region[0])]
         fill = fill_of(region)
-        tau = _fill_tau(fill, need)
+        tau = fill.level(_fill_need(fill, need))
         memo = cache.setdefault(("hubs", step, region[0], tau), {})
         if id(polys) in memo:
             return memo[id(polys)]
-        parts = cache.setdefault(("parts", step, region[0], tau), {})
-        out = set()
-        for c in fill.touching(polys, tau):
-            if c not in parts:
-                for d in fill._reach({c}, set(), tau)[1]:
-                    parts[d] = c                    # a part is named by the cell it was first reached from
-            out.add(("r", region[0], parts[c]))
+        out = {("r", region[0], fill.part(c, tau)) for c in fill.touching(polys, tau)}
         memo[id(polys)] = sorted(out)               # polys are _net_copper's own tuples, kept by the cache
         return memo[id(polys)]
 
