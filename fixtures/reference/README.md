@@ -12,7 +12,10 @@ commit in its upstream repository, and each file to a sha256, in `manifest.json`
 3. Route with the board's own layer count, net-class rules and via sizes.
 
 Pass is 100% clean closure, with no copper DRC error beyond the baseline. Closure is also recorded at the widths the
-human actually used (`human_track_mm` in the manifest). Vias and track length are compared with the human board.
+human actually used (`human_track_mm` in the manifest). `placemat route` exits 1 when the input board already has DRC
+errors; the runner takes that exit with a fresh `route.json` (`valid: false`, no `error`) as a completed route and judges
+it the same way. A board or width whose route did not complete records its new DRC as unknown.
+Vias and track length are compared with the human board.
 
 **Test (b), place and route:**
 1. The board's mechanical parts (connectors, holes, edge parts) are held where the original put them (`fixed` in the
@@ -160,9 +163,7 @@ These facts accompany the existing module closure/area comparison. A failed
 hand preparation or route remains visible as a failed reference fact.
 The hand runner retains the full family configuration and script context in its
 owned copy, checks effective settings against the source, and refuses ambiguous
-module-specific routing overrides. A completed invalid route stays failed;
-`route_diagnostic` separately records its electrical closure and manufacturing
-findings, with fresh report, board and completion-record hashes.
+module-specific routing overrides.
 
 `fairing_hand` holds eleven historical module references. Its source manifest
 records original hand/project/helper hashes and the required API migrations.

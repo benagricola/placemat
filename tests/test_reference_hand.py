@@ -145,7 +145,7 @@ def test_hand_context_refuses_ambiguous_module_routing_overrides(tmp_path):
     assert source.read_text() == 'source'
 
 
-def test_invalid_hand_diagnostic_keeps_failure_separate_from_success(tmp_path, monkeypatch):
+def test_hand_route_on_an_invalid_board_is_measured(tmp_path, monkeypatch):
     import placemat.kicad.drc
     import placemat.report
     source = tmp_path / 'hand.kicad_pcb'
@@ -154,19 +154,9 @@ def test_invalid_hand_diagnostic_keeps_failure_separate_from_success(tmp_path, m
     monkeypatch.setattr(hand, 'footprint_area', lambda pcb: 80.0)
     monkeypatch.setattr(placemat.kicad.drc, 'run_drc', lambda pcb, out, refill_zones: out.write_text('{}'))
     monkeypatch.setattr(placemat.report, 'airwires_from_drc', lambda report: {'crossings': 3, 'total_mm': 120.0})
-    diagnostic = {'valid': False, 'closure_clean': 0.75, 'open_after': 1}
-    def failed(*args):
-        raise route_ref.RouteFailure('completed but manufacturing-invalid', diagnostic)
-    monkeypatch.setattr(route_ref, '_route', failed)
+    monkeypatch.setattr(route_ref, '_route', lambda *args: {'valid': False, 'closure_clean': 0.75, 'open_after': 1})
     facts = hand.measure_hand(source, tmp_path / 'work', None)
-    assert facts.failure == 'RouteFailure'
-    assert facts.closure_clean == 0.0 and facts.route_diagnostic == diagnostic
-    result = place_ref.MResult('family/Thing', 1.0, 90.0, 0.0, 1.0, VERSIONS, hand=dataclasses.asdict(facts))
-    line = place_ref.line_module(result, place_ref.compare_module(None, result, {'placemat'}))
-    assert 'hand FAILED RouteFailure' in line
-    assert 'hand INVALID diagnostic closure_clean 75.0% open 1' in line
-    assert result.closure_clean == 1.0
-
+    assert facts.failure == '' and (facts.closure_clean, facts.open) == (0.75, 1)
 
 def test_module_records_hand_facts_and_same_placed_area_measure(tmp_path, monkeypatch):
     script = tmp_path / 'family' / 'modules' / 'module' / 'Thing_layout.py'

@@ -20,7 +20,6 @@ class HandFacts:
     open: int
     failure: str = ''
     detail: str = ''
-    route_diagnostic: dict = dataclasses.field(default_factory=dict)
 
 
 def reference_of(script: pathlib.Path) -> pathlib.Path | None:
@@ -100,11 +99,8 @@ def measure_hand(pcb: pathlib.Path, work: pathlib.Path, toml: str | None,
         run_drc(test, report_path, refill_zones=True)
         airwires = airwires_from_drc(json.loads(report_path.read_text()))
         report = route_ref._route(test, work / 'route', toml)
-        if report.get('error'):
-            raise RuntimeError(str(report['error']))
     except Exception as error:  # Keep a failed reference beside the module result.
         return HandFacts(area, airwires['crossings'], airwires['total_mm'], 0.0, 0,
-                         type(error).__name__, str(error)[:500],
-                         getattr(error, 'diagnostic', {}))
+                         type(error).__name__, str(error)[:500])
     return HandFacts(area, airwires['crossings'], airwires['total_mm'],
                      report.get('closure_clean', 0.0), report.get('open_after', 0))

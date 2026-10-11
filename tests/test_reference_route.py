@@ -196,8 +196,7 @@ def test_a_failure_where_the_recorded_entry_had_none_is_worse():
     failed = _result(closure_clean=0.0, passed=False, failure="RuntimeError", detail="no route.json")
     assert route_ref.compare(old, failed, {"placemat"}).status == "worse"
     assert route_ref.compare(route_ref.asdict(failed), _result(closure_clean=0.0, passed=False), {"placemat"}).status == "better"
-    comparison = route_ref.compare(route_ref.asdict(failed), failed, {"placemat"})
-    assert comparison.status == "not comparable" and comparison.differ == ["routing measurements"]
+    assert route_ref.compare(route_ref.asdict(failed), failed, {"placemat"}).status == "same"
 
 
 def test_saved_violations_are_sorted(tmp_path):

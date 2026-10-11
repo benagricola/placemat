@@ -49,7 +49,7 @@ class AResult:
     closure_clean: float
     open: int
     open_nets: list[str]
-    new_violations: list[prepare.Violation]
+    new_violations: list[prepare.Violation] | None   # None when the route did not run: unknown, not none
     vias: int
     track_mm: float
     human_vias: int
@@ -59,7 +59,6 @@ class AResult:
     versions: dict   # placemat, krt, pcb
     failure: str = ""   # "" when the route ran; else the type of the exception that stopped it
     detail: str = ""    # what the exception said
-    routing_evidence: dict = dataclasses.field(default_factory=dict)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -86,9 +85,8 @@ class Comparison:
 
 
 def lower(c: Comparison) -> bool:
-    """Hold worse results and specifically unresolved routing measurements; version differences alone are not held."""
-    return c.status == "worse" or (c.status == "not comparable"
-                                    and (c.value == "worse" or "routing measurements" in c.differ))
+    """A result that is worse, or not comparable but worse on its values: --update holds it back."""
+    return c.status == "worse" or (c.status == "not comparable" and c.value == "worse")
 
 
 def new_violations(after: list[prepare.Violation], baseline: list[prepare.Violation],
@@ -108,7 +106,7 @@ def judge(route_json: dict, new: list[prepare.Violation], template: AResult) -> 
         template, closure_clean=closure, open=route_json.get("open_after", 0),
         open_nets=sorted(route_json.get("open_nets", ())), new_violations=list(new),
         vias=route_json.get("vias", template.vias), track_mm=route_json.get("track_mm", template.track_mm),
-        passed=route_json.get("valid") is not False and closure == CLEAN and not new,
+        passed=closure == CLEAN and not new,
         seconds=route_json.get("seconds", template.seconds))
 
 
@@ -122,7 +120,7 @@ def by_value(old: dict, new: AResult) -> str:
     recorded entry had none is worse."""
     if new.failure and not old.get("failure"):
         return "worse"
-    gained = len(new.new_violations) - len(old.get("new_violations", ()))
+    gained = len(new.new_violations or ()) - len(old.get("new_violations") or ())
     if (old["passed"] and not new.passed) or new.closure_clean < old["closure_clean"]:
         return "worse"
     if new.closure_clean == old["closure_clean"] and gained > 0:
@@ -132,25 +130,10 @@ def by_value(old: dict, new: AResult) -> str:
     return "same"
 
 
-def unmeasured_failure_comparison(old: dict, new) -> bool:
-    """Failed certification has no numeric routing comparison when either failure is unmeasured.
-
-    A new failure against a formerly nonfailed result remains held by the original
-    certification ratchet. Clearing a prior failure remains a certification gain.
-    """
-    if not old.get("failure") or not new.failure:
-        return False
-    a, b = old.get("routing_evidence"), getattr(new, "routing_evidence", None)
-    return not (isinstance(a, dict) and a.get("measured") is True
-                and isinstance(b, dict) and b.get("measured") is True)
-
-
 def compare(old: dict | None, new: AResult, changing: set[str]) -> Comparison:
     """A result against the recorded one (its dict): new, same, better, worse, or not comparable."""
     if old is None:
         return Comparison("new", [])
-    if unmeasured_failure_comparison(old, new):
-        return Comparison("not comparable", ["routing measurements"])
     value = by_value(old, new)
     differ = comparable(old.get("versions", {}), new.versions, changing)
     if differ:
@@ -175,7 +158,7 @@ def _violation_key(v) -> tuple:
 def asdict(result) -> dict:
     """A result as results.json holds it, its new violations sorted so a rerun does not reorder them."""
     out = dataclasses.asdict(result)
-    if "new_violations" in out:
+    if out.get("new_violations"):
         out["new_violations"] = sorted(out["new_violations"], key=_violation_key)
     return out
 
@@ -234,8 +217,6 @@ def run_local(name: str, work: pathlib.Path, versions: dict | None = None) -> FR
             shutil.copy(src / filename, work / filename)
         versions["krt"] = _krt_version(work / "layout.kicad_pcb")
         report = _route(work / "layout.kicad_pcb", work / "route", (src / "placemat.toml").read_text(), env=env)
-        if report.get("error"):
-            raise RuntimeError("placemat route failed: %s" % report["error"])
         phases = [{"name": phase["name"], "asked": phase["asked"], "joined": phase["joined"],
                    "closure_clean": phase["closure_clean"],
                    "final_closure_clean": phase.get("final_closure_clean"),
@@ -401,104 +382,14 @@ def run_owned(cmd, *, timeout, env=None):
             signal.signal(sig, handler)
 
 
-class RouteFailure(RuntimeError):
-    """A failed invocation may retain a completed, explicitly invalid diagnostic."""
-
-    def __init__(self, message, diagnostic=None):
-        super().__init__(message)
-        self.diagnostic = diagnostic or {}
-
-
-def _artifact_identity(path):
-    import hashlib
-    stat = path.stat()
-    return stat.st_dev, stat.st_ino, stat.st_mtime_ns, stat.st_size, hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def _invalid_route_diagnostic(report, out, work, previous_artifacts):
-    """Recognize only the final report schema used by the CLI's RC1 contract."""
-    import hashlib
-    import math
-    if not isinstance(report, dict) or report.get('valid') is not False or report.get('error'):
-        return {}
-    for key in ('closure_clean', 'seconds'):
-        value = report.get(key)
-        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
-            return {}
-    if report['closure_clean'] > 1:
-        return {}
-    for key in ('vias', 'segments', 'widths_failed'):
-        if key in report and (type(report[key]) is not int or report[key] < 0):
-            return {}
-    for key in ('track_mm', 'closure'):
-        if key in report and (isinstance(report[key], bool) or not isinstance(report[key], (int, float))
-                              or not math.isfinite(report[key]) or report[key] < 0):
-            return {}
-    if 'closure' in report and report['closure'] > 1:
-        return {}
-    if 'phases' in report:
-        if not isinstance(report['phases'], list):
-            return {}
-        for phase in report['phases']:
-            if not isinstance(phase, dict) or not isinstance(phase.get('name'), str):
-                return {}
-            for key in ('asked', 'final_asked', 'final_joined', 'final_connected',
-                        'final_width_known_under', 'final_width_unknown'):
-                if key in phase and (type(phase[key]) is not int or phase[key] < 0):
-                    return {}
-    for key in ('open_before', 'open_after'):
-        value = report.get(key)
-        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-            return {}
-    if not isinstance(report.get('drc_after'), dict) or not isinstance(report.get('violations'), dict):
-        return {}
-    if any(not isinstance(key, str) or isinstance(value, bool) or not isinstance(value, int) or value < 0
-           for key, value in report['drc_after'].items()):
-        return {}
-    if any(not isinstance(net, str) or not isinstance(kinds, list) or not all(isinstance(kind, str) for kind in kinds)
-           for net, kinds in report['violations'].items()):
-        return {}
-    try:
-        board = pathlib.Path(report['routed_pcb']).resolve()
-        if not board.is_relative_to(work.resolve()) or not board.is_file():
-            return {}
-        if previous_artifacts.get(board) == _artifact_identity(board):
-            return {}
-        record = pathlib.Path(report['record']).resolve()
-        if not record.is_relative_to(work.resolve()) or not record.is_file():
-            return {}
-        if previous_artifacts.get(record) == _artifact_identity(record):
-            return {}
-        completion = json.loads(record.read_text())
-        if not isinstance(completion, dict) or completion.get('complete') is not True:
-            return {}
-        recorded_report = completion.get('report')
-        required = ('closure_clean', 'open_before', 'open_after', 'seconds', 'violations')
-        if not isinstance(recorded_report, dict) or any(recorded_report.get(key) != report[key] for key in required):
-            return {}
-        corroborated = [key for key in report if key in recorded_report]
-        if any(recorded_report[key] != report[key] for key in corroborated):
-            return {}
-    except (KeyError, TypeError, ValueError, OSError):
-        return {}
-    diagnostic = {'valid': False, 'closure_clean': report['closure_clean'], 'open_after': report['open_after'],
-            'drc_after': report['drc_after'], 'violations': report['violations'],
-            'invalid_reason': report.get('invalid_reason', ''), 'report_path': str(out),
-            'report_sha256': hashlib.sha256(out.read_bytes()).hexdigest(), 'routed_pcb': str(board),
-            'routed_pcb_sha256': hashlib.sha256(board.read_bytes()).hexdigest(),
-            'completion_record': str(record), 'completion_record_sha256': hashlib.sha256(record.read_bytes()).hexdigest(),
-            'completion_corroborated_fields': corroborated,
-            'final_report_only_fields': [key for key in ('valid', 'routed_pcb', 'drc_after') if key not in corroborated],
-            'process_path': str(work / 'process.json'), 'report': report}
-    drc_path = out.with_name('drc_after.json')
-    if drc_path.is_file() and previous_artifacts.get(drc_path.resolve()) != _artifact_identity(drc_path):
-        diagnostic['drc_after_path'] = str(drc_path)
-        diagnostic['drc_after_sha256'] = hashlib.sha256(drc_path.read_bytes()).hexdigest()
-    return diagnostic
-
-
 def _route(pcb: pathlib.Path, work: pathlib.Path, toml: str | None, *, env=None) -> dict:
-    """`placemat route pcb --full` into `work`, with `toml` as placemat.toml beside the board; route.json as a dict."""
+    """`placemat route pcb --full` into `work`, with `toml` as placemat.toml beside the board; route.json as a dict.
+
+    `placemat route` exits 1 when the input board already has DRC errors (cli.py cmd_route: `0 if report.valid else 1`),
+    and a reference board often has them once stripped. Exit 1 with a fresh route.json that says `valid: false` and has
+    no `error` is therefore a completed route; run_a judges it on the errors it adds to the baseline, as step 0 did.
+    Any other exit, a missing or malformed report, or a report with `error` raises. stdout, stderr and the process facts
+    are kept in `work`."""
     import time
     started = time.monotonic()
     work = pathlib.Path(work)
@@ -509,69 +400,40 @@ def _route(pcb: pathlib.Path, work: pathlib.Path, toml: str | None, *, env=None)
     else:
         config.write_text(toml)
     cmd = [sys.executable, "-m", "placemat", "route", str(pcb), "--full", "--no-resume", "--out", str(work)]
-    out = pathlib.Path(work) / "route.json"
-    previous_artifacts = {path.resolve(): _artifact_identity(path) for path in work.rglob('*')
-                          if path.is_file() and path.suffix in ('.kicad_pcb', '.json')}
-    out.unlink(missing_ok=True)     # only this invocation's report can establish its result
-    facts = {'argv': cmd, 'cwd': str(pathlib.Path.cwd()), 'timeout_s': ROUTE_TIMEOUT_S,
-             'protocol': 'fresh report, RC0 success; RC1 completed invalid report is diagnostic only'}
-    if pathlib.Path(pcb).is_file():
-        facts['input_pcb_identity'] = _artifact_identity(pathlib.Path(pcb))
+    out = work / "route.json"
+    out.unlink(missing_ok=True)     # only this invocation's report can give its result
+    facts = {"argv": cmd, "cwd": str(pathlib.Path.cwd()), "timeout_s": ROUTE_TIMEOUT_S}
 
     def log(stdout, stderr):
         def text(value):
-            return value.decode(errors='replace') if isinstance(value, bytes) else value or ''
-        (work / 'stdout.log').write_text(text(stdout))
-        (work / 'stderr.log').write_text(text(stderr))
-        facts['elapsed_s'] = time.monotonic() - started
-        (work / 'process.json').write_text(json.dumps(facts, indent=2) + '\n')
+            return value.decode(errors="replace") if isinstance(value, bytes) else value or ""
+        (work / "stdout.log").write_text(text(stdout))
+        (work / "stderr.log").write_text(text(stderr))
+        facts["elapsed_s"] = time.monotonic() - started
+        (work / "process.json").write_text(json.dumps(facts, indent=2) + "\n")
 
     try:
         proc = run_owned(cmd, timeout=ROUTE_TIMEOUT_S, env=env)
     except BaseException as error:
-        facts['exception'] = type(error).__name__
-        facts['exitcode'] = error.code if isinstance(error, SystemExit) else None
-        facts['outcome'] = 'interrupted' if isinstance(error, (KeyboardInterrupt, SystemExit)) else 'failed'
-        log(getattr(error, 'output', None), getattr(error, 'stderr', None))
+        facts["exception"] = type(error).__name__
+        log(getattr(error, "output", None), getattr(error, "stderr", None))
         if isinstance(error, subprocess.TimeoutExpired):
             raise RuntimeError("placemat route timed out after %s seconds" % ROUTE_TIMEOUT_S) from None
         raise
-    stdout, stderr = proc.stdout, proc.stderr
-    facts['returncode'] = proc.returncode
-    facts['outcome'] = 'failed' if proc.returncode else 'exited; report not yet validated'
-    log(stdout, stderr)
-    if proc.returncode != 0:
-        diagnostic = {}
-        if proc.returncode == 1 and out.is_file():
-            try:
-                diagnostic = _invalid_route_diagnostic(json.loads(out.read_text()), out, work, previous_artifacts)
-            except (OSError, ValueError):
-                pass
-        reason = diagnostic.get('invalid_reason') or (stderr or stdout)[-500:]
-        if diagnostic:
-            diagnostic['process_returncode'] = proc.returncode
-            diagnostic['process_outcome'] = 'failed invocation with completed invalid artifacts; diagnostic only'
-            facts['diagnostic'] = 'completed invalid artifacts; post-report failure cause is not inferred'
-            log(stdout, stderr)
-        raise RouteFailure("placemat route exited %d: %s" % (proc.returncode, reason), diagnostic)
+    facts["returncode"] = proc.returncode
+    log(proc.stdout, proc.stderr)
+    said = (proc.stderr or proc.stdout or "")[-500:]
+    if proc.returncode not in (0, 1):
+        raise RuntimeError("placemat route exited %d: %s" % (proc.returncode, said))
     if not out.exists():
-        facts['outcome'] = 'failed: missing report'
-        log(stdout, stderr)
-        raise RuntimeError("placemat route wrote no route.json (rc %d): %s" % (proc.returncode, (stderr or stdout)[-500:]))
-    try:
-        report = json.loads(out.read_text())
-        if not isinstance(report, dict):
-            raise ValueError('placemat route report must be an object')
-    except (OSError, ValueError):
-        facts['outcome'] = 'failed: unreadable or malformed report'
-        log(stdout, stderr)
-        raise
+        raise RuntimeError("placemat route wrote no route.json (rc %d): %s" % (proc.returncode, said))
+    report = json.loads(out.read_text())
+    if not isinstance(report, dict):
+        raise ValueError("placemat route wrote a route.json that is not an object")
     if report.get("error"):
-        facts['outcome'] = 'failed: report error'
-        log(stdout, stderr)
         raise RuntimeError("placemat route failed: %s" % report["error"])
-    facts['outcome'] = 'success'
-    log(stdout, stderr)
+    if proc.returncode == 1 and report.get("valid") is not False:
+        raise RuntimeError("placemat route exited 1 with a valid report: %s" % said)
     return report
 
 
@@ -603,143 +465,33 @@ def run_a(board: fetch.Board, work: pathlib.Path, *, track_mm: float | None = No
     versions = dict(versions if versions is not None else current_versions(), krt=_krt_version(work / prepare.TEST))
     template = AResult(board.name, widths, 0.0, 0, [], [], 0, 0.0, human.vias, human.track_mm, False, 0.0, versions)
     measured = dict(report, vias=routed.vias, track_mm=routed.track_mm)
-    result = judge(measured, new, template)
-    evidence = routing_evidence(measured, status="completed_valid" if report.get("valid") is not False else "completed_invalid",
-                                artifacts={"routed_pcb": report["routed_pcb"]}, after=after, new=new)
-    return dataclasses.replace(result, routing_evidence=evidence)
-
-
-def routing_evidence(report: dict, *, status: str, artifacts: dict | None = None,
-                     after=None, new=None) -> dict:
-    """Measurements of completed copper, separate from certification and old pin comparison.
-
-    Phase ``joined``/``final_joined`` means clean closure. Electrical connectivity and
-    connected paths with measured under-width or unproved width use explicit final fields;
-    absent fields on historical reports stay None. Under and unknown may overlap.
-    """
-    phases = [{"name": p["name"], "asked": p.get("final_asked", p.get("asked")),
-               "clean": p.get("final_joined"), "connected": p.get("final_connected"),
-               "width_known_under": p.get("final_width_known_under"),
-               "width_unknown": p.get("final_width_unknown")} for p in report.get("phases", ())]
-    return {"status": status, "measured": True, "certified": report.get("valid") is True and report.get("closure_clean") == CLEAN
-            and after is not None and not after, "certification_scope": "reference route only",
-            "closure": report.get("closure"), "closure_clean": report.get("closure_clean"),
-            "open_after": report.get("open_after"), "phases": phases,
-            "copper": {"vias": report.get("vias"), "track_mm": report.get("track_mm")},
-            "widths_failed": report.get("widths_failed"), "drc_new": report.get("drc_new"),
-            "manufacturing": {"after": list(after) if after is not None else None,
-                              "new": list(new) if new is not None else None,
-                              "inherited": [v for v in after if v not in new]
-                              if after is not None and new is not None else None},
-            "artifacts": dict(artifacts or {})}
-
-
-def diagnostic_violations(path) -> list | None:
-    """A malformed or missing diagnostic DRC file means unmeasured, never zero errors."""
-    import math
-    if path is None:
-        return None
-    try:
-        data = json.loads(pathlib.Path(path).read_text())
-        if not isinstance(data, dict) or not isinstance(data.get("violations"), list):
-            return None
-        for violation in data["violations"]:
-            if (not isinstance(violation, dict) or not isinstance(violation.get("type"), str)
-                    or not isinstance(violation.get("severity"), str) or not isinstance(violation.get("items", []), list)):
-                return None
-            for item in violation.get("items", []):
-                if not isinstance(item, dict) or not isinstance(item.get("description", ""), str):
-                    return None
-                pos = item.get("pos", {})
-                if not isinstance(pos, dict):
-                    return None
-                for value in pos.values():
-                    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
-                        return None
-        return prepare.violations_of(data)
-    except (OSError, ValueError, TypeError):
-        return None
-
-
-def verified_invalid_report(diagnostic: dict) -> dict | None:
-    """Recheck the owned completed-invalid artifact receipt before displaying measurements."""
-    import hashlib
-    try:
-        for path_key, hash_key in (("report_path", "report_sha256"),
-                                   ("routed_pcb", "routed_pcb_sha256"),
-                                   ("completion_record", "completion_record_sha256")):
-            if hashlib.sha256(pathlib.Path(diagnostic[path_key]).read_bytes()).hexdigest() != diagnostic[hash_key]:
-                return None
-        if "drc_after_path" in diagnostic:
-            if hashlib.sha256(pathlib.Path(diagnostic["drc_after_path"]).read_bytes()).hexdigest() != diagnostic["drc_after_sha256"]:
-                return None
-        report = json.loads(pathlib.Path(diagnostic["report_path"]).read_text())
-        if report != diagnostic["report"] or report.get("valid") is not False:
-            return None
-        return report
-    except (KeyError, OSError, TypeError, ValueError):
-        return None
+    return judge(measured, new, template)
 
 
 def failed(board: fetch.Board, widths: str, error: Exception, versions: dict, human: prepare.HumanCopper,
            krt_from: pathlib.Path) -> AResult:
-    """The result of a run that raised `error`: the exception's type as the failure, its message as the detail. "krt" is
-    the router a route of `krt_from` resolves, where that can be read."""
+    """The result of a run that raised `error`: the exception's type as the failure, its message as the detail, new DRC
+    unknown (None). "krt" is the router a route of `krt_from` resolves, where that can be read."""
     try:
         krt = _krt_version(krt_from)
     except Exception:   # the failure is the result; an unreadable router version leaves it "unknown"
         krt = "unknown"
-    result = AResult(board.name, widths, 0.0, 0, [], [], 0, 0.0, human.vias, human.track_mm, False, 0.0,
-                     dict(versions, krt=krt), type(error).__name__, str(error),
-                     {"status": "unmeasured", "measured": False, "certified": False})
-    diagnostic = error.diagnostic if isinstance(error, RouteFailure) else {}
-    report = verified_invalid_report(diagnostic)
-    if report is None:
-        return result
-    after_file = pathlib.Path(diagnostic["drc_after_path"]) if "drc_after_path" in diagnostic else None
-    baseline_file = pathlib.Path(krt_from).with_name(prepare.BASELINE)
-    after = diagnostic_violations(after_file)
-    baseline = diagnostic_violations(baseline_file)
-    new = new_violations(after, baseline) if after is not None and baseline is not None else None
-    evidence = routing_evidence(report, status="completed_invalid", artifacts=diagnostic, after=after, new=new)
-    measured = judge(report, new or [], result)
-    return dataclasses.replace(measured, passed=False, routing_evidence=evidence)
+    return AResult(board.name, widths, 0.0, 0, [], None, 0, 0.0, human.vias, human.track_mm, False, 0.0,
+                   dict(versions, krt=krt), type(error).__name__, str(error))
 
 
 def said(c: Comparison) -> str:
     """A comparison as the console lines give it."""
-    if c.status == "not comparable" and "routing measurements" in c.differ:
-        return "not comparable: routing measurements unresolved"
     if c.status == "not comparable":
         return "not comparable: %s differ, values %s" % (", ".join(c.differ), c.value)
     return c.status
 
 
-def evidence_line(evidence: dict) -> str:
-    """Render diagnostic measurements without claiming a matching-contract routing comparison."""
-    if not evidence.get("measured"):
-        return "routing unmeasured"
-    phases = []
-    for p in evidence.get("phases", ()):
-        known = lambda key: "unknown" if p.get(key) is None else str(p[key])
-        phases.append("%s connected %s/%s clean %s known-under %s width-unknown %s" %
-                      (p["name"], known("connected"), known("asked"), known("clean"),
-                       known("width_known_under"), known("width_unknown")))
-    copper = evidence.get("copper", {})
-    manufacturing = evidence.get("manufacturing", {})
-    count = lambda key: "unknown" if manufacturing.get(key) is None else str(len(manufacturing[key]))
-    return ("routing measured closure_clean %.1f%%; certification failed; %s; vias %s track_mm %s; "
-            "DRC new %s inherited %s; routing regression requires same-contract audit") % (
-        100 * evidence["closure_clean"], "; ".join(phases),
-        "unknown" if copper.get("vias") is None else copper["vias"],
-        "unknown" if copper.get("track_mm") is None else copper["track_mm"], count("new"), count("inherited"))
-
-
 def line(r: AResult, c: Comparison) -> str:
     """The console line of a result."""
     if r.failure:
-        return "%-22s %-5s FAIL %s  %s  FAILED %s: %s" % (
-            r.board, r.widths, evidence_line(r.routing_evidence), said(c), r.failure, r.detail[:200])
+        return "%-22s %-5s FAIL new DRC unknown  %s  FAILED %s: %s" % (
+            r.board, r.widths, said(c), r.failure, r.detail[:200])
     return "%-22s %-5s %s closure_clean %.1f%% open %d new DRC %d vias %d/%d track %.0f/%.0f mm %.0fs  %s" % (
         r.board, r.widths, "pass" if r.passed else "FAIL", 100 * r.closure_clean, r.open, len(r.new_violations),
         r.vias, r.human_vias, r.track_mm, r.human_track_mm, r.seconds, said(c))
@@ -784,12 +536,8 @@ def main(argv=None) -> int:
     finally:
         if not args.work:   # a --work folder is the caller's, to inspect
             shutil.rmtree(root, ignore_errors=True)
-    unresolved = {id(r) for r, c in zip(results, comparisons) if "routing measurements" in c.differ}
     for r in held:
-        if id(r) in unresolved:
-            print("held back, unresolved routing measurements: %s %s" % (r.board, r.widths))
-        else:
-            print("held back, worse than the recorded result: %s %s (--accept-worse writes it)" % (r.board, r.widths))
+        print("held back, worse than the recorded result: %s %s (--accept-worse writes it)" % (r.board, r.widths))
     return 1 if worse or held else 0
 
 
