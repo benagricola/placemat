@@ -244,11 +244,8 @@ The board-wide closure and DRC stay as today and are computed once after the las
 ## Explore
 
 `--route-best` routes each candidate variant through every phase. `--route-rank PHASE[,PHASE...]` ranks the routed
-variants after validity by those phases' final clean closure, in order, then by board-wide final clean closure,
-routed quality and the common run score. Without the flag, the full configured phase order comes first, as amended
-by the 2026-10-07 one-score ranking contract. An explicitly empty internal comparator priority tuple tests
-board-wide closure without phase priorities; it is distinct from omitting the public flag. All phase comparison
-contracts and authoritative final checks must match even when a phase is omitted from the priority list.
+variants by those phases' clean closure, in order, then by the board-wide clean closure, then by the run score. Without it,
+the board-wide clean closure ranks, as today.
 
 ## What this replaces
 

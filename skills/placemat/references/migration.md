@@ -61,6 +61,19 @@ section for each hand-written pattern a newer form replaces.
 
 - **Routing phases.** `[route] islands` and `route --islands`: use a phase with `nets`, `width` and `layers`.
 
+      # before                                  # after
+      [route]                                   [[route.phase]]
+      islands = ["VB=0.5@F,B", "GND"]           name = "vb"
+                                                nets = ["VB"]
+                                                width = 0.5
+                                                layers = ["F", "B"]
+
+                                                [[route.phase]]
+                                                name = "gnd"
+                                                nets = ["GND"]
+
+  A net its pour serves is routed alone with the pour handed to the router, as an island was.
+
 - **Routing phases.** `[route] pair_layers`: use a phase with `pairs = true` and `layers`.
 
 - **Routing phases.** `[route] net_halos`: state the net type's `clearance` field in the capture.

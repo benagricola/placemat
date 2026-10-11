@@ -849,9 +849,9 @@ _RETIRED = {
 # Keys retired because what they set is now counted another way: {key: what replaced it}. A time is not a count of
 # steps, so the old value is not carried over; the project is told what to set instead.
 _REPLACED = {
-    "route_islands": 'set a phase with `nets` and `width` ([[route.phase]], api.md "Routing phases")',
-    "route_pair_layers": 'set a phase with `pairs = true` and `layers` ([[route.phase]], api.md "Routing phases")',
-    "route_net_halos": "set the clearance field of the net's type in the capture",
+    "route_islands": 'a phase with `nets` and `width` ([[route.phase]], api.md "Routing phases")',
+    "route_pair_layers": 'a phase with `pairs = true` and `layers` ([[route.phase]], api.md "Routing phases")',
+    "route_net_halos": "the clearance field of the net's type in the capture",
 
     "pins_budget_ms": "pins.budget_steps, a count of the study's steps, so a board gives the same map at any speed",
     "pins_probe_budget_ms": "pins.probe_budget_steps, a count of the study's steps, so a board gives the same map at any speed",
