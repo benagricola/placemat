@@ -1,6 +1,7 @@
-"""Requested router widths cannot silently disappear from final certificates."""
+"""The router's widths per phase: asked of the router, applied to each obligation, and failures kept as records."""
 import dataclasses
 import json
+import sys
 
 import pytest
 
@@ -8,37 +9,6 @@ from placemat.kicad import phase_run, width_policy
 from placemat.kicad.phase_select import Selection, Task
 from placemat.route_phase import parse_phases
 from placemat.settings import Settings
-
-
-def _observed_pid_state(pid):
-    from pathlib import Path
-    try:
-        stat = Path('/proc/%d/stat' % pid).read_text()
-    except FileNotFoundError:
-        return 'gone'
-    # A process command name may contain spaces or parentheses.
-    return stat.rpartition(')')[2].split()[0]
-
-
-def test_unreaped_zombie_is_terminated_despite_existing_pid():
-    import subprocess
-    import sys
-    import time
-    from placemat.stop import pid_alive
-    child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])
-    try:
-        assert _observed_pid_state(child.pid) not in ('gone', 'Z', 'X')
-        child.kill()  # only this directly owned process; deliberately do not reap yet
-        until = time.monotonic() + 2.0
-        state = _observed_pid_state(child.pid)
-        while state != 'Z' and time.monotonic() < until:
-            time.sleep(.01)
-            state = _observed_pid_state(child.pid)
-        assert state == 'Z'
-        assert pid_alive(child.pid)  # the production utility correctly reports PID existence
-    finally:
-        child.kill()
-        child.wait()
 
 
 def selected(name='signals', **kwargs):
@@ -95,14 +65,16 @@ def test_explicit_task_and_pour_task_keep_their_own_required_widths():
 
 def test_unknown_nominal_policy_cannot_certify_a_connected_board(tmp_path, monkeypatch):
     (phase,) = parse_phases([{'name': 'signals'}])
-    policy = {'policies': [{'name': 'signals', 'by_net': {'VB': {'status': 'unknown', 'reason': 'stored impedance'}}}]}
+    policy = {'policies': [{'name': 'signals', 'by_net': {'VB': {'status': 'unknown', 'widths': None,
+                                                                 'reason': 'stored impedance'}}}]}
     (obs,) = width_policy.apply([[obligation()]], [selected()], [phase], policy)
     drc = tmp_path / 'drc.json'; drc.write_text('{"violations": []}')
     monkeypatch.setattr(phase_run, 'joined_pairs', lambda *args: [True])
     (judgment,) = phase_run.judge_obligations('board', obs, drc, is_real=lambda _: False)
     assert judgment['joined'] and judgment['width_unknown'] and not phase_run.is_clean(judgment, None)
     assert phase_run.widths_failed([{}], [obs], [[judgment]]) == 1
-    assert phase_run.open_entry(obs[0], judgment, [], {})['width_policy_reason'] == 'stored impedance'
+    assert phase_run.open_entry(obs[0], judgment, [], {})['width_policy_failure'] == {
+        'code': 'router_unknown', 'facts': {'reason': 'stored impedance'}}
 
 
 def test_length_mismatch_and_conflicting_policy_scopes_are_not_silently_truncated():
@@ -114,94 +86,111 @@ def test_length_mismatch_and_conflicting_policy_scopes_are_not_silently_truncate
     policy = {'policies': [{'name': 'signals', 'by_net': {'VB': {'status': 'known', 'widths': {'F.Cu': w}}}}
                            for w in (0.11, 0.16)]}
     (obs,) = width_policy.apply([[obligation()]], [selected()], [phase], policy)
-    assert obs[0]['width_policy_unknown'] and 'conflicting' in obs[0]['width_policy_reason']
+    assert obs[0]['width_policy_unknown'] and obs[0]['width_policy_failure']['code'] == 'conflicting_policies'
 
 
-def test_missing_interpreter_and_expired_deadline_are_structured_unknown(tmp_path, monkeypatch):
-    script = tmp_path / 'py_router' / 'nominal_width_policy.py'; script.parent.mkdir(); script.write_text('')
-    (phase,) = parse_phases([{'name': 'signals'}])
-    expired = width_policy.resolve('missing', tmp_path, tmp_path / 'b.kicad_pcb', [phase], [selected()],
-                                    Settings(), {'KRT_ROUTE_DEADLINE_UTC': '1'})
-    assert expired['failure']['code'] == 'deadline'
-    missing = width_policy.resolve(str(tmp_path / 'missing'), tmp_path, tmp_path / 'b.kicad_pcb', [phase],
-                                    [selected()], Settings())
-    assert missing['failure']['code'] == 'unavailable'
-
-
-def test_policy_authority_invalidates_unknown_to_known_and_changed_source():
-    base = {'schema': 1, 'config_sha256': 'a', 'sources': {'rule.py': 'one'}, 'policies': [
-        {'name': 'signals', 'kind': 'nets', 'by_net': {'VB': {'status': 'unknown', 'reason': 'unavailable'}}}]}
-    known = json.loads(json.dumps(base)); known['policies'][0]['by_net']['VB'] = {'status': 'known', 'widths': {'F.Cu': 0.2}}
-    changed = dict(known, sources={'rule.py': 'two'})
-    assert width_policy.authority(base) != width_policy.authority(known) != width_policy.authority(changed)
-
-
-def test_policy_timeout_terminates_its_child_group_and_preserves_unrelated_process(tmp_path):
-    import subprocess
-    import sys
-    import time
-    script = tmp_path / 'py_router' / 'nominal_width_policy.py'; script.parent.mkdir()
-    pidfile = tmp_path / 'child.pid'
-    script.write_text("import subprocess, sys, time\n"
-                      "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
-                      "open(%r, 'w').write(str(child.pid))\n"
-                      "time.sleep(60)\n" % str(pidfile))
-    sentinel = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])
-    try:
-        (phase,) = parse_phases([{'name': 'signals'}])
-        result = width_policy.resolve(sys.executable, tmp_path, tmp_path / 'b.kicad_pcb', [phase], [selected()],
-                                       Settings(), timeout=0.5)
-        assert result['failure']['code'] == 'timeout'
-        assert pidfile.exists()
-        child_pid = int(pidfile.read_text())
-        observations = []
-        until = time.monotonic() + 2.0
-        while True:
-            state = _observed_pid_state(child_pid)
-            observations.append({'elapsed': 2.0 - (until - time.monotonic()), 'state': state})
-            if state in ('gone', 'Z', 'X') or time.monotonic() >= until:
-                break
-            time.sleep(.01)
-        (tmp_path / 'child-states.json').write_text(json.dumps(observations, indent=2))
-        assert state in ('gone', 'Z', 'X'), observations
-        assert sentinel.poll() is None
-    finally:
-        sentinel.kill(); sentinel.wait()
-
-
-@pytest.mark.parametrize('damage', ['schema', 'count', 'width', 'input', 'source'])
-def test_malformed_policy_receipts_cannot_certify_widths(tmp_path, monkeypatch, damage):
-    import hashlib
-    from types import SimpleNamespace
-    (phase,) = parse_phases([{'name': 'signals'}])
+def query(tmp_path, text):
+    """A stand-in router checkout whose width query is `text`."""
     script = tmp_path / 'py_router' / 'nominal_width_policy.py'
-    script.parent.mkdir(); script.write_text('# policy\n')
-    board = tmp_path / 'b.kicad_pcb'; board.write_text('board')
-    requests = width_policy.requests_of([phase], [selected()], Settings())
-    receipt = {'schema': 1, 'config_sha256': hashlib.sha256(json.dumps(requests, sort_keys=True).encode()).hexdigest(),
-               'board': str(board), 'inputs': {str(p): hashlib.sha256(p.read_bytes()).hexdigest() if p.is_file() else None
-                   for p in (board, board.with_suffix('.kicad_pro'), board.with_suffix('.kicad_dru'))},
-               'sources': {'py_router/nominal_width_policy.py': hashlib.sha256(script.read_bytes()).hexdigest()},
-               'policies': [{'name': 'signals', 'kind': 'nets', 'by_net': {'VB': {'status': 'known',
-                   'widths': {'F.Cu': 0.2, 'B.Cu': 0.2}}}}]}
-    if damage == 'schema': receipt['schema'] = True
-    elif damage == 'count': receipt['policies'] = []
-    elif damage == 'width': receipt['policies'][0]['by_net']['VB']['widths']['F.Cu'] = float('nan')
-    elif damage == 'input': receipt['inputs'][str(board)] = 'wrong'
-    else: receipt['sources'] = {}
-    monkeypatch.setattr(width_policy.subprocess, 'Popen', lambda *args, **kwargs: SimpleNamespace(returncode=0,
-        communicate=lambda *a, **k: ('PLACEMAT_WIDTH_POLICY ' + json.dumps(receipt), '')))
-    result = width_policy.resolve('python', tmp_path, board, [phase], [selected()], Settings())
-    assert result['failure']['code'] == 'malformed'
-    assert result['policies'][0]['by_net']['VB']['status'] == 'unknown'
+    script.parent.mkdir(exist_ok=True)
+    script.write_text(text)
+    return tmp_path
 
 
-def test_interrupted_policy_wait_reaps_only_owned_process(tmp_path, monkeypatch):
-    import sys
+def resolve(router, rpy=sys.executable, **kwargs):
+    (phase,) = parse_phases([{'name': 'signals'}])
+    return width_policy.resolve(rpy, router, router / 'b.kicad_pcb', [phase], [selected()], Settings(),
+                                router / 'width_policy.log', **kwargs)
+
+
+def test_an_answer_gives_each_net_its_widths(tmp_path):
+    answer = {'schema': 1, 'policies': [{'name': 'signals', 'kind': 'nets', 'by_net': {
+        'VB': {'status': 'known', 'widths': {'F.Cu': 0.2, 'B.Cu': 0.25}, 'options': {}}}}]}
+    router = query(tmp_path, 'import sys, json; json.load(sys.stdin); print("noise"); '
+                             'print("PLACEMAT_WIDTH_POLICY " + %r)' % json.dumps(answer))
+    got = resolve(router)
+    assert 'failure' not in got and len(got['config_sha256']) == 64
+    assert got['policies'] == [{'name': 'signals', 'kind': 'nets',
+                                'by_net': {'VB': {'status': 'known', 'widths': {'F.Cu': 0.2, 'B.Cu': 0.25}}}}]
+
+
+def test_no_query_or_no_interpreter_is_unavailable(tmp_path):
+    missing = resolve(tmp_path)
+    assert missing['failure'] == {'code': 'unavailable',
+                                  'facts': {'script': str(tmp_path / 'py_router/nominal_width_policy.py')}}
+    assert missing['policies'][0]['by_net']['VB']['status'] == 'unknown'
+    router = query(tmp_path, '')
+    failed = resolve(router, rpy=str(tmp_path / 'missing'))
+    assert failed['failure']['code'] == 'unavailable' and failed['failure']['facts']['error'] == 'FileNotFoundError'
+
+
+def test_a_query_past_its_timeout_is_stopped_and_every_net_is_unknown(tmp_path):
+    router = query(tmp_path, 'import time; time.sleep(60)')
+    got = resolve(router, timeout=0.5)
+    assert got['failure'] == {'code': 'timeout', 'facts': {'seconds': 0.5, 'log': str(tmp_path / 'width_policy.log')}}
+    assert got['policies'][0]['by_net']['VB'] == {'status': 'unknown', 'widths': None}
+
+
+def test_a_failed_query_is_a_record_with_its_exit_code(tmp_path):
+    got = resolve(query(tmp_path, 'import sys; sys.exit(3)'))
+    assert got['failure'] == {'code': 'failed', 'facts': {'exit_code': 3, 'log': str(tmp_path / 'width_policy.log')}}
+
+
+@pytest.mark.parametrize('damage, problem', [('schema', 'schema'), ('count', 'scope_count'), ('net', 'net_membership'),
+                                             ('layers', 'layer_membership'), ('width', 'width'),
+                                             ('silent', 'no_answer'), ('text', 'not_json')])
+def test_an_answer_that_does_not_fit_the_request_is_malformed(tmp_path, damage, problem):
+    answer = {'schema': 1, 'policies': [{'name': 'signals', 'kind': 'nets', 'by_net': {
+        'VB': {'status': 'known', 'widths': {'F.Cu': 0.2, 'B.Cu': 0.2}}}}]}
+    entry = answer['policies'][0]['by_net']['VB']
+    line = 'PLACEMAT_WIDTH_POLICY ' + json.dumps(answer)
+    if damage == 'schema':
+        line = line.replace('"schema": 1', '"schema": true')
+    elif damage == 'count':
+        line = 'PLACEMAT_WIDTH_POLICY ' + json.dumps(dict(answer, policies=[]))
+    elif damage == 'net':
+        answer['policies'][0]['by_net'] = {'OTHER': entry}
+        line = 'PLACEMAT_WIDTH_POLICY ' + json.dumps(answer)
+    elif damage == 'layers':
+        del entry['widths']['B.Cu']
+        line = 'PLACEMAT_WIDTH_POLICY ' + json.dumps(answer)
+    elif damage == 'width':
+        line = line.replace('0.2}', 'NaN}')
+    elif damage == 'silent':
+        line = 'nothing'
+    else:
+        line = 'PLACEMAT_WIDTH_POLICY {'
+    got = resolve(query(tmp_path, 'print(%r)' % line))
+    assert got['failure'] == {'code': 'malformed', 'facts': {'problem': problem, 'log': str(tmp_path / 'width_policy.log')}}
+    assert got['policies'][0]['by_net']['VB']['status'] == 'unknown'
+
+
+def test_a_failed_query_marks_each_obligation_with_its_failure():
+    (phase,) = parse_phases([{'name': 'signals'}])
+    policy = {'config_sha256': 'c', 'failure': {'code': 'timeout', 'facts': {'seconds': 1.0}},
+              'policies': [{'name': 'signals', 'kind': 'nets', 'by_net': {'VB': {'status': 'unknown', 'widths': None}}}]}
+    ((item,),) = width_policy.apply([[obligation()]], [selected()], [phase], policy)
+    assert item['width_policy_unknown'] and item['width_policy_failure'] == {'code': 'timeout', 'facts': {'seconds': 1.0}}
+    assert item['width_policy_contract'] == 'c'
+
+
+def test_a_phase_key_follows_its_own_widths_and_status_only():
+    earlier = {'name': 'early', 'kind': 'nets', 'by_net': {'A': {'status': 'known', 'widths': {'F.Cu': .2}}}}
+    later = {'name': 'late', 'kind': 'nets', 'by_net': {'B': {'status': 'known', 'widths': {'F.Cu': .3}}}}
+    before = {'schema': 1, 'config_sha256': 'all-before', 'policies': [earlier, later]}
+    after = json.loads(json.dumps(before))
+    after['config_sha256'] = 'all-after'
+    after['policies'][1]['by_net']['B']['widths']['F.Cu'] = .4
+    assert width_policy.phase_key(before, 'early') == width_policy.phase_key(after, 'early')
+    assert width_policy.phase_key(before, 'late') != width_policy.phase_key(after, 'late')
+    unknown = json.loads(json.dumps(before))
+    unknown['policies'][0]['by_net']['A'] = {'status': 'unknown', 'widths': None, 'reason': 'unproved'}
+    assert width_policy.phase_key(before, 'early') != width_policy.phase_key(unknown, 'early')
+
+
+def test_an_interrupted_query_stops_its_process(tmp_path, monkeypatch):
     from placemat import stop
-    (phase,) = parse_phases([{'name': 'signals'}])
-    script = tmp_path / 'py_router' / 'nominal_width_policy.py'
-    script.parent.mkdir(); script.write_text('import time\ntime.sleep(60)\n')
+    router = query(tmp_path, 'import time\ntime.sleep(60)\n')
     real_popen = width_policy.subprocess.Popen
     launched = []
     def popen(*args, **kwargs):
@@ -219,24 +208,5 @@ def test_interrupted_policy_wait_reaps_only_owned_process(tmp_path, monkeypatch)
         return proc
     monkeypatch.setattr(width_policy.subprocess, 'Popen', popen)
     with pytest.raises(KeyboardInterrupt):
-        width_policy.resolve(sys.executable, tmp_path, tmp_path / 'b', [phase], [selected()], Settings())
+        resolve(router)
     assert launched[0].returncode is not None and not stop.pid_alive(launched[0].pid)
-
-
-def test_later_policy_config_changes_do_not_change_earlier_phase_authority():
-    earlier = {'name': 'early', 'kind': 'nets', 'by_net': {'A': {'status': 'known', 'widths': {'F.Cu': .2}}}}
-    later = {'name': 'late', 'kind': 'nets', 'by_net': {'B': {'status': 'known', 'widths': {'F.Cu': .3}}}}
-    before = {'schema': 1, 'config_sha256': 'all-before', 'sources': {'resolver.py': 'same'},
-              'external_inputs': {'fab': 'same'}, 'policies': [earlier, later]}
-    after = json.loads(json.dumps(before))
-    after['config_sha256'] = 'all-after'
-    after['policies'][1]['by_net']['B']['widths']['F.Cu'] = .4
-    assert width_policy.shared_authority(before) == width_policy.shared_authority(after)
-    assert width_policy.phase_authority(before, 'early') == width_policy.phase_authority(after, 'early')
-    assert width_policy.phase_authority(before, 'late') != width_policy.phase_authority(after, 'late')
-    for field in ('sources', 'external_inputs'):
-        changed = dict(after, **{field: {'changed': 'different'}})
-        assert width_policy.shared_authority(before) != width_policy.shared_authority(changed)
-    unknown = json.loads(json.dumps(before))
-    unknown['policies'][0]['by_net']['A'] = {'status': 'unknown', 'reason': 'unproved'}
-    assert width_policy.phase_authority(before, 'early') != width_policy.phase_authority(unknown, 'early')

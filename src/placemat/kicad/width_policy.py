@@ -1,21 +1,24 @@
-"""Required widths resolved by the configured router, before any copper changes.
+"""Each selected net's track width per phase and layer, as the configured router resolves it.
 
-This boundary imports no router CLI. One read-only query supplies every phase's
-nominal class/rule/fabrication policy; explicit connection tasks keep their own
-widths. Unknown derived geometry remains uncertified.
+Before any copper changes the route asks the router which width it will draw each net at: the router decides between
+net class, design rule and router flags (py_router/nominal_width_policy.py on the placemat fork of KiCadRoutingTools,
+which reads them with the router's own resolvers). Each phase's joins are judged against those widths
+(phase_run.judge_obligations). A net the router cannot resolve gets no width: its obligation is width-unknown.
+
+The query reads a JSON request on stdin and prints its answer on one stdout line after `PLACEMAT_WIDTH_POLICY `.
+A failure is a record, {"code", "facts"}: on the answer (`failure`), and on each obligation it leaves without a width
+(`width_policy_failure`).
 """
 from __future__ import annotations
 
 import hashlib
 import json
 import math
-import os
-import signal
 import subprocess
-import time
 from pathlib import Path
 
-_REAP_SECONDS = 5.0                 # shutdown allowance, never a routing/search budget
+SCRIPT = Path("py_router") / "nominal_width_policy.py"
+_PREFIX = "PLACEMAT_WIDTH_POLICY "
 
 
 def requests_of(phases, selections, cfg):
@@ -64,228 +67,131 @@ def requests_of(phases, selections, cfg):
     return out
 
 
-def validate_receipt(policy, *, pcb, router_dir, requests):
-    """Revalidate an actual resolved receipt against the same immutable context.
+class Malformed(ValueError):
+    """An answer that does not fit the request: `problem` names what."""
 
-    No router query is performed. The retained adapter must supply the original
-    issued requests and query input, rather than candidate-derived selections.
-    Invalid receipts raise the same boundary errors handled by resolve.
-    """
-    board = str(Path(pcb).resolve())
-    contract = hashlib.sha256(json.dumps(requests, sort_keys=True).encode()).hexdigest()
-    script = Path(router_dir) / 'py_router' / 'nominal_width_policy.py'
-    if not isinstance(policy, dict) or type(policy.get('schema')) is not int or policy['schema'] != 1 or policy.get('config_sha256') != contract:
-        raise ValueError('policy schema/configuration mismatch')
-    if policy.get('board') != board:
-        raise ValueError('policy board mismatch')
-    expected = {str(path): hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
-                for path in (Path(board), Path(board).with_suffix('.kicad_pro'),
-                             Path(board).with_suffix('.kicad_dru'))}
-    if policy.get('inputs') != expected:
-        raise ValueError('policy input digest mismatch')
-    sources = set(Path(router_dir).glob('*.py')) | set(script.parent.rglob('*.py'))
-    expected_sources = {str(path.relative_to(router_dir)): hashlib.sha256(path.read_bytes()).hexdigest()
-                        for path in sorted(sources)}
-    if policy.get('sources') != expected_sources:
-        raise ValueError('policy source digest mismatch')
-    external = policy.get('external_inputs', {})
-    if not isinstance(external, dict) or any(
-            hashlib.sha256(Path(path).read_bytes()).hexdigest() != digest for path, digest in external.items()):
-        raise ValueError('policy external input digest mismatch')
-    records = policy['policies']
+    def __init__(self, problem: str):
+        super().__init__(problem)
+        self.problem = problem
+
+
+def check(answer, requests) -> list:
+    """The answer's per-request policies, each {name, kind, by_net: {net: {status, widths}}}, in request order.
+    Malformed when the answer does not cover exactly the requested phases, nets and layers with finite positive
+    widths."""
+    if not isinstance(answer, dict) or type(answer.get("schema")) is not int or answer["schema"] != 1:
+        raise Malformed("schema")
+    records = answer.get("policies")
     if not isinstance(records, list) or len(records) != len(requests):
-        raise ValueError('policy scope count mismatch')
+        raise Malformed("scope_count")
+    out = []
     for record, request in zip(records, requests):
-        if record['name'] != request['name'] or record['kind'] != request['kind']:
-            raise ValueError('policy scope identity mismatch')
-        if set(record['by_net']) != set(request['nets']):
-            raise ValueError('policy net membership mismatch')
-        for entry in record['by_net'].values():
-            if entry['status'] == 'unknown':
-                if not isinstance(entry.get('reason'), str) or not entry['reason']:
-                    raise ValueError('unknown policy without reason')
+        if record.get("name") != request["name"] or record.get("kind") != request["kind"]:
+            raise Malformed("scope_identity")
+        if set(record.get("by_net") or ()) != set(request["nets"]):
+            raise Malformed("net_membership")
+        by_net = {}
+        for net, entry in record["by_net"].items():
+            if entry.get("status") == "unknown":
+                by_net[net] = {"status": "unknown", "widths": None, "reason": str(entry.get("reason") or "")}
                 continue
-            if entry['status'] != 'known' or set(entry['widths']) != set(request['layers']):
-                raise ValueError('policy layer membership mismatch')
+            widths = entry.get("widths")
+            if entry.get("status") != "known" or not isinstance(widths, dict) or set(widths) != set(request["layers"]):
+                raise Malformed("layer_membership")
             if any(isinstance(w, bool) or not isinstance(w, (int, float)) or not math.isfinite(w) or w <= 0
-                   for w in entry['widths'].values()):
-                raise ValueError('invalid policy width')
-    return policy
+                   for w in widths.values()):
+                raise Malformed("width")
+            by_net[net] = {"status": "known", "widths": dict(widths)}
+        out.append({"name": record["name"], "kind": record["kind"], "by_net": by_net})
+    return out
 
 
-def resolve(rpy, router_dir, pcb, phases, selections, cfg, env=None, *, timeout=None):
-    """Versioned policy receipt; unavailable or malformed policy is unknown."""
+def resolve(rpy, router_dir, pcb, phases, selections, cfg, log: Path, env=None, *, timeout=None) -> dict:
+    """The router's widths for every phase's selected nets: {"schema", "config_sha256" (of the request), "policies"
+    (check's), and "failure" {code, facts} when the query gave no usable answer}. Codes: `unavailable` (the router has
+    no width query, or its interpreter will not start), `timeout`, `failed` (a non-zero exit), `malformed`. On a
+    failure every net is unknown. The query's output is in `log`."""
     requests = requests_of(phases, selections, cfg)
-    packet = {'board': str(Path(pcb).resolve()), 'requests': requests}
     contract = hashlib.sha256(json.dumps(requests, sort_keys=True).encode()).hexdigest()
-    script = Path(router_dir) / 'py_router' / 'nominal_width_policy.py'
 
-    def unknown(reason, code='unavailable'):
-        return {'schema': 1, 'config_sha256': contract, 'unknown': reason, 'failure': {'code': code}, 'policies': [
-            {'name': r['name'], 'kind': r['kind'], 'by_net': {
-                n: {'status': 'unknown', 'widths': None, 'reason': reason} for n in r['nets']}} for r in requests]}
+    def failed(code, **facts):
+        return {"schema": 1, "config_sha256": contract, "failure": {"code": code, "facts": facts},
+                "policies": [{"name": r["name"], "kind": r["kind"],
+                              "by_net": {n: {"status": "unknown", "widths": None} for n in r["nets"]}}
+                             for r in requests]}
 
     if not requests:
-        return {'schema': 1, 'config_sha256': contract, 'policies': []}
+        return {"schema": 1, "config_sha256": contract, "policies": []}
+    script = Path(router_dir) / SCRIPT
     if not script.is_file():
-        return unknown('configured router has no nominal width policy')
-    budget = float(cfg.timeout_route if timeout is None else timeout)
-    if (env or {}).get('KRT_ROUTE_DEADLINE_UTC'):
-        try:
-            deadline = float(env['KRT_ROUTE_DEADLINE_UTC'])
-            if not math.isfinite(deadline):
-                raise ValueError
-        except (TypeError, ValueError):
-            return unknown('invalid shared router deadline', 'invalid_deadline')
-        budget = min(budget, deadline - time.time())
-    if not math.isfinite(budget):
-        return unknown('invalid width policy timeout', 'invalid_deadline')
-    if budget <= 0:
-        return unknown('shared router deadline expired before width policy', 'deadline')
-    import threading
-    from .. import stop
-    proc, pending = None, None
-    previous = ({sig: signal.getsignal(sig) for sig in stop.SIGNALS}
-                if threading.current_thread() is threading.main_thread() else {})
-
-    def interrupted(sig, frame):
-        nonlocal pending
-        if proc is None:
-            if pending is None:
-                pending = sig, frame
-            return
-        handler = previous[sig]
-        if callable(handler):
-            handler(sig, frame)
-        elif handler != signal.SIG_IGN:
-            raise stop.Stopped(sig)
-
-    def deliver_pending():
-        if pending is not None:
-            interrupted(*pending)
-
-    def terminate():
-        if proc is None:
-            return
-        # Ignore further stops while reaping this known owned group; all
-        # original handlers are restored by finally, even on a launch failure.
-        for sig in previous:
-            signal.signal(sig, signal.SIG_IGN)
-        try:
-            os.killpg(proc.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        try:
-            proc.communicate(timeout=_REAP_SECONDS)
-        except subprocess.TimeoutExpired:
-            for stream in (proc.stdin, proc.stdout, proc.stderr):
-                if stream is not None:
-                    stream.close()
-            proc.wait(timeout=_REAP_SECONDS)
-
+        return failed("unavailable", script=str(script))
+    timeout = float(cfg.timeout_route if timeout is None else timeout)
+    from .phase_run import run_router
     try:
-        for sig, handler in previous.items():
-            if handler != signal.SIG_IGN:
-                signal.signal(sig, interrupted)
-        try:
-            proc = subprocess.Popen([str(rpy), str(script)], cwd=str(router_dir), env=dict(env) if env else None,
-                                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-                                    start_new_session=True)
-        except OSError as error:
-            # No child was returned, but an actual stop during the failed
-            # launch must still unwind rather than become an unknown receipt.
-            if pending is not None:
-                handler = previous[pending[0]]
-                if callable(handler):
-                    handler(*pending)
-                elif handler != signal.SIG_IGN:
-                    raise stop.Stopped(pending[0])
-            return unknown('nominal width policy unavailable: ' + str(error))
-        deliver_pending()
-        if (env or {}).get('KRT_ROUTE_DEADLINE_UTC'):
-            budget = min(budget, float(env['KRT_ROUTE_DEADLINE_UTC']) - time.time())
-        if budget <= 0:
-            terminate()
-            return unknown('shared router deadline expired while launching width policy', 'deadline')
-        stdout, stderr = proc.communicate(json.dumps(packet), timeout=budget)
+        rc = run_router([str(rpy), str(script)], log, router_dir, dict(env) if env else None, timeout,
+                        stdin=json.dumps({"board": str(Path(pcb).resolve()), "requests": requests}))
     except subprocess.TimeoutExpired:
-        terminate()
-        return unknown('nominal width policy timed out', 'timeout')
-    except BaseException:
-        terminate()
-        raise
-    finally:
-        for sig, handler in previous.items():
-            signal.signal(sig, handler)
-    if proc.returncode:
-        return unknown('nominal width policy exited %d: %s' % (proc.returncode, stderr[-500:]), 'failed')
+        return failed("timeout", seconds=timeout, log=str(log))
+    except OSError as e:
+        return failed("unavailable", script=str(script), error=type(e).__name__, errno=e.errno)
+    if rc:
+        return failed("failed", exit_code=rc, log=str(log))
+    lines = [line for line in Path(log).read_text(errors="replace").splitlines() if line.startswith(_PREFIX)]
     try:
-        line = next(line for line in reversed(stdout.splitlines()) if line.startswith('PLACEMAT_WIDTH_POLICY '))
-        policy = json.loads(line.removeprefix('PLACEMAT_WIDTH_POLICY '))
-        return validate_receipt(policy, pcb=pcb, router_dir=router_dir, requests=requests)
-    except (KeyError, TypeError, ValueError, OSError, StopIteration) as error:
-        return unknown('malformed nominal width policy: ' + str(error), 'malformed')
+        if not lines:
+            raise Malformed("no_answer")
+        try:
+            answer = json.loads(lines[-1][len(_PREFIX):])
+        except ValueError:
+            raise Malformed("not_json") from None
+        return {"schema": 1, "config_sha256": contract, "policies": check(answer, requests)}
+    except Malformed as e:
+        return failed("malformed", problem=e.problem, log=str(log))
 
 
 def apply(obligations, selections, phases, policy):
-    """Attach the same requested-width policy to diagnostic and stable obligations.
-
-    S9: a pour routes at the widest task width, but each task's obligation keeps
-    its own declared widths. Ordinary fixed tasks also outrank global tuning.
-    """
+    """The obligations with the router's widths. A phase with its own tasks keeps the tasks' widths (S9: a pour routes
+    at the widest task width, but each task's obligation keeps its own); any other obligation takes its net's width
+    in its phase, or none with `width_policy_unknown` and `width_policy_failure` {code, facts} saying why."""
     if len(obligations) != len(selections) or len(selections) != len(phases):
-        raise ValueError('width policy obligation/selection/phase count mismatch')
+        raise ValueError("width policy obligation/selection/phase count mismatch")
+    failure = policy.get("failure")
     records = {}
-    for record in policy['policies']:
-        for net, entry in record['by_net'].items():
-            key = record['name'], net
-            if key in records and records[key] != entry:
-                records[key] = {'status': 'unknown', 'reason': 'selected net has conflicting pair/single width policies'}
-            else:
+    for record in policy["policies"]:
+        for net, entry in record["by_net"].items():
+            key = record["name"], net
+            if key in records and records[key]["widths"] != entry["widths"]:
+                records[key] = {"status": "unknown", "widths": None, "conflict": True}
+            elif key not in records:
                 records[key] = entry
     out = []
     for obs, sel, phase in zip(obligations, selections, phases):
         own = []
         for obligation in obs:
             item = dict(obligation)
-            if policy.get('config_sha256'):
-                # Unknown policies still bind the requested impedance/flag scope;
-                # two unproved but different requests are not comparable.
-                item['width_policy_contract'] = policy['config_sha256']
+            if policy.get("config_sha256"):
+                # two different requests are not comparable, even when neither resolved a width
+                item["width_policy_contract"] = policy["config_sha256"]
             if not sel.tasks:
-                entry = records.get((phase.name, item['net']))
-                if entry is None or entry['status'] != 'known':
-                    item['widths'] = None
-                    item['width_policy_unknown'] = True
-                    item['width_policy_reason'] = (entry or {}).get('reason', 'no width policy for selected net')
+                entry = records.get((phase.name, item["net"]))
+                if entry is not None and entry["status"] == "known":
+                    item["widths"] = dict(entry["widths"])
                 else:
-                    item['widths'] = dict(entry['widths'])
+                    item["widths"] = None
+                    item["width_policy_unknown"] = True
+                    item["width_policy_failure"] = (
+                        failure if failure else
+                        {"code": "no_policy", "facts": {}} if entry is None else
+                        {"code": "conflicting_policies", "facts": {}} if entry.get("conflict") else
+                        {"code": "router_unknown", "facts": {"reason": entry.get("reason", "")}})
             own.append(item)
         out.append(own)
     return out
 
 
-def authority(policy):
-    """Cache identity without board paths or diagnostic wording."""
-    return {'schema': policy['schema'], 'config_sha256': policy['config_sha256'],
-            'sources': policy.get('sources', {}), 'external_inputs': sorted(policy.get('external_inputs', {}).values()),
-            'policies': [{'name': record['name'], 'kind': record['kind'],
-                          'by_net': {net: {'status': entry['status'], 'widths': entry.get('widths')}
-                                     for net, entry in record['by_net'].items()}}
-                         for record in policy['policies']]}
-
-
-def shared_authority(policy):
-    """Resolver implementation and external inputs shared by every phase.
-
-    The whole query config hash includes later phases. Their effective policy
-    belongs in their own chained key, so changing a later width does not discard
-    an earlier unchanged result.
-    """
-    identity = authority(policy)
-    return {name: identity[name] for name in ('schema', 'sources', 'external_inputs')}
-
-
-def phase_authority(policy, name):
-    """Actual normalized widths/status for one phase; declared args bind in phase.key()."""
-    return [record for record in authority(policy)['policies'] if record['name'] == name]
+def phase_key(policy, name) -> list:
+    """What a phase's kept result depends on from the answer: its nets' statuses and widths. The board, its rules and
+    the router's version are in the route's own chain (route_state)."""
+    return [{"name": r["name"], "kind": r["kind"],
+             "by_net": {net: {"status": e["status"], "widths": e.get("widths")} for net, e in r["by_net"].items()}}
+            for r in policy["policies"] if r["name"] == name]

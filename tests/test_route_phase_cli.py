@@ -77,9 +77,9 @@ def test_missing_width_policy_cli_is_structured_refusal(tmp_path, monkeypatch, c
     monkeypatch.setattr(channel, 'error', lambda *a, **k: None)
     def unavailable(*args, **kwargs):
         raise route.RouteRefused('width_policy_unavailable', router='old-krt',
-                                 receipt='width_policy.json', reason='missing nominal helper')
+                                 script='old-krt/py_router/nominal_width_policy.py')
     monkeypatch.setattr(route, 'route_board', unavailable)
     assert main(['route', str(board), '--json']) == 2
     record = json.loads(capsys.readouterr().out)
     assert record == {'code': 'width_policy_unavailable', 'router': 'old-krt',
-                      'receipt': 'width_policy.json', 'reason': 'missing nominal helper'}
+                      'script': 'old-krt/py_router/nominal_width_policy.py'}

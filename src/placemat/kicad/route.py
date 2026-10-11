@@ -106,8 +106,8 @@ _REFUSED = {
     "unknown_phase": "route: no phase %(phase)r; the phases are %(phases)s",
     "capture": "route: %(path)s: %(reason)s %(detail)s",
     "router_old": "route: the router at %(router)s lacks %(missing)s: route with the placemat fork of KiCadRoutingTools",
-    "width_policy_unavailable": "route: the router at %(router)s cannot provide required width proof: %(reason)s; "
-                                "configure a router shipping nominal_width_policy.py; receipt %(receipt)s",
+    "width_policy_unavailable": "route: the router at %(router)s cannot answer the width query %(script)s: route with "
+                                "the placemat fork of KiCadRoutingTools",
     "router_refused": "route: phase %(phase)r: the router refused %(what)s",
     "pair_flag": "route: phase %(phase)r: router_args %(flag)s is not a flag of the pair router (route_diff.py), which "
                  "this phase's pair call runs",
@@ -1363,12 +1363,12 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     env.pop("KICAD_SMOOTH_ROUTE", None)     # it overrides the router's smoothing flag: [route] smoothing decides
     env["KRT_DIR"] = str(router_dir_path)
     from . import width_policy
-    width_receipt = width_policy.resolve(rpy, router_dir_path, pcb, run_list,
-                                        [picked[p.name] for p in run_list], cfg, env, timeout=timeout)
+    width_receipt = width_policy.resolve(rpy, router_dir_path, pcb, run_list, [picked[p.name] for p in run_list], cfg,
+                                         work / "width_policy.log", env, timeout=timeout)
     (work / "width_policy.json").write_text(json.dumps(width_receipt, sort_keys=True) + "\n")
-    if width_receipt.get('failure', {}).get('code') == 'unavailable':
-        raise RouteRefused("width_policy_unavailable", router=str(router_dir_path),
-                           receipt=str(work / "width_policy.json"), reason=width_receipt.get('unknown', ''))
+    failure = width_receipt.get("failure") or {}
+    if failure.get("code") == "unavailable":
+        raise RouteRefused("width_policy_unavailable", router=str(router_dir_path), **failure["facts"])
     asked = width_policy.apply(asked, [picked[p.name] for p in run_list], run_list, width_receipt)
     comparison_asked = width_policy.apply(comparison_asked, [picked[p.name] for p in run_list], run_list,
                                           width_receipt)
@@ -1392,8 +1392,7 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
                      if k.startswith("route_") and k not in ("route_router_dir", "route_phase")}
     base = digest("effective-phase-widths-and-comparison-v3", file_digest(pcb), file_digest(pcb.with_suffix(".kicad_pro")), file_digest(pcb.with_suffix(".kicad_dru")),
                   capture.digest if capture else "", sorted(excluded), sorted(pours), layers, quick, iterations, probe,
-                  router_version(router_dir_path), __version__, settings_part, cfg.check_rise_c,
-                  width_policy.shared_authority(width_receipt))     # rise_c: current widths
+                  router_version(router_dir_path), __version__, settings_part, cfg.check_rise_c)     # rise_c: current widths
     state.set_order(["only:" + run_list[0].name] if only else [p.name for p in run_list])
     script = str(ONE_ROUND) if quick else str(route_py)
     ctx = PhaseContext(rpy, script, router_dir_path, work, layers, iterations, probe, quick, timeout, env, cfg,
@@ -1404,7 +1403,7 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     board, prev, records, summaries, spent, resumed = pcb_in, base, [], [], 0.0, []
     open_now = dict(before.open_nets)
     for i, phase in enumerate(run_list):
-        phase_identity = (phase.key(), width_policy.phase_authority(width_receipt, phase.name))
+        phase_identity = (phase.key(), width_policy.phase_key(width_receipt, phase.name))
         key = digest(base, "only", *phase_identity) if only else digest(prev, *phase_identity)
         label = state.order[i]
         saved = state.result(label, key)

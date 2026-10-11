@@ -517,13 +517,14 @@ def test_missing_width_policy_refuses_before_any_router_call(rig):
         rig.route(FB)
     assert error.value.code == 'width_policy_unavailable'
     assert rig.calls() == []
+    assert error.value.facts['script'].endswith('nominal_width_policy.py')
     receipt = json.loads((rig.work / 'width_policy.json').read_text())
     assert receipt['failure']['code'] == 'unavailable'
 
 
 @needs_kicad
-@pytest.mark.parametrize('changed', ['earlier_width', 'global_flags', 'original_rules', 'resolver_source', 'unknown_to_known'])
-def test_resume_invalidates_earlier_or_shared_authority_and_every_downstream_phase(rig, monkeypatch, changed):
+@pytest.mark.parametrize('changed', ['earlier_width', 'global_flags', 'original_rules', 'unknown_to_known'])
+def test_a_changed_width_or_rule_routes_every_phase_again(rig, monkeypatch, changed):
     from placemat.kicad import width_policy
     if changed == 'unknown_to_known':
         original_resolve = width_policy.resolve
@@ -548,9 +549,6 @@ def test_resume_invalidates_earlier_or_shared_authority_and_every_downstream_pha
         doc = json.loads(project.read_text())
         doc.setdefault('board', {}).setdefault('design_settings', {}).setdefault('rules', {})['min_hole_clearance'] = .3
         project.write_text(json.dumps(doc))
-    elif changed == 'resolver_source':
-        helper = rig.router / 'py_router/nominal_width_policy.py'
-        helper.write_text(helper.read_text() + '\n# changed resolver implementation identity\n')
     else:
         state['known'] = True
     report = rig.route(leg, FB, {'name': 'signals'}, settings=settings)

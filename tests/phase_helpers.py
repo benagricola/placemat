@@ -35,15 +35,11 @@ def board_with_power_and_rf(tmp_path):
     return pcb
 
 
-# Explicit stand-in policy for fake routers: no production policy is imported.
-# These boards use a 0.2mm Default; focused policy tests cover real class/rules.
+# A stand-in for the router's width query: every net at the call's --track-width (0.2 mm, these boards' Default), or
+# its named power width when wider. Focused tests cover the real query's classes and rules.
 FAKE_WIDTH_POLICY = r"""
-import hashlib, json, pathlib, sys
+import json, sys
 packet = json.load(sys.stdin)
-board = pathlib.Path(packet['board'])
-root = pathlib.Path(__file__).resolve().parents[1]
-def sha(path):
-    return hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
 policies = []
 for request in packet['requests']:
     width = 0.2
@@ -53,11 +49,6 @@ for request in packet['requests']:
         elif arg.startswith('--track-width='): width = float(arg.split('=',1)[1])
     policies.append({'name': request['name'], 'kind': request['kind'], 'by_net': {
         net: {'status': 'known', 'widths': {layer: max(width, request.get('power', {}).get(net, 0))
-             for layer in request['layers']}, 'reason': ''} for net in request['nets']}})
-receipt = {'schema': 1, 'board': str(board), 'config_sha256': hashlib.sha256(
-    json.dumps(packet['requests'], sort_keys=True).encode()).hexdigest(),
-    'inputs': {str(p): sha(p) for p in (board, board.with_suffix('.kicad_pro'), board.with_suffix('.kicad_dru'))},
-    'sources': {str(p.relative_to(root)): sha(p) for p in sorted(set(root.glob('*.py')) |
-        set((root / 'py_router').rglob('*.py')))}, 'policies': policies}
-print('PLACEMAT_WIDTH_POLICY ' + json.dumps(receipt))
+             for layer in request['layers']}} for net in request['nets']}})
+print('PLACEMAT_WIDTH_POLICY ' + json.dumps({'schema': 1, 'policies': policies}))
 """

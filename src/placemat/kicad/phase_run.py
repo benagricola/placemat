@@ -161,12 +161,19 @@ class Routed:
                       [tuple(s) for s in doc.get("summaries") or ()], list(doc.get("widths") or ()))
 
 
-def _run(cmd, log: Path, ctx) -> int:
+def run_router(cmd, log: Path, router_dir, env, timeout, stdin: str | None = None) -> int:
+    """One router process in the router's checkout: its command line and output in `log`, `stdin` its input; its exit
+    code. subprocess.TimeoutExpired after `timeout` seconds."""
     with open(log, "w") as f:
         f.write("$ %s\n\n" % " ".join(str(c) for c in cmd))
         f.flush()
-        return subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, cwd=str(ctx.router_dir), env=ctx.env,
-                              timeout=ctx.timeout, pass_fds=route_progress.pass_fds()).returncode
+        return subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, cwd=str(router_dir), env=env, timeout=timeout,
+                              input=stdin.encode() if stdin is not None else None,
+                              pass_fds=route_progress.pass_fds()).returncode
+
+
+def _run(cmd, log: Path, ctx) -> int:
+    return run_router(cmd, log, ctx.router_dir, ctx.env, ctx.timeout)
 
 
 def _failed(rc, log, what):
@@ -292,7 +299,7 @@ def comparison_obligations(selections, geometry, skip) -> list:
 def comparison_contract(phase, obligations) -> str:
     """The phase definition and stable electrical obligations, excluding every placement coordinate."""
     from .route_state import digest
-    stable = sorted(({k: v for k, v in o.items() if k != 'width_policy_reason'} for o in obligations),
+    stable = sorted(({k: v for k, v in o.items() if k != 'width_policy_failure'} for o in obligations),
                     key=lambda o: repr(_pair_key(o)))
     return digest(phase.record(), stable)
 

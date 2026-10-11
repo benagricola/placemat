@@ -4046,12 +4046,14 @@ board narrower than asked along their path, reported `joined_narrow` by the rout
 proof (`width_unknown`)). Unproven width is conservative uncertified evidence, not a measured narrow path or proof
 of physical impossibility. The board-wide `closure`, `closure_clean` and `open_nets` are as before.
 
-Required nominal widths come from one read-only query to the configured router's actual class, layer-rule,
-fabrication-floor and flag resolver. Global flags precede phase flags; explicit connection tasks keep their declared
-widths. Differential calls have their own flag scope. Default rest preserves an earlier pair's nominal width policy;
-an explicit rest width or a phase-local `--track-width` creates an additional single-ended requirement.
-Global single-ended flags do not override the earlier pair call's separate scope. Impedance-derived widths that cannot be proved remain
-uncertified. The query receipt records source, rule, configuration and effective-width identities in `width_policy.json`.
+The width each join is judged against comes from the router: before any copper changes, the route asks the
+configured router which width it will draw each selected net at in each phase and layer (net class, design rule and
+router flags, as the router itself resolves them). Global flags precede phase flags; explicit connection tasks keep
+their declared widths. Differential calls have their own flag scope. Default rest keeps an earlier pair's width; an
+explicit rest width or a phase-local `--track-width` adds a single-ended width. Widths derived from impedance are not
+resolved. A net with no resolved width is `width_unknown`. The answer is saved as `width_policy.json` (per phase and
+net: `status` and `widths`, and `failure` `{code, facts}` when the query gave none: `timeout`, `failed`,
+`malformed`), the query's output as `width_policy.log`.
 
 **Refusals.** A route placemat will not start says why and exits 2 (`placemat route --json` and the live channel carry
 the code and its facts):
@@ -4062,7 +4064,7 @@ the code and its facts):
 | `unknown_phase` | a phase named to route up to is not one of the project's |
 | `capture` | the capture's `nets.layout.json` cannot be read, or was written for another netlist (`path`, the sidecar; `reason`; `detail`) |
 | `router_old` | the router lacks a flag the phases need (`--connections`; `--bus-nets` for a phase with buses) |
-| `width_policy_unavailable` | the configured router lacks `py_router/nominal_width_policy.py` or its interpreter is unavailable; routing stops before changing copper and saves `width_policy.json`. Configure a router shipping the width-policy helper. |
+| `width_policy_unavailable` | the router has no width query (`py_router/nominal_width_policy.py`, on the placemat fork) or its interpreter will not start (`router`, `script`; `error` and `errno` when it will not start); routing stops before changing copper |
 | `ambiguous_terminal` | a selected reference/pad belongs to multiple distinct footprints (`name`, `ref`, `pad`, `owners` with footprint index, instance and position). Give each footprint a unique reference. Repeated physical pad shapes within one footprint remain supported; excluded terminals do not create obligations. |
 | `pair_flag` | a phase that routes pairs gives in `router_args` a flag the pair router (route_diff.py) does not take, by the router's own capability listing (`phase`, `flag`): its pair call would fail |
 | `router_refused` | the router refused a task placemat selected (`facts`: `phase`, `tasks` each `{net, from, to, reason}`); the route stops |
