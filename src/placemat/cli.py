@@ -436,7 +436,7 @@ def cmd_settings(args) -> int:
             except (ValueError, FileNotFoundError):
                 pcb = None
             if pcb is not None and pcb.is_file():
-                phases_block = phases_toml(board_default_phases(pcb))
+                phases_block = phases_toml(board_example_phases(pcb))
         console.data((example_toml(phases_block) if args.example else docs_table() + "\n").rstrip("\n"))
         return 0
     from .project import find_board
@@ -1858,20 +1858,20 @@ def _dispatch(args) -> int:
             "studio": cmd_studio, "watch": cmd_watch, "apply": cmd_apply}[args.command](args)
 
 
-def board_default_phases(pcb) -> list:
-    """The default phases for a board (spec "No phases"): its differential pairs and its interface types when the
+def board_example_phases(pcb) -> list:
+    """The example phases `settings --example` writes for a board (spec "No phases"): its differential pairs and its interface types when the
     capture exports them, its net classes above the Default's clearance, current paths when any part states a current
     (on the first and last copper layers of its stack when it has inner ones), then the rest."""
     from .capture_nets import capture_beside
     from .checks import carriers_of
     from .kicad.read import read_board
-    from .route_phase import default_phases
+    from .route_phase import example_phases
     g = read_board(str(pcb))
     cap = capture_beside(pcb)
     interfaces = "interfaces" in cap.exports if cap else False
     default = [nc.clearance for nc in g.netclasses.values() if nc.name == "Default"]
     base = min(default) if default else g.default_clearance
-    return default_phases(pairs=bool(interfaces and cap.pairs),
+    return example_phases(pairs=bool(interfaces and cap.pairs),
                           interface_types=sorted({i.type for i in cap.instances.values() if i.type != "DiffPair"})
                           if interfaces else [],
                           wide_classes=sorted({nc.name for nc in g.netclasses.values() if nc.clearance > base + 1e-9}),

@@ -218,10 +218,11 @@ def phases_of(cfg) -> tuple:
     return parse_phases(cfg.route_phase)
 
 
-def default_phases(*, pairs: bool, interface_types: list, wide_classes: list, currents: bool, outer_layers=()) -> list:
-    """The default phases for a board with these facts. `outer_layers`: the board's outer copper layers when it also
-    has inner ones; the current phase then routes on them only (the user's decision of 2026-10-11: an inner layer's
-    current width is far wider than an outer one's, and a track there takes every via site under it)."""
+def example_phases(*, pairs: bool, interface_types: list, wide_classes: list, currents: bool, outer_layers=()) -> list:
+    """The example phases `settings --example` writes for a board with these facts. `outer_layers`: the board's outer
+    copper layers when it also has inner ones; the example current phase then routes on them only (the user's decision
+    of 2026-10-11: an inner layer's current width is far wider than an outer one's, and a track there takes every via
+    site under it)."""
     out = []
     if pairs:
         out.append({"name": "diff-pairs", "pairs": True})

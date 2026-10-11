@@ -5547,7 +5547,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `route.smoothing` | `true` | bool | the router's own octolinear smoothing, as it defaults; false skips it |
 | `route.router_args` | `[]` | list | more of the router's own flags (`--direction-preference-cost`, `--heuristic-weight`, `--bus`, `--via-cost`, ...), each a string, appended to every route.py call of every routing phase, before the phase's own `router_args`; one placemat sets itself (`--nets`, `--layers`, `--escalation`, `--keep-input-copper`, `--turn-cost`, `--smoothing`, `--no-smoothing`, `--power-nets`, `--power-nets-widths`, `--max-iterations`, `--max-probe-iterations`, `--json-out`, `--net-clearances`) is refused. Its `--grid-step` also sets the room turned escape lanes leave for the router's grid snap |
 | `route.pair_router_args` | `[]` | list | the same for the pair router (route_diff.py), which takes flags of its own (`--max-turn-angle`, `--min-turning-radius`, ...) and not all of route.py's |
-| `route.phase` | `[]` | list | the routing phases, in order: `[[route.phase]]` tables, each a `name`, at most one selector (`nets`, `net_classes`, `pairs = true`, `buses`, `connections`, `current_paths = true`, `interfaces`, `net_types`; none takes every connection still open), and `width` (mm or "current"), `layers`, `neckdown`, `router_args`. A route needs at least one; `placemat settings --example` writes the default phases for a board (api.md "Routing phases") |
+| `route.phase` | `[]` | list | the routing phases, in order: `[[route.phase]]` tables, each a `name`, at most one selector (`nets`, `net_classes`, `pairs = true`, `buses`, `connections`, `current_paths = true`, `interfaces`, `net_types`; none takes every connection still open), and `width` (mm or "current"), `layers`, `neckdown`, `router_args`. A route needs at least one; `placemat settings --example` writes example phases for a board (api.md "Routing phases") |
 | `route.diff_pair_gap` | `0.0` | mm | mm between a pair's tracks; 0 is the net class's diff pair gap (the router never goes below the class clearance) |
 | `route.diff_pair_width` | `0.0` | mm | mm, a pair's track width; 0 is the net class's diff pair width |
 | `route.adopt_tolerance` | `0.001` | mm | mm any kept pad may lie from where the parts' common motion puts it before the kept routes joining them are dropped |
@@ -5679,9 +5679,9 @@ copper path that joins each pair, tracks and the fills and pads it passes throug
 cannot be measured has `width_unknown` and does not count as clean.
 A pair phase takes its width from the net class; an explicit phase width is refused.
 
-`settings <board> --example` writes default phases for capture pairs, interfaces, wide-clearance classes,
+`settings <board> --example` writes example phases for capture pairs, interfaces, wide-clearance classes,
 current paths and remaining signals. Without a board it writes the signals phase. On a board with inner copper layers
-the default current phase has `layers` set to the first and last copper layers of the board's stack, its outer layers:
+the example current phase has `layers` set to the first and last copper layers of the board's stack, its outer layers:
 an inner layer needs a much wider track for the same current, and a wide inner track takes every via site under it.
 A phase you write yourself keeps the `layers` you give it.
 `run --explore SECONDS --route-best --route-rank PHASE[,PHASE...]` prioritises those phases' final clean closure.

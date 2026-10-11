@@ -1,7 +1,7 @@
 """`placemat settings --example` writes the default routing phases: for a board, from what it has."""
 import tomllib
 
-from placemat.cli import board_default_phases
+from placemat.cli import board_example_phases
 from placemat.settings import example_toml, load
 from tests.conftest import needs_kicad
 from tests.phase_helpers import board_with_power_and_rf, write_sidecar
@@ -20,7 +20,7 @@ def test_a_board_with_pairs_currents_a_wide_class_and_a_capture_gets_their_phase
     write_sidecar(pcb.parent, {"VIN": {"type": "Power", "fields": {}}}, exports=["types", "fields", "interfaces"],
                   interfaces={"S": {"type": "Spi", "members": {"CLK": "VIN", "MOSI": "FB"}}},
                   pairs=[{"instance": "USB.D", "p": "VIN", "n": "FB"}])
-    got = board_default_phases(pcb)
+    got = board_example_phases(pcb)
     assert [p["name"] for p in got] == ["diff-pairs", "buses", "wide-clearance", "current", "signals"]
     assert got[0] == {"name": "diff-pairs", "pairs": True}
 
@@ -30,7 +30,7 @@ def test_a_board_whose_capture_has_no_pair_gets_no_pair_phase(tmp_path):
     pcb = board_with_power_and_rf(tmp_path)
     write_sidecar(pcb.parent, {"VIN": {"type": "Power", "fields": {}}}, exports=["types", "fields", "interfaces"],
                   interfaces={"S": {"type": "Spi", "members": {"CLK": "VIN", "MOSI": "FB"}}}, pairs=[])
-    assert [p["name"] for p in board_default_phases(pcb)] == ["buses", "wide-clearance", "current", "signals"]
+    assert [p["name"] for p in board_example_phases(pcb)] == ["buses", "wide-clearance", "current", "signals"]
 
 
 def test_explicit_user_phases_replace_example_defaults(tmp_path):
@@ -43,8 +43,8 @@ def test_explicit_user_phases_replace_example_defaults(tmp_path):
 
 
 def test_default_interfaces_deduplicate_types_and_keep_diffpair_in_its_phase():
-    from placemat.route_phase import default_phases
-    result = default_phases(pairs=True, interface_types=["Spi", "DiffPair", "Spi"], wide_classes=[], currents=False)
+    from placemat.route_phase import example_phases
+    result = example_phases(pairs=True, interface_types=["Spi", "DiffPair", "Spi"], wide_classes=[], currents=False)
     assert result == [{"name": "diff-pairs", "pairs": True}, {"name": "buses", "interfaces": ["Spi"]}, {"name": "signals"}]
 
 
@@ -61,13 +61,13 @@ def test_the_cli_module_run_as_a_script_writes_a_boards_phases(tmp_path):
     assert "[[route.phase]]" in out.stdout
 
 
-def test_the_default_current_phase_takes_the_outer_layers_it_is_given():
-    """The user's decision of 2026-10-11: the default current phase routes on the board's outer copper layers only."""
-    from placemat.route_phase import default_phases
-    got = default_phases(pairs=False, interface_types=[], wide_classes=[], currents=True, outer_layers=["F.Cu", "B.Cu"])
+def test_the_example_current_phase_takes_the_outer_layers_it_is_given():
+    """The user's decision of 2026-10-11: the example current phase routes on the board's outer copper layers only."""
+    from placemat.route_phase import example_phases
+    got = example_phases(pairs=False, interface_types=[], wide_classes=[], currents=True, outer_layers=["F.Cu", "B.Cu"])
     assert got == [{"name": "current", "current_paths": True, "width": "current", "layers": ["F.Cu", "B.Cu"]},
                    {"name": "signals"}]
-    plain = default_phases(pairs=False, interface_types=[], wide_classes=[], currents=True)
+    plain = example_phases(pairs=False, interface_types=[], wide_classes=[], currents=True)
     assert plain[0] == {"name": "current", "current_paths": True, "width": "current"}
 
 
@@ -83,7 +83,7 @@ def test_a_board_with_inner_layers_gets_a_current_phase_on_the_outer_layers_of_i
     pcb = _four_layers(board_with_power_and_rf(tmp_path))
     stack = [l.value for l in read_board(str(pcb)).layers]
     assert len(stack) > 2 and stack[1].startswith("In")
-    (current,) = [p for p in board_default_phases(pcb) if p["name"] == "current"]
+    (current,) = [p for p in board_example_phases(pcb) if p["name"] == "current"]
     assert current["layers"] == [stack[0], stack[-1]] == ["F.Cu", "B.Cu"]
     text = phases_text(pcb)
     (written,) = [p for p in tomllib.loads(text)["route"]["phase"] if p["name"] == "current"]
@@ -92,10 +92,10 @@ def test_a_board_with_inner_layers_gets_a_current_phase_on_the_outer_layers_of_i
 
 @needs_kicad
 def test_a_two_layer_boards_current_phase_names_no_layers(tmp_path):
-    (current,) = [p for p in board_default_phases(board_with_power_and_rf(tmp_path)) if p["name"] == "current"]
+    (current,) = [p for p in board_example_phases(board_with_power_and_rf(tmp_path)) if p["name"] == "current"]
     assert "layers" not in current
 
 
 def phases_text(pcb):
     from placemat.route_phase import phases_toml
-    return "[route]\n" + phases_toml(board_default_phases(pcb))
+    return "[route]\n" + phases_toml(board_example_phases(pcb))

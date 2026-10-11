@@ -387,7 +387,7 @@ class Settings:
     route_pair_router_args: tuple = S((), "list",
         "the same for the pair router (route_diff.py), which takes flags of its own (`--max-turn-angle`, `--min-turning-radius`, ...) and not all of route.py's")
     route_phase: tuple = S((), "list",
-        "the routing phases, in order: `[[route.phase]]` tables, each a `name`, at most one selector (`nets`, `net_classes`, `pairs = true`, `buses`, `connections`, `current_paths = true`, `interfaces`, `net_types`; none takes every connection still open), and `width` (mm or \"current\"), `layers`, `neckdown`, `router_args`. A route needs at least one; `placemat settings --example` writes the default phases for a board (api.md \"Routing phases\")")
+        "the routing phases, in order: `[[route.phase]]` tables, each a `name`, at most one selector (`nets`, `net_classes`, `pairs = true`, `buses`, `connections`, `current_paths = true`, `interfaces`, `net_types`; none takes every connection still open), and `width` (mm or \"current\"), `layers`, `neckdown`, `router_args`. A route needs at least one; `placemat settings --example` writes example phases for a board (api.md \"Routing phases\")")
     route_diff_pair_gap: float = S(0.0, "mm",
         "mm between a pair's tracks; 0 is the net class's diff pair gap (the router never goes below the class clearance)")
     route_diff_pair_width: float = S(0.0, "mm",
@@ -1084,7 +1084,7 @@ def example_toml(phases_block=None) -> str:
             out.append("")
         for f, head, note in subtables:
             out += head + [note, "[%s]" % f.name.replace("_", ".", 1), ""]
-    from .route_phase import default_phases, phases_toml
+    from .route_phase import example_phases, phases_toml
     out += ["# " + "-" * 76, "# route.phase: routing phases in order", phases_block or phases_toml(
-        default_phases(pairs=False, interface_types=[], wide_classes=[], currents=False))]
+        example_phases(pairs=False, interface_types=[], wide_classes=[], currents=False))]
     return "\n".join(out).rstrip("\n") + "\n"

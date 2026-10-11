@@ -387,11 +387,12 @@ def _route(pcb: pathlib.Path, work: pathlib.Path, toml: str | None, *, env=None)
 
 
 def phases_for(board: fetch.Board, pcb: pathlib.Path) -> str:
-    """The manifest's phases, then the phases `placemat route` gives the board with none set (cli.board_default_phases).
-    The prepared board has no capture beside it, so its defaults take no pairs or interfaces."""
-    from placemat.cli import board_default_phases
+    """The manifest's phases, then the example phases the runner adds for the board (cli.board_example_phases, what
+    `placemat settings <board> --example` writes).
+    The prepared board has no capture beside it, so its example phases take no pairs or interfaces."""
+    from placemat.cli import board_example_phases
     from placemat.route_phase import phases_toml
-    return phases_toml(list(board.phases) + board_default_phases(pcb))
+    return phases_toml(list(board.phases) + board_example_phases(pcb))
 
 
 def run_a(board: fetch.Board, work: pathlib.Path, *, track_mm: float | None = None,

@@ -97,8 +97,8 @@ def test_run_a_judges_the_route_json_against_the_baseline(tmp_path, monkeypatch)
             V("clearance", ("A", "B"), (1.0, 1.0)), V("short", ("A", "C"), (5.0, 5.0))]
 
     import placemat.cli
-    from placemat.route_phase import default_phases
-    monkeypatch.setattr(placemat.cli, "board_default_phases", lambda pcb: default_phases(
+    from placemat.route_phase import example_phases
+    monkeypatch.setattr(placemat.cli, "board_example_phases", lambda pcb: example_phases(
         pairs=False, interface_types=[], wide_classes=[], currents=False))
     monkeypatch.setattr(route_ref, "_route", route)
     monkeypatch.setattr(route_ref, "_krt_version", lambda pcb: "krt1")
@@ -274,9 +274,9 @@ def test_manifest_named_pairs_and_buses_are_written_before_defaults(tmp_path, mo
     import dataclasses
     import tomllib
     import placemat.cli
-    from placemat.route_phase import default_phases, parse_phases
-    # the board's defaults are placemat's own (cli.board_default_phases), not a copy of its calculation
-    monkeypatch.setattr(placemat.cli, "board_default_phases", lambda pcb: default_phases(
+    from placemat.route_phase import example_phases, parse_phases
+    # the board's example phases are placemat's own (cli.board_example_phases), not a copy of its calculation
+    monkeypatch.setattr(placemat.cli, "board_example_phases", lambda pcb: example_phases(
         pairs=False, interface_types=[], wide_classes=["RF"], currents=False))
     board = dataclasses.replace(route_ref.fetch.load_manifest()[0], phases=(
         {"name": "usb", "pairs": [["USB_D+", "USB_D-"]]},

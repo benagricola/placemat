@@ -32,7 +32,7 @@ section for each hand-written pattern a newer form replaces.
   room from every later phase. A pour net a phase names (`nets`, a class, `connections`) is still routed. Scripts
   need no change.
 
-- **Routing phases.** On a board with inner copper layers, `settings <board> --example` gives the current phase
+- **Routing phases.** On a board with inner copper layers, `settings <board> --example` gives the example current phase
   `layers` set to the board's outer copper layers. A placemat.toml written by an earlier `--example` keeps its current
   phase on every layer: add `layers = ["F.Cu", "B.Cu"]` (the board's outer layers) to that phase to match.
 
@@ -49,7 +49,7 @@ section for each hand-written pattern a newer form replaces.
   Scripts need no change.
 
 - **A route needs routing phases.** `placemat route`, `run --route` and explore's `--route-best` route the project's
-  `[[route.phase]]` tables in order and refuse a project with none. Start from the default phases
+  `[[route.phase]]` tables in order and refuse a project with none. Start from the example phases
   (`placemat settings <board> --example`), or write the one phase that routes what the old fixed stages' main pass did:
 
       [[route.phase]]

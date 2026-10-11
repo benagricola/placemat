@@ -12,7 +12,7 @@
 npth_inside_courtyard = "warning"
 pth_inside_courtyard = "warning"
 
-# Routing: default phases (`placemat settings --example`).
+# Routing: the example phases (`placemat settings --example`).
 [[route.phase]]
 name = "current"
 current_paths = true
