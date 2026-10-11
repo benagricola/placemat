@@ -845,17 +845,11 @@ def records_of(obligations, connections) -> list:
     return out
 
 
-def outcome_of(o, connections):
-    """The status of the obligation's --connections record; None when no record names it (a whole-net call)."""
-    rec = records_of([o], connections)[0]
-    return rec.get("status") if rec else None
-
-
-def open_entry(o, j, connections, net_evidence, record=False) -> dict:
-    """An obligation left open, with what the router said of it: its record's `outcome` and `evidence`, or the net's
-    `net_evidence`; None when the router gave none. `record`: its record when the caller matched it (records_of).
-    Router facts only: placemat infers no cause here (Task 6a)."""
-    rec = records_of([o], connections)[0] if record is False else record
+def open_entry(o, j, record, net_evidence) -> dict:
+    """An obligation left open, with what the router said of it: its `record` (records_of; None for a whole-net call)
+    gives `outcome` and `evidence`, or the net's `net_evidence` does; None when the router gave none. Router facts
+    only: placemat infers no cause here (Task 6a)."""
+    rec = record
     out = dict(o, outcome=rec.get("status") if rec else None,
                evidence=rec.get("evidence") if rec else (net_evidence or {}).get(o["net"]))
     if j["joined"] and j["violated"]:
@@ -879,7 +873,7 @@ def phase_record(phase, index, sel, obligations, judged, seconds, calls, pairs=N
     clean = [is_clean(j, r.get("status") if r else None) for j, r in zip(judged, records)]
     rec.update(asked=len(obligations), joined=sum(clean),
                closure_clean=round(sum(clean) / len(obligations), 4) if obligations else 1.0,
-               open=[open_entry(o, j, connections, net_evidence or {}, record=r)
+               open=[open_entry(o, j, r, net_evidence or {})
                      for o, j, r, ok in zip(obligations, judged, records, clean) if not ok])
     return rec
 
