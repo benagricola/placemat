@@ -998,10 +998,12 @@ class _Fill:
             self._native_polys: dict = {}          # id(polys) -> polys, keeping it alive so id() cannot be reused
             self._paths = {}                       # (id(entry), id(exit_)) -> the path `width` found, for neck_length
             self._parts = {}                       # level -> {cell: the part it is in}, for part
+            self._cover = {}                       # level -> {cell: whether a disc that deep covers it}, for _covered
             return
         self._native = None
         self._paths = {}
         self._parts = {}
+        self._cover = {}
         box = Box.of_points(poly)
         self.s = step
         self.x0, self.y0 = box.left - step, box.top - step
@@ -1282,8 +1284,7 @@ class _Fill:
     def _covered(self, c: int, tau: float) -> bool:
         """Whether cell `c` lies inside a disc of radius `radius(tau)` centred on a cell at least `tau` deep: the fill
         is that wide there, though `c` itself is nearer its edge."""
-        memo = self._cover.setdefault(tau, {}) if hasattr(self, "_cover") else self.__dict__.setdefault(
-            "_cover", {}).setdefault(tau, {})
+        memo = self._cover.setdefault(tau, {})
         if c in memo:
             return memo[c]
         s, nx, ny, sq = self.s, self.nx, self.ny, self.sq
