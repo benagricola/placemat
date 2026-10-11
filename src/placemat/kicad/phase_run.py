@@ -384,10 +384,55 @@ def _crossing(fill, kind, layer, entry, exit_, need) -> list:
             (wide, _cells_length(fill, cells[hi:]))]
 
 
+def _closest_points(a, b) -> tuple:
+    """The closest points of segments a and b (each two points) and their distance: (p on a, q on b, distance)."""
+    (ax, ay), (bx, by) = a
+    (cx, cy), (dx, dy) = b
+    ux, uy, vx, vy, wx, wy = bx - ax, by - ay, dx - cx, dy - cy, ax - cx, ay - cy
+    A, B, C, D, E = ux * ux + uy * uy, ux * vx + uy * vy, vx * vx + vy * vy, ux * wx + uy * wy, vx * wx + vy * wy
+    best = None
+    cands = []
+    den = A * C - B * B
+    if den > 1e-12:
+        cands.append(((B * E - C * D) / den, (A * E - B * D) / den))
+    for s_ in (0.0, 1.0):                           # each end of a against b, and of b against a
+        t_ = (B * s_ + E) / C if C > 1e-12 else 0.0
+        cands.append((s_, t_))
+    for t_ in (0.0, 1.0):
+        s_ = (B * t_ - D) / A if A > 1e-12 else 0.0
+        cands.append((s_, t_))
+    for s_, t_ in cands:
+        s_, t_ = min(max(s_, 0.0), 1.0), min(max(t_, 0.0), 1.0)
+        p, q = (ax + s_ * ux, ay + s_ * uy), (cx + t_ * vx, cy + t_ * vy)
+        d = math.dist(p, q)
+        if best is None or d < best[2] - 1e-12:
+            best = (p, q, d)
+    return best
+
+
+def _nearest_on_segment(seg, poly) -> tuple:
+    """The point of segment `seg` nearest polygon `poly` and its distance (0 inside it or on its edge)."""
+    from ..geometry import point_in_polygon, point_segment_distance, segments_intersect
+    a, b = seg
+    for p in (a, b):
+        if point_in_polygon(p, poly):
+            return p, 0.0
+    edges = list(zip(poly, poly[1:] + poly[:1]))
+    best = None
+    for q1, q2 in edges:
+        if segments_intersect(a, b, q1, q2):
+            p, q, d = _closest_points((a, b), (q1, q2))
+            return p, 0.0
+        p, q, d = _closest_points((a, b), (q1, q2))
+        if best is None or d < best[1]:
+            best = (p, d)
+    return best
+
+
 def _net_copper(geometry, net, cache) -> dict | None:
     """One net's copper as joining_spans searches it, the same for every obligation on the net (kept in `cache`):
-    "adj", the track pieces between joints (track ends and vias, a track split at every joint on its centreline) and
-    the vias joining their layers; "at_joint", the copper meeting at each joint; "regions", each filled polygon on
+    "adj", the track pieces between joints (track ends, vias, and the points where copper overlaps a track; a track
+    split at every joint whose copper overlaps it) and the vias joining their layers; "at_joint", the copper meeting at each joint; "regions", each filled polygon on
     each layer, (key, kind, layer, polygon, (ref, pad, footprint uuid) for a pad, pad identity for a pad); "inside", the joints
     joined to each region; "touching", the regions on one layer that touch; "layer_pairs", one pad's regions on two layers; "own",
     each region's polygon as a tuple."""
@@ -427,31 +472,6 @@ def _net_copper(geometry, net, cache) -> dict | None:
     # a track's round end is copper too: a disc of its half width at each joint
     at_joint = {k: tuple(v) + (circle_polygon(Location(*k[0]), reach[k]),) if reach.get(k) else tuple(v)
                 for k, v in at_joint.items()}
-    curved = {id(t) for t in arcs}
-    for t in arcs:
-        layer = next(iter(t.layers))
-        link((pt(t.anchors[0]), layer), (pt(t.anchors[1]), layer), t.length_mm, t)
-    for t in tracks:                                # a track is split at every joint on it (a T, a via mid-track)
-        if id(t) in curved:
-            continue
-        layer = next(iter(t.layers))
-        (ax, ay), (bx, by) = t.anchors
-        dx, dy = bx - ax, by - ay
-        span = dx * dx + dy * dy
-        stops = []
-        for p in joints.get(layer, ()):
-            # on the track where its centreline passes within half its width, as KiCad's PCB_TRACK::HitTest takes a
-            # point; u is clamped, so a joint rounded just past the track's end is that end
-            u = min(max(((p[0] - ax) * dx + (p[1] - ay) * dy) / span, 0.0), 1.0) if span else 0.0
-            if math.hypot(ax + u * dx - p[0], ay + u * dy - p[1]) <= t.width_mm / 2:
-                stops.append((u, p))
-        stops.sort()
-        for (u0, p0), (u1, p1) in zip(stops, stops[1:]):
-            link((p0, layer), (p1, layer), (u1 - u0) * t.length_mm, t)
-    for v in vias:
-        layers = sorted(v.layers, key=lambda l: str(l.value))
-        for a, b in zip(layers, layers[1:]):
-            link((pt(v.anchors[0]), a), (pt(v.anchors[0]), b), 0.0, None)
     # filled copper: each polygon on each layer a region. An end pad's regions are that end; any other region is
     # passed through and measured (`_crossing`).
     regions = []
@@ -468,6 +488,68 @@ def _net_copper(geometry, net, cache) -> dict | None:
             regions += [(("fill", i, layer.value, j), copper.kind, layer, poly, None, None)
                         for layer in copper.layers for j, poly in enumerate(copper.outlines)]
     boxes = {r[0]: Box.of_points(r[3]) for r in regions}
+    curved = {id(t) for t in arcs}
+    straight = [t for t in tracks if id(t) not in curved]
+    # KiCad joins same-net copper wherever it overlaps (CN_VISITOR: the items' shapes collide), not only at track
+    # ends: where two tracks overlap with no joint between them, each gets a joint at the closest points of their
+    # centrelines, and the two are joined; where a track overlaps a region, it gets a joint at the point of its
+    # centreline nearest the region, which the region joins
+    extra, forced, bridges = {}, {}, []
+    tbox = {id(t): Box.of_points(t.anchors).inflate(t.width_mm / 2) for t in straight}   # its centreline, grown
+    straight.sort(key=lambda t: tbox[id(t)].left)  # swept by left edge: a pair is tried only where boxes meet
+    for x, t in enumerate(straight):
+        layer = next(iter(t.layers))
+        for u in straight[x + 1:]:
+            if tbox[id(u)].left > tbox[id(t)].right + 1e-6:
+                break
+            if next(iter(u.layers)) != layer or not tbox[id(t)].overlaps(tbox[id(u)], 1e-6):
+                continue
+            p, q, d = _closest_points(t.anchors, u.anchors)
+            if d <= (t.width_mm + u.width_mm) / 2 + 1e-6:
+                extra.setdefault(id(t), []).append(p)
+                extra.setdefault(id(u), []).append(q)
+                bridges.append(((pt(p), layer), (pt(q), layer), t, u))
+        for r in regions:
+            if r[2] != layer or not tbox[id(t)].overlaps(boxes[r[0]], 1e-6):
+                continue
+            p, d = _nearest_on_segment(t.anchors, r[3])
+            if d <= t.width_mm / 2 + 1e-6:
+                extra.setdefault(id(t), []).append(p)
+                forced.setdefault(r[0], set()).add((pt(p), layer))
+    for t in straight:
+        layer = next(iter(t.layers))
+        for p in extra.get(id(t), ()):
+            k = (pt(p), layer)
+            reach[k] = max(reach.get(k, 0.0), t.width_mm / 2)
+            at_joint[k] = tuple(at_joint.get(k, ())) + tuple(t.outlines) + (circle_polygon(Location(*k[0]), t.width_mm / 2),)
+    for t in arcs:
+        layer = next(iter(t.layers))
+        link((pt(t.anchors[0]), layer), (pt(t.anchors[1]), layer), t.length_mm, t)
+    for t in tracks:                                # a track is split at every joint on it (a T, a via mid-track)
+        if id(t) in curved:
+            continue
+        layer = next(iter(t.layers))
+        (ax, ay), (bx, by) = t.anchors
+        dx, dy = bx - ax, by - ay
+        span = dx * dx + dy * dy
+        stops = []
+        for p in list(joints.get(layer, ())) + [pt(e) for e in extra.get(id(t), ())]:
+            # on the track where the copper meeting there overlaps it: the joint within half the track's width
+            # plus half its own copper's of the centreline; u is clamped, so a joint rounded just past the track's
+            # end is that end
+            u = min(max(((p[0] - ax) * dx + (p[1] - ay) * dy) / span, 0.0), 1.0) if span else 0.0
+            if math.hypot(ax + u * dx - p[0], ay + u * dy - p[1]) <= t.width_mm / 2 + reach.get((p, layer), 0.0) + 1e-6:
+                stops.append((u, p))
+        stops.sort()
+        for (u0, p0), (u1, p1) in zip(stops, stops[1:]):
+            link((p0, layer), (p1, layer), (u1 - u0) * t.length_mm, t)
+    for v in vias:
+        layers = sorted(v.layers, key=lambda l: str(l.value))
+        for a, b in zip(layers, layers[1:]):
+            link((pt(v.anchors[0]), a), (pt(v.anchors[0]), b), 0.0, None)
+    for a_, b_, _, _ in bridges:
+        if a_ != b_:
+            link(a_, b_, 0.0, None)
 
     def near(a, b, gap=1e-6):
         return not (a.right + gap < b.left or b.right + gap < a.left or a.bottom + gap < b.top or
@@ -476,8 +558,7 @@ def _net_copper(geometry, net, cache) -> dict | None:
     edges_of = {}
 
     def joins(n, k, poly):
-        """A joint joins a region inside it, or within half its copper's width of its edge, as KiCad's connectivity
-        joins a track end to a zone's fill (the anchor tested with half the track's width as its accuracy)."""
+        """A joint joins a region inside it, or within half its copper's width of its edge: their copper overlaps."""
         if point_in_polygon(n[0], poly):
             return True
         if k not in edges_of:
@@ -490,6 +571,7 @@ def _net_copper(geometry, net, cache) -> dict | None:
         inside[k] = [n for n in nodes if n[1] == layer and bx.left - reach.get(n, 0.0) <= n[0][0] <= bx.right +
                      reach.get(n, 0.0) and bx.top - reach.get(n, 0.0) <= n[0][1] <= bx.bottom + reach.get(n, 0.0)
                      and joins(n, k, poly)]
+        inside[k] += sorted(forced.get(k, set()) - set(inside[k]), key=repr)
     touching = [(a[0], b[0]) for x, a in enumerate(regions) for b in regions[:x]
                 if a[2] == b[2] and near(boxes[a[0]], boxes[b[0]]) and poly_distance(a[3], b[3]) <= 1e-6]
     layer_pairs = [(a[0], b[0]) for x, a in enumerate(regions) for b in regions[:x]
@@ -501,11 +583,11 @@ def _net_copper(geometry, net, cache) -> dict | None:
 
 def joining_spans(geometry, o, *, full_width=False, neck_mm=0.0, step=None, cache=None):
     """The shortest copper path joining an obligation's two end pads, as (piece, length) pieces from the "to" end: a
-    piece is a track (a CopperItem; tracks are split at the track ends and vias on their centreline) or a FillStretch
+    piece is a track (a CopperItem, split where other copper meets it) or a FillStretch
     where the path passes through filled copper - a zone's filled polygons as KiCad filled them (the copper a
-    fabricator gets), a filled drawn polygon, or a pad that is not one of the obligation's ends. Vias join the layers
-    they span. A track end anywhere inside an end pad's copper outline joins that pad. None when no such path joins
-    the two ends.
+    fabricator gets), a filled drawn polygon, or a pad that is not one of the obligation's ends. Copper on one layer
+    joins wherever it overlaps, as KiCad 10's connectivity joins it; vias join the layers they span. None when no
+    such path joins the two ends.
 
     `full_width`: only copper at the obligation's width on its layer, apart from narrow tracks wholly within `neck_mm`
     of an end (the neck budget below); a fill or pad is passed only where a disc that wide travels through it.

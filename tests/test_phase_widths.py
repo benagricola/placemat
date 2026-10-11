@@ -301,3 +301,56 @@ def test_a_narrow_arc_is_under_its_width(monkeypatch, tmp_path):
     assert _judge(monkeypatch, tmp_path, geometry)["under"] == {"F.Cu": 0.3}
     spans = joining_spans(geometry, _OB)
     assert sum(length for _, length in spans) == pytest.approx(10 + 15 * 1.2 + 10, abs=1e-6)
+
+
+# KiCad 10's connectivity joins same-net copper wherever it overlaps (pcbnew 10.0.6, GetConnectedItems after a zone
+# fill), not only at track ends. Each case: does a copper path join U1.1 (5.2, 10) to U2.1 (40, 10)?
+def _via(at):
+    from tests.test_route_widths_board import _via as via
+    return via(at)
+
+
+def _rect(x0, y0, x1, y1):
+    return ((x0, y0), (x1, y0), (x1, y1), (x0, y1))
+
+
+def _overlap_cases():
+    from dataclasses import replace
+    from tests.test_route_widths_board import _track
+    B = CopperLayer.B
+    pad = footprint("U3", 20.2 + 1.4, 10.0, nets=("V", "X"))          # its pad 1, 1 x 1 mm, at (20.2, 10)
+    up = [_track((40, 15), (40, 10), 1.0)]
+    return {
+        "track end 0.3 mm outside a fill, width 1.0": (True, [_zone(_LEFT), _track((20.3, 10), (40, 10), 1.0)], []),
+        "track end 0.6 mm outside a fill, width 1.0": (False, [_zone(_LEFT), _track((20.6, 10), (40, 10), 1.0)], []),
+        "track end 0.3 mm outside the end pad, width 1.0": (True, [_track((5, 10), (39.2, 10), 1.0)], []),
+        "track end 0.3 mm outside the end pad, width 0.4": (False, [_track((5, 10), (39.2, 10), 0.4)], []),
+        "via centre 0.3 mm outside a fill, diameter 0.6 + 0.3": (True, [_zone(_LEFT), _via((20.3, 10)), _track(
+            (20.3, 10), (30, 10), 1.0, layer=B), _via((30, 10)), _track((30, 10), (40, 10), 1.0)], []),
+        "track crossing a fill, both ends outside": (True, [_zone(_rect(14, 5, 16, 20)), _track((5, 10), (25, 10), 1.0),
+                                                            _track((10, 15), (40, 15), 1.0)] + up, []),
+        "tracks crossing a pad, ends outside": (True, [_track((5, 9.7), (21, 9.7), 0.2),
+                                                       _track((19.4, 10.3), (40, 10.3), 0.2)], [pad]),
+        "track side over a fill edge": (True, [_zone(_LEFT), _track((20.4, 5), (20.4, 15), 1.0),
+                                               _track((20.4, 15), (40, 15), 1.0)] + up, []),
+        "X crossing of two tracks": (True, [_track((5, 10), (25, 10), 1.0), _track((22, 5), (22, 15), 1.0),
+                                            _track((22, 15), (40, 15), 1.0)] + up, []),
+        "parallel tracks overlapping by 0.05 mm": (True, [_track((5, 10), (25, 10), 1.0),
+                                                          _track((15, 10.95), (40, 10.95), 1.0)], []),
+        "T: a 1.0 mm end 0.4 mm off a 0.6 mm track": (True, [_track((5, 10), (19.6, 10), 1.0),
+                                                            _track((20, 5), (20, 30), 0.6),
+                                                            _track((20.4, 15), (40, 15), 1.0)] + up, []),
+        "parallel tracks 0.05 mm apart": (False, [_track((5, 10), (25, 10), 1.0),
+                                                  _track((15, 11.05), (40, 11.05), 1.0)], []),
+    }
+
+
+@pytest.mark.parametrize("case", sorted(_overlap_cases()))
+def test_copper_joins_where_it_overlaps_as_kicad_joins_it(case):
+    from dataclasses import replace
+    from placemat.kicad.phase_run import joining_spans
+    from tests.test_route_widths_board import _board
+    joined, copper, parts = _overlap_cases()[case]
+    geometry = _board(*copper)
+    geometry = replace(geometry, footprints=geometry.footprints + tuple(parts))
+    assert (joining_spans(geometry, dict(_OB, widths={"F.Cu": 0.2, "B.Cu": 0.2})) is not None) == joined

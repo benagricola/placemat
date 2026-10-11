@@ -4024,9 +4024,9 @@ last phase's board is `router_out.kicad_pcb`, and `routed.kicad_pcb` is made fro
   copper path that joins its two pads (a thin branch to another pad does not count), and not a `joined_narrow`
   outcome. The path is its tracks and any stretch of a pour's fill, a filled copper polygon or another pad it passes
   through; such a stretch is as wide as the widest disc that can travel through that copper from where the path
-  enters it to where it leaves (the measure the current-path check uses, read to within one `[check] zone_step`). A
-  track end joins an end pad anywhere inside the pad's copper, and joins a pour or pad within half the track's width
-  of its edge, as KiCad joins them.
+  enters it to where it leaves (the measure the current-path check uses, read to within one `[check] zone_step`). Copper
+  on one layer joins wherever it overlaps, as KiCad 10's connectivity joins it: a track end anywhere on a pad, a
+  track that crosses or runs along a pour or a pad, two tracks that cross or overlap.
   Along that path, copper closer than the neck allowance to either end is the router's pad neck-down and is not
   counted (the router's neck length plus taper, 3 mm by default; none with `neckdown = false`), but the allowance
   reaches at most half the path from each end: every connection keeps copper at its full width, and on a path too
