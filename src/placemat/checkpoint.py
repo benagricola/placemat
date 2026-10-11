@@ -39,7 +39,8 @@ ENTRIES = "entries.jsonl"
 
 # What the digest is made of, and what a change to each is called.
 PARTS = {"script": "the script", "board": "the generated board", "settings": "the settings",
-         "fab": "the fab profile", "version": "the placemat version", "lock": "the lock", "focus": "the focus"}
+         "fab": "the fab profile", "version": "the placemat version", "measures": "the measures' version",
+         "lock": "the lock", "focus": "the focus"}
 
 
 class ResumeRefused(ValueError):

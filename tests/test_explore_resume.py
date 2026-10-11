@@ -122,6 +122,15 @@ def test_no_resume_starts_over(tmp_path):
     assert _calls(tmp_path / "pids") == 5
 
 
+def test_a_new_measures_version_is_not_the_same_explore(tmp_path, monkeypatch):
+    """Variants scored on another version of the measures are not ranked against new ones: resume refuses."""
+    from placemat import score
+    _search(tmp_path, seeds=range(0, 6), keep_state=True)
+    monkeypatch.setattr(score, "MEASURES_VERSION", score.MEASURES_VERSION + 1)
+    with pytest.raises(checkpoint.ResumeRefused, match="the measures' version changed"):
+        _search(tmp_path, seeds=range(0, 6), resume="yes")
+
+
 def test_a_changed_setting_or_focus_is_not_the_same_explore(tmp_path):
     _search(tmp_path, seeds=range(0, 6), keep_state=True)
     with pytest.raises(checkpoint.ResumeRefused, match="the focus changed"):

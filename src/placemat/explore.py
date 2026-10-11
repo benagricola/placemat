@@ -869,6 +869,7 @@ def _parts(script, base, make_board, entries, focus) -> dict:
     import json
     from . import __version__, checkpoint
     from . import reuse as _reuse
+    from .score import MEASURES_VERSION
     settings = json.loads(_reuse.placement_settings(base.settings))
     for k in [k for k in settings if k in ("explore_jobs", "explore_checkpoint_max_variants", "explore_stall_variants",
                                                           "explore_stall_seconds", "explore_stop_hard_clear")]:
@@ -880,6 +881,7 @@ def _parts(script, base, make_board, entries, focus) -> dict:
     return {"script": _script_digest(script), "board": checkpoint.sha(_reuse._geometry_digest(base.geometry)),
             "settings": checkpoint.sha(json.dumps(settings, sort_keys=True)),
             "fab": checkpoint.sha(fab.json()) if fab is not None else "", "version": __version__,
+            "measures": str(MEASURES_VERSION),
             "lock": checkpoint.lock_digest(entries), "focus": checkpoint.sha(",".join(sorted(focus)))}
 
 
