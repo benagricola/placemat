@@ -24,7 +24,7 @@ def test_the_route_command_s_layers_flag_overrides_for_one_run(tmp_path, monkeyp
 
     class Report:
         valid, keepout_breaches, open_nets, routed_pcb, resumed, widths = True, [], {}, pcb, [], []
-        phases, phases_without_copper = [], []
+        phases, phases_without_copper, pour_routed_by = [], [], {}
 
         def has_findings(self):
             return False
@@ -70,7 +70,7 @@ def test_the_route_command_leaves_the_boards_plane_nets_to_their_pours(breakout_
 
     class Report:
         valid, keepout_breaches, open_nets, routed_pcb, resumed, widths = True, [], {}, pcb, [], []
-        phases, phases_without_copper = [], []
+        phases, phases_without_copper, pour_routed_by = [], [], {}
 
         def has_findings(self):
             return False
