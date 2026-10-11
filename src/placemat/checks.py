@@ -1184,14 +1184,9 @@ class _Fill:
         # the widest level at which a path still joins them: a narrower disc passes wherever a
         # wider one does, so the levels that join them are the lower ones
         levels = self.levels
-        lo, hi, found = 0, len(levels) - 1, None
-        while lo <= hi:
-            mid = (lo + hi) // 2
-            got = attempt(levels[mid])
-            if got[0] is None:
-                hi = mid - 1
-            else:
-                found, lo = (levels[mid],) + got, mid + 1
+        top = _highest(levels, lambda t: (lambda got: got if got[0] is not None else None)(attempt(t)))
+        found = None if top is None else (top[0],) + top[1]
+        lo = top[2] + 1 if top is not None else 0
         if found is None:
             # no path of cells at all: the fill narrows below one cell. Name where the
             # cells reached from the entry stop nearest the exit.
@@ -1231,15 +1226,8 @@ class _Fill:
         """The width of the widest disc in the fill that reaches `polys` (as
         `touching` reads it): no route entering or leaving the fill by that
         copper is wider than this. None when no cell of the fill reaches it."""
-        levels = self.levels
-        lo, hi, found = 0, len(levels) - 1, None
-        while lo <= hi:
-            mid = (lo + hi) // 2
-            if self.touching(polys, levels[mid]):
-                found, lo = levels[mid], mid + 1
-            else:
-                hi = mid - 1
-        return None if found is None else 2.0 * self.radius(found)
+        top = _highest(self.levels, lambda t: self.touching(polys, t) or None)
+        return None if top is None else 2.0 * self.radius(top[0])
 
     def level(self, width: float) -> float:
         """The level (squared cells from the fill's edge) whose disc is `width` wide: `radius` inverted."""
@@ -1328,16 +1316,13 @@ class _Fill:
             b = {path[j + 1]} if j + 1 < n else (self.touching(exit_, t) if exit_ is not None else {path[-1]})
             return a, b
         floor = min(sq[path[i]] for i in range(k, j + 1))
-        levels = [t for t in self.levels if floor <= t < tau]
-        best, lo, hi = None, 0, len(levels) - 1
-        while lo <= hi:
-            mid = (lo + hi) // 2
-            a, b = ends(levels[mid])
-            hit, parent = self._reach(a, b, levels[mid]) if a and b else (None, {})
-            if hit is None:
-                hi = mid - 1
-            else:
-                best, lo = (levels[mid], hit, parent), mid + 1
+
+        def joins(t):
+            a, b = ends(t)
+            hit, parent = self._reach(a, b, t) if a and b else (None, {})
+            return None if hit is None else (hit, parent)
+        top = _highest([t for t in self.levels if floor <= t < tau], joins)
+        best = None if top is None else (top[0],) + top[1]
         if best is None:                                # the run's own cells: no wider crossing was found
             low = min(range(k, j + 1), key=lambda i: sq[path[i]])
             return 2.0 * self.radius(sq[path[low]]), self.centre(path[low]), sum(
@@ -1398,6 +1383,21 @@ class _Fill:
         if got is None or got[0] is not entry or got[1] is not exit_:
             return None
         return sum(r["to_mm"] - r["from_mm"] for r in self.split(got[2], need, entry, exit_))
+
+
+def _highest(levels, ok):
+    """The highest of `levels` (ascending) at which `ok(level)` gives a result, by binary search: `ok` holds at every
+    level below one where it holds (a narrower disc passes wherever a wider one does). (level, its result, its index),
+    or None when it holds at none."""
+    lo, hi, found = 0, len(levels) - 1, None
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        got = ok(levels[mid])
+        if got is None:
+            hi = mid - 1
+        else:
+            found, lo = (levels[mid], got, mid), mid + 1
+    return found
 
 
 def _crossing_key(z: int, a: int, b: int) -> tuple:
