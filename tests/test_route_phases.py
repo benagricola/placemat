@@ -40,9 +40,16 @@ FAKE = textwrap.dedent('''
                                   "layer": None, "at": [0.0, 0.0], "cells": 3, "seen_from": "forward",
                                   "near_source_cells": None, "near_target_cells": None}]}
             status = ("refused" if refuse else "failed" if failed else os.environ.get("FAKE_ROUTER_STATUS") or "routed")
-            doc["connections"] = [dict(t, status=status, reason=refuse, joined=status == "routed", length_mm=1.0,
+            wide = os.environ.get("FAKE_ROUTER_WIDE")        # routed at or above this width, failed below it
+            plain = os.environ.get("FAKE_ROUTER_PLAIN")      # echo each end as {ref, pad}, as KRT does
+            def said(t):
+                return status if not wide else "routed" if max(t["widths"].values()) >= float(wide) else "failed"
+            def end(e):
+                return {"ref": e["ref"], "pad": e["pad"]} if plain else e
+            doc["connections"] = [dict(t, status=said(t), reason=refuse, joined=said(t) == "routed", length_mm=1.0,
                                        min_width_mm=t["widths"], layers=list(t["widths"]),
-                                       evidence=ev if failed else None) for t in tasks]
+                                       evidence=ev if failed else None, **{"from": end(t["from"]), "to": end(t["to"])})
+                                  for t in tasks]
         if os.environ.get("FAKE_ROUTER_TRUNCATE") and "connections" in doc:
             doc["connections"] = doc["connections"][:-1]
         open(a[a.index("--json-out") + 1], "w").write(json.dumps(doc))
@@ -586,3 +593,50 @@ def test_a_pair_phase_flag_is_read_as_the_pair_router_abbreviates_it():
     caps = {"flags": {"route_diff.py": ["--track-width", "--track-proximity-cost", "--via-cost"]}}
     (pair,) = phases({"name": "usb", "pairs": [["P", "N"]], "router_args": ["--track-w", "0.3", "--via=2", "--track"]})
     assert pair_flags_refused(caps, [pair]) == [{"phase": "usb", "flag": "--track"}]
+
+
+
+def _second_j1(rig, amps=None):
+    """A second footprint with reference J1, its pad 1 on FB; each footprint states `amps` (U1, J1, the new J1)."""
+    text = rig.pcb.read_text()
+    def prop(a):
+        return '\t\t(property "Pm.I" "%s" (at 0 0 0) (layer "F.Fab"))\n' % a if a else ""
+    second = ('\t(footprint "t:p" (layer "F.Cu") (at 125 115)\n\t\t(property "Reference" "J1" (at 0 -2 0) '
+              '(layer "F.SilkS"))\n%s\t\t(pad "1" smd rect (at 0 0) (size 0.6 0.6) (layers "F.Cu" "F.Mask") (net "FB"))\n\t)\n'
+              % prop(amps and amps[2]))
+    if amps:
+        for ref, a in (("U1", amps[0]), ("J1", amps[1])):
+            mark = '(property "Reference" "%s" (at 0 -2 0) (layer "F.SilkS"))\n' % ref
+            text = text.replace(mark, mark + prop(a), 1)
+    i = text.index("\t(segment")
+    rig.pcb.write_text(text[:i] + second + text[i:])
+
+
+@needs_kicad
+def test_route_calls_give_each_router_record_its_own_footprint(rig, monkeypatch):
+    """Two J1s on FB at 1 A and 4 A: the 4 A task is sent first (widest first), the 1 A one after, and the router
+    echoes both ends as plain ref and pad. Each obligation still takes its own task's record."""
+    _second_j1(rig, amps=("4A", "1A", "4A"))
+    monkeypatch.setenv("FAKE_ROUTER_PLAIN", "1")
+    monkeypatch.setenv("FAKE_ROUTER_WIDE", "0.5")
+    report = rig.route({"name": "c", "width": "current", "connections": [
+        {"from": {"part": "U1", "pad": "2"}, "to": {"part": "J1", "pad": "1"}}]})
+    (phase,) = report.phases
+    by_fp = {o["to"].get("fp") or o["from"].get("fp"): o for o in phase["open"]}
+    widths = {k: max(o["widths"].values()) for k, o in by_fp.items()}
+    assert len(by_fp) == 2 and all(k for k in by_fp)
+    for k, o in by_fp.items():
+        assert o["outcome"] == ("routed" if widths[k] >= 0.5 else "failed")
+    assert all((r["to"].get("fp") or r["from"].get("fp")) for r in phase["connections"])
+
+
+@needs_kicad
+def test_a_refused_task_on_a_shared_reference_names_its_footprint(rig, monkeypatch):
+    _second_j1(rig)
+    monkeypatch.setenv("FAKE_ROUTER_PLAIN", "1")
+    monkeypatch.setenv("FAKE_ROUTER_REFUSE", "pad_not_on_net")
+    with pytest.raises(RouteRefused) as e:
+        rig.route({"name": "c", "width": 0.3, "connections": [
+            {"from": {"part": "U1", "pad": "2"}, "to": {"part": "J1", "pad": "1"}}]})
+    ends = [t["to"] if t["to"]["ref"] == "J1" else t["from"] for t in e.value.facts["tasks"]]
+    assert len({end["fp"] for end in ends}) == 2
