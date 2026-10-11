@@ -10,12 +10,10 @@ from dataclasses import dataclass, field, replace
 import json
 from pathlib import Path
 import shutil
-import subprocess
 import time
 
-from .. import route_progress
 from .drc import run_drc
-from .route import (RouteRefused, RouterFailed, _copy_project, clearance_groups, fill_zones,
+from .route import (RouteRefused, RouterFailed, _copy_project, run_router, clearance_groups, fill_zones,
                     group_clearance, lock_copper, main_pass_nets, remove_guards, route_pairs, route_pour_net,
                     router_command)
 
@@ -161,17 +159,6 @@ class Routed:
                       [tuple(s) for s in doc.get("summaries") or ()], list(doc.get("widths") or ()))
 
 
-def run_router(cmd, log: Path, router_dir, env, timeout, stdin: str | None = None) -> int:
-    """One router process in the router's checkout: its command line and output in `log`, `stdin` its input; its exit
-    code. subprocess.TimeoutExpired after `timeout` seconds."""
-    with open(log, "w") as f:
-        f.write("$ %s\n\n" % " ".join(str(c) for c in cmd))
-        f.flush()
-        return subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, cwd=str(router_dir), env=env, timeout=timeout,
-                              input=stdin.encode() if stdin is not None else None,
-                              pass_fds=route_progress.pass_fds()).returncode
-
-
 def _run(cmd, log: Path, ctx) -> int:
     return run_router(cmd, log, ctx.router_dir, ctx.env, ctx.timeout)
 
@@ -295,13 +282,6 @@ def comparison_obligations(selections, geometry, skip) -> list:
         out.append(obs)
     return out
 
-
-def comparison_contract(phase, obligations) -> str:
-    """The phase definition and stable electrical obligations, excluding every placement coordinate."""
-    from .route_state import digest
-    stable = sorted(({k: v for k, v in o.items() if k != 'width_policy_failure'} for o in obligations),
-                    key=lambda o: repr(_pair_key(o)))
-    return digest(phase.record(), stable)
 
 def judge_obligations(pcb_path, obligations, drc_json, neck_mm=0.0, is_real=None) -> list:
     """Each obligation on a board, in order: {"joined", "violated", "under"}. joined: KiCad's connectivity joins the two

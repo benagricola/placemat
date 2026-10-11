@@ -4032,8 +4032,8 @@ last phase's board is `router_out.kicad_pcb`, and `routed.kicad_pcb` is made fro
 - `final_asked`, `final_closure_clean`, `final_open`: the stable comparison obligations judged on the final board,
   after the last phase and the clean-up. Explicit tasks retain their selected ends and widths. Whole-net selections
   use all selected pad identities and net membership, with a deterministic spanning set solely to judge their
-  connectivity; these pairs never direct routing. The `comparison_contract` binds the phase definition and these electrical
-  obligations, independent of placement coordinates and the router's airwire topology. Initial `asked` and `open`
+  connectivity; these pairs never direct routing. They do not depend on placement coordinates or the router's airwire
+  topology. Initial `asked` and `open`
   remain diagnostic records. A short, narrow or unproven join left by a later phase shows in the final fields; a fault
   is not attributed to a phase.
 
@@ -4051,9 +4051,9 @@ configured router which width it will draw each selected net at in each phase an
 router flags, as the router itself resolves them). Global flags precede phase flags; explicit connection tasks keep
 their declared widths. Differential calls have their own flag scope. Default rest keeps an earlier pair's width; an
 explicit rest width or a phase-local `--track-width` adds a single-ended width. Widths derived from impedance are not
-resolved. A net with no resolved width is `width_unknown`. The answer is saved as `width_policy.json` (per phase and
-net: `status` and `widths`, and `failure` `{code, facts}` when the query gave none: `timeout`, `failed`,
-`malformed`), the query's output as `width_policy.log`.
+resolved. A net the router leaves unresolved is `width_unknown`. The answer is saved as `width_policy.json` (per
+phase and net: `status` and `widths`), the query's output as `width_policy.log`. A query that gives no answer refuses
+the route (below).
 
 **Refusals.** A route placemat will not start says why and exits 2 (`placemat route --json` and the live channel carry
 the code and its facts):
@@ -4065,6 +4065,7 @@ the code and its facts):
 | `capture` | the capture's `nets.layout.json` cannot be read, or was written for another netlist (`path`, the sidecar; `reason`; `detail`) |
 | `router_old` | the router lacks a flag the phases need (`--connections`; `--bus-nets` for a phase with buses) |
 | `width_policy_unavailable` | the router has no width query (`py_router/nominal_width_policy.py`, on the placemat fork) or its interpreter will not start (`router`, `script`; `error` and `errno` when it will not start); routing stops before changing copper |
+| `width_policy_failed` | the router's width query gave no answer (`router`; `failure`: `timeout` with `seconds`, `failed` with `exit_code`, or `malformed` with `problem`; `log`, its output); routing stops before changing copper |
 | `ambiguous_terminal` | a selected reference/pad belongs to multiple distinct footprints (`name`, `ref`, `pad`, `owners` with footprint index, instance and position). Give each footprint a unique reference. Repeated physical pad shapes within one footprint remain supported; excluded terminals do not create obligations. |
 | `pair_flag` | a phase that routes pairs gives in `router_args` a flag the pair router (route_diff.py) does not take, by the router's own capability listing (`phase`, `flag`): its pair call would fail |
 | `router_refused` | the router refused a task placemat selected (`facts`: `phase`, `tasks` each `{net, from, to, reason}`); the route stops |

@@ -44,14 +44,12 @@ def test_default_rest_inherits_prior_pair_geometry_but_explicit_numeric_rest_doe
     assert requests[-1]['kind'] == 'nets' and requests[-1]['power'] == {'P': 0.3, 'N': 0.3, 'VB': 0.3}
 
 
-def test_resolved_global_class_widths_replace_widthless_obligation_and_bind_contract():
+def test_resolved_widths_replace_a_widthless_obligation():
     (phase,) = parse_phases([{'name': 'signals'}])
     def applied(width):
         policy = {'policies': [{'name': 'signals', 'by_net': {'VB': {'status': 'known', 'widths': {'F.Cu': width}}}}]}
         return width_policy.apply([[obligation()]], [selected()], [phase], policy)[0]
-    class_obs, global_obs = applied(0.2), applied(0.5)
-    assert class_obs[0]['widths'] == {'F.Cu': 0.2}
-    assert phase_run.comparison_contract(phase, class_obs) != phase_run.comparison_contract(phase, global_obs)
+    assert applied(0.2)[0]['widths'] == {'F.Cu': 0.2} and applied(0.5)[0]['widths'] == {'F.Cu': 0.5}
 
 
 def test_explicit_task_and_pour_task_keep_their_own_required_widths():
@@ -109,7 +107,7 @@ def test_an_answer_gives_each_net_its_widths(tmp_path):
     router = query(tmp_path, 'import sys, json; json.load(sys.stdin); print("noise"); '
                              'print("PLACEMAT_WIDTH_POLICY " + %r)' % json.dumps(answer))
     got = resolve(router)
-    assert 'failure' not in got and len(got['config_sha256']) == 64
+    assert 'failure' not in got
     assert got['policies'] == [{'name': 'signals', 'kind': 'nets',
                                 'by_net': {'VB': {'status': 'known', 'widths': {'F.Cu': 0.2, 'B.Cu': 0.25}}}}]
 
@@ -167,19 +165,17 @@ def test_an_answer_that_does_not_fit_the_request_is_malformed(tmp_path, damage, 
 
 def test_a_failed_query_marks_each_obligation_with_its_failure():
     (phase,) = parse_phases([{'name': 'signals'}])
-    policy = {'config_sha256': 'c', 'failure': {'code': 'timeout', 'facts': {'seconds': 1.0}},
+    policy = {'failure': {'code': 'timeout', 'facts': {'seconds': 1.0}},
               'policies': [{'name': 'signals', 'kind': 'nets', 'by_net': {'VB': {'status': 'unknown', 'widths': None}}}]}
     ((item,),) = width_policy.apply([[obligation()]], [selected()], [phase], policy)
     assert item['width_policy_unknown'] and item['width_policy_failure'] == {'code': 'timeout', 'facts': {'seconds': 1.0}}
-    assert item['width_policy_contract'] == 'c'
 
 
 def test_a_phase_key_follows_its_own_widths_and_status_only():
     earlier = {'name': 'early', 'kind': 'nets', 'by_net': {'A': {'status': 'known', 'widths': {'F.Cu': .2}}}}
     later = {'name': 'late', 'kind': 'nets', 'by_net': {'B': {'status': 'known', 'widths': {'F.Cu': .3}}}}
-    before = {'schema': 1, 'config_sha256': 'all-before', 'policies': [earlier, later]}
+    before = {'schema': 1, 'policies': [earlier, later]}
     after = json.loads(json.dumps(before))
-    after['config_sha256'] = 'all-after'
     after['policies'][1]['by_net']['B']['widths']['F.Cu'] = .4
     assert width_policy.phase_key(before, 'early') == width_policy.phase_key(after, 'early')
     assert width_policy.phase_key(before, 'late') != width_policy.phase_key(after, 'late')

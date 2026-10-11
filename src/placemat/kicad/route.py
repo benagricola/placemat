@@ -108,6 +108,7 @@ _REFUSED = {
     "router_old": "route: the router at %(router)s lacks %(missing)s: route with the placemat fork of KiCadRoutingTools",
     "width_policy_unavailable": "route: the router at %(router)s cannot answer the width query %(script)s: route with "
                                 "the placemat fork of KiCadRoutingTools",
+    "width_policy_failed": "route: the router's width query gave no widths: %(failure)s; its output is in %(log)s",
     "router_refused": "route: phase %(phase)r: the router refused %(what)s",
     "pair_flag": "route: phase %(phase)r: router_args %(flag)s is not a flag of the pair router (route_diff.py), which "
                  "this phase's pair call runs",
@@ -737,11 +738,7 @@ def route_pairs(rpy, router_dir_path, pcb_in: Path, work: Path, pairs, layers, c
                            cfg.route_diff_pair_gap, cfg.route_diff_pair_width, iterations, probe, clearances,
                            extra_args)
         log = work / (stem + ".log" if i == 0 else "%s_%d.log" % (stem, i))
-        with open(log, "w") as f:
-            f.write("$ %s\n\n" % " ".join(str(c) for c in cmd))
-            f.flush()
-            rc = subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, cwd=str(router_dir_path), env=env,
-                                timeout=timeout, pass_fds=route_progress.pass_fds()).returncode
+        rc = run_router(cmd, log, router_dir_path, env, timeout)
         text = log.read_text(errors="replace")
         if rc != 0 or not out.exists():
             if "matched no differential pair" in text or "No differential pairs" in text:
@@ -893,6 +890,17 @@ def pours_back(pcb_path: str, given: str) -> int:
     with quiet_stderr():
         board.Save(pcb_path)
     return n
+
+
+def run_router(cmd, log: Path, router_dir, env, timeout, stdin: str | None = None) -> int:
+    """One router process in the router's checkout: its command line and output in `log`, `stdin` its input; its exit
+    code. subprocess.TimeoutExpired after `timeout` seconds."""
+    with open(log, "w") as f:
+        f.write("$ %s\n\n" % " ".join(str(c) for c in cmd))
+        f.flush()
+        return subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, cwd=str(router_dir), env=env, timeout=timeout,
+                              input=stdin.encode() if stdin is not None else None,
+                              pass_fds=route_progress.pass_fds()).returncode
 
 
 def _copy_project(src_pcb, dst_pcb) -> None:
@@ -1080,11 +1088,7 @@ def route_pour_net(ctx, board: Path, out: Path, net: str, width, layers, stem: s
                          ctx.iterations, ctx.probe, ctx.quick, nets=[net], widths={net: width} if width else None,
                          clearances=ctx.clearances_file, neckdown=neckdown, extra_args=extra_args)
     log = ctx.work / (stem + ".log")
-    with open(log, "w") as f:
-        f.write("$ %s\n\n" % " ".join(str(c) for c in cmd))
-        f.flush()
-        rc = subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, cwd=str(ctx.router_dir), env=ctx.env,
-                            timeout=ctx.timeout, pass_fds=route_progress.pass_fds()).returncode
+    rc = run_router(cmd, log, ctx.router_dir, ctx.env, ctx.timeout)
     if rc != 0 or not out.exists():
         tail = "\n".join(log.read_text(errors="replace").splitlines()[-8:])
         raise RouterFailed("the router exited %d routing pour net %s" % (rc, net), rc, log, tail)
@@ -1195,38 +1199,40 @@ def ctx_for(ctx, rev, name: str):
     return dataclasses.replace(ctx, env=dict(ctx.env, **rev.env(name)))
 
 
-def copy_source_rules(original_rules, pcb_out):
-    """Replace owned companions with source rules, clearing stale absent-source companions."""
+def copy_source_rules(source_pcb, pcb_out):
+    """The source board's .kicad_pro and .kicad_dru beside `pcb_out`; a file the source lacks is removed there, so a
+    reused work folder keeps no rules from another board."""
     for ext in (".kicad_pro", ".kicad_dru"):
-        source, target = Path(original_rules).with_suffix(ext), Path(pcb_out).with_suffix(ext)
+        source, target = Path(source_pcb).with_suffix(ext), Path(pcb_out).with_suffix(ext)
         if source.is_file():
             shutil.copy(source, target)
         elif target.exists():
-            target.unlink()                 # only this private candidate's stale companion
+            target.unlink()
 
 
-def finalize_copper(raw_board, pcb_out, original_input, original_rules, drc_path):
-    """Finalize a private copy under retained source rules; original fixed copper is cleanup's boundary."""
+def finalize_copper(raw_board, pcb_out, given, source_pcb, drc_path):
+    """The routed board `pcb_out`: a copy of the router's `raw_board` beside the source board's rules, its guards taken
+    off, its zones filled and the router's dangling copper removed (copper already on `given` is kept); the
+    clean-up's record and the board's DRC (written to `drc_path`)."""
     from .route_cleanup import remove_dangling_router_copper
     shutil.copy(raw_board, pcb_out)
-    copy_source_rules(original_rules, pcb_out)
+    copy_source_rules(source_pcb, pcb_out)
     remove_guards(str(pcb_out))
     fill_zones(str(pcb_out))
-    cleanup = remove_dangling_router_copper(str(pcb_out), str(original_input))
+    cleanup = remove_dangling_router_copper(str(pcb_out), str(given))
     return cleanup, run_drc(pcb_out, drc_path, refill_zones=False)
 
 
 def recheck_final_phases(report, comparison_asked, run_list, width_receipt, pcb_out, drc_path, after, cfg):
-    """Rejudge frozen original obligations on finalized copper, never candidate-derived selections."""
-    from .phase_run import comparison_contract, is_clean, judge_obligations, outcome_of, phase_neck
-    from copy import deepcopy
+    """Ruling S6: every phase's obligations (`comparison_asked`, fixed before routing) judged again on the routed board
+    `pcb_out`, after the last phase and the clean-up. Fills each phase record's final_* counts, `report.final_judged`,
+    `report.widths_failed` and `report.asked`."""
+    from .phase_run import is_clean, judge_obligations, outcome_of, phase_neck
     if not (len(report.phases) == len(comparison_asked) == len(run_list)):
         raise ValueError("final phase/obligation count mismatch")
     report.final_judged = []
     report.widths_failed = 0
-    report.phases = deepcopy(report.phases)
     for rec, obs, phase in zip(report.phases, comparison_asked, run_list):
-        rec["comparison_contract"] = comparison_contract(phase, obs)
         rec["width_policy"] = [p for p in width_receipt['policies'] if p['name'] == phase.name]
         rec["final_asked"] = len(obs)
         got = judge_obligations(pcb_out, obs, drc_path, phase_neck(cfg, phase), after.is_real)
@@ -1239,7 +1245,7 @@ def recheck_final_phases(report, comparison_asked, run_list, width_receipt, pcb_
         report.widths_failed += sum(1 for j, oc in zip(got, outcomes) if j["joined"] and (j["under"] or j.get("width_unknown", False) or oc == "joined_narrow"))
         clean = [is_clean(j, oc) for j, oc in zip(got, outcomes)]
         rec["final_joined"] = sum(clean)
-        # Electrical connectivity is distinct from clean (width/DRC-certified) closure.
+        # joined at all, whatever its width or DRC
         rec["final_connected"] = sum(j["joined"] for j in got)
         rec["final_width_known_under"] = sum(bool(j["under"]) for j in got if j["joined"])
         rec["final_width_unknown"] = sum(bool(j.get("width_unknown")) for j in got if j["joined"])
@@ -1248,7 +1254,7 @@ def recheck_final_phases(report, comparison_asked, run_list, width_receipt, pcb_
                                   **({"under": dict(j["under"])} if j["joined"] and j["under"] else {}),
                                   **({"width_unknown": True} if j.get("width_unknown") else {}))
                              for o, j, ok in zip(obs, got, clean) if not ok]
-    report.asked = deepcopy(comparison_asked)
+    report.asked = comparison_asked
 
 
 def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: str | None = None,
@@ -1366,9 +1372,12 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     width_receipt = width_policy.resolve(rpy, router_dir_path, pcb, run_list, [picked[p.name] for p in run_list], cfg,
                                          work / "width_policy.log", env, timeout=timeout)
     (work / "width_policy.json").write_text(json.dumps(width_receipt, sort_keys=True) + "\n")
-    failure = width_receipt.get("failure") or {}
-    if failure.get("code") == "unavailable":
-        raise RouteRefused("width_policy_unavailable", router=str(router_dir_path), **failure["facts"])
+    failure = width_receipt.get("failure")
+    if failure is not None:                 # every join would be width-unknown: the route says why instead
+        if failure["code"] == "unavailable":
+            raise RouteRefused("width_policy_unavailable", router=str(router_dir_path), **failure["facts"])
+        raise RouteRefused("width_policy_failed", router=str(router_dir_path), failure=failure["code"],
+                           **failure["facts"])
     asked = width_policy.apply(asked, [picked[p.name] for p in run_list], run_list, width_receipt)
     comparison_asked = width_policy.apply(comparison_asked, [picked[p.name] for p in run_list], run_list,
                                           width_receipt)

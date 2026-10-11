@@ -105,7 +105,6 @@ def test_phases_route_in_order_each_on_the_board_the_one_before_left(rig):
 def test_a_net_phase_names_each_connection_it_left_open(rig):
     report = rig.route(FB)                                  # the stand-in router lays no copper
     open_entry = dict(report.phases[0]["open"][0])
-    assert len(open_entry.pop("width_policy_contract")) == 64
     assert [open_entry] == [{"net": "FB", "from": {"ref": "J1", "pad": "1"}, "to": {"ref": "U1", "pad": "2"},
                                          "widths": {"F.Cu": 0.2, "B.Cu": 0.2}, "outcome": None, "evidence": None}]
 
@@ -520,6 +519,16 @@ def test_missing_width_policy_refuses_before_any_router_call(rig):
     assert error.value.facts['script'].endswith('nominal_width_policy.py')
     receipt = json.loads((rig.work / 'width_policy.json').read_text())
     assert receipt['failure']['code'] == 'unavailable'
+
+
+@needs_kicad
+def test_a_failed_width_query_refuses_the_route_naming_its_failure(rig):
+    krt = rig.work.parent / 'krt'
+    (krt / 'py_router/nominal_width_policy.py').write_text('import sys; sys.exit(3)\n')
+    with pytest.raises(RouteRefused) as error:
+        rig.route(FB)
+    assert error.value.code == 'width_policy_failed' and rig.calls() == []
+    assert error.value.facts['failure'] == 'failed' and error.value.facts['exit_code'] == 3
 
 
 @needs_kicad

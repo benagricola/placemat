@@ -83,3 +83,10 @@ def test_missing_width_policy_cli_is_structured_refusal(tmp_path, monkeypatch, c
     record = json.loads(capsys.readouterr().out)
     assert record == {'code': 'width_policy_unavailable', 'router': 'old-krt',
                       'script': 'old-krt/py_router/nominal_width_policy.py'}
+
+
+def test_a_failed_width_query_reads_as_its_failure_and_log():
+    from placemat.kicad.route import refused_text
+    text = refused_text('width_policy_failed', {'router': 'krt', 'failure': 'timeout', 'seconds': 60.0,
+                                                'log': 'work/width_policy.log'})
+    assert text == "route: the router's width query gave no widths: timeout; its output is in work/width_policy.log"

@@ -11,7 +11,6 @@ A failure is a record, {"code", "facts"}: on the answer (`failure`), and on each
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 import subprocess
@@ -107,26 +106,25 @@ def check(answer, requests) -> list:
 
 
 def resolve(rpy, router_dir, pcb, phases, selections, cfg, log: Path, env=None, *, timeout=None) -> dict:
-    """The router's widths for every phase's selected nets: {"schema", "config_sha256" (of the request), "policies"
-    (check's), and "failure" {code, facts} when the query gave no usable answer}. Codes: `unavailable` (the router has
+    """The router's widths for every phase's selected nets: {"schema", "policies" (check's), and "failure" {code, facts}
+    when the query gave no usable answer}. Codes: `unavailable` (the router has
     no width query, or its interpreter will not start), `timeout`, `failed` (a non-zero exit), `malformed`. On a
     failure every net is unknown. The query's output is in `log`."""
     requests = requests_of(phases, selections, cfg)
-    contract = hashlib.sha256(json.dumps(requests, sort_keys=True).encode()).hexdigest()
 
     def failed(code, **facts):
-        return {"schema": 1, "config_sha256": contract, "failure": {"code": code, "facts": facts},
+        return {"schema": 1, "failure": {"code": code, "facts": facts},
                 "policies": [{"name": r["name"], "kind": r["kind"],
                               "by_net": {n: {"status": "unknown", "widths": None} for n in r["nets"]}}
                              for r in requests]}
 
     if not requests:
-        return {"schema": 1, "config_sha256": contract, "policies": []}
+        return {"schema": 1, "policies": []}
     script = Path(router_dir) / SCRIPT
     if not script.is_file():
         return failed("unavailable", script=str(script))
     timeout = float(cfg.timeout_route if timeout is None else timeout)
-    from .phase_run import run_router
+    from .route import run_router
     try:
         rc = run_router([str(rpy), str(script)], log, router_dir, dict(env) if env else None, timeout,
                         stdin=json.dumps({"board": str(Path(pcb).resolve()), "requests": requests}))
@@ -144,7 +142,7 @@ def resolve(rpy, router_dir, pcb, phases, selections, cfg, log: Path, env=None, 
             answer = json.loads(lines[-1][len(_PREFIX):])
         except ValueError:
             raise Malformed("not_json") from None
-        return {"schema": 1, "config_sha256": contract, "policies": check(answer, requests)}
+        return {"schema": 1, "policies": check(answer, requests)}
     except Malformed as e:
         return failed("malformed", problem=e.problem, log=str(log))
 
@@ -169,9 +167,6 @@ def apply(obligations, selections, phases, policy):
         own = []
         for obligation in obs:
             item = dict(obligation)
-            if policy.get("config_sha256"):
-                # two different requests are not comparable, even when neither resolved a width
-                item["width_policy_contract"] = policy["config_sha256"]
             if not sel.tasks:
                 entry = records.get((phase.name, item["net"]))
                 if entry is not None and entry["status"] == "known":
