@@ -102,6 +102,11 @@ pub struct Grid {
     touched: Vec<usize>,
     marked: Vec<bool>,
     sum: Sum,
+    // per net: the rest pads' box (x0, y0, x1, y1) and how many there are
+    rest_box: Vec<Option<Bounds>>,
+    // per turn, per cell asked: the partials of the demand of the nets the turn leaves alone, and the
+    // (net, demand) of the nets it touches, in the cell's order
+    kept: Vec<HashMap<usize, (Vec<f64>, Vec<(usize, f64)>)>>,
 }
 
 impl Grid {
@@ -177,6 +182,12 @@ impl Grid {
                 touched
             })
             .collect();
+        let rest_box = rest.iter().map(|points: &Vec<(f64, f64)>| {
+            points.first().map(|&(x, y)| points.iter().fold((x, y, x, y), |b, &(x, y)| {
+                (b.0.min(x), b.1.min(y), b.2.max(x), b.3.max(y))
+            }))
+        }).collect();
+        let kept = vec![HashMap::new(); turns.len()];
         let mut grid = Self {
             frame,
             nx,
@@ -196,6 +207,8 @@ impl Grid {
             touched: Vec::new(),
             marked: vec![false; size],
             sum: Sum::default(),
+            rest_box,
+            kept,
         };
         for net in 0..grid.rest.len() {
             let values = grid.offer(&grid.rest[net])?;
@@ -235,6 +248,12 @@ impl Grid {
             x1 = x1.max(x);
             y1 = y1.max(y);
         }
+        self.offer_box((x0, y0, x1, y1))
+    }
+    // A net's demand by cell from the box of its pads (two or more of them): `offer`'s, which takes the
+    // points' box first. Min and max are exact, so the same box gives the same demand bit for bit.
+    fn offer_box(&self, raw: Bounds) -> Result<Vec<(usize, f64)>, String> {
+        let (mut x0, mut y0, mut x1, mut y1) = raw;
         let wire = (x1 - x0) + (y1 - y0);
         // The box floor (`score.congestion_box`), as congestion.py's `_floored`:
         // placemat's own rule, so a short net's small turn cannot move the worst cell by many steps.
@@ -293,7 +312,8 @@ impl Grid {
             self.scratch[index].clear();
         }
         self.touched.clear();
-        let mut new: HashMap<usize, Vec<(f64, f64)>> = HashMap::new();
+        // Each touched net's box with the candidate's pads in it: the rest pads' box grown by them.
+        let mut boxes: Vec<(usize, Bounds, usize)> = Vec::new();
         for &(net, b) in &self.turns[turn] {
             let b = shifted(b, x, y);
             let p = ((b.0 + b.2) / 2.0, (b.1 + b.3) / 2.0);
@@ -304,12 +324,29 @@ impl Grid {
             {
                 return Err("NativeDelta candidate pads exceed the fixed search frame".into());
             }
-            new.entry(net)
-                .or_insert_with(|| self.rest[net].clone())
-                .push(p);
+            match boxes.iter_mut().find(|(n, _, _)| *n == net) {
+                Some((_, bx, count)) => {
+                    *bx = (bx.0.min(p.0), bx.1.min(p.1), bx.2.max(p.0), bx.3.max(p.1));
+                    *count += 1;
+                }
+                None => {
+                    let count = self.rest[net].len() + 1;
+                    let bx = self.rest_box[net].map_or((p.0, p.1, p.0, p.1), |r| {
+                        (r.0.min(p.0), r.1.min(p.1), r.2.max(p.0), r.3.max(p.1))
+                    });
+                    boxes.push((net, bx, count));
+                }
+            }
         }
-        for (net, points) in new {
-            let values = self.offer(&points)?;
+        // A net whose box the candidate leaves as it was keeps its demand bit for bit: its cells change only
+        // where another net's demand does, and there it adds what it held.
+        let mut changed = vec![false; self.contributions.len()];
+        for &(net, bx, count) in &boxes {
+            if self.rest[net].len() >= 2 && self.rest_box[net] == Some(bx) {
+                continue;
+            }
+            changed[net] = true;
+            let values = if count >= 2 { self.offer_box(bx)? } else { Vec::new() };
             for &(index, value) in &values {
                 self.mark(index);
                 self.scratch[index].push((net, value));
@@ -319,11 +356,31 @@ impl Grid {
             }
         }
         let mut changes: BTreeMap<usize, i64> = BTreeMap::new();
-        for &index in &self.touched {
+        let touched = std::mem::take(&mut self.touched);
+        for &index in &touched {
             *changes.entry(self.level(self.demand[index])?).or_default() -= 1;
-            self.sum.clear();
-            for &(net, value) in &self.cells[index] {
-                if !self.affected[turn][net] {
+            // The cell's demand summed exactly (CPython fsum's partials): the kept nets' partials, then the
+            // touched nets' demand, new where it changed. The total is the correctly rounded sum whatever the order.
+            let (partials, held) = {
+                let cells = &self.cells[index];
+                let affected = &self.affected[turn];
+                self.kept[turn].entry(index).or_insert_with(|| {
+                    let mut sum = Sum::default();
+                    let mut held = Vec::new();
+                    for &(net, value) in cells {
+                        if affected[net] {
+                            held.push((net, value));
+                        } else {
+                            sum.add(value);
+                        }
+                    }
+                    (sum.partials, held)
+                })
+            };
+            self.sum.partials.clear();
+            self.sum.partials.extend_from_slice(partials);
+            for &(net, value) in held.iter() {
+                if !changed[net] {
                     self.sum.add(value);
                 }
             }
@@ -332,6 +389,7 @@ impl Grid {
             }
             *changes.entry(self.level(self.sum.total())?).or_default() += 1;
         }
+        self.touched = touched;
         let before = *self.counts.keys().next_back().unwrap_or(&0);
         let mut after = 0;
         for &level in self.counts.keys().chain(changes.keys()) {
@@ -399,6 +457,13 @@ impl Layout {
         })
     }
     pub fn terms(&mut self, x: f64, y: f64, turn: usize) -> Result<(f64, f64, f64, f64), String> {
+        let (link, over, area) = self.plain_terms(x, y, turn)?;
+        let congestion = self.congestion_term(x, y, turn)?;
+        Ok((link, over, area, congestion))
+    }
+
+    /// The link, link-over and area terms, priced: what `terms` gives but congestion.
+    pub fn plain_terms(&self, x: f64, y: f64, turn: usize) -> Result<(f64, f64, f64), String> {
         if turn >= self.links.len() {
             return Err("NativeDelta layout turn invalid".into());
         }
@@ -427,24 +492,28 @@ impl Layout {
         } else {
             0.0
         };
+        let terms = (self.weights.0 * link.total(), self.weights.1 * over.total(), self.weights.2 * area);
+        if [terms.0, terms.1, terms.2].iter().any(|v| !v.is_finite()) {
+            return Err("NativeDelta layout terms must be finite".into());
+        }
+        Ok(terms)
+    }
+
+    /// The congestion term, priced.
+    pub fn congestion_term(&mut self, x: f64, y: f64, turn: usize) -> Result<f64, String> {
+        if turn >= self.links.len() {
+            return Err("NativeDelta layout turn invalid".into());
+        }
         let congestion = if let Some(grid) = &mut self.grid {
             grid.change(x, y, turn)? as f64
         } else {
             0.0
         };
-        let terms = (
-            self.weights.0 * link.total(),
-            self.weights.1 * over.total(),
-            self.weights.2 * area,
-            self.weights.3 * congestion,
-        );
-        if [terms.0, terms.1, terms.2, terms.3]
-            .iter()
-            .any(|v| !v.is_finite())
-        {
+        let term = self.weights.3 * congestion;
+        if !term.is_finite() {
             return Err("NativeDelta layout terms must be finite".into());
         }
-        Ok(terms)
+        Ok(term)
     }
 }
 

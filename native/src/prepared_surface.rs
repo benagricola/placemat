@@ -105,6 +105,34 @@ pub struct PreparedSurface {
     nets: HashMap<String, Net>,
     settings: Settings,
     cache_usage: (usize, usize),
+    rest_index: Option<RestIndex>,
+}
+
+// The rest shapes by the Python blocker grid's 2 mm buckets (`near`): a shape is in every bucket its box's
+// floor(/2) range covers. Shapes whose bucket ranges meet a box's are a superset of those that overlap it or
+// are near it, so a judgement that reads them, in index order, reads what a pass over every shape reads.
+struct RestIndex {
+    cells: HashMap<(i64, i64), Vec<usize>>,
+    bans: Vec<usize>,
+}
+impl RestIndex {
+    fn bucket(v: f64) -> i64 {
+        (v / 2.0).floor() as i64
+    }
+    // The rest shapes whose buckets meet `b`'s, and `extra`, ascending, each once.
+    fn near(&self, b: Bounds, extra: &[usize]) -> Vec<usize> {
+        let mut out: Vec<usize> = extra.to_vec();
+        for x in Self::bucket(b.0)..=Self::bucket(b.2) {
+            for y in Self::bucket(b.1)..=Self::bucket(b.3) {
+                if let Some(cell) = self.cells.get(&(x, y)) {
+                    out.extend_from_slice(cell);
+                }
+            }
+        }
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
 }
 fn bounds_union(boxes: impl Iterator<Item = Bounds>) -> Bounds {
     boxes.fold(
@@ -187,6 +215,7 @@ impl PreparedSurface {
         toward: Option<Point>,
         supplemental: bool,
         via_exit: bool,
+        index: &RestIndex,
     ) -> Search {
         let starts: Vec<_> = mine
             .iter()
@@ -206,7 +235,10 @@ impl PreparedSurface {
         let mut bans = Vec::new();
         let mut copper = Vec::new();
         let mut holes = Vec::new();
-        for i in 0..self.contacts.shape_count(candidate, turn) {
+        let rest = self.rest_roles.len();
+        let shapes = index.near(reach, &[]).into_iter()
+            .chain(rest..self.contacts.shape_count(candidate, turn));
+        for i in shapes {
             let s = self.contacts.shape(candidate, turn, i);
             let role = self.role(turn, i);
             if role & HOLE != 0 && overlaps(s.bounds, reach) {
@@ -453,6 +485,7 @@ impl PreparedSurface {
                 lane_via_exit,
             },
             cache_usage: (0, 0),
+            rest_index: None,
         })
     }
 
@@ -553,6 +586,24 @@ impl PreparedSurface {
     fn evaluate_profiled(&mut self, py: Python<'_>, candidate: &mut PreparedCandidate,
         delta: &mut NativeDelta, x: f64, y: f64, turn: usize, inspect: bool,
         profile: &mut Option<Profile>) -> PyResult<Evaluation> {
+        self.check(candidate, delta)?;
+        profiled!(profile, candidate, candidate.evaluate(py, (x, y), turn))?;
+        profiled!(profile, contacts, self.contacts.validate_candidate(py, candidate, turn))?;
+        let (wire, cross) = profiled!(profile, wire_cross,
+            delta.inner.wire_cross(x, y, turn).map_err(PyValueError::new_err))?;
+        let crossed = profiled!(profile, escape_cross,
+            delta.inner.escape_cross(turn, self.settings.depth).map_err(PyValueError::new_err))?;
+        let (vias, away, walled, ways, identities) = self.fields(py, candidate, delta, turn, inspect, profile)?;
+        let layout = delta
+            .layout
+            .as_mut()
+            .ok_or_else(|| PyValueError::new_err("prepared surface layout is not configured"))?;
+        let (link, over, area, congestion) =
+            profiled!(profile, layout, layout.terms(x, y, turn).map_err(PyValueError::new_err))?;
+        Ok(((wire, cross, link, over, area, congestion), crossed, vias, away, walled, ways, identities))
+    }
+
+    fn check(&self, candidate: &PreparedCandidate, delta: &NativeDelta) -> PyResult<()> {
         if !Arc::ptr_eq(&self.identity, &candidate.identity) {
             return Err(PyValueError::new_err(
                 "prepared surface candidate identity changed",
@@ -565,20 +616,66 @@ impl PreparedSurface {
                 "prepared surface delta snapshot changed",
             ));
         }
-        profiled!(profile, candidate, candidate.evaluate(py, (x, y), turn))?;
-        profiled!(profile, contacts, self.contacts.validate_candidate(py, candidate, turn))?;
-        let (wire, cross) = profiled!(profile, wire_cross,
-            delta.inner.wire_cross(x, y, turn).map_err(PyValueError::new_err))?;
-        let crossed = profiled!(profile, escape_cross,
-            delta.inner.escape_cross(turn, self.settings.depth).map_err(PyValueError::new_err))?;
+        Ok(())
+    }
+
+    /// The escape search depth, for the signed escaped-crossing change.
+    pub(crate) fn depth(&self) -> f64 {
+        self.settings.depth
+    }
+
+    /// (vias, away, walled) of a candidate whose wire and crossings `delta` has just solved (`wire_cross` at the
+    /// same x, y and turn): the escape judgements of `evaluate`, without its wire, crossings or layout terms.
+    pub(crate) fn escape_counts(&mut self, py: Python<'_>, candidate: &mut PreparedCandidate,
+        delta: &mut NativeDelta, x: f64, y: f64, turn: usize) -> PyResult<(usize, usize, usize)> {
+        self.check(candidate, delta)?;
+        candidate.evaluate(py, (x, y), turn)?;
+        self.contacts.validate_candidate(py, candidate, turn)?;
+        let (vias, away, walled, _, _) = self.fields(py, candidate, delta, turn, false, &mut None)?;
+        Ok((vias, away, walled))
+    }
+
+    #[allow(clippy::type_complexity)]
+    fn fields(&mut self, py: Python<'_>, candidate: &mut PreparedCandidate, delta: &mut NativeDelta, turn: usize,
+              inspect: bool, profile: &mut Option<Profile>)
+              -> PyResult<(usize, usize, usize, Vec<(String, String, u8)>, Vec<(String, String)>)> {
+        if self.rest_index.is_none() {
+            let mut cells: HashMap<(i64, i64), Vec<usize>> = HashMap::new();
+            let mut bans = Vec::new();
+            for i in 0..self.rest_roles.len() {
+                let b = self.contacts.shape(candidate, turn, i).bounds;
+                for x in RestIndex::bucket(b.0)..=RestIndex::bucket(b.2) {
+                    for y in RestIndex::bucket(b.1)..=RestIndex::bucket(b.3) {
+                        cells.entry((x, y)).or_default().push(i);
+                    }
+                }
+                if self.rest_roles[i] & BAN != 0 {
+                    bans.push(i);
+                }
+            }
+            self.rest_index = Some(RestIndex { cells, bans });
+        }
+        let index = self.rest_index.take().unwrap();
+        let result = self.fields_indexed(py, candidate, delta, turn, inspect, profile, &index);
+        self.rest_index = Some(index);
+        result
+    }
+
+    #[allow(clippy::type_complexity, clippy::too_many_arguments)]
+    fn fields_indexed(&mut self, py: Python<'_>, candidate: &mut PreparedCandidate, delta: &mut NativeDelta,
+                      turn: usize, inspect: bool, profile: &mut Option<Profile>, index: &RestIndex)
+              -> PyResult<(usize, usize, usize, Vec<(String, String, u8)>, Vec<(String, String)>)> {
         let physical: Vec<_> = (0..candidate.turn(turn).shapes.len())
             .filter(|&i| self.moving_roles[turn][i] != 0)
             .map(|i| {
                 let shape = self.contacts.shape(&candidate, turn, self.rest_roles.len() + i);
                 shape.bounds
             }).collect();
+        // A quiet net's pad takes no target (it is judged for walled only), so a candidate on its net changes its
+        // verdict only by standing on or near it, which the region test sees: quiet nets are not touched.
         let touched: HashSet<_> = candidate.turn(turn).shapes.iter().enumerate()
-            .filter(|(i, shape)| self.moving_roles[turn][*i] != 0 && !shape.net.is_empty())
+            .filter(|(i, shape)| self.moving_roles[turn][*i] != 0 && !shape.net.is_empty()
+                    && !self.nets.get(shape.net.as_str()).is_some_and(|n| n.quiet))
             .map(|(_, shape)| shape.net.as_str()).collect();
         let mut reused = 0;
         let mut rejudged = 0;
@@ -593,8 +690,8 @@ impl PreparedSurface {
                 continue;
             }
             // The rest board was already lifted: only added physical geometry
-            // can alter contact/path obstacles. All touched nets are rejudged,
-            // even quiet ones; nearest changes do not need an MST edge change.
+            // can alter contact/path obstacles. All touched signal nets are
+            // rejudged: nearest changes do not need an MST edge change.
             if let Some(cached) = &field.cached {
                 let affected = field.pads.iter().any(|pad| touched.contains(pad.net.as_str()))
                     || cached.iter().any(|pad| physical.iter().any(|bounds| overlaps(pad.region, *bounds)));
@@ -722,7 +819,9 @@ impl PreparedSurface {
                         let track = net.track_width / 2.0 + net.clearance;
                         let mut foes = Vec::new();
                         let mut bans = Vec::new();
-                        for i in 0..self.contacts.shape_count(&candidate, turn) {
+                        let shapes = index.near(region, &index.bans).into_iter()
+                            .chain(self.rest_roles.len()..self.contacts.shape_count(&candidate, turn));
+                        for i in shapes {
                             let s = self.contacts.shape(&candidate, turn, i);
                             let role = self.role(turn, i);
                             if role & CONTACT != 0 && near(s.bounds, region) {
@@ -768,6 +867,7 @@ impl PreparedSurface {
                             aim,
                             false,
                             false,
+                            index,
                         ));
                         way = profiled!(profile, judge, surface::surface_judge(
                             py, pad_lanes, pad_spots, foes, bans, aim, centre, net.quiet, path.path,
@@ -807,6 +907,7 @@ impl PreparedSurface {
                         None,
                         true,
                         self.settings.lane_via_exit,
+                        index,
                     );
                     let search = path;
                     let path = search.path;
@@ -845,12 +946,6 @@ impl PreparedSurface {
                 }
             }
         }
-        let layout = delta
-            .layout
-            .as_mut()
-            .ok_or_else(|| PyValueError::new_err("prepared surface layout is not configured"))?;
-        let (link, over, area, congestion) =
-            profiled!(profile, layout, layout.terms(x, y, turn).map_err(PyValueError::new_err))?;
         let mut identities = if inspect {
             walls
                 .iter()
@@ -862,14 +957,6 @@ impl PreparedSurface {
         };
         identities.sort();
         self.cache_usage = (reused, rejudged);
-        Ok((
-            (wire, cross, link, over, area, congestion),
-            crossed,
-            vias,
-            away,
-            walls.len() + handoffs.len(),
-            ways,
-            identities,
-        ))
+        Ok((vias, away, walls.len() + handoffs.len(), ways, identities))
     }
 }

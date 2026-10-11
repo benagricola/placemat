@@ -408,16 +408,52 @@ def _box_gap(a: Box, b: Box) -> float:
 def search_near(occ) -> list:
     """The copper the judgement's path search judges against: the placed items' pads and the planned copper, leaving
     out what a pending item owns, read from the board as it stands (a via that gave way included)."""
-    return [s for r, h in occ.items.items() if r not in occ.pending for s in h.shapes if s.kind in ("pad", "through")] \
-        + [s for s in occ.copper if s.kind in ("copper", "through") and s.owner not in occ.pending]
+    return _Near([s for r, h in occ.items.items() if r not in occ.pending for s in h.shapes if s.kind in ("pad", "through")]
+                 + [s for s in occ.copper if s.kind in ("copper", "through") and s.owner not in occ.pending], occ)
+
+
+class _Near(list):
+    """`search_near`'s shapes, with what a path search reads of them found by bucket rather than by a pass over all:
+    `overlapping` gives the shapes whose boxes overlap a box, and `extra` the holes and bans `extra_walls` gives, each
+    in the order a pass over the list (or the board) gives them. Built from `occ` as it stood; `extra` reads the board
+    again for any other occupancy."""
+    def __init__(self, shapes, occ):
+        super().__init__(shapes)
+        self.occ = occ
+        self._cells = None
+        self._walls = None
+
+    def overlapping(self, box: Box) -> list:
+        if self._cells is None:
+            self._cells = {}
+            for i, shape in enumerate(self):
+                for c in _cells(shape.box):
+                    self._cells.setdefault(c, []).append(i)
+        found = set()
+        for c in _cells(box):
+            found.update(self._cells.get(c, ()))
+        return [self[i] for i in sorted(found) if self[i].box.overlaps(box)]
+
+    def extra(self, occ, box: Box, net: str) -> tuple:
+        if occ is not self.occ:
+            return extra_walls(occ, box, net)
+        if self._walls is None:
+            self._walls = (
+                [s for r, g in occ.items.items() if r not in occ.pending for s in g.shapes if s.kind == "npth"],
+                [s for pool in ([occ.copper] + [g.shapes for r, g in occ.items.items() if r not in occ.pending])
+                 for s in pool if s.kind == "viaban"])
+        holes, bans = self._walls
+        return ([s for s in holes if s.box.overlaps(box)],
+                [s for s in bans if s.box.overlaps(box) and net not in s.net.split(ALLOW_SEP)])
 
 
 def judging(occ):
     """The Escapes the escape findings and the run score are judged with: the board's own when it keeps
-    `score.escape_depth` (the depth of the walled lanes' and hand-offs' path search), else one at that depth."""
+    `score.escape_depth` (the depth of the walled lanes' and hand-offs' path search), else one at that depth, built
+    without corridors (the judgement does not read them)."""
     depth = occ.settings.score_escape_depth
     esc = occ.escapes()
-    return esc if depth == esc.depth else Escapes(occ, mirror=False, depth=depth)
+    return esc if depth == esc.depth else Escapes(occ, mirror=False, depth=depth, corridors=False)
 
 
 def _pads_of(shapes, ref) -> dict:
@@ -469,9 +505,16 @@ class Escapes:
     """The corridors of every placed pad, which are open, and what copper
     closes them; kept as items commit."""
 
-    def __init__(self, occ, mirror: bool = True, depth: float | None = None):
+    def __init__(self, occ, mirror: bool = True, depth: float | None = None, corridors: bool = True):
         self.occ = occ
         self.depth = occ.settings.place_escape_depth if depth is None else depth
+        # Without corridors the index holds only the blockers and the lanes: what the surface judgement, its
+        # supplemental lane and hand-off checks and the findings read. `confirmed`, `count` and `closed` need them.
+        self.corridors = corridors
+        # The supplemental lane and hand-off checks' exact path search in Rust (`path_out(native=True)`), its twin.
+        self.native_paths = False
+        self._pairs: dict = {}          # (net, net, owner, wire) -> the pair's clearance (`Occupancy.pair_clearance`)
+        self._pairs_of = None           # the rules and geometry `_pairs` was read under
         self._corr: dict = {}           # ref -> [Corridor]
         self._open: dict = {}           # id(corridor) -> bool
         self._cgrid = _Grid()
@@ -513,6 +556,8 @@ class Escapes:
             for s in own:
                 self._bgrid.add(s, s.box)
             changed += own
+            if not self.corridors:
+                continue
             cs = corridors(occ, ref, self.depth)
             self._corr[ref] = cs
             for c in cs:
@@ -681,7 +726,12 @@ class Escapes:
                 lane, clr = track + geom.hole_clearance - nc.clearance, geom.hole_clearance
             elif (s.kind in ("pad", "through", "copper") and (s.net != net or not net)
                   and not (s.owner == ref and s.label == number)):
-                lane, clr = track, occ.pair_clearance(net, s.net, "", s.owner, True, s.wire)[0]
+                if self._pairs_of is None or self._pairs_of[0] is not occ.rules or self._pairs_of[1] is not occ.geometry:
+                    self._pairs, self._pairs_of = {}, (occ.rules, occ.geometry)
+                key = net, s.net, s.owner, s.wire
+                if key not in self._pairs:
+                    self._pairs[key] = occ.pair_clearance(net, s.net, "", s.owner, True, s.wire)[0]
+                lane, clr = track, self._pairs[key]
             else:
                 continue
             out.append((s, max(lane - eps, 0.0) + cell, clr - eps))
@@ -816,9 +866,10 @@ class Escapes:
         track, via = nc.track_width / 2 + nc.clearance, nc.via_diameter / 2 + nc.clearance
         reach = win.inflate(max(track, via))
         near = search_near(occ) if near is None else near
-        walls = [s for s in near if (s.net != net or not net) and not (s.owner == ref and s.label == number)
+        near_reach = near.overlapping(reach) if isinstance(near, _Near) else near
+        walls = [s for s in near_reach if (s.net != net or not net) and not (s.owner == ref and s.label == number)
                  and s.kind != 'npth' and s.box.overlaps(reach)]
-        holes, path_bans = extra_walls(occ, reach, net)
+        holes, path_bans = near.extra(occ, reach, net) if isinstance(near, _Near) else extra_walls(occ, reach, net)
         delta = {id(s): occ.geometry.hole_clearance - nc.clearance for s in holes}
         delta.update({id(s): -nc.clearance for s in path_bans})
         def bounds(b):
@@ -1006,34 +1057,49 @@ class Escapes:
         the placement search (`pad_corridors`: it has nothing to join), so what walls it in is reported once the copper is
         planned. Copper of the pad's own net that stands on it (a stub, an escape's lane) is part of it: the way out is
         looked for from where that copper ends, and a via on it is a way out made."""
-        occ = self.occ
         out = []
+        for ref, pads in self._judged_fields():
+            for number, (net, layers, box) in sorted(pads.items()):
+                by = self._handoff_walled(ref, number, net, layers, box)
+                if by is not None:
+                    out.append((ref, number, net, by))
+        return out
+
+    def _judged_fields(self):
+        """(ref, pads) of each placed footprint whose pads the escape judgement looks at: at least
+        `place.escape_min_pads` of them, by ref."""
+        occ = self.occ
         for ref, g in sorted(occ.items.items()):
             if ref in occ.pending or not occ.geometry.has_footprint(ref):
                 continue
             pads = _pads_of(g.shapes, ref)
-            if len(pads) < occ.settings.place_escape_min_pads:
-                continue
-            for number, (net, layers, box) in sorted(pads.items()):
-                if not net or _net_sizes(occ).get(net, 0) >= 2 or _unconnected(occ, ref, number, net):
-                    continue
-                own = self._own_copper(ref, number, net)
-                if any(s.kind == "through" for s in own):
-                    continue                                # a via is on it: its way out is made
-                reach = Box.union([box] + [s.box for s in own])
-                near = list(self._bgrid.near(reach.inflate(self.depth + 1.0)))
-                if not own and path_out(occ, ref, number, self.depth, near=near):
-                    continue                    # not even the foes' boxes wall it
-                if path_out(occ, ref, number, self.depth, near=near, own=own, exact=True,
-                            via_exit=occ.settings.place_escape_lane_via_exit):
-                    continue
-                window = reach.inflate(self.depth)
-                by = sorted({_by(occ, sh) for sh in near
-                             if (sh.net != net or not net) and not (sh.owner == ref and sh.label == number)
-                             and sh.layers & layers and sh.box.overlaps(window)} | self._holes_and_bans(window, net, layers),
-                            key=str)
-                out.append((ref, number, net, [b for b in by if str(b) != ref] or by))
-        return out
+            if len(pads) >= occ.settings.place_escape_min_pads:
+                yield ref, pads
+
+    def _handoff_walled(self, ref: str, number: str, net: str, layers, box, *, blame: bool = True):
+        """What walls in one pad of `handoffs_walled`, None when it is not such a pad or gets out. `blame` off: an empty
+        list for a walled pad, without naming what walls it."""
+        occ = self.occ
+        if not net or _net_sizes(occ).get(net, 0) >= 2 or _unconnected(occ, ref, number, net):
+            return None
+        own = self._own_copper(ref, number, net)
+        if any(s.kind == "through" for s in own):
+            return None                                     # a via is on it: its way out is made
+        reach = Box.union([box] + [s.box for s in own])
+        near = list(self._bgrid.near(reach.inflate(self.depth + 1.0)))
+        if not own and path_out(occ, ref, number, self.depth, near=near):
+            return None                     # not even the foes' boxes wall it
+        if path_out(occ, ref, number, self.depth, near=near, own=own, exact=True,
+                    via_exit=occ.settings.place_escape_lane_via_exit, native=self.native_paths):
+            return None
+        if not blame:
+            return []
+        window = reach.inflate(self.depth)
+        by = sorted({_by(occ, sh) for sh in near
+                     if (sh.net != net or not net) and not (sh.owner == ref and sh.label == number)
+                     and sh.layers & layers and sh.box.overlaps(window)} | self._holes_and_bans(window, net, layers),
+                    key=str)
+        return [b for b in by if str(b) != ref] or by
 
     def lanes_walled(self) -> list:
         """The pads of nets with other pads whose escape lane (`board.escape`) runs out against copper: (ref, number, net,
@@ -1042,34 +1108,38 @@ class Escapes:
         (a through-hole pad on every layer it spans). A lane that goes on into another pad of the net, a via or a pour is
         made, and a track the script drew from a pad with no lane is the script's. (A pad whose net has no other pad is
         `handoffs_walled`'s.)"""
-        occ = self.occ
         out = []
-        for ref, g in sorted(occ.items.items()):
-            if ref in occ.pending or not occ.geometry.has_footprint(ref):
-                continue
-            pads = _pads_of(g.shapes, ref)
-            if len(pads) < occ.settings.place_escape_min_pads:
-                continue
+        for ref, pads in self._judged_fields():
             for number, (net, layers, box) in sorted(pads.items()):
-                if not net or _net_sizes(occ).get(net, 0) < 2:
-                    continue
-                own = self._own_copper(ref, number, net)
-                if not own or any(s.kind == "through" or not (s.lane or s.wire) for s in own):
-                    continue
-                if self._runs_on(own, ref, number, net):
-                    continue
-                reach = Box.union([box] + [s.box for s in own])
-                near = list(self._bgrid.near(reach.inflate(self.depth + 1.0)))
-                if path_out(occ, ref, number, self.depth, near=near, own=own, exact=True,
-                            via_exit=occ.settings.place_escape_lane_via_exit):
-                    continue
-                window = reach.inflate(self.depth)
-                by = sorted({_by(occ, sh) for sh in near
-                             if sh.net != net and not (sh.owner == ref and sh.label == number)
-                             and sh.layers & layers and sh.box.overlaps(window)} | self._holes_and_bans(window, net, layers),
-                            key=str)
-                out.append((ref, number, net, [b for b in by if str(b) != ref] or by, []))
+                by = self._lane_walled(ref, number, net, layers, box)
+                if by is not None:
+                    out.append((ref, number, net, by, []))
         return out
+
+    def _lane_walled(self, ref: str, number: str, net: str, layers, box, *, blame: bool = True):
+        """What closes one pad's declared lane (`lanes_walled`), None when the pad has no such lane or it goes on.
+        `blame` off: an empty list for a lane that runs out, without naming what closes it."""
+        occ = self.occ
+        if not net or _net_sizes(occ).get(net, 0) < 2:
+            return None
+        own = self._own_copper(ref, number, net)
+        if not own or any(s.kind == "through" or not (s.lane or s.wire) for s in own):
+            return None
+        if self._runs_on(own, ref, number, net):
+            return None
+        reach = Box.union([box] + [s.box for s in own])
+        near = list(self._bgrid.near(reach.inflate(self.depth + 1.0)))
+        if path_out(occ, ref, number, self.depth, near=near, own=own, exact=True,
+                    via_exit=occ.settings.place_escape_lane_via_exit, native=self.native_paths):
+            return None
+        if not blame:
+            return []
+        window = reach.inflate(self.depth)
+        by = sorted({_by(occ, sh) for sh in near
+                     if sh.net != net and not (sh.owner == ref and sh.label == number)
+                     and sh.layers & layers and sh.box.overlaps(window)} | self._holes_and_bans(window, net, layers),
+                    key=str)
+        return [b for b in by if str(b) != ref] or by
 
     def _runs_on(self, own, ref: str, number: str, net: str) -> bool:
         """Whether copper of the pad's own chain stands on another pad of its net: the route is made."""
@@ -1264,11 +1334,21 @@ class EscapeDelta:
     Old moving geometry is absent before this snapshot is built. A different
     net's pad is skipped only when every lane/spot, exact-search window and
     own-copper chain, with maximal foe reach, misses all added geometry.
-    All pads of touched nets are rejudged: raw nearest targets and joins can
-    change without an MST endpoint changing. Supplemental lane/handoff
-    validity remains a full recheck, independent of this pad skip proof.
+    All pads of touched signal nets are rejudged: raw nearest targets and
+    joins can change without an MST endpoint changing. A pad's supplemental lane and
+    hand-off validity is rechecked under the same proof, with its region
+    grown by the margin the native rest cache keeps (`WALL_MARGIN`).
+
+    The rest board's verdicts are judged as a candidate first needs them:
+    `difference` reads only the pads it rejudges, so a caller comparing
+    candidates never judges the whole rest board. `ways` and `counts` judge
+    every pad, once. `native` judges the rest board's pads with the native
+    twins (classification and exact path search), as `change(native=True)`
+    judges a candidate's.
     """
-    def __init__(self, occ, own):
+    WALL_MARGIN = 3.0
+
+    def __init__(self, occ, own, *, native=False):
         self.occ, self.own = occ, frozenset(own)
         self._revision = occ.__dict__.get('_score_revision', 0)
         self._pending, self._frame = frozenset(occ.pending), occ.board_box
@@ -1276,8 +1356,9 @@ class EscapeDelta:
             raise ValueError('EscapeDelta requires the moving item to be lifted')
         # Own index/caches: later verification commits cannot refresh this
         # snapshot through the live occupancy's Escapes object.
-        self.base = Escapes(occ, mirror=False, depth=occ.settings.score_escape_depth)
-        self.ways, self.regions, self.nets = {}, {}, {}
+        self.base = Escapes(occ, mirror=False, depth=occ.settings.score_escape_depth, corridors=False)
+        self.base.native_paths = self.native = native
+        self.regions, self.nets = {}, {}
         for ref in sorted(occ.items):
             if ref in occ.pending or not occ.geometry.has_footprint(ref):
                 continue
@@ -1288,7 +1369,6 @@ class EscapeDelta:
                 if not net:
                     continue
                 key = ref, number
-                self.ways[key] = None
                 self.nets[key] = net
                 chain = self.base._own_copper(ref, number, net)
                 boxes = [box.inflate(max(self.base.depth, occ.settings.score_escape_reach))]
@@ -1299,24 +1379,65 @@ class EscapeDelta:
                 # Includes class/rule/hole clearance and the extra search cell
                 # of the lane subset predicate. This is deliberately broad.
                 self.regions[key] = self.base._reach(Box.union(boxes), net).inflate(occ.settings.place_escape_cell)
-        self.ways.update({(r, n): way for r, n, _, way, _ in self.base.judged()})
-        self.counts = self.base.counts(self.ways)
+        self._wall_regions = {key: region.inflate(self.WALL_MARGIN) for key, region in self.regions.items()}
+        self._ways, self._walls = {}, {}
+        self._judging = None
+        self._crossed = None
+        self._counts = None
 
-    def change(self, view, geometries, copper, *, native=False):
-        """Return candidate counts and number of rejudged pads, signed by caller.
+    def _base_way(self, key):
+        if key not in self._ways:
+            if self._judging is None:
+                self._judging = self.base._bans(), search_near(self.occ)
+            verdict = self.base._verdict(*key, *self._judging, native=self.native)
+            self._ways[key] = None if verdict is None else verdict[0]
+        return self._ways[key]
 
-        `native` uses the proved native classification twin; supplemental
-        validity and snapshot assembly still run in Python. It is a hybrid
-        parity entry point, not the final prepared native candidate kernel.
-        """
+    def _base_walls(self, key):
+        if key not in self._walls:
+            self._walls[key] = _wall_flags(self.base, *key)
+        return self._walls[key]
+
+    @property
+    def ways(self) -> dict:
+        """Every judged rest pad's way (None when it is not judged), by (ref, number)."""
+        return {key: self._base_way(key) for key in self.nets}
+
+    @property
+    def counts(self) -> dict:
+        """The rest board's raw escape counts, as `Escapes.counts` gives them."""
+        if self._counts is None:
+            ways = self.ways
+            counts = {'escape_crossed': self._base_crossed(), 'escape_via': 0, 'escape_closed': 0, 'escape_walled': 0}
+            for key, way in ways.items():
+                _add(counts, way, self._base_walls(key), 1)
+            self._counts = counts
+        return self._counts
+
+    def _base_crossed(self):
+        if self._crossed is None:
+            self._crossed = self.occ.ratsnest().crossed_pairs(self.base.depth)
+        return self._crossed
+
+    def _check(self):
         if not self.own <= self.occ.pending:
             raise ValueError('EscapeDelta snapshot requires the moving item to remain lifted')
         if self.occ.__dict__.get('_score_revision', 0) != self._revision:
             raise ValueError('EscapeDelta occupancy changed; rebuild the lifted snapshot')
         if frozenset(self.occ.pending) != self._pending or self.occ.board_box != self._frame:
             raise ValueError('EscapeDelta pending geometry or frame changed; rebuild the lifted snapshot')
+
+    def difference(self, view, geometries, copper, *, native=False):
+        """(signed raw count changes from the rest board to the candidate, pads rejudged).
+
+        `native` uses the proved native classification twin, and the native
+        exact path search for the supplemental lane and hand-off checks;
+        snapshot assembly still runs in Python. It is a hybrid parity entry
+        point, not the final prepared native candidate kernel.
+        """
+        self._check()
         esc = copy.copy(self.base)
-        esc.occ, esc.mirror, esc.searched = view, None, 0
+        esc.occ, esc.mirror, esc.searched, esc.native_paths = view, None, 0, native
         esc._lane_cache = dict(self.base._lane_cache)
         esc._blockers = dict(self.base._blockers)
         added = []
@@ -1331,17 +1452,70 @@ class EscapeDelta:
         esc._blockers[':copper'] = self.base._blockers.get(':copper', []) + metal
         added += metal
         esc._bgrid = _OverlayGrid(self.base._bgrid, added)
-        touched = {s.net for s in candidate_shapes if s.net}
-        selected = {key for key, net in self.nets.items() if net in touched
-                    or any(self.regions[key].overlaps(s.box) for s in candidate_shapes)}
-        for ref in geometries:
-            selected.update((ref, number) for number in esc._lanes_of(ref)[2])
-        ways = dict(self.ways)
+        # A quiet net's pad takes no target (it is judged for walled only): a candidate on its net changes its verdict
+        # only by standing on or near it, which the region test sees.
+        touched = {s.net for s in candidate_shapes if s.net and s.net not in self.occ.quiet_nets}
+        boxes = [s.box for s in candidate_shapes]
+        selected, walls = set(), set()
+        for key, net in self.nets.items():
+            region = self.regions[key]
+            if net in touched or any(region.overlaps(b) for b in boxes):
+                selected.add(key)
+                walls.add(key)
+            elif any(self._wall_regions[key].overlaps(b) for b in boxes):
+                walls.add(key)
+        moving = {(ref, number) for ref in geometries for number in esc._lanes_of(ref)[2]}
+        out = {'escape_crossed': view.ratsnest().crossed_pairs(esc.depth) - self._base_crossed(),
+               'escape_via': 0, 'escape_closed': 0, 'escape_walled': 0}
         bans, near = esc._bans(), search_near(view)
-        for ref, number in sorted(selected):
-            verdict = esc._verdict(ref, number, bans, near, native=native)
-            ways[ref, number] = None if verdict is None else verdict[0]
-        return esc.counts(ways), len(selected)
+        for key in sorted(selected | walls | moving):
+            if key in moving:
+                before_way, before_walls = None, (False, False)
+            else:
+                before_way, before_walls = self._base_way(key), self._base_walls(key)
+            way, flags = before_way, before_walls
+            if key in selected or key in moving:
+                verdict = esc._verdict(*key, bans, near, native=native)
+                way = None if verdict is None else verdict[0]
+            if key in walls or key in moving:
+                flags = _wall_flags(esc, *key)
+            _add(out, before_way, before_walls, -1)
+            _add(out, way, flags, 1)
+        return out, len(selected | moving)
+
+    def change(self, view, geometries, copper, *, native=False):
+        """Return candidate counts and number of rejudged pads, signed by caller."""
+        difference, rejudged = self.difference(view, geometries, copper, native=native)
+        return {kind: self.counts[kind] + value for kind, value in difference.items()}, rejudged
+
+
+def native_judge() -> bool:
+    """Whether the native escape judgement twins are built: the classification (`surface_judge`) and the exact path
+    search (`surface_path_out`)."""
+    from .geometry import _native
+    return _native is not None and hasattr(_native, 'surface_judge') and hasattr(_native, 'surface_path_out')
+
+
+def _wall_flags(esc, ref, number) -> tuple:
+    """(its declared lane runs out, it is a walled hand-off) for one pad, as `lanes_walled` and `handoffs_walled` judge it
+    where `esc`'s board stands."""
+    pads = _pads_of(esc.occ.items[ref].shapes, ref)
+    if len(pads) < esc.occ.settings.place_escape_min_pads or number not in pads:
+        return False, False
+    net, layers, box = pads[number]
+    return (esc._lane_walled(ref, number, net, layers, box, blame=False) is not None,
+            esc._handoff_walled(ref, number, net, layers, box, blame=False) is not None)
+
+
+def _add(counts, way, walls, sign) -> None:
+    """Add one pad's way and wall flags into raw escape counts, as `Escapes.counts` counts them: a pad is walled once
+    whether its way or its declared lane walls it, and a walled hand-off once more."""
+    lane, handoff = walls
+    if way is Way.VIA:
+        counts['escape_via'] += sign
+    elif way is Way.AWAY:
+        counts['escape_closed'] += sign
+    counts['escape_walled'] += sign * (int(way is Way.WALLED or lane) + int(handoff))
 
 
 def path_out(occ, ref: str, number: str, depth: float | None = None, toward=None, near=None, own=(),
@@ -1373,9 +1547,10 @@ def path_out(occ, ref: str, number: str, depth: float | None = None, toward=None
     if near is None:
         near = [s for r, h in occ.items.items() if r not in occ.pending for s in h.shapes
                 if s.kind in ("pad", "through")] + [s for s in occ.copper if s.kind in ("copper", "through")]
-    foes = [s for s in near if (s.net != net or not net) and not (s.owner == ref and s.label == number)
+    near_reach = near.overlapping(reach) if isinstance(near, _Near) else near
+    foes = [s for s in near_reach if (s.net != net or not net) and not (s.owner == ref and s.label == number)
             and s.kind != "npth" and s.box.overlaps(reach)]
-    holes, bans = extra_walls(occ, reach, net)
+    holes, bans = near.extra(occ, reach, net) if isinstance(near, _Near) else extra_walls(occ, reach, net)
     # a hole keeps a track `hole_clearance` off its edge, a via ban nothing but the via's own ring: each as the foe it is,
     # by how much its reach differs from a copper clearance
     delta = {id(h): occ.geometry.hole_clearance - nc.clearance for h in holes}

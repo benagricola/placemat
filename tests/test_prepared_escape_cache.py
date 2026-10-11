@@ -52,14 +52,17 @@ def test_rest_field_cache_matches_all_per_pad_outcomes_and_rechecks_near_geometr
                 assert rejudged > 2
 
 
-def test_rest_cache_rechecks_distant_same_net_even_without_near_geometry():
+def test_rest_cache_rechecks_distant_signal_net_but_not_distant_quiet_net():
     board, plan, delta = scene(quiet=True)
-    # Every net in the moving item is invalidated, including a quiet one.
+    # A signal net in the moving item is invalidated wherever its pads stand; a quiet net's pad takes no target, so
+    # only geometry near it can change its verdict.
     cached, reason = prepare(delta, (0,), Face.FRONT, rest_cache=True)
     assert cached is not None, reason
+    plain, reason = prepare(delta, (0,), Face.FRONT)
+    assert plain is not None, reason
     pose = replace(delta.occ._geometry(delta.item).reference, location=Location(50, 70))
-    cached.evaluate(pose, 0)
-    assert cached.surface.cache_usage() == (2, 3)
+    assert cached.evaluate(pose, 0, inspect=True) == plain.evaluate(pose, 0, inspect=True)
+    assert cached.surface.cache_usage() == (3, 2)
 
 
 def test_cached_snapshot_refuses_settings_and_rule_source_replacement():

@@ -556,3 +556,25 @@ def test_actual_area_prices_trade_fitted_size_for_wire_length():
     assert len({pose for pose, _, _ in rows}) == 3
     assert rows[0][1] > rows[1][1] > rows[2][1]
     assert rows[0][2] < rows[1][2] < rows[2][2]
+
+
+@pytest.mark.parametrize('crossing', [False, True])
+def test_pruned_native_scan_keeps_the_exhaustive_seeds_and_winner(monkeypatch, crossing):
+    """R13: the native sweep prunes on proved bounds only past the `place.refine_spots`-th best weighed cost, so a
+    scan's coarse seeds, and so its winner and standing, are the exhaustive scan's."""
+    if not hasattr(geometry._native, 'NativeDeltaScoring'):
+        pytest.skip('complete native sweep scorer unavailable')
+    monkeypatch.setattr(placer, 'NATIVE_SWEEP', True)
+    runs = {}
+    for prune in (False, True):
+        board, item, plan = triangle(crossing)
+        occ = plan.occupancy
+        hint = occ._geometry(item).reference
+        occ.lift({item.ref})
+        scoring = MSTScorer(board, occ, item, plan=plan, prune=prune)
+        result = placer.scan(occ, item, hint, 8.0, 0.25, rotations=(0, 90), clearance=board.geometry.default_clearance,
+                             score=scoring)
+        native = scoring.native((0, 90), Face.FRONT)
+        runs[prune] = (result.chosen, result.walled, result.score, native.pruned)
+    assert runs[True][:3] == runs[False][:3]
+    assert runs[False][3] == 0 and runs[True][3] > 0, runs

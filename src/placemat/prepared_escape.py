@@ -95,7 +95,8 @@ def prepare(delta, rotations, face, *, rest_cache=False):
     if candidate is None:
         return None, 'source polygon snapshot unsupported'
     occ = delta.occ
-    base = judging(occ)
+    # The rest cache needs the lifted board's escape snapshot, whose index is the one `judging` would build here.
+    base = delta._escape_delta.base if rest_cache else judging(occ)
     contact = [s for pool in base._blockers.values() for s in pool]
     path = search_near(occ)
     holes = [s for ref, g in occ.items.items() if ref not in occ.pending for s in g.shapes if s.kind == 'npth']
@@ -161,8 +162,14 @@ def prepare(delta, rotations, face, *, rest_cache=False):
         nc = geom.netclass(net)
         clearance = max(nc.clearance, geom.hole_clearance, rules, class_clearance)
         reach = max(nc.track_width / 2.0, nc.via_diameter / 2.0) + clearance
-        pairs = [occ.pair_clearance(net, s.net, '', s.owner, True, s.wire)[0]
-                 if role & CONTACT and s.kind in ('pad', 'through', 'copper') and s.net != net else 0.0
+        clearances = {}
+
+        def pair(s):
+            key = s.net, s.owner, s.wire
+            if key not in clearances:
+                clearances[key] = occ.pair_clearance(net, s.net, '', s.owner, True, s.wire)[0]
+            return clearances[key]
+        pairs = [pair(s) if role & CONTACT and s.kind in ('pad', 'through', 'copper') and s.net != net else 0.0
                  for s, role in zip(rest + list(moving_shapes[0]), rest_roles + moving_roles[0])]
         net_records.append((net, sizes.get(net, 0), net in occ.quiet_nets, nc.track_width, nc.clearance,
                             nc.via_diameter, nc.via_drill, reach, pairs))
@@ -177,8 +184,8 @@ def prepare(delta, rotations, face, *, rest_cache=False):
         baseline = delta._escape_delta
         from .escapes import Way
         regular = {key for key, way in baseline.ways.items() if way is Way.WALLED}
-        declared = {(r, n) for r, n, *_ in baseline.base.lanes_walled()}
-        handoffs = {(r, n) for r, n, *_ in baseline.base.handoffs_walled()}
+        declared = {key for key in baseline.nets if baseline._base_walls(key)[0]}
+        handoffs = {key for key in baseline.nets if baseline._base_walls(key)[1]}
         numbers = {None: 4, Way.SURFACE: 0, Way.VIA: 1, Way.AWAY: 2, Way.WALLED: 3}
         records = []
         moving_owners = {shape.owner for shape in moving_shapes[0]}
@@ -192,7 +199,7 @@ def prepare(delta, rotations, face, *, rest_cache=False):
                 # and supplemental depth+1 grid prefilter. The full baseline
                 # region already includes every lane/spot and own-copper chain
                 # with maximal class/rule/hole/via reach and one search cell.
-                region = baseline.regions[key].inflate(3.0)
+                region = baseline._wall_regions[key]
                 cached.append((number, net, unconnected, numbers[baseline.ways.get(key)],
                                (region.left, region.top, region.right, region.bottom),
                                key in regular or key in declared, key in handoffs))

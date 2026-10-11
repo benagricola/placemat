@@ -282,8 +282,8 @@ def test_native_turn_diagnostic_matches_exact_python_notices_and_changes(tmp_pat
     plan = b.resolve()
     original = prepared_escape.prepare
     supported = []
-    def counted(*args):
-        result = original(*args)
+    def counted(*args, **kwargs):
+        result = original(*args, **kwargs)
         supported.append(result[0] is not None)
         return result
     monkeypatch.setattr(prepared_escape, 'prepare', counted)
@@ -292,7 +292,7 @@ def test_native_turn_diagnostic_matches_exact_python_notices_and_changes(tmp_pat
     native_facts = [f.facts for f in turns(plan)]
     assert any(supported), 'test must exercise complete native diagnostics'
     assert native_facts
-    monkeypatch.setattr(prepared_escape, 'prepare', lambda *args: (None, 'forced independent oracle'))
+    monkeypatch.setattr(prepared_escape, 'prepare', lambda *args, **kwargs: (None, 'forced independent oracle'))
     plan.findings = []
     b._report_turns(plan.occupancy, plan)
     assert [f.facts for f in turns(plan)] == native_facts
@@ -307,7 +307,7 @@ def test_native_turn_failure_restores_every_occupancy_state(tmp_path, monkeypatc
     class Failing:
         def evaluate(self, *args):
             raise RuntimeError('injected native candidate failure')
-    monkeypatch.setattr('placemat.prepared_escape.prepare', lambda *args: (Failing(), None))
+    monkeypatch.setattr('placemat.prepared_escape.prepare', lambda *args, **kwargs: (Failing(), None))
     with pytest.raises(RuntimeError, match='injected native candidate failure'):
         b._report_turns(occ, plan)
     assert (dict(occ.items), tuple(occ.copper), frozenset(occ.pending), score.whole(b, occ, plan)) == before
@@ -343,8 +343,8 @@ def test_native_and_python_turn_decisions_match_one_ulp_around_gain_threshold(tm
         occ.unlift(own)
     real_prepare = prepared_escape.prepare
     supported = []
-    def native(*args):
-        result = real_prepare(*args)
+    def native(*args, **kwargs):
+        result = real_prepare(*args, **kwargs)
         supported.append(result[0] is not None)
         return result
     for limit in (math.nextafter(gain, -math.inf), gain, math.nextafter(gain, math.inf)):
@@ -353,7 +353,7 @@ def test_native_and_python_turn_decisions_match_one_ulp_around_gain_threshold(tm
         plan.findings = []
         b._report_turns(occ, plan)
         native_facts = [f.facts for f in turns(plan)]
-        monkeypatch.setattr(prepared_escape, 'prepare', lambda *args: (None, 'forced independent oracle'))
+        monkeypatch.setattr(prepared_escape, 'prepare', lambda *args, **kwargs: (None, 'forced independent oracle'))
         plan.findings = []
         b._report_turns(occ, plan)
         assert [f.facts for f in turns(plan)] == native_facts, limit
@@ -362,7 +362,7 @@ def test_native_and_python_turn_decisions_match_one_ulp_around_gain_threshold(tm
 
 def test_cheaper_turn_cannot_increase_walled_pad_evidence(tmp_path, monkeypatch):
     from placemat import score_delta
-    monkeypatch.setattr('placemat.prepared_escape.prepare', lambda *args: (None, 'injected oracle'))
+    monkeypatch.setattr('placemat.prepared_escape.prepare', lambda *args, **kwargs: (None, 'injected oracle'))
     body = BODY.replace('at=Near(Location(25, 25)), radius=3.0, rotations=(0, 180)',
                         'at=Location(25, 25), rotation=180')
     b, _ = board(tmp_path, body)
@@ -381,6 +381,12 @@ def test_cheaper_turn_cannot_increase_walled_pad_evidence(tmp_path, monkeypatch)
                 self.base = result
                 return result
             return dataclasses.replace(result, walled=self.base.walled + 1)
+        def relative(self, placement):
+            terms, walled = self.delta.relative(placement)
+            if self.base is None:
+                self.base = walled
+                return terms, walled
+            return terms, self.base + 1
     monkeypatch.setattr(score_delta, 'Delta', WithNewWall)
     plan.findings = [f for f in plan.findings if f.cause is not C.TURN_BETTER]
     b._report_turns(plan.occupancy, plan)
@@ -473,17 +479,17 @@ def test_outline_free_turns_share_nonzero_congestion_domain_and_restore_it(tmp_p
             domains.append(self.grid.board)
             assert self.occ.board_box is None
             congestion.append(self.grid.steps())
-        def __call__(self, placement, *args, **kwargs):
+        def relative(self, placement):
             before = score.whole(self.board, self.occ, self.plan)
             view, _, _ = self._view(placement)
             after = score.whole(self.board, view, self.plan)
             congestion.append(after['congestion'])
-            result = super().__call__(placement, *args, **kwargs)
-            assert result.terms == pytest.approx({k: after[k] - before[k] for k in result.terms}, abs=1e-6)
-            changes.append(result.terms['congestion'])
-            return result
+            terms, walled = super().relative(placement)
+            assert terms == pytest.approx({k: after[k] - before[k] for k in terms}, abs=1e-6)
+            changes.append(terms['congestion'])
+            return terms, walled
     monkeypatch.setattr(score_delta, 'Delta', CheckedDelta)
-    monkeypatch.setattr(prepared_escape, 'prepare', lambda *args: (None, 'independent Python oracle'))
+    monkeypatch.setattr(prepared_escape, 'prepare', lambda *args, **kwargs: (None, 'independent Python oracle'))
     plan.findings = []
     b._report_turns(occ, plan)
     assert domains and len(set(domains)) == 1
@@ -506,7 +512,7 @@ def test_outline_free_turn_exception_restores_scoring_domain_and_lifts(tmp_path,
     class Failing:
         def evaluate(self, *args):
             raise RuntimeError('outline-free candidate failure')
-    monkeypatch.setattr('placemat.prepared_escape.prepare', lambda *args: (Failing(), None))
+    monkeypatch.setattr('placemat.prepared_escape.prepare', lambda *args, **kwargs: (Failing(), None))
     with pytest.raises(RuntimeError, match='outline-free candidate failure'):
         b._report_turns(occ, plan)
     assert (dict(occ.items), tuple(occ.copper), frozenset(occ.pending)) == before
@@ -523,8 +529,8 @@ def test_outline_free_turn_native_and_python_share_frozen_domain(tmp_path, monke
     plan.occupancy.board_box = None
     real_prepare = prepared_escape.prepare
     supported = []
-    def observed(*args):
-        result = real_prepare(*args)
+    def observed(*args, **kwargs):
+        result = real_prepare(*args, **kwargs)
         supported.append(result[0] is not None)
         return result
     monkeypatch.setattr(prepared_escape, 'prepare', observed)
@@ -532,7 +538,7 @@ def test_outline_free_turn_native_and_python_share_frozen_domain(tmp_path, monke
     b._report_turns(plan.occupancy, plan)
     native_facts = [finding.facts for finding in turns(plan, 'term')]
     assert native_facts and any(supported), 'must exercise the actual complete native evaluator'
-    monkeypatch.setattr(prepared_escape, 'prepare', lambda *args: (None, 'forced Python oracle'))
+    monkeypatch.setattr(prepared_escape, 'prepare', lambda *args, **kwargs: (None, 'forced Python oracle'))
     plan.findings = []
     b._report_turns(plan.occupancy, plan)
     assert [finding.facts for finding in turns(plan, 'term')] == native_facts
@@ -557,3 +563,18 @@ def test_delta_refuses_changed_scoring_domain_without_changing_physical_edge(tmp
             assert occ.board_box == physical
         finally:
             occ.unlift({'R1', 'R2'})
+
+
+def test_native_escape_judgement_gives_the_python_oracles_turn_advice(tmp_path, monkeypatch):
+    """The turn check judges escapes with the native twins when they are built (`escapes.native_judge`); the Python
+    oracle's advice is the same."""
+    from placemat import escapes, prepared_escape
+    if not escapes.native_judge():
+        pytest.skip('native escape judgement not built')
+    monkeypatch.setattr(prepared_escape, 'prepare', lambda *args, **kwargs: (None, 'the Python delta'))
+    found = {}
+    for native in (True, False):
+        monkeypatch.setattr(escapes, 'native_judge', lambda native=native: native)
+        plan, _ = locked_at(tmp_path, 180.0)
+        found[native] = [f.facts for f in turns(plan)]
+    assert found[True] == found[False] and found[True]

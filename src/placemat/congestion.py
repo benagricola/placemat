@@ -83,6 +83,11 @@ def rudy(pads, board: Box, layers: int, pitch: float, cell: float = 0.5, skip=fr
                 Location(x_org, y_org))
 
 
+def _box_of(points) -> tuple:
+    """(x0, x1, y0, y1) of the points."""
+    return (min(p.x for p in points), max(p.x for p in points), min(p.y for p in points), max(p.y for p in points))
+
+
 def _floored(x0, x1, y0, y1, floor):
     """A net's box widened about its centre to at least `floor` each way.
     placemat's own rule (no upstream RUDY handles a thin box): a short net along
@@ -121,6 +126,7 @@ class RudyGrid:
         self.capacity = layers * cell * cell / pitch
         self.demand = [0.0] * (self.nx * self.ny)
         self.nets = {}
+        self.boxes = {}                                     # net -> its pads' box (x0, x1, y0, y1), two pads or more
         self.cells = [{} for _ in self.demand]
         self.counts = {0: len(self.demand)}
 
@@ -130,8 +136,12 @@ class RudyGrid:
     def _contribution(self, points):
         if len(points) < 2:
             return {}
-        x0, x1 = min(p.x for p in points), max(p.x for p in points)
-        y0, y1 = min(p.y for p in points), max(p.y for p in points)
+        return self._box_contribution(_box_of(points))
+
+    def _box_contribution(self, raw):
+        """A net's demand by cell from its pads' box (two pads or more): min and max are exact, so the same box gives
+        the same demand bit for bit."""
+        x0, x1, y0, y1 = raw
         wire = (x1 - x0) + (y1 - y0)
         x0, x1, y0, y1 = _floored(x0, x1, y0, y1, self.box)
         density = max(wire, self.cell) / ((x1 - x0) * (y1 - y0))
@@ -154,12 +164,17 @@ class RudyGrid:
             self.counts[new] = self.counts.get(new, 0) + 1
 
     def add_net(self, net, points):
+        if len(points) >= 2 and self.boxes.get(net) == _box_of(points):
+            return                      # the same box: the same demand, bit for bit
         self.remove_net(net)
         contribution = self._contribution(points)
         self.nets[net] = contribution
+        if len(points) >= 2:
+            self.boxes[net] = _box_of(points)
         self._apply(net, contribution)
 
     def remove_net(self, net):
+        self.boxes.pop(net, None)
         contribution = self.nets.pop(net, None)
         if contribution is not None:
             self._apply(net, contribution, remove=True)
@@ -172,7 +187,12 @@ class RudyGrid:
 
     def change(self, replacements):
         """Signed worst-step change for {net: points}; never mutate this grid."""
-        contributions = {net: self._contribution(points) for net, points in replacements.items()}
+        contributions = {}
+        for net, points in replacements.items():
+            raw = _box_of(points) if len(points) >= 2 else None
+            if raw is not None and self.boxes.get(net) == raw:
+                continue                # its box as it was: its demand is the same, bit for bit
+            contributions[net] = {} if raw is None else self._box_contribution(raw)
         touched = set()
         for net, contribution in contributions.items():
             touched.update(self.nets.get(net, {}))
@@ -185,7 +205,7 @@ class RudyGrid:
                 del counts[old]
             # Re-sum only changed cells. Compensated summation prevents
             # repeated lift/commit subtraction drift at a step boundary.
-            value = math.fsum([amount for net, amount in self.cells[index].items() if net not in replacements]
+            value = math.fsum([amount for net, amount in self.cells[index].items() if net not in contributions]
                               + [c[index] for c in contributions.values() if index in c])
             new = self._step(value)
             counts[new] = counts.get(new, 0) + 1

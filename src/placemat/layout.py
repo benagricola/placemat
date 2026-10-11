@@ -5005,7 +5005,7 @@ class Board:
         escape lane it would block (`lanes`). See `Scorer`."""
         if self.settings.place_search_wire == 'mst':
             from .score_search import MSTScorer
-            return MSTScorer(self, occ, item, plan=plan, pushes=pushes, lanes=lanes)
+            return MSTScorer(self, occ, item, plan=plan, pushes=pushes, lanes=lanes, prune=prune)
         return Scorer(self.settings, item, occ, targets, prune, pushes, lanes)
 
     def _push_source_point(self, occ: Occupancy, plan: Plan, source) -> Location:
@@ -5659,6 +5659,7 @@ class Board:
             if st.placement is not None:
                 last[st.item] = st
         from .score_delta import Delta
+        from .escapes import native_judge
         for i in self._placements():
             if i.kind not in ("part", "cell") or i.tangent is not None or i.outward:
                 continue
@@ -5695,17 +5696,32 @@ class Board:
             best = None
             occ.lift(lifted)
             try:
+                # Legality first: an item no other turn is legal for is not scored at all.
+                turns = []
+                for turn_index, rot in enumerate(others, 1):
+                    turn = dataclasses.replace(base, rotation=base.rotation + rot - here)
+                    c = occ.body_box(item, turn).center
+                    q = dataclasses.replace(turn, location=Location(base.location.x + centre.x - c.x,
+                                                                    base.location.y + centre.y - c.y))
+                    if legal(q):
+                        turns.append((turn_index, rot, q))
+                if not turns:
+                    continue
                 delta = Delta(self, occ, item, plan.links, plan=plan)
+                delta.escape_native = native_judge()
                 if not delta.scorable(base):
                     continue
                 from .prepared_escape import prepare
                 rotations = [base.rotation] + [base.rotation + rot - here for rot in others]
-                prepared, _ = prepare(delta, rotations, base.face)
+                # The rest board's escape fields judged once (natively, `escape_native`), each turn rejudging only
+                # the fields it can change: the native cache, as the search keeps it.
+                prepared, _ = prepare(delta, rotations, base.face, rest_cache=True)
 
                 def measured(q, turn):
                     if prepared is None:
-                        change = delta(q)
-                        return change.terms, change.walled
+                        # The walled count signed from the rest board: it serves the same comparison, and spares
+                        # judging every rest pad for an absolute count.
+                        return delta.relative(q)
                     raw, crossed, vias, closed, walled, _, _ = prepared.evaluate(q, turn)
                     terms = dict(zip(('airwire', 'crossings', 'link', 'link_over', 'area', 'congestion'), raw))
                     terms.update(escape_crossed=s.score_escape_crossed * crossed,
@@ -5719,12 +5735,8 @@ class Board:
 
                 now, now_walled = measured(base, 0)
                 own_wire = max(0.0, now['airwire'] + now['link'])
-                for turn_index, rot in enumerate(others, 1):
-                    turn = dataclasses.replace(base, rotation=base.rotation + rot - here)
-                    c = occ.body_box(item, turn).center
-                    q = dataclasses.replace(turn, location=Location(base.location.x + centre.x - c.x,
-                                                                    base.location.y + centre.y - c.y))
-                    if not legal(q) or not delta.scorable(q):
+                for turn_index, rot, q in turns:
+                    if not delta.scorable(q):
                         continue
                     then, then_walled = measured(q, turn_index)
                     change = {term: then[term] - value for term, value in now.items()}

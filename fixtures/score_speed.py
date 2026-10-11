@@ -84,6 +84,116 @@ def runtime_identity(paths, native_path):
             'versions': {'native': asdict(geometry.native_status()), 'pcb': version(pcb), 'kicad_cli': version(kicad)}}
 
 
+SPLIT_SAMPLE = 200      # legal candidates the per-stage split profiles, per item
+
+
+def stage_split(board, occ, item, plan, rotations, face, legal, python, scored):
+    """Where an item's MST scoring time goes, on a fresh snapshot of the lifted board: setup by stage (the Python Delta,
+    its escape baseline, the native non-escape kernel, the candidate polygons, the escape surface), then per candidate
+    by stage. A native item's candidate stages are the surface's own profile (`PreparedSurface.profile`, timer overhead
+    included); a Python item's are the Delta's own calls, timed round each, and the rest as glue."""
+    from placemat.prepared_escape import prepare
+    from placemat.score_delta import Delta
+    setup = {}
+
+    def clock(name, call):
+        start = time.perf_counter_ns()
+        result = call()
+        setup[name] = (time.perf_counter_ns() - start) / 1000
+        return result
+    delta = clock('delta_init_us', lambda: Delta(board, occ, item, plan.links, plan=plan))
+    clock('escape_base_us', lambda: delta._escape_delta)
+    clock('native_kernel_us', lambda: delta.native(rotations, face))
+    clock('native_shapes_us', lambda: delta.native_shapes(rotations, face))
+    prepared, _ = clock('surface_us', lambda: prepare(delta, rotations, face, rest_cache=True))
+    rows = legal[:SPLIT_SAMPLE]
+    stages = {}
+    if not python and prepared is not None:
+        for placement, turn in rows:
+            _, timings = prepared.surface.profile(prepared.candidate, prepared.scoring,
+                                                  placement.location.x, placement.location.y, turn)
+            for name, value in timings:
+                stages[name] = stages.get(name, 0.0) + value / len(rows)
+        return {'setup_us': setup, 'candidate_us': stages, 'path': 'native', 'sampled': len(rows)}
+    timers = {}
+
+    def wrap(name, call):
+        def timed_call(*args, **kwargs):
+            start = time.perf_counter_ns()
+            try:
+                return call(*args, **kwargs)
+            finally:
+                timers[name] = timers.get(name, 0.0) + (time.perf_counter_ns() - start) / 1000
+        return timed_call
+    for name in ('_view', '_candidate_ratsnest', '_crossing_change', '_escape_change', '_congestion_points'):
+        setattr(scored, name, wrap(name, getattr(scored, name)))
+    if scored.grid is not None:
+        scored.grid.change = wrap('congestion', scored.grid.change)
+    start = time.perf_counter_ns()
+    try:
+        for placement, _ in rows:
+            scored(placement)
+    finally:
+        for name in ('_view', '_candidate_ratsnest', '_crossing_change', '_escape_change', '_congestion_points'):
+            scored.__dict__.pop(name, None)
+        if scored.grid is not None:
+            scored.grid.__dict__.pop('change', None)
+    total = (time.perf_counter_ns() - start) / 1000
+    stages = {name + '_us': value / len(rows) for name, value in timers.items()}
+    stages['total_us'] = total / len(rows)
+    stages['glue_wire_link_us'] = stages['total_us'] - sum(v for k, v in stages.items() if k != 'total_us')
+    return {'setup_us': setup, 'candidate_us': stages, 'path': 'python', 'sampled': len(rows)}
+
+
+def script_board(script):
+    """(a maker of the Board a run builds from `script`, with the script run against it; the board's settings). The
+    board folder must hold a generated board already (a `placemat run` of it made one)."""
+    from placemat import runner, settings
+    script = pathlib.Path(script).resolve()
+    src = runner.find_board(script)
+    cfg = settings.load(src.board_dir, script=script)
+    fab = runner.fab_profile(src.board_dir)
+    return (lambda: runner.scripted_board(script, src, cfg, fab, True)), cfg
+
+
+def core_board(g, written, fixed):
+    """The generated core as the bench lays it out: the written board's outline, every cell and loose part placed,
+    searched (`fixed` False) or at the written board's poses."""
+    from placemat.layout import Board
+    from placemat.occupancy import Occupancy
+    from placemat.values import Cell, Part
+    board = Board(g, keep_going=True)
+    board.outline(written.board_polygon[0], holes=written.board_polygon[1:])
+    for name, cell in sorted(g.cells.items()):
+        if cell.members:
+            if fixed:
+                pose = Occupancy(g)._geometry(cell).reference
+                board.place(Cell(name), at=pose.location, rotation=pose.rotation, face=pose.face)
+            else:
+                board.place(Cell(name))
+    for fp in sorted(g.footprints, key=lambda f: f.inst):
+        if fp.cell is None:
+            if fixed:
+                board.place(Part(fp.inst), at=fp.location, rotation=fp.rotation, face=fp.face)
+            else:
+                board.place(Part(fp.inst))
+    return board
+
+
+def split_medians(rows):
+    """Per path (native, python): the median of each setup and candidate stage over the items."""
+    out = {}
+    for path in ('native', 'python'):
+        splits = [r['split'] for r in rows if r.get('split', {}).get('path') == path]
+        if not splits:
+            continue
+        out[path] = {'items': len(splits)}
+        for part in ('setup_us', 'candidate_us'):
+            names = sorted({name for s in splits for name in s[part]})
+            out[path][part] = {name: statistics.median(s[part].get(name, 0.0) for s in splits) for name in names}
+    return out
+
+
 def measure(board, plan, step, *, count, repeats):
     from placemat.board_geometry import Footprint, members_of
     from placemat.layout import Scorer
@@ -130,6 +240,7 @@ def measure(board, plan, step, *, count, repeats):
         kernel = delta.native(rotations, original.face)
         six_us = timed(lambda row: kernel.terms(row[0].location.x, row[0].location.y, row[1]), legal, repeats) \
             if kernel is not None else None
+        split = stage_split(board, occ, item, plan, rotations, original.face, legal, full is None, delta)
         return {'item': step.item, 'kind': 'part' if isinstance(item, Footprint) else 'cell',
                 'attempted': count, 'legal': len(legal), 'lift_us': lift_us,
                 'old_setup_us': old_setup_us, 'delta_setup_us': setup_us,
@@ -143,7 +254,7 @@ def measure(board, plan, step, *, count, repeats):
                 'production_sweep_timing': 'actual resolve records separately',
                 'six_term_us': six_us,
                 'escape_increment_estimate_us': None if six_us is None else delta_us - six_us,
-                'split_status': 'six-term combined; independent per-term instrumentation pending'}
+                'split': split}
     finally:
         start = time.perf_counter_ns()
         occ.unlift(lifted)
@@ -185,6 +296,8 @@ def resolve_measure(board):
             key = getattr(item, 'name', None) or getattr(item, 'ref', None)
             stats['commit_events'].append({'item': key if key is not None else str(item), 'us': elapsed})
     def run(self, triples, *args, **kwargs):
+        scoring = args[1] if len(args) > 1 else kwargs.get('scoring')
+        pruned = getattr(scoring, 'pruned', 0)
         start = time.perf_counter_ns()
         result = originals[1][2](self, triples, *args, **kwargs)
         stats['native_passes'] += 1
@@ -192,13 +305,14 @@ def resolve_measure(board):
         stats['native_legal'] += len(result[0])
         elapsed = (time.perf_counter_ns() - start) / 1000
         stats['native_sweep_us'] += elapsed
-        scoring = args[1] if len(args) > 1 else kwargs.get('scoring')
         kind = type(scoring).__name__ if scoring is not None else 'legality_only'
-        row = stats['native_passes_by_scorer'].setdefault(kind, {'calls': 0, 'attempted': 0, 'legal': 0, 'us': 0.0})
+        row = stats['native_passes_by_scorer'].setdefault(kind, {'calls': 0, 'attempted': 0, 'legal': 0, 'us': 0.0,
+                                                                  'pruned': 0})
         row['calls'] += 1
         row['attempted'] += len(triples)
         row['legal'] += len(result[0])
         row['us'] += elapsed
+        row['pruned'] += getattr(scoring, 'pruned', 0) - pruned
         return result
     def scorer(self, *args, **kwargs):
         start = time.perf_counter_ns()
@@ -292,11 +406,14 @@ def main(argv=None):
     parser.add_argument('--search', choices=('clique', 'mst', 'both'), default='both')
     parser.add_argument('--core', action='store_true', help='also time actual generated-core search')
     parser.add_argument('--core-fixed', action='store_true', help='also measure written-core fixed poses separately')
+    parser.add_argument('--no-modules', action='store_true', help='measure no bench module (only --core or --board)')
+    parser.add_argument('--board', action='append', default=[], metavar='SCRIPT',
+                        help='also measure the layout script of a board folder that a run has generated (repeatable)')
     args = parser.parse_args(argv)
     if args.items < 0 or args.candidates < 1 or args.repeats < 1:
         parser.error('items must be nonnegative; candidates and repeats must be positive')
     from fixtures import bench
-    paths = [p for p in bench.boards() if not args.names or bench._name(p) in args.names]
+    paths = [] if args.no_modules else [p for p in bench.boards() if not args.names or bench._name(p) in args.names]
     unknown = set(args.names) - {bench._name(p) for p in paths}
     if unknown:
         parser.error('unknown modules: ' + ', '.join(sorted(unknown)))
@@ -323,29 +440,10 @@ def main(argv=None):
                 make = bench.ModuleBoard(g, {}, bench._planes(g), bench._size(g, False))
                 rows.extend(run_fixture(bench._name(path), make, args, mode))
         if args.core or args.core_fixed:
-            from placemat.layout import Board
-            from placemat.occupancy import Occupancy
-            from placemat.values import Cell, Part
             written = read_board(bench.BOARD_FIXTURE / 'layout' / 'layout.kicad_pcb')
+
             def core_make(g, fixed):
-                def make():
-                    board = Board(g, keep_going=True)
-                    board.outline(written.board_polygon[0], holes=written.board_polygon[1:])
-                    for name, cell in sorted(g.cells.items()):
-                        if cell.members:
-                            if fixed:
-                                pose = Occupancy(g)._geometry(cell).reference
-                                board.place(Cell(name), at=pose.location, rotation=pose.rotation, face=pose.face)
-                            else:
-                                board.place(Cell(name))
-                    for fp in sorted(g.footprints, key=lambda f: f.inst):
-                        if fp.cell is None:
-                            if fixed:
-                                board.place(Part(fp.inst), at=fp.location, rotation=fp.rotation, face=fp.face)
-                            else:
-                                board.place(Part(fp.inst))
-                    return board
-                return make
+                return lambda: core_board(g, written, fixed)
             cases = []
             if args.core:
                 generated = read_board(bench.BOARD_FIXTURE / 'generated' / 'layout.kicad_pcb')
@@ -355,6 +453,12 @@ def main(argv=None):
             for label, make in cases:
                 for mode in ('clique', 'mst') if args.search == 'both' else (args.search,):
                     rows.extend(run_fixture(label, make, args, mode))
+        for script in args.board:
+            make, cfg = script_board(script)
+            from placemat import settings
+            with settings.bind(cfg):
+                for mode in ('clique', 'mst') if args.search == 'both' else (args.search,):
+                    rows.extend(run_fixture(pathlib.Path(script).parent.name, make, args, mode))
         after = runtime_identity(inputs, native_path)
         print(json.dumps({'type': 'provenance_end', 'identity': after, 'unchanged': before == after}), flush=True)
         if before != after:
@@ -366,7 +470,8 @@ def main(argv=None):
                 print(json.dumps({'type': 'median', 'kind': kind, 'measurement_board_search': mode, 'items': len(found),
                                   'old_score_us': statistics.median(r['old_score_us'] for r in found),
                                   'delta_score_us': statistics.median(r['delta_score_us'] for r in found),
-                                  'fallbacks': dict(Counter(r['fallback_reason'] for r in found if r['fallback_reason']))}), flush=True)
+                                  'fallbacks': dict(Counter(r['fallback_reason'] for r in found if r['fallback_reason'])),
+                                  'split': split_medians(found)}), flush=True)
     return 0
 
 

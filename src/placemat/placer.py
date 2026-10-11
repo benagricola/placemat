@@ -279,6 +279,8 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
     seen: set = set()
     native = occ.native_sweeper(item, hint.face, rots, others, clearance) if NATIVE_SWEEP else None
     scoring = score.native(rots, hint.face) if native is not None and hasattr(score, "native") else None
+    if scoring is not None and hasattr(scoring, "begin_scan"):
+        scoring.begin_scan()            # a pruning scorer prunes by this scan's own best candidates
     # Carried vias that may give way (giveway.py): a pass judges the item as it is first; the
     # candidates that refuses are judged again less its carried vias, and against the board less
     # the placed items' carried vias, and the vias then share, move or drop at a cost

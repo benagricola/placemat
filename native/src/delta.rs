@@ -579,6 +579,22 @@ impl Delta {
         Ok((wire, self.crossing_change(&self.turns[turn])))
     }
 
+    /// After this turn's wire_cross: whether a candidate anchor on `net` stands within squared distance `d2` of
+    /// `at`, ties included and a hair beyond (a bound, not a judgement: the anchors' nm rounding is inside it).
+    pub fn candidate_within(&self, turn: usize, net: &str, at: (f64, f64), d2: f64, x: f64, y: f64) -> bool {
+        let Some(&index) = self.net_index.get(net) else { return false; };
+        let Some(touched) = self.turns.get(turn).and_then(|t| t.iter().find(|t| t.index == index)) else {
+            return false;
+        };
+        let limit = d2 * (1.0 + 1e-9) + 1e-9;
+        let near = |p: (f64, f64)| crate::exact::square(p.0 - at.0) + crate::exact::square(p.1 - at.1) <= limit;
+        if self.affines.is_some() {
+            touched.evaluated.iter().any(|p| near((p.0, p.1)))
+        } else {
+            touched.added.iter().any(|p| near((p.0 + x, p.1 + y)))
+        }
+    }
+
     /// Query after this turn's wire_cross: retain raw CPython squared-distance
     /// and stable ref/pad tie semantics. Prepared escapes call directly in Rust
     /// after one evaluation, without Python anchor reconstruction/callbacks.

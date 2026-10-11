@@ -61,6 +61,9 @@ class Delta:
         self._native = {}
         self._native_shapes = {}
         self._escape_snapshot = None
+        # Judge escapes with the native classification twin (rest board and candidates alike) instead of the Python
+        # oracle; set before the first candidate.
+        self.escape_native = False
 
     @property
     def _escape_delta(self):
@@ -70,21 +73,21 @@ class Delta:
         self._check_snapshot()
         if self._escape_snapshot is None:
             from .escapes import EscapeDelta
-            self._escape_snapshot = EscapeDelta(self.occ, self.own)
+            self._escape_snapshot = EscapeDelta(self.occ, self.own, native=self.escape_native)
         return self._escape_snapshot
 
     @property
     def _escape_base(self):
         return self._escape_delta.counts
 
-    def _escape_change(self, view, geometries, copper, *, native=False):
-        """Signed escape terms and unpriced validity from the lifted snapshot."""
-        after, _ = self._escape_delta.change(view, geometries, copper, native=native)
+    def _escape_change(self, view, geometries, copper, *, native=None):
+        """Signed escape terms and the signed change of unpriced validity from the lifted snapshot."""
+        native = self.escape_native if native is None else native
+        difference, _ = self._escape_delta.difference(view, geometries, copper, native=native)
         cfg = self.board.settings
-        terms = {kind: getattr(cfg, 'score_' + kind) * (after.get(kind, 0) - self._escape_base.get(kind, 0))
+        terms = {kind: getattr(cfg, 'score_' + kind) * difference[kind]
                  for kind in ('escape_crossed', 'escape_closed', 'escape_via')}
-        walled = after.get('escape_walled', 0)
-        return terms, walled - self._escape_base.get('escape_walled', 0), walled
+        return terms, difference['escape_walled']
 
     def _crossing_change(self, changed):
         def count(a, b):
@@ -167,6 +170,15 @@ class Delta:
             raise ValueError('Delta frame changed; rebuild the lifted snapshot')
 
     def __call__(self, placement, prune_above=math.inf):
+        terms, walled_change = self.relative(placement)
+        # Pruning is intentionally absent until every remaining signed term
+        # has a proved lower bound. Walled evidence never enters the scalar.
+        return Change(terms, sum(terms.values()), walled_change,
+                      self._escape_base.get('escape_walled', 0) + walled_change)
+
+    def relative(self, placement):
+        """(the signed terms, the signed change of walled pads) of a candidate: `__call__`'s, without the rest board's
+        absolute walled count, which only judging every rest pad gives. Two candidates compare on these alone."""
         self._check_snapshot()
         cfg = self.board.settings
         if self.grid is not None and self.grid.board != (self.occ.congestion_frame() or Box(0, 0, 0, 0)):
@@ -210,11 +222,9 @@ class Delta:
             pads = self.occ.__dict__['_congestion_pads']
             replacements = {net: list(pads.get(net, {}).values()) + points for net, points in new.items()}
             terms['congestion'] = cfg.score_congestion * self.grid.change(replacements)
-        escaped, walled_change, walled = self._escape_change(view, geometries, copper)
+        escaped, walled_change = self._escape_change(view, geometries, copper)
         terms.update(escaped)
-        # Pruning is intentionally absent until every remaining signed term
-        # has a proved lower bound. Walled evidence never enters the scalar.
-        return Change(terms, sum(terms.values()), walled_change, walled)
+        return terms, walled_change
 
     def _congestion_points(self, geometries):
         new = {}
