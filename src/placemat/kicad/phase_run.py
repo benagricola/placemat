@@ -760,9 +760,13 @@ def joining_spans(geometry, o, *, full_width=False, neck_mm=0.0, step=None, cach
                 fill = fill_of(region)
                 tau = fill.level(_fill_need(fill, need))
                 length = fill.path_length(cells_at(fill, walk[k - 1], tau), cells_at(fill, walk[k + 1], tau), tau)
-                memo[mk] = [(FillStretch(region[1], frozenset((region[2],)), need, None, fill.s), length or 0.0)]
-            spans += memo[mk]
-            continue
+                # no path at that width between the two (the search's parts and these cells disagree): measured as
+                # any other crossing below, never taken as no length
+                memo[mk] = None if length is None else [
+                    (FillStretch(region[1], frozenset((region[2],)), need, None, fill.s), length)]
+            if memo[mk] is not None:
+                spans += memo[mk]
+                continue
         mk = (region[0], id(before), id(after), need)               # before and after are _net_copper's own tuples
         if mk not in memo:
             memo[mk] = _crossing(fill_of(region), region[1], region[2], before, after, need)

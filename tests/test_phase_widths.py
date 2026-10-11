@@ -406,3 +406,12 @@ def test_each_narrow_run_of_a_fill_is_reported_at_its_own_width_and_length(monke
     spoke, neck = runs
     assert 0.3 <= spoke["width_mm"] <= 0.4 and 0.7 <= neck["width_mm"] <= 0.85
     assert 4.5 <= neck["narrow_mm"] <= 5.6 and 19.5 <= neck["at"][0] <= 25.5
+
+
+def test_a_crossing_with_no_path_at_its_width_is_measured_not_taken_as_no_length(monkeypatch):
+    from placemat.checks import _Fill
+    from placemat.kicad.phase_run import joining_spans
+    from tests.test_route_widths_board import _board
+    monkeypatch.setattr(_Fill, "path_length", lambda *a: None)
+    spans = joining_spans(_board(_zone(_WIDE)), _OB, full_width=True)
+    assert spans is not None and sum(length for _, length in spans) > 30
