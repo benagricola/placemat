@@ -361,12 +361,21 @@ def _crossing(fill, kind, layer, entry, exit_, need) -> list:
     layers = frozenset((layer,))
     if need is None or not got["runs"]:
         return [(FillStretch(kind, layers, got["width_mm"], got["at"], fill.s), got["length_mm"])]
-    out, done = [], 0.0
+    out, done, total = [], 0.0, got["length_mm"]
     for r in got["runs"]:
-        if r["from_mm"] > done:
-            out.append((FillStretch(kind, layers, need, r["at"], fill.s), r["from_mm"] - done))
-        out.append((FillStretch(kind, layers, r["width_mm"], r["at"], fill.s), r["to_mm"] - r["from_mm"]))
-        done = r["to_mm"]
+        # the narrow stretch, `narrow_mm` long, inside the run's extent: against the path's end for a run at an end,
+        # else in the middle of it
+        span = r["to_mm"] - r["from_mm"]
+        if r["from_mm"] <= 0.0:
+            lo = r["from_mm"]
+        elif r["to_mm"] >= total:
+            lo = r["to_mm"] - r["narrow_mm"]
+        else:
+            lo = r["from_mm"] + (span - r["narrow_mm"]) / 2.0
+        if lo > done:
+            out.append((FillStretch(kind, layers, need, r["at"], fill.s), lo - done))
+        out.append((FillStretch(kind, layers, r["width_mm"], r["at"], fill.s), r["narrow_mm"]))
+        done = lo + r["narrow_mm"]
     if got["length_mm"] > done:
         out.append((FillStretch(kind, layers, need, got["at"], fill.s), got["length_mm"] - done))
     return out

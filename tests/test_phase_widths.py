@@ -388,3 +388,21 @@ def test_a_discs_touching_cells_are_those_of_its_polygon():
         disc = fill.touching_disc(at, r, tau)
         poly = fill.touching((circle_polygon(Location(*at), r, 64),), tau)
         assert len(disc ^ poly) <= 0.1 * max(len(poly), 1)
+
+
+# a 4 mm pour with a 0.4 mm spoke into U1's pad and a 0.8 mm neck 5 mm long at x 20 to 25, its own end at U2's pad
+_SPOKE_AND_NECK = ((5.5, 9.8), (7.7, 9.8), (7.7, 8), (20, 8), (20, 9.6), (25, 9.6), (25, 8), (41, 8), (41, 12), (25, 12),
+                   (25, 10.4), (20, 10.4), (20, 12), (7.7, 12), (7.7, 10.2), (5.5, 10.2))
+
+
+def test_each_narrow_run_of_a_fill_is_reported_at_its_own_width_and_length(monkeypatch, tmp_path):
+    from placemat.checks import _Fill
+    from tests.test_route_widths_board import _board
+    geometry = _board(_zone(_SPOKE_AND_NECK))
+    under = _judge(monkeypatch, tmp_path, geometry, neck_mm=3.0)["under"]
+    assert 0.7 <= under["F.Cu"] <= 0.85                    # the mid-pour neck; the spoke is in the allowance
+    pads = {fp.ref: (fp.pads[0].outlines[0],) for fp in geometry.footprints}
+    runs = _Fill(_SPOKE_AND_NECK, 0.05).narrow_runs(pads["U1"], pads["U2"], 1.0)["runs"]
+    spoke, neck = runs
+    assert 0.3 <= spoke["width_mm"] <= 0.4 and 0.7 <= neck["width_mm"] <= 0.85
+    assert 4.5 <= neck["narrow_mm"] <= 5.6 and 19.5 <= neck["at"][0] <= 25.5
