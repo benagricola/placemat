@@ -268,3 +268,12 @@ def test_a_track_end_within_half_its_width_of_a_pour_joins_it():
     assert spans is not None and width_shortfall(spans, _OB["widths"], 0.0) == {}
     apart = _board(_zone(_LEFT), _track((20.6, 10), (40, 10), 1.0))       # 0.6 mm past: not joined
     assert joining_spans(apart, _OB) is None
+
+
+def test_a_short_track_whose_end_rounds_off_its_own_line_still_joins():
+    # joints are taken at 1 um; a 0.6 mm track's end 1.7 um past its rounded joint is still that joint
+    from placemat.kicad.phase_run import joining_spans
+    from tests.test_route_widths_board import _board, _track
+    end = 19.9000017
+    geometry = _board(_track((5, 10), (end, 10), 1.0), _track((end, 10), (20.5, 10), 1.0), _track((20.5, 10), (40, 10), 1.0))
+    assert joining_spans(geometry, _OB) is not None

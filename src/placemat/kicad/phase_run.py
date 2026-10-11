@@ -434,8 +434,10 @@ def _net_copper(geometry, net, cache) -> dict | None:
         span = dx * dx + dy * dy
         stops = []
         for p in joints.get(layer, ()):
-            u = ((p[0] - ax) * dx + (p[1] - ay) * dy) / span if span else 0.0
-            if -1e-6 <= u <= 1 + 1e-6 and math.hypot(ax + u * dx - p[0], ay + u * dy - p[1]) <= t.width_mm / 2:
+            # on the track where its centreline passes within half its width, as KiCad's PCB_TRACK::HitTest takes a
+            # point; u is clamped, so a joint rounded just past the track's end is that end
+            u = min(max(((p[0] - ax) * dx + (p[1] - ay) * dy) / span, 0.0), 1.0) if span else 0.0
+            if math.hypot(ax + u * dx - p[0], ay + u * dy - p[1]) <= t.width_mm / 2:
                 stops.append((u, p))
         stops.sort()
         for (u0, p0), (u1, p1) in zip(stops, stops[1:]):
