@@ -1858,10 +1858,6 @@ def _dispatch(args) -> int:
             "studio": cmd_studio, "watch": cmd_watch, "apply": cmd_apply}[args.command](args)
 
 
-if __name__ == "__main__":
-    sys.exit(main())
-
-
 def board_default_phases(pcb) -> list:
     """The default phases for a board (spec "No phases"): its differential pairs and its interface types when the
     capture exports them, its net classes above the Default's clearance, current paths when any part states a current,
@@ -1888,3 +1884,7 @@ def _route_rank(text: str, names) -> tuple:
     if bad:
         raise SystemExit("--route-rank: no phase %s; the phases are %s" % (", ".join(bad), ", ".join(names)))
     return wanted
+
+
+if __name__ == "__main__":
+    sys.exit(main())

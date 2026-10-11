@@ -46,3 +46,16 @@ def test_default_interfaces_deduplicate_types_and_keep_diffpair_in_its_phase():
     from placemat.route_phase import default_phases
     result = default_phases(pairs=True, interface_types=["Spi", "DiffPair", "Spi"], wide_classes=[], currents=False)
     assert result == [{"name": "diff-pairs", "pairs": True}, {"name": "buses", "interfaces": ["Spi"]}, {"name": "signals"}]
+
+
+@needs_kicad
+def test_the_cli_module_run_as_a_script_writes_a_boards_phases(tmp_path):
+    import os
+    import subprocess
+    import sys
+    pcb = board_with_power_and_rf(tmp_path)
+    env = dict(os.environ, PYTHONPATH=os.pathsep.join(sys.path))
+    out = subprocess.run([sys.executable, "-m", "placemat.cli", "settings", str(pcb), "--example"],
+                         capture_output=True, text=True, timeout=120, env=env, cwd=tmp_path)
+    assert out.returncode == 0, out.stderr
+    assert "[[route.phase]]" in out.stdout
