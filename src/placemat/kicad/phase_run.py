@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 import json
+import math
 from pathlib import Path
 import shutil
 import time
@@ -258,9 +259,11 @@ def judge_obligations(pcb_path, obligations, drc_json, neck_mm=0.0, is_real=None
     """Each obligation on a board, in order: {"joined", "violated", "under"}. joined: KiCad's connectivity joins the two
     ends' pads (joined_pairs); an obligation with an end that is no pad is joined when its net has no open connection
     in `drc_json`. violated: its net is in a real error of `drc_json` (drc.real_errors: the `real` bucket at severity
-    error, as drc_new counts them; `is_real` is the board's DrcReport.is_real, None: the bound `[drc] real_kinds`). under: for a joined
-    obligation with widths, the narrowest track per layer on its joining path (joining_path) under the width asked
-    there, past `neck_mm` at either end (width_shortfall); {} when it meets them or has no widths. Unmeasured copper interiors set width_unknown. The DRC is the board's own."""
+    error, as drc_new counts them; `is_real` is the board's DrcReport.is_real, None: the bound `[drc] real_kinds`).
+    under: for a joined obligation with widths, the narrowest copper per layer on its joining path (joining_spans:
+    tracks, and the fills and pads it passes through, measured) under the width asked there, past `neck_mm` at
+    either end (width_shortfall); {} when it meets them or has no widths. width_unknown: joined, with widths, but no
+    copper path between its ends could be measured. The DRC is the board's own."""
     from .drc import real_errors
     from .read import read_board
     data = json.loads(Path(drc_json).read_text())
@@ -276,20 +279,21 @@ def judge_obligations(pcb_path, obligations, drc_json, neck_mm=0.0, is_real=None
     open_nets = {c["net"] for c in open_connections(pcb_path, drc_json)} if loose else set()
     geometry = (read_board(str(pcb_path)) if any(o.get("widths") and joined.get(_ob_key(o)) for o in obligations)
                 else None)
+    rasters = {}                                    # the fills' rasters, shared by the obligations on this board
     out = []
     for o in obligations:
         j = joined[_ob_key(o)] if _ob_key(o) in joined else o["net"] not in open_nets
         under, spans = {}, None
         if j and o.get("widths") and geometry is not None:
-            spans = joining_spans(geometry, o, full_width=True)
+            spans = joining_spans(geometry, o, full_width=True, cache=rasters)
             if spans is None and neck_mm > 0:
-                spans = joining_spans(geometry, o, full_width=True, neck_mm=neck_mm)
+                spans = joining_spans(geometry, o, full_width=True, neck_mm=neck_mm, cache=rasters)
             if spans is None:
-                spans = joining_spans(geometry, o)
+                spans = joining_spans(geometry, o, cache=rasters)
             under = width_shortfall(spans, o["widths"], neck_mm) if spans is not None else {}
         # unknown only where no joining path could be measured; a measured shortfall is `under` alone
         unknown = bool(j and (o.get("width_policy_unknown") or
-                              (o.get("widths") and (spans is None or getattr(spans, "width_unknown", False)))))
+                              (o.get("widths") and spans is None)))
         out.append({"joined": j, "violated": o["net"] in violated, "under": under, **({"width_unknown": True} if unknown else {})})
     return out
 
@@ -301,70 +305,124 @@ def is_clean(j: dict, outcome) -> bool:
 
 
 def joining_path(geometry, o):
-    """The tracks (CopperItems) of the shortest track path joining an obligation's two end pads (joining_spans), each
-    once, ordered from the "to" end; None when no track path joins them."""
+    """The tracks (CopperItems) of the shortest copper path joining an obligation's two end pads (joining_spans), each
+    once, ordered from the "to" end; None when no copper path joins them."""
     spans = joining_spans(geometry, o)
-    if spans is None or getattr(spans, "width_unknown", False):
+    if spans is None:
         return None
     path = []
     for t, _ in spans:
-        if not path or path[-1] is not t:
+        if t.kind == "track" and (not path or path[-1] is not t):
             path.append(t)
     return path
 
 
-class _JoiningSpans(list):
-    """Measured track spans, with an explicit flag for unmeasured interior bridges."""
-    width_unknown = False
+@dataclass(frozen=True)
+class FillStretch:
+    """A stretch of a joining path through filled copper - a zone's fill, a filled drawn polygon or a pad the path
+    passes through - as width_shortfall reads a track: its layer, its width there, and where it is narrowest. The
+    width is the widest disc that travels through the copper from the copper the path enters it by to the copper it
+    leaves it by (checks._Fill.width, the current-path check's measure); `tolerance_mm` is that measure's resolution
+    (one `[check] zone_step`)."""
+    kind: str                       # "zone" | "poly" | "pad"
+    layers: frozenset
+    width_mm: float
+    at: tuple
+    tolerance_mm: float = 0.0
 
 
-def joining_spans(geometry, o, *, full_width=False, neck_mm=0.0):
-    """A joining path as (track, length) pieces with width_unknown for unmeasured interior bridges.
+def _cells_length(fill, cells) -> float:
+    total = 0.0
+    for a, b in zip(cells, cells[1:]):
+        (r0, q0), (r1, q1) = divmod(a, fill.nx), divmod(b, fill.nx)
+        total += fill.s * (math.sqrt(2.0) if (r0 != r1 and q0 != q1) else 1.0)
+    return total
 
-    Tracks split at ends and vias on their straight centreline. Full-width search removes narrow edges except
-    spans reachable within an endpoint neck budget. The caller checks the recovered path's actual neck lengths.
-    Full-width search excludes filled-region and intermediate-pad bridges: their interior corridor widths
-    are unproved. Fallback retains measured tracks and marks width_unknown. Curved or absent paths return None.
-    """
-    import heapq
-    import math
-    from ..geometry import point_in_polygon, poly_distance
-    net = o["net"]
+
+def _fill_tau(fill, need) -> float:
+    """The level (squared cells from the fill's edge) whose disc is `need` wide, less one step: `_Fill.radius`
+    inverted, as `_Fill.neck_length` reads a width."""
+    return (max(need - fill.s, 0.0) / (2.0 * fill.s) + 0.5) ** 2
+
+
+def _crossing(fill, kind, layer, entry, exit_, need) -> list:
+    """The (FillStretch, length) pieces of a path through `fill` from the copper `entry` to the copper `exit_` (tuples
+    of polygons): the widest path through it (`_Fill.width`), split as `_Fill.neck_length` splits it when its
+    narrowest point is under `need` - the run from the entry and the run to the exit that are at least `need` wide,
+    and the stretch between them at its narrowest width. [] when the two touch each other."""
+    got = fill.width(entry, exit_)
+    if got is None:
+        return []
+    narrowest, at, _ = got
+    layers = frozenset((layer,))
+    kept = fill._paths.get((id(entry), id(exit_)))
+    cells = kept[2] if kept is not None and kept[0] is entry and kept[1] is exit_ else None
+    if cells is None:                                   # no path of cells: narrower than one step throughout
+        return [(FillStretch(kind, layers, narrowest, at, fill.s), 0.0)]
+    if need is None or narrowest >= need - fill.s:
+        return [(FillStretch(kind, layers, narrowest, at, fill.s), _cells_length(fill, cells))]
+    tau = _fill_tau(fill, need)
+    from_entry = fill._reach(fill.touching(entry, tau), set(), tau)[1]
+    from_exit = fill._reach(fill.touching(exit_, tau), set(), tau)[1]
+    last = max((k for k, c in enumerate(cells) if c in from_entry), default=-1)
+    first = min((k for k, c in enumerate(cells) if c in from_exit and k > last), default=len(cells))
+    lo, hi = max(last, 0), min(first, len(cells) - 1)
+    wide = FillStretch(kind, layers, need, at, fill.s)
+    return [(wide, _cells_length(fill, cells[:lo + 1])),
+            (FillStretch(kind, layers, narrowest, at, fill.s), _cells_length(fill, cells[lo:hi + 1])),
+            (wide, _cells_length(fill, cells[hi:]))]
+
+
+def _net_copper(geometry, net, cache) -> dict | None:
+    """One net's copper as joining_spans searches it, the same for every obligation on the net (kept in `cache`):
+    "adj", the track pieces between joints (track ends and vias, a track split at every joint on its centreline) and
+    the vias joining their layers; "at_joint", the copper meeting at each joint; "regions", each filled polygon on
+    each layer, (key, kind, layer, polygon, (ref, pad) for a pad, pad identity for a pad); "inside", the joints
+    joined to each region; "touching", the regions on one layer that touch; "layer_pairs", one pad's regions on two layers; "own",
+    each region's polygon as a tuple. None when the net has a curved track (its centreline is not measured)."""
+    from ..geometry import circle_polygon, point_in_polygon, point_segment_distance, poly_distance
+    from ..values import Box, Location
+    key = ("net", net)
+    if key in cache:
+        return cache[key]
 
     def pt(p):
         return (round(p[0], 3), round(p[1], 3))
 
-    def pads_of(end):
-        return [p for fp in geometry.footprints if fp.ref == end.get("ref") for p in fp.pads
-                if p.number == end.get("pad") and p.net == net]
-
-    start, goal = pads_of(o["from"]), pads_of(o["to"])
-    if not start or not goal:
-        return None
-    adj = {}
-
-    def link(a, b, length, track):
-        adj.setdefault(a, []).append((b, length, track))
-        adj.setdefault(b, []).append((a, length, track))
-
     tracks = [c for c in geometry.copper if c.net == net and c.kind == "track" and len(c.anchors) == 2]
-    # Curved tracks need their actual centreline, not the endpoint chord. Leave their proof unknown.
     if any(abs(t.length_mm - math.dist(*t.anchors)) > 1e-3 for t in tracks):
+        cache[key] = None
         return None
     vias = [c for c in geometry.copper if c.net == net and c.kind == "via" and c.anchors]
-    ends = {}                                       # layer -> the track ends and vias on it: where copper joins
+    adj = {}
+
+    def link(a, b, length, piece):
+        adj.setdefault(a, []).append((b, length, piece))
+        adj.setdefault(b, []).append((a, length, piece))
+
+    joints, at_joint = {}, {}                       # layer -> joints on it; joint -> the copper that meets there
+    reach = {}                                      # joint -> half the widest copper meeting there
     for t in tracks:
-        ends.setdefault(next(iter(t.layers)), set()).update(pt(a) for a in t.anchors)
+        layer = next(iter(t.layers))
+        for a in t.anchors:
+            joints.setdefault(layer, set()).add(pt(a))
+            at_joint.setdefault((pt(a), layer), []).extend(t.outlines)
+            reach[(pt(a), layer)] = max(reach.get((pt(a), layer), 0.0), t.width_mm / 2)
     for v in vias:
         for layer in v.layers:
-            ends.setdefault(layer, set()).add(pt(v.anchors[0]))
+            joints.setdefault(layer, set()).add(pt(v.anchors[0]))
+            at_joint.setdefault((pt(v.anchors[0]), layer), []).extend(v.outlines)
+            reach[(pt(v.anchors[0]), layer)] = max(reach.get((pt(v.anchors[0]), layer), 0.0), v.width_mm / 2)
+    # a track's round end is copper too: a disc of its half width at each joint
+    at_joint = {k: tuple(v) + (circle_polygon(Location(*k[0]), reach[k]),) if reach.get(k) else tuple(v)
+                for k, v in at_joint.items()}
     for t in tracks:                                # a track is split at every joint on it (a T, a via mid-track)
         layer = next(iter(t.layers))
         (ax, ay), (bx, by) = t.anchors
         dx, dy = bx - ax, by - ay
         span = dx * dx + dy * dy
         stops = []
-        for p in ends.get(layer, ()):
+        for p in joints.get(layer, ()):
             u = ((p[0] - ax) * dx + (p[1] - ay) * dy) / span if span else 0.0
             if -1e-6 <= u <= 1 + 1e-6 and math.hypot(ax + u * dx - p[0], ay + u * dy - p[1]) <= t.width_mm / 2:
                 stops.append((u, p))
@@ -375,36 +433,137 @@ def joining_spans(geometry, o, *, full_width=False, neck_mm=0.0):
         layers = sorted(v.layers, key=lambda l: str(l.value))
         for a, b in zip(layers, layers[1:]):
             link((pt(v.anchors[0]), a), (pt(v.anchors[0]), b), 0.0, None)
-    # Polygon connectivity cannot certify a corridor's width. Separate outlines and layers; only
-    # an endpoint's anchor-containing pad polygon is a terminal. Other interiors remain unmeasured.
-    unmeasured = object()
+    # filled copper: each polygon on each layer a region. An end pad's regions are that end; any other region is
+    # passed through and measured (`_crossing`).
     regions = []
     for fp in geometry.footprints:
         for i, pad in enumerate(fp.pads):
             if pad.net != net:
                 continue
-            anchor = tuple(pad.airwire_end)
             for layer in pad.layers:
                 for j, poly in enumerate(pad.outlines):
-                    terminals = [tag for tag, end in (("A", o["from"]), ("B", o["to"]))
-                                 if (fp.ref, pad.number) == (end.get("ref"), end.get("pad"))
-                                 and point_in_polygon(anchor, poly)]
-                    regions.append((poly, layer, ("pad", fp.ref, pad.number, i, layer, j), terminals, anchor))
+                    regions.append((("pad", fp.ref, pad.number, i, layer.value, j), "pad", layer, poly,
+                                    (fp.ref, pad.number), (fp.ref, i, j)))
     for i, copper in enumerate(geometry.copper):
         if copper.net == net and copper.kind in ("poly", "zone") and copper.filled:
-            regions += [(poly, layer, ("region", i, layer, j), [], None)
+            regions += [(("fill", i, layer.value, j), copper.kind, layer, poly, None, None)
                         for layer in copper.layers for j, poly in enumerate(copper.outlines)]
+    boxes = {r[0]: Box.of_points(r[3]) for r in regions}
+
+    def near(a, b, gap=1e-6):
+        return not (a.right + gap < b.left or b.right + gap < a.left or a.bottom + gap < b.top or
+                    b.bottom + gap < a.top)
     nodes = list(adj)
-    for poly, layer, tag, terminals, anchor in regions:
-        for node in nodes:
-            if node[1] == layer and point_in_polygon(node[0], poly):
-                link(tag, node, 0.0, None if terminals and math.dist(node[0], anchor) <= 1e-3 else unmeasured)
-        for terminal in terminals:
-            link(terminal, tag, 0.0, None)
-    for i, (poly, layer, tag, _, _) in enumerate(regions):
-        for other, other_layer, other_tag, _, _ in regions[:i]:
-            if layer == other_layer and poly_distance(poly, other) <= 1e-6:
-                link(tag, other_tag, 0.0, unmeasured)
+    edges_of = {}
+
+    def joins(n, k, poly):
+        """A joint joins a region inside it, or within half its copper's width of its edge, as KiCad's connectivity
+        joins a track end to a zone's fill (the anchor tested with half the track's width as its accuracy)."""
+        if point_in_polygon(n[0], poly):
+            return True
+        if k not in edges_of:
+            edges_of[k] = list(zip(poly, poly[1:] + poly[:1]))
+        r = reach.get(n, 0.0) + 1e-6
+        return any(point_segment_distance(n[0], a, b) <= r for a, b in edges_of[k])
+    inside = {}
+    for k, _, layer, poly, _, _ in regions:
+        bx = boxes[k]
+        inside[k] = [n for n in nodes if n[1] == layer and bx.left - reach.get(n, 0.0) <= n[0][0] <= bx.right +
+                     reach.get(n, 0.0) and bx.top - reach.get(n, 0.0) <= n[0][1] <= bx.bottom + reach.get(n, 0.0)
+                     and joins(n, k, poly)]
+    touching = [(a[0], b[0]) for x, a in enumerate(regions) for b in regions[:x]
+                if a[2] == b[2] and near(boxes[a[0]], boxes[b[0]]) and poly_distance(a[3], b[3]) <= 1e-6]
+    layer_pairs = [(a[0], b[0]) for x, a in enumerate(regions) for b in regions[:x]
+                   if a[5] is not None and a[5] == b[5] and a[2] != b[2]]      # a plated pad joins its layers
+    cache[key] = {"adj": adj, "at_joint": at_joint, "regions": regions, "inside": inside, "touching": touching,
+                  "layer_pairs": layer_pairs, "own": {r[0]: (r[3],) for r in regions}}
+    return cache[key]
+
+
+def joining_spans(geometry, o, *, full_width=False, neck_mm=0.0, step=None, cache=None):
+    """The shortest copper path joining an obligation's two end pads, as (piece, length) pieces from the "to" end: a
+    piece is a track (a CopperItem; tracks are split at the track ends and vias on their centreline) or a FillStretch
+    where the path passes through filled copper - a zone's filled polygons as KiCad filled them (the copper a
+    fabricator gets), a filled drawn polygon, or a pad that is not one of the obligation's ends. Vias join the layers
+    they span. A track end anywhere inside an end pad's copper outline joins that pad. None when no such path joins
+    the two ends (curved tracks are not measured: None when the net has one).
+
+    `full_width`: only copper at the obligation's width on its layer, apart from narrow tracks wholly within `neck_mm`
+    of an end (the neck budget below); a fill or pad is passed only where a disc that wide travels through it.
+    `step` is the fill raster's cell (None: `[check] zone_step`); `cache` keeps the rasters across the obligations
+    of one board."""
+    import heapq
+    from ..checks import _Fill
+    net = o["net"]
+    widths = o.get("widths") or {}
+    if step is None:
+        from ..settings import active
+        step = active().check_zone_step
+    cache = {} if cache is None else cache
+    fills = cache.setdefault(("fills", step), {})
+
+    ends = {"A": (o["from"].get("ref"), o["from"].get("pad")), "B": (o["to"].get("ref"), o["to"].get("pad"))}
+    if not any((fp.ref, p.number) == ends["A"] and p.net == net for fp in geometry.footprints for p in fp.pads) or \
+            not any((fp.ref, p.number) == ends["B"] and p.net == net for fp in geometry.footprints for p in fp.pads):
+        return None
+    laid = _net_copper(geometry, net, cache)
+    if laid is None:
+        return None
+    adj = {u: list(edges) for u, edges in laid["adj"].items()}
+
+    def link(a, b, length, piece):
+        adj.setdefault(a, []).append((b, length, piece))
+        adj.setdefault(b, []).append((a, length, piece))
+
+    at_joint, inside, own = laid["at_joint"], laid["inside"], laid["own"]
+    regions = [(key, kind, layer, poly, next((t for t, e in ends.items() if e == end), None) if end else None, ident)
+               for key, kind, layer, poly, end, ident in laid["regions"]]
+    by_key = {r[0]: r for r in regions}
+    touching = [(by_key[a], by_key[b]) for a, b in laid["touching"]]
+    layer_pairs = [(by_key[a], by_key[b]) for a, b in laid["layer_pairs"]]
+
+    def fill_of(region):
+        key = region[0]
+        if key not in fills:
+            fills[key] = _Fill(region[3], step)
+        return fills[key]
+
+    def need_of(region):
+        return None if region[4] else widths.get(region[2].value)
+
+    def hubs(region, polys):
+        """The region's nodes `polys` reaches: the region itself, or with `full_width` each part of it that a disc of
+        the width asked on its layer can travel through (none when that disc reaches no copper of `polys`)."""
+        need = need_of(region)
+        if not full_width or need is None:
+            return [("r", region[0])]
+        fill = fill_of(region)
+        tau = _fill_tau(fill, need)
+        memo = cache.setdefault(("hubs", step, region[0], tau), {})
+        if id(polys) in memo:
+            return memo[id(polys)]
+        parts = cache.setdefault(("parts", step, region[0], tau), {})
+        out = set()
+        for c in fill.touching(polys, tau):
+            if c not in parts:
+                for d in fill._reach({c}, set(), tau)[1]:
+                    parts[d] = c                    # a part is named by the cell it was first reached from
+            out.add(("r", region[0], parts[c]))
+        memo[id(polys)] = sorted(out)               # polys are _net_copper's own tuples, kept by the cache
+        return memo[id(polys)]
+
+    for region in regions:
+        key, _, _, poly, tag, _ = region
+        if tag:
+            for h in hubs(region, own[key]):
+                link(tag, h, 0.0, None)
+        for n in inside[key]:
+            for h in hubs(region, at_joint.get(n) or own[key]):
+                link(n, h, 0.0, None)
+    for a, b in touching + layer_pairs:
+        for ha in hubs(a, own[b[0]]):
+            for hb in hubs(b, own[a[0]]):
+                link(ha, hb, 0.0, None)
     if full_width:
         # End distances bound permitted pad necks. Every narrow graph span must fit wholly within one end's
         # neck budget; the recovered path is checked again by its own length, including the half-path cap.
@@ -415,20 +574,17 @@ def joining_spans(geometry, o, *, full_width=False, neck_mm=0.0):
                 if d > dist.get(u, math.inf):
                     continue
                 for v, length, track in adj.get(u, ()):
-                    if track is unmeasured:
-                        continue
                     if d + length <= neck_mm and d + length < dist.get(v, math.inf):
                         seq += 1
                         dist[v] = d + length
                         heapq.heappush(heap, (d + length, seq, v))
             return dist
         ends_dist = [end_distances(tag) for tag in ("A", "B")]
+
         def allowed(u, v, length, track):
-            if track is unmeasured:
-                return False
             if track is None:
                 return True
-            need = (o.get("widths") or {}).get(next(iter(track.layers)).value, 0.0)
+            need = widths.get(next(iter(track.layers)).value, 0.0)
             if track.width_mm >= need - 1e-3:
                 return True
             return neck_mm > 0 and any(
@@ -451,14 +607,32 @@ def joining_spans(geometry, o, *, full_width=False, neck_mm=0.0):
                 heapq.heappush(heap, (d + length, n, v))
     if "B" not in dist:
         return None
-    spans, u = _JoiningSpans(), "B"
+    walk, u = ["B"], "B"                            # the path's nodes from the "to" end, and the track into each
+    into = []
     while u != "A":
-        v = u
         u, track = prev[u]
-        if track is unmeasured:
-            spans.width_unknown = True
-        elif track is not None:
-            spans.append((track, dist[v] - dist[u]))
+        walk.append(u)
+        into.append(track)
+
+    def copper_of(node):
+        if node in ("A", "B"):
+            return None
+        if node[0] == "r":
+            return own[node[1]]
+        return at_joint.get(node)
+    spans = []
+    for k, node in enumerate(walk):
+        if k and into[k - 1] is not None:
+            spans.append((into[k - 1], dist[walk[k - 1]] - dist[node]))
+        if node in ("A", "B") or node[0] != "r" or k in (0, len(walk) - 1):
+            continue
+        region = by_key[node[1]]
+        before, after = copper_of(walk[k - 1]), copper_of(walk[k + 1])
+        if region[4] or before is None or after is None:    # an end pad itself: the join starts or stops there
+            continue
+        if walk[k + 1][0] == "r" and walk[k + 1][1] == node[1] or walk[k - 1][0] == "r" and walk[k - 1][1] == node[1]:
+            continue
+        spans += _crossing(fill_of(region), region[1], region[2], before, after, need_of(region))
     return spans
 
 
@@ -480,7 +654,7 @@ def width_shortfall(path, widths, neck_mm) -> dict:
     spans, run = [], 0.0
     for t, length in pieces:
         layer = names.get(next(iter(t.layers)))
-        narrow = layer is not None and t.width_mm < widths[layer] - _UNDER_MM
+        narrow = layer is not None and t.width_mm < widths[layer] - max(_UNDER_MM, getattr(t, "tolerance_mm", 0.0))
         spans.append((run, run + length, t, layer, narrow))
         run += length
     total = run

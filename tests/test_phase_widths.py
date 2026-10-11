@@ -103,41 +103,6 @@ def test_unknown_required_width_is_not_clean_and_counts_as_unproven():
     assert widths_failed([{}], [[obligation]], [[result]]) == 1
 
 
-def test_intermediate_pad_bridges_track_ends_and_a_wider_alternative_is_used():
-    from placemat.kicad.phase_run import joining_spans, width_shortfall
-    from tests.test_route_widths_board import _track, _board
-    from dataclasses import replace
-    base = _board(_track((5, 10), (20, 10), 0.2), _track((20, 10), (40, 10), 0.2),
-                  _track((5, 10), (5, 20), 1.0), _track((5, 20), (40, 20), 1.0),
-                  _track((40, 20), (40, 10), 1.0))
-    ob = {"net": "V", "from": {"ref": "U1", "pad": "1"}, "to": {"ref": "U2", "pad": "1"}, "widths": {"F.Cu": 1.0}}
-    wide = joining_spans(_at_track_terminals(base), ob, full_width=True)
-    assert wide is not None and width_shortfall(wide, ob["widths"], 0.0) == {}
-    midpoint = footprint("U3", 20.6 + 1.0, 10.0, nets=("V", "X"))
-    bridged = _board(_track((5, 10), (20, 10), 1.0), _track((20.3, 10), (40, 10), 1.0))
-    bridged = replace(bridged, footprints=bridged.footprints + (midpoint,))
-    assert joining_spans(bridged, ob, full_width=True) is None
-    assert joining_spans(bridged, ob).width_unknown
-
-
-def test_mixed_filled_region_and_narrow_track_keeps_track_shortfall():
-    from placemat.kicad.phase_run import joining_spans, width_shortfall
-    from tests.test_route_widths_board import _track, _board
-    from placemat.board_geometry import CopperItem
-    from placemat.values import Box
-    outline = ((4, 9), (20, 9), (20, 11), (4, 11))
-    pour = CopperItem("poly", "V", frozenset((F,)), (outline,), Box.of_points(outline))
-    geometry = _board(pour, _track((19, 10), (40, 10), 0.2))
-    ob = {"net": "V", "from": {"ref": "U1", "pad": "1"}, "to": {"ref": "U2", "pad": "1"}, "widths": {"F.Cu": 1.0}}
-    assert joining_spans(geometry, ob, full_width=True) is None
-    spans = joining_spans(geometry, ob)
-    assert spans is not None and width_shortfall(spans, ob["widths"], 0.0) == {"F.Cu": 0.2}
-    all_outline = ((4, 9), (41, 9), (41, 11), (4, 11))
-    pure = _board(CopperItem("poly", "V", frozenset((F,)), (all_outline,), Box.of_points(all_outline)))
-    assert joining_spans(pure, ob, full_width=True) is None
-    assert joining_spans(pure, ob).width_unknown
-
-
 def test_pair_width_is_refused_instead_of_ignored():
     import pytest
     from placemat.route_phase import parse_phases, PhaseError
@@ -154,45 +119,9 @@ def test_compliant_neck_path_is_found_beside_a_shorter_narrow_path():
                       _track((40, 12), (40, 10), 0.2))
     obligation = {"net": "V", "from": {"ref": "U1", "pad": "1"}, "to": {"ref": "U2", "pad": "1"},
                   "widths": {"F.Cu": 1.0}}
-    assert width_shortfall(joining_spans(_at_track_terminals(geometry), obligation), obligation["widths"], 3.0)
-    spans = joining_spans(_at_track_terminals(geometry), obligation, full_width=True, neck_mm=3.0)
+    assert width_shortfall(joining_spans(geometry, obligation), obligation["widths"], 3.0)
+    spans = joining_spans(geometry, obligation, full_width=True, neck_mm=3.0)
     assert spans is not None and width_shortfall(spans, obligation["widths"], 3.0) == {}
-
-
-def _at_track_terminals(geometry):
-    """The synthetic tracks start at (5,10)/(40,10); give their endpoint pads those actual anchors."""
-    from dataclasses import replace
-    from placemat.values import Location
-    return replace(geometry, footprints=tuple(replace(fp, pads=tuple(
-        replace(p, anchor=Location(5 if fp.ref == "U1" else 40, 10)) if p.number == "1" else p
-        for p in fp.pads)) if fp.ref in ("U1", "U2") else fp for fp in geometry.footprints))
-
-
-def test_filled_copper_is_not_a_width_certificate_across_islands_or_a_narrow_neck():
-    from placemat.kicad.phase_run import joining_spans, width_shortfall
-    from placemat.board_geometry import CopperItem
-    from placemat.values import Box
-    from tests.test_route_widths_board import _board, _track
-    left = ((4, 9), (20, 9), (20, 11), (4, 11))
-    right = ((25, 9), (41, 9), (41, 11), (25, 11))
-    hourglass = ((4, 9), (20, 9), (20, 9.9), (25, 9.9), (25, 9), (41, 9),
-                 (41, 11), (25, 11), (25, 10.1), (20, 10.1), (20, 11), (4, 11))
-    ob = {"net": "V", "from": {"ref": "U1", "pad": "1"}, "to": {"ref": "U2", "pad": "1"},
-          "widths": {"F.Cu": 1.0}}
-    def zone(outlines):
-        return CopperItem("zone", "V", frozenset((F,)), outlines, Box.of_points(tuple(p for poly in outlines for p in poly)))
-    disconnected = _at_track_terminals(_board(zone((left, right))))
-    assert joining_spans(disconnected, ob) is None
-    mixed = _at_track_terminals(_board(zone((left, right)), _track((19, 10), (26, 10), 0.2)))
-    assert joining_spans(mixed, ob, full_width=True) is None
-    spans = joining_spans(mixed, ob)
-    assert spans.width_unknown and width_shortfall(spans, ob["widths"], 0) == {"F.Cu": 0.2}
-    neck = _at_track_terminals(_board(zone((hourglass,))))
-    assert joining_spans(neck, ob, full_width=True, neck_mm=3) is None
-    assert joining_spans(neck, ob).width_unknown
-    alternate = _at_track_terminals(_board(zone((hourglass,)), _track((5, 10), (5, 20), 1),
-                                           _track((5, 20), (40, 20), 1), _track((40, 20), (40, 10), 1)))
-    assert not joining_spans(alternate, ob, full_width=True).width_unknown
 
 
 def test_disconnected_custom_pad_islands_do_not_bridge_track_ends():
@@ -205,34 +134,16 @@ def test_disconnected_custom_pad_islands_do_not_bridge_track_ends():
     b = ((20.3, 9.9), (20.6, 9.9), (20.6, 10.1), (20.3, 10.1))
     pad = replace(middle.pads[0], custom=True, outlines=(a, b), box=Box.of_points(a + b))
     middle = replace(middle, pads=(pad,) + middle.pads[1:])
-    geometry = _at_track_terminals(_board(_track((5, 10), (20, 10), 1), _track((20.4, 10), (40, 10), 1)))
+    geometry = _board(_track((5, 10), (20, 10), 0.2), _track((20.4, 10), (40, 10), 0.2))
     geometry = replace(geometry, footprints=geometry.footprints + (middle,))
     ob = {"net": "V", "from": {"ref": "U1", "pad": "1"}, "to": {"ref": "U2", "pad": "1"}, "widths": {"F.Cu": 1}}
     assert joining_spans(geometry, ob) is None
 
 
-def test_joined_pour_width_unknown_reaches_final_cleanliness(monkeypatch, tmp_path):
-    from placemat.kicad import phase_run
-    from placemat.board_geometry import CopperItem
-    from placemat.values import Box
-    from tests.test_route_widths_board import _board
-    poly = ((4, 9), (41, 9), (41, 11), (4, 11))
-    geometry = _at_track_terminals(_board(CopperItem("zone", "V", frozenset((F,)), (poly,), Box.of_points(poly))))
-    monkeypatch.setattr("placemat.kicad.read.read_board", lambda _: geometry)
-    monkeypatch.setattr(phase_run, "joined_pairs", lambda *_: [True])
-    drc = tmp_path / "drc.json"
-    drc.write_text('{"violations": [], "unconnected_items": []}')
-    ob = {"net": "V", "from": {"ref": "U1", "pad": "1"}, "to": {"ref": "U2", "pad": "1"}, "widths": {"F.Cu": 1}}
-    (judged,) = phase_run.judge_obligations("board.kicad_pcb", [ob], drc, is_real=lambda _: True)
-    assert judged == {"joined": True, "violated": False, "under": {}, "width_unknown": True}
-    assert not phase_run.is_clean(judged, None)
-    assert phase_run.widths_failed([{}], [[ob]], [[judged]]) == 1
-
-
 def test_a_measured_shortfall_is_under_and_not_width_unknown(monkeypatch, tmp_path):
     from placemat.kicad import phase_run
     from tests.test_route_widths_board import _board, _track
-    geometry = _at_track_terminals(_board(_track((5, 10), (40, 10), 0.2)))
+    geometry = _board(_track((5, 10), (40, 10), 0.2))
     monkeypatch.setattr("placemat.kicad.read.read_board", lambda _: geometry)
     monkeypatch.setattr(phase_run, "joined_pairs", lambda *_: [True])
     drc = tmp_path / "drc.json"
@@ -240,3 +151,120 @@ def test_a_measured_shortfall_is_under_and_not_width_unknown(monkeypatch, tmp_pa
     ob = {"net": "V", "from": {"ref": "U1", "pad": "1"}, "to": {"ref": "U2", "pad": "1"}, "widths": {"F.Cu": 1}}
     (judged,) = phase_run.judge_obligations("board.kicad_pcb", [ob], drc, is_real=lambda _: True)
     assert judged == {"joined": True, "violated": False, "under": {"F.Cu": 0.2}}
+
+
+# Joins through filled copper: a pour's width is the narrowest neck of its filled copper along the join (as the
+# current-path check measures a fill, checks._Fill.width); an intermediate pad is measured by its outline the same way.
+
+def _zone(*outlines, kind="zone"):
+    from placemat.board_geometry import CopperItem
+    from placemat.values import Box
+    return CopperItem(kind, "V", frozenset((F,)), outlines, Box.of_points(tuple(p for poly in outlines for p in poly)))
+
+
+_OB = {"net": "V", "from": {"ref": "U1", "pad": "1"}, "to": {"ref": "U2", "pad": "1"}, "widths": {"F.Cu": 1.0}}
+_LEFT = ((4, 9), (20, 9), (20, 11), (4, 11))
+_RIGHT = ((25, 9), (41, 9), (41, 11), (25, 11))
+_WIDE = ((4, 9), (41, 9), (41, 11), (4, 11))
+_HOURGLASS = ((4, 9), (20, 9), (20, 9.9), (25, 9.9), (25, 9), (41, 9),
+              (41, 11), (25, 11), (25, 10.1), (20, 10.1), (20, 11), (4, 11))
+
+
+def _judge(monkeypatch, tmp_path, geometry, ob=_OB, neck_mm=0.0):
+    from placemat.kicad import phase_run
+    monkeypatch.setattr("placemat.kicad.read.read_board", lambda _: geometry)
+    monkeypatch.setattr(phase_run, "joined_pairs", lambda *_: [True])
+    drc = tmp_path / "drc.json"
+    drc.write_text('{"violations": [], "unconnected_items": []}')
+    (judged,) = phase_run.judge_obligations("board.kicad_pcb", [ob], drc, neck_mm, is_real=lambda _: True)
+    return judged
+
+
+def test_a_track_entering_its_end_pad_off_the_anchor_joins_the_pad(monkeypatch, tmp_path):
+    from tests.test_route_widths_board import _board, _track
+    geometry = _board(_track((5, 10), (40, 10), 1.0))       # U1's pad 1 is at (5.2, 10): the track ends 0.2 mm off it
+    assert _judge(monkeypatch, tmp_path, geometry) == {"joined": True, "violated": False, "under": {}}
+
+
+def test_a_pour_neck_narrower_than_asked_fails_on_its_measured_width(monkeypatch, tmp_path):
+    from placemat.kicad import phase_run
+    from tests.test_route_widths_board import _board
+    judged = _judge(monkeypatch, tmp_path, _board(_zone(_HOURGLASS)))
+    assert set(judged) == {"joined", "violated", "under"} and 0.1 <= judged["under"]["F.Cu"] <= 0.25
+    assert not phase_run.is_clean(judged, None)
+    assert phase_run.widths_failed([{}], [[_OB]], [[judged]]) == 1
+
+
+def test_a_pour_wider_than_asked_passes(monkeypatch, tmp_path):
+    from placemat.kicad import phase_run
+    from tests.test_route_widths_board import _board
+    judged = _judge(monkeypatch, tmp_path, _board(_zone(_WIDE)))
+    assert judged == {"joined": True, "violated": False, "under": {}}
+    assert phase_run.is_clean(judged, None)
+    drawn = _judge(monkeypatch, tmp_path, _board(_zone(_WIDE, kind="poly")))
+    assert drawn == {"joined": True, "violated": False, "under": {}}
+
+
+def test_a_pour_neck_inside_the_neck_allowance_is_not_counted(monkeypatch, tmp_path):
+    from tests.test_route_widths_board import _board, _track
+    near_pad = ((4, 9), (6, 9), (6, 9.9), (7, 9.9), (7, 9), (12, 9), (12, 11), (7, 11), (7, 10.1), (6, 10.1),
+                (6, 11), (4, 11))                           # 0.2 mm neck 1-2 mm from U1's pad
+    geometry = _board(_zone(near_pad), _track((11, 10), (40, 10), 1.0))
+    assert _judge(monkeypatch, tmp_path, geometry, neck_mm=3.0)["under"] == {}
+    assert _judge(monkeypatch, tmp_path, geometry, neck_mm=0.0)["under"]
+
+
+def test_a_pour_and_a_narrow_track_in_series_fail_on_the_track(monkeypatch, tmp_path):
+    from tests.test_route_widths_board import _board, _track
+    geometry = _board(_zone(_LEFT), _track((19, 10), (40, 10), 0.2))
+    assert _judge(monkeypatch, tmp_path, geometry) == {"joined": True, "violated": False, "under": {"F.Cu": 0.2}}
+
+
+def test_a_wide_track_beside_a_pour_neck_passes(monkeypatch, tmp_path):
+    from tests.test_route_widths_board import _board, _track
+    geometry = _board(_zone(_HOURGLASS), _track((5, 10), (5, 20), 1), _track((5, 20), (40, 20), 1),
+                      _track((40, 20), (40, 10), 1))
+    assert _judge(monkeypatch, tmp_path, geometry) == {"joined": True, "violated": False, "under": {}}
+
+
+def test_pours_that_do_not_touch_do_not_join():
+    from placemat.kicad.phase_run import joining_spans
+    from tests.test_route_widths_board import _board
+    assert joining_spans(_board(_zone(_LEFT, _RIGHT)), _OB) is None
+
+
+def test_an_intermediate_pad_is_judged_by_its_outline_width(monkeypatch, tmp_path):
+    from dataclasses import replace
+    from tests.test_route_widths_board import _board, _track
+    middle = footprint("U3", 20.6 + 1.0, 10.0, nets=("V", "X"))        # its 1 x 1 mm pad 1 spans x 19.7 to 20.7
+    # the tracks' round ends stop 0.1 mm short of the pad each side: they join it, not each other
+    geometry = _board(_track((5, 10), (18.8, 10), 2.0), _track((21.6, 10), (40, 10), 2.0))
+    geometry = replace(geometry, footprints=geometry.footprints + (middle,))
+    wide = dict(_OB, widths={"F.Cu": 2.0})
+    under = _judge(monkeypatch, tmp_path, geometry, wide)["under"]
+    assert 0.85 <= under["F.Cu"] <= 1.05
+    assert _judge(monkeypatch, tmp_path, geometry, dict(_OB, widths={"F.Cu": 0.5}))["under"] == {}
+
+
+def test_a_wider_track_path_is_used_beside_one_through_a_narrow_pad():
+    from dataclasses import replace
+    from placemat.kicad.phase_run import joining_spans, width_shortfall
+    from tests.test_route_widths_board import _board, _track
+    middle = footprint("U3", 20.6 + 1.0, 10.0, nets=("V", "X"))
+    geometry = _board(_track((5, 10), (18.8, 10), 2.0), _track((21.6, 10), (40, 10), 2.0),
+                      _track((5, 10), (5, 20), 2.0), _track((5, 20), (40, 20), 2.0), _track((40, 20), (40, 10), 2.0))
+    geometry = replace(geometry, footprints=geometry.footprints + (middle,))
+    ob = dict(_OB, widths={"F.Cu": 2.0})
+    spans = joining_spans(geometry, ob, full_width=True)
+    assert spans is not None and width_shortfall(spans, ob["widths"], 0.0) == {}
+
+
+def test_a_track_end_within_half_its_width_of_a_pour_joins_it():
+    # KiCad joins a track to a zone when the track's end lies within half the track's width of the fill
+    from placemat.kicad.phase_run import joining_spans, width_shortfall
+    from tests.test_route_widths_board import _board, _track
+    geometry = _board(_zone(_LEFT), _track((20.3, 10), (40, 10), 1.0))     # its end 0.3 mm past the fill's edge
+    spans = joining_spans(geometry, _OB, full_width=True)
+    assert spans is not None and width_shortfall(spans, _OB["widths"], 0.0) == {}
+    apart = _board(_zone(_LEFT), _track((20.6, 10), (40, 10), 1.0))       # 0.6 mm past: not joined
+    assert joining_spans(apart, _OB) is None
