@@ -1860,8 +1860,8 @@ def _dispatch(args) -> int:
 
 def board_default_phases(pcb) -> list:
     """The default phases for a board (spec "No phases"): its differential pairs and its interface types when the
-    capture exports them, its net classes above the Default's clearance, current paths when any part states a current,
-    then the rest."""
+    capture exports them, its net classes above the Default's clearance, current paths when any part states a current
+    (on the first and last copper layers of its stack when it has inner ones), then the rest."""
     from .capture_nets import capture_beside
     from .checks import carriers_of
     from .kicad.read import read_board
@@ -1875,7 +1875,8 @@ def board_default_phases(pcb) -> list:
                           interface_types=sorted({i.type for i in cap.instances.values() if i.type != "DiffPair"})
                           if interfaces else [],
                           wide_classes=sorted({nc.name for nc in g.netclasses.values() if nc.clearance > base + 1e-9}),
-                          currents=any(len(on) >= 2 for on in carriers_of(g).values()))
+                          currents=any(len(on) >= 2 for on in carriers_of(g).values()),
+                          outer_layers=[g.layers[0].value, g.layers[-1].value] if len(g.layers) > 2 else ())
 
 
 def _route_rank(text: str, names) -> tuple:

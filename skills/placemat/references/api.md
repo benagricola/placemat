@@ -5679,7 +5679,10 @@ cannot be measured has `width_unknown` and does not count as clean.
 A pair phase takes its width from the net class; an explicit phase width is refused.
 
 `settings <board> --example` writes default phases for capture pairs, interfaces, wide-clearance classes,
-current paths and remaining signals. Without a board it writes the signals phase.
+current paths and remaining signals. Without a board it writes the signals phase. On a board with inner copper layers
+the default current phase has `layers` set to the first and last copper layers of the board's stack, its outer layers:
+an inner layer needs a much wider track for the same current, and a wide inner track takes every via site under it.
+A phase you write yourself keeps the `layers` you give it.
 `run --explore SECONDS --route-best --route-rank PHASE[,PHASE...]` prioritises those phases' final clean closure.
 
 A run's start is the end reached first while walking the declared outline path

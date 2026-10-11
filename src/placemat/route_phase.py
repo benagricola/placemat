@@ -218,7 +218,10 @@ def phases_of(cfg) -> tuple:
     return parse_phases(cfg.route_phase)
 
 
-def default_phases(*, pairs: bool, interface_types: list, wide_classes: list, currents: bool) -> list:
+def default_phases(*, pairs: bool, interface_types: list, wide_classes: list, currents: bool, outer_layers=()) -> list:
+    """The default phases for a board with these facts. `outer_layers`: the board's outer copper layers when it also
+    has inner ones; the current phase then routes on them only (the user's decision of 2026-10-11: an inner layer's
+    current width is far wider than an outer one's, and a track there takes every via site under it)."""
     out = []
     if pairs:
         out.append({"name": "diff-pairs", "pairs": True})
@@ -228,7 +231,8 @@ def default_phases(*, pairs: bool, interface_types: list, wide_classes: list, cu
     if wide_classes:
         out.append({"name": "wide-clearance", "net_classes": sorted(wide_classes)})
     if currents:
-        out.append({"name": "current", "current_paths": True, "width": "current"})
+        out.append(dict({"name": "current", "current_paths": True, "width": "current"},
+                        **({"layers": list(outer_layers)} if outer_layers else {})))
     out.append({"name": "signals"})
     return out
 
@@ -236,7 +240,8 @@ def default_phases(*, pairs: bool, interface_types: list, wide_classes: list, cu
 _NOTES = {"diff-pairs": "the capture's DiffPair instances, routed as pairs",
           "buses": "each interface instance of these types routed together as one bus",
           "wide-clearance": "the net classes whose clearance is above the Default's",
-          "current": "each pair of parts that carry current (Pm.I), at the width the lesser current needs",
+          "current": "each pair of parts that carry current (Pm.I), at the width the lesser current needs, on the "
+                     "outer layers of a board with inner ones; a pour net's current is left to its pour",
           "signals": "every connection still open, at the net classes' widths"}
 
 

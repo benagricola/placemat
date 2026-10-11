@@ -17,6 +17,7 @@ pth_inside_courtyard = "warning"
 name = "current"
 current_paths = true
 width = "current"
+layers = ["F.Cu", "B.Cu"]
 
 [[route.phase]]
 name = "signals"

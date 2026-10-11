@@ -114,6 +114,7 @@ with its reason. "Alt" is what changes if it is reversed.
 - D27 A selector that names a net, class, part, instance, type or layer the board lacks, or a glob that matches nothing, refuses the route naming it. Controller ruling: such a selector is a mistake that an empty phase would hide. Alt: a warning finding and an empty phase.
 - D28 The spec's real-board check (the power legs as a `current_paths` phase) runs on a scratch copy under the lock in the Release task; numbers go to the user, not into commits. Controller ruling: the board is a project's, and commits stay project-agnostic. Alt: skip it.
 - Task 23, the circuit-capture skill change its charter puts under "ask first", is approved. User, 2026-10-07.
+- D29 On a board with inner copper layers, the default `current` phase routes on the board's outer copper layers only: `layers` is set to the first and last copper layers of the board's stack (never named in code), and a phase the project writes keeps its own `layers`. User, 2026-10-11, after usb-c-power-adapter's test (b) showed inner-layer current widths (about 2.6x the outer ones) taking In2.Cu and every via site under them (.superpowers/sdd/2026-10-07-routing-phases/usbc-starvation-report.md). Alt: the current phase on every layer.
 
 Decided by the user on 2026-10-07:
 - `capture:` stays a basis prefix of a reference script's `why=` (a fact read from the capture's own annotations); the

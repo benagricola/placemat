@@ -31,6 +31,10 @@ section for each hand-written pattern a newer form replaces.
   closure. Before, the phase routed the whole pour net as tracks at the widest current width, which could take the
   board's room from every later phase. Scripts need no change.
 
+- **Routing phases.** On a board with inner copper layers, `settings <board> --example` gives the current phase
+  `layers` set to the board's outer copper layers. A placemat.toml written by an earlier `--example` keeps its current
+  phase on every layer: add `layers = ["F.Cu", "B.Cu"]` (the board's outer layers) to that phase to match.
+
 - **A route that fails keeps the placed board.** When `run --route` places the board and the route then fails or is
   refused, the layout folder keeps the placed, unrouted board instead of going back to the last run's, and the run
   says so; `run.json`'s `failure.layout` is `placed_unrouted`. Run the same command again to route it: the route
