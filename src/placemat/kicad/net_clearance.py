@@ -28,25 +28,18 @@ _TOUCH_MM = 1e-4                            # copper this close is joined
 _EPS = 1e-6
 
 
-def _clearance_option(name: str) -> str | None:
-    # These are all KRT route.py/route_diff.py (including fab_tiers)'s
-    # --clearance-prefixed options. Exact matches take priority in argparse.
-    options = ("--clearance", "--clearance-ceiling")
-    if name in options:
-        return name
-    matches = [option for option in options if name.startswith("--") and len(name) > 2 and option.startswith(name)]
-    return matches[0] if len(matches) == 1 else None
-
-
-def ceiling(args, env) -> float | None:
+def ceiling(args, env, known=None) -> float | None:
     """The clearance ceiling the router applies to its own class map, from its command-line flags and environment:
-    `--clearance-ceiling`, or `--clearance` under the router's legacy knob (route.py, route_diff.py: `_ceiling`)."""
+    `--clearance-ceiling`, or `--clearance` under the router's legacy knob (route.py, route_diff.py: `_ceiling`). A
+    flag may be abbreviated (settings.resolve_flag; `known`: the router's long flags, None: settings.ROUTER_KNOWN)."""
+    from ..settings import ROUTER_KNOWN, resolve_flag
     args = list(args)
+    known = ROUTER_KNOWN if known is None else known
     given = {}
     for i, a in enumerate(args):
-        name, eq, value = a.partition("=")
-        name = _clearance_option(name)
-        if name:
+        _, eq, value = a.partition("=")
+        name = resolve_flag(a, known)
+        if name in ("--clearance", "--clearance-ceiling"):
             try:
                 given[name] = float(value if eq else args[i + 1])
             except (IndexError, ValueError):

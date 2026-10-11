@@ -112,6 +112,7 @@ _REFUSED = {
     "router_refused": "route: phase %(phase)r: the router refused %(what)s",
     "pair_flag": "route: phase %(phase)r: router_args %(flag)s is not a flag of the pair router (route_diff.py), which "
                  "this phase's pair call runs",
+    "router_owned": "route: %(where)s: router_args %(flag)s is the router's %(owned)s, which placemat sets itself",
 }
 
 
@@ -123,6 +124,8 @@ def refused_text(code: str, facts: dict) -> str:
                                                                   t["to"]["ref"], t["to"]["pad"], t["reason"])
                                            for t in facts["tasks"]))
 
+    elif code == "router_owned":
+        facts = dict(facts, where="[route]" if facts.get("phase") is None else "phase %r" % facts["phase"])
     elif code == "capture":
         facts = dict(facts, detail=", ".join("%s %s" % kv for kv in sorted((facts.get("detail") or {}).items())))
     return _REFUSED[code] % facts
@@ -130,7 +133,7 @@ def refused_text(code: str, facts: dict) -> str:
 
 class RouteRefused(ValueError):
     """A route placemat will not start or go on with: `code` (a key of _REFUSED: no_phases,
-    unknown_phase, capture, router_old, pair_flag, router_refused) and its `facts`; refused_text renders it."""
+    unknown_phase, capture, router_old, pair_flag, router_owned, router_refused) and its `facts`; refused_text renders it."""
 
     def __init__(self, code: str, **facts):
         self.code, self.facts = code, dict(facts)
@@ -1050,6 +1053,31 @@ def pair_flags_refused(caps, phases) -> list:
             for a in p.router_args if flag(a) and a.split("=", 1)[0] not in accepted]
 
 
+def router_flags(caps) -> list | None:
+    """The router's long flags (route.py's, from its capability listing); None when it gave none."""
+    flags = ((caps or {}).get("flags") or {}).get("route.py")
+    return list(flags) if flags else None
+
+
+def owned_args_refused(caps, router_args, phases) -> list:
+    """Each router argument that names a flag placemat sets, read against the router's own flag list (router_flags), as
+    {"phase" (None for `[route] router_args`), "flag", "owned"}. The settings check these against
+    settings.ROUTER_KNOWN when they are read; the router's list tells an abbreviation of one of its other flags from
+    an owned one. [] when the router gave no list."""
+    from ..route_phase import phase_owned
+    from ..settings import router_owned
+    known = router_flags(caps)
+    if known is None:
+        return []
+    out = []
+    for name, args in [(None, router_args)] + [(p.name, p.router_args) for p in phases]:
+        for a in args:
+            owned = router_owned(a, known) or (phase_owned(a, known) if name is not None else None)
+            if owned:
+                out.append({"phase": name, "flag": a.split("=", 1)[0], "owned": owned})
+    return out
+
+
 def router_capable(rpy, router_dir) -> list:
     """The REQUIRES this router lacks, from its capability list (KRT krt_capabilities.py, JSON: `modules` {name:
     present}, `flags` {module: [flag, ...]}): a router older than the fork's phase work is refused by name rather
@@ -1107,14 +1135,15 @@ def own_pour_breach(breach: str, nets) -> bool:
     return any(("of %s inside %s %s " % (n, POUR_GUARD, n)) in breach for n in nets)
 
 
-def routing_clearance(default: float, args, env) -> float:
+def routing_clearance(default: float, args, env, known=None) -> float:
     """The clearance the router gives the Default net class, as route.py resolves it: `--clearance` in the router arguments
-    when given, else the board's Default class clearance (`default`), capped at the clearance ceiling (net_clearance.ceiling)."""
+    when given, else the board's Default class clearance (`default`), capped at the clearance ceiling (net_clearance.ceiling).
+    `known`: the router's long flags (its krt_capabilities listing), None: settings.ROUTER_KNOWN."""
     from ..settings import router_flag
     from .net_clearance import ceiling
-    given = router_flag(args, "--clearance")
+    given = router_flag(args, "--clearance", known)
     out = default if given is None else given
-    cap = ceiling(args, env)
+    cap = ceiling(args, env, known)
     return out if cap is None else min(out, cap)
 
 
@@ -1311,9 +1340,14 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     missing = _router_lacks(rpy, router_dir_path, run_list)
     if missing:
         raise RouteRefused("router_old", router=str(router_dir_path), missing=", ".join(missing))
-    bad = pair_flags_refused(router_capabilities(rpy, router_dir_path), run_list)
+    caps = router_capabilities(rpy, router_dir_path)
+    bad = pair_flags_refused(caps, run_list)
     if bad:
         raise RouteRefused("pair_flag", **bad[0])
+    owned = owned_args_refused(caps, cfg.route_router_args, run_list)
+    if owned:
+        raise RouteRefused("router_owned", **owned[0])
+    known = router_flags(caps)
     from ..capture_nets import SIDECAR
     try:
         capture = read_capture(capture_path) if capture_path else capture_beside(pcb)
@@ -1390,12 +1424,12 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     if clearance_findings and on_setup is not None:
         on_setup(clearance_findings)
     class_clearances = net_clearance.class_clearances(rpy, router_dir_path, pcb_in, geometry.nets, env)
-    ceiling = net_clearance.ceiling(cfg.route_router_args, env)
+    ceiling = net_clearance.ceiling(cfg.route_router_args, env, known)
     clearance_map = net_clearance.merged(class_clearances, stated, ceiling)
     clearances_file = work / net_clearance.MAP_NAME if stated else None
     if clearances_file:
         clearances_file.write_text(json.dumps(clearance_map, sort_keys=True) + "\n")
-    base_clearance = routing_clearance(geometry.default_clearance, cfg.route_router_args, env)
+    base_clearance = routing_clearance(geometry.default_clearance, cfg.route_router_args, env, known)
 
     # What every phase's result depends on: the board and its rules as given, the capture, what is left out or
     # poured, how it is routed and by which router. Each phase's digest chains from the one before it.

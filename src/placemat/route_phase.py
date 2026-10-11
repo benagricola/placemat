@@ -8,7 +8,7 @@ from dataclasses import asdict, dataclass
 import math
 import re
 
-from .settings import router_owned
+from .settings import ROUTER_KNOWN, flag_matches, router_owned
 
 SELECTORS = ("nets", "net_classes", "pairs", "buses", "connections", "current_paths", "interfaces", "net_types")
 CAPTURE_SELECTORS = frozenset(("pairs", "interfaces", "net_types"))
@@ -19,6 +19,13 @@ _FLAGS = ("pairs", "current_paths")
 _NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 _LAYER = re.compile(r"^(F|B|In([1-9]|[12][0-9]|30))\.Cu$")
 PHASE_OWNED = {"--no-power-tap-neckdown": "neckdown = false"}
+
+
+def phase_owned(arg: str, known=None) -> str | None:
+    """The flag of PHASE_OWNED `arg` names, abbreviated (settings.flag_matches); `known`: the router's long flags,
+    None: settings.ROUTER_KNOWN."""
+    return next((f for f in flag_matches(arg, (ROUTER_KNOWN if known is None else set(known)) | set(PHASE_OWNED))
+                 if f in PHASE_OWNED), None)
 
 _TEXT = {
     "not_a_table": "route.phase %(index)d: each phase is a table, [[route.phase]]",
@@ -193,8 +200,7 @@ def _one(t, index: int, seen: set) -> Phase:
         raise PhaseError("bad_router_args", name=name, value=args)
     for a in args:
         flag = a.split("=", 1)[0]
-        owned = next((owned for owned in PHASE_OWNED if flag.startswith("--") and
-                      len(flag) > 2 and owned.startswith(flag)), None)
+        owned = phase_owned(a)
         if owned:
             raise PhaseError("router_owned", name=name, flag=flag, by=PHASE_OWNED[owned])
         if router_owned(a):

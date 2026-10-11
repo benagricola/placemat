@@ -673,12 +673,48 @@ def _stack_place(layer: str) -> int:
 
 
 
-def router_flag(args, name: str):
-    """The value of the router flag `name` in `args` (`--flag value` or `--flag=value`) as a number, or None."""
+# The router flags placemat sets on every pass: [route] router_args may not name them.
+ROUTER_OWNED = frozenset(("--nets", "--layers", "--escalation", "--keep-input-copper", "--turn-cost", "--smoothing",
+                           "--no-smoothing", "--power-nets", "--power-nets-widths", "--max-iterations",
+                           "--max-probe-iterations", "--json-out", "--net-clearances", "--connections",
+                           "--bus-nets", "--output"))
+# KRT route.py's short aliases of owned flags (argparse takes "-nVIN" as "-n VIN").
+ROUTER_SHORT = {"-n": "--nets", "-l": "--layers"}
+# The router's long flags placemat knows without asking the router: the owned ones, the ones it reads itself, and
+# KRT route.py's --bus, a complete flag that --bus-nets starts with. Where the router is known, its own listing
+# (krt_capabilities.py `flags`) is used instead.
+ROUTER_KNOWN = ROUTER_OWNED | {"--bus", "--clearance", "--clearance-ceiling", "--grid-step", "--neckdown-length",
+                               "--neckdown-taper-length", "--no-power-tap-neckdown"}
+
+
+def flag_matches(arg: str, known) -> list:
+    """The flags of `known` that `arg` (a command-line word, `--flag` or `--flag=value`) names as the router's argparse
+    reads a long option: the flag itself when it is one, else every flag it is a prefix of; a short alias by
+    ROUTER_SHORT. [] for a value or an unknown flag."""
+    flag = arg.split("=", 1)[0]
+    if flag.startswith("--") and len(flag) > 2:
+        known = set(known)
+        return [flag] if flag in known else sorted(k for k in known if k.startswith(flag))
+    if len(flag) > 1 and flag[0] == "-" and flag[:2] in ROUTER_SHORT:
+        return [ROUTER_SHORT[flag[:2]]]
+    return []
+
+
+def resolve_flag(arg: str, known) -> str | None:
+    """The one flag of `known` `arg` names (flag_matches); None when it names none, or several (argparse refuses an
+    ambiguous abbreviation)."""
+    got = flag_matches(arg, known)
+    return got[0] if len(got) == 1 else None
+
+
+def router_flag(args, name: str, known=None):
+    """The value of the router flag `name` in `args` (`--flag value` or `--flag=value`, the flag maybe abbreviated) as
+    a number, or None. `known`: the router's long flags (its krt_capabilities listing), None: ROUTER_KNOWN."""
     args = list(args)
+    known = (ROUTER_KNOWN | {name}) if known is None else known
     for i, a in enumerate(args):
-        flag, eq, value = a.partition("=")
-        if flag == name:
+        _, eq, value = a.partition("=")
+        if resolve_flag(a, known) == name:
             try:
                 return float(value if eq else args[i + 1])
             except (IndexError, ValueError):
@@ -686,27 +722,12 @@ def router_flag(args, name: str):
     return None
 
 
-# The router flags placemat sets on every pass: [route] router_args may not name them.
-ROUTER_OWNED = frozenset(("--nets", "--layers", "--escalation", "--keep-input-copper", "--turn-cost", "--smoothing",
-                           "--no-smoothing", "--power-nets", "--power-nets-widths", "--max-iterations",
-                           "--max-probe-iterations", "--json-out", "--net-clearances", "--connections",
-                           "--bus-nets", "--output"))
-
-
-def router_owned(arg: str) -> str | None:
-    """Owned option, including argparse's long-option abbreviations and short aliases."""
-    flag = arg.split("=", 1)[0]
-    # KRT defines --bus as a complete flag as well as --bus-nets. Argparse
-    # chooses the exact flag before considering an abbreviation.
-    if flag == "--bus":
-        return None
-    if not flag.startswith("--"):
-        for alias, owned in (("-n", "--nets"), ("-l", "--layers")):
-            if flag.startswith(alias):
-                return owned
-    if flag.startswith("--") and len(flag) > 2:
-        return next((owned for owned in sorted(ROUTER_OWNED) if owned.startswith(flag)), None)
-    return None
+def router_owned(arg: str, known=None) -> str | None:
+    """The owned flag (ROUTER_OWNED) `arg` names, abbreviated or by a short alias; an ambiguous abbreviation that
+    could be an owned flag counts as that flag. `known`: the router's long flags, None: ROUTER_KNOWN."""
+    owned = [f for f in flag_matches(arg, ROUTER_KNOWN if known is None else set(known) | ROUTER_OWNED)
+             if f in ROUTER_OWNED]
+    return owned[0] if owned else None
 
 
 # A copper layer's name as KiCad spells it: F.Cu, In1.Cu to In30.Cu, B.Cu.
