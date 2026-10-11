@@ -143,10 +143,8 @@ def test_local_provenance_write_failure_is_not_reported_as_success(tmp_path, mon
         route_ref.run_local("obstructed-route", tmp_path, {})
 
 
-def test_reference_deadline_preserves_earlier_inherited_budget(tmp_path, monkeypatch):
-    import time
+def test_reference_route_runs_in_its_own_session(tmp_path, monkeypatch):
     from types import SimpleNamespace
-    earlier = time.time() + 1
     seen = {}
     work = tmp_path / "route"
     work.mkdir()
@@ -155,23 +153,21 @@ def test_reference_deadline_preserves_earlier_inherited_budget(tmp_path, monkeyp
         (work / "route.json").write_text('{"closure_clean": 0.5}')
         return SimpleNamespace(returncode=0, communicate=lambda **_: ("", ""))
     monkeypatch.setattr(route_ref.subprocess, "Popen", run)
-    assert route_ref._route(tmp_path / "board.kicad_pcb", work, None,
-                            env={"KRT_ROUTE_DEADLINE_UTC": str(earlier)})["closure_clean"] == 0.5
-    assert float(seen["env"]["KRT_ROUTE_DEADLINE_UTC"]) == earlier
+    assert route_ref._route(tmp_path / "board.kicad_pcb", work, None, env={"A": "1"})["closure_clean"] == 0.5
+    assert seen["env"] == {"A": "1"}
     assert seen["start_new_session"] is True
 
 
-def test_reference_timeout_reaps_its_process_group_and_deadlined_candidate(tmp_path, monkeypatch):
+def test_reference_timeout_reaps_its_process_group(tmp_path, monkeypatch):
     import os
     import subprocess
     import sys
-    # Emulate the independently sessioned KRT candidate, which the shared deadline must bound.
+    # the route's own child (the router) is in the route's process group
     candidate = "import time; time.sleep(100)"
-    main = ("import os,signal,subprocess,sys,time; "
-            "p=subprocess.Popen([sys.executable,'-c',%r],start_new_session=True); "
+    main = ("import os,subprocess,sys,time; "
+            "p=subprocess.Popen([sys.executable,'-c',%r]); "
             "open(%r,'w').write(str(os.getpid())+' '+str(p.pid)); "
-            "time.sleep(max(0,float(os.environ['KRT_ROUTE_DEADLINE_UTC'])-time.time())); "
-            "os.killpg(p.pid,signal.SIGKILL); p.wait(); time.sleep(100)") % (candidate, str(tmp_path / "pids"))
+            "time.sleep(100)") % (candidate, str(tmp_path / "pids"))
     real = subprocess.Popen
     def run(cmd, **kwargs):
         return real([sys.executable, "-c", main], **kwargs)
@@ -183,16 +179,6 @@ def test_reference_timeout_reaps_its_process_group_and_deadlined_candidate(tmp_p
     for pid in (parent, child):
         with pytest.raises(ProcessLookupError):
             os.kill(pid, 0)
-
-
-def test_expired_inherited_deadline_refuses_before_launch(tmp_path, monkeypatch):
-    import time
-    def unexpected(*args, **kwargs):
-        pytest.fail("expired route launched a child")
-    monkeypatch.setattr(route_ref.subprocess, "Popen", unexpected)
-    with pytest.raises(RuntimeError, match="expired"):
-        route_ref._route(tmp_path / "board.kicad_pcb", tmp_path / "route", None,
-                         env={"KRT_ROUTE_DEADLINE_UTC": str(time.time() - 1)})
 
 
 def test_interrupted_reference_wait_reaps_owned_parent(tmp_path, monkeypatch):

@@ -119,14 +119,3 @@ def test_a_pair_list_that_is_not_pairs_of_two_nets_is_refused(value):
     with pytest.raises(PhaseError) as e:
         parse_phases([{"name": "x", "pairs": value}])
     assert e.value.code == "bad_pairs" and e.value.facts["value"] == value
-
-
-@pytest.mark.parametrize('arg', ['--final-call-proof', '--final-call-proof=f', '--final-c',
-                                 '--candidate-artifacts', '--candidate-artifacts=dir', '--candidate-a'])
-def test_final_candidate_transport_is_owned_in_phase_and_global_settings(tmp_path, arg):
-    with pytest.raises(PhaseError) as failure:
-        parse_phases([{'name': 'x', 'router_args': [arg]}])
-    assert failure.value.code == 'router_owned'
-    (tmp_path / 'placemat.toml').write_text('[route]\nrouter_args = ["%s"]\n' % arg)
-    with pytest.raises(SettingsError, match='is set by placemat itself'):
-        load(tmp_path)

@@ -320,45 +320,22 @@ def current_versions() -> dict:
     return {"placemat": _git_head(str(pathlib.Path(placemat.__file__).resolve().parent)), "pcb": pcb_version()}
 
 
-def owned_env(timeout, env=None) -> dict:
-    """One earlier router deadline, with time reserved for owned-process cleanup."""
-    import math
-    import time
-    if not math.isfinite(timeout) or timeout <= 0:
-        raise RuntimeError("invalid reference process timeout")
-    child_env = dict(os.environ if env is None else env)
-    deadline = time.time() + timeout - min(10.0, timeout / 4)
-    if "KRT_ROUTE_DEADLINE_UTC" in child_env:
-        try:
-            inherited = float(child_env["KRT_ROUTE_DEADLINE_UTC"])
-            if not math.isfinite(inherited):
-                raise ValueError
-        except (TypeError, ValueError):
-            raise RuntimeError("invalid inherited router deadline") from None
-        deadline = min(deadline, inherited)
-    if deadline <= time.time():
-        raise RuntimeError("inherited router deadline has expired")
-    child_env["KRT_ROUTE_DEADLINE_UTC"] = str(deadline)
-    return child_env
-
-
 def run_owned(cmd, *, timeout, env=None):
     """Capture one owned process group, reaping it on timeout, interruption or error.
 
-    A router deadline leaves its supervisor time to reap independently sessioned
-    candidates. The ordinary outer wait is bounded by `timeout`; stopping adds
-    up to five seconds of TERM grace and one second to drain pipes after KILL.
-    TERM/INT during Popen is deferred until the owned group is known. The helper
-    runs on the main thread so it can restore the caller's signal handlers.
+    The wait is bounded by `timeout`; stopping adds up to five seconds of TERM
+    grace and one second to drain pipes after KILL. TERM/INT during Popen is
+    deferred until the owned group is known. The helper runs on the main thread
+    so it can restore the caller's signal handlers.
     """
+    import math
     import signal
     import threading
-    import time
     if threading.current_thread() is not threading.main_thread():
         raise RuntimeError("reference process supervisor requires the main thread")
-    child_env = owned_env(timeout, env)
-    deadline = float(child_env["KRT_ROUTE_DEADLINE_UTC"])
-    reserve = min(10.0, timeout / 4)
+    if not math.isfinite(timeout) or timeout <= 0:
+        raise RuntimeError("invalid reference process timeout")
+    child_env = dict(os.environ if env is None else env)
     proc = None
     pending = None
     previous = {sig: signal.getsignal(sig) for sig in (signal.SIGTERM, signal.SIGINT)}
@@ -401,17 +378,11 @@ def run_owned(cmd, *, timeout, env=None):
     try:
         for sig in previous:
             signal.signal(sig, interrupted)
-        if deadline <= time.time():
-            raise RuntimeError("inherited router deadline has expired")
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
                                 start_new_session=True, env=child_env)
         if pending is not None:
             raise SystemExit(128 + pending)
-        now = time.time()
-        remaining = min(timeout, deadline - now + reserve)
-        if deadline <= now or remaining <= 0:
-            raise subprocess.TimeoutExpired(cmd, timeout)
-        stdout, stderr = proc.communicate(timeout=remaining)
+        stdout, stderr = proc.communicate(timeout=timeout)
         return subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
     except BaseException as error:
         if proc is not None:
@@ -556,9 +527,7 @@ def _route(pcb: pathlib.Path, work: pathlib.Path, toml: str | None, *, env=None)
         (work / 'process.json').write_text(json.dumps(facts, indent=2) + '\n')
 
     try:
-        child_env = owned_env(ROUTE_TIMEOUT_S, env)
-        facts['router_deadline_utc'] = child_env['KRT_ROUTE_DEADLINE_UTC']
-        proc = run_owned(cmd, timeout=ROUTE_TIMEOUT_S, env=child_env)
+        proc = run_owned(cmd, timeout=ROUTE_TIMEOUT_S, env=env)
     except BaseException as error:
         facts['exception'] = type(error).__name__
         facts['exitcode'] = error.code if isinstance(error, SystemExit) else None

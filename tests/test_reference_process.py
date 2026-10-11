@@ -54,7 +54,6 @@ def test_a_new_record_wins_over_a_future_dated_old_record(tmp_path, monkeypatch)
     facts = json.loads((audit / "process.json").read_text())
     assert facts["returncode"] == 0 and facts["record"].endswith("new/run.json")
     assert facts["cwd"] == str(pathlib.Path.cwd())
-    assert float(facts["router_deadline_utc"]) > time.time()
 
 
 def test_rewriting_an_existing_record_is_fresh(tmp_path, monkeypatch):
@@ -114,14 +113,6 @@ def test_timeout_logs_partial_bytes_and_returns_no_success(tmp_path, monkeypatch
     (audit,) = (path.parent / ".placemat/reference-runs").iterdir()
     assert (audit / "stdout.log").read_text() == "partial stdout"
     assert (audit / "stderr.log").read_text() == "partial stderr"
-
-
-def test_expired_placement_deadline_refuses_before_spawn(tmp_path, monkeypatch):
-    path = script(tmp_path)
-    monkeypatch.setenv("KRT_ROUTE_DEADLINE_UTC", str(time.time() - 1))
-    monkeypatch.setattr(route_ref.subprocess, "Popen", lambda *a, **k: pytest.fail("expired invocation spawned"))
-    got, _ = place_ref.placemat_run(path)
-    assert place_ref._failure(got)[0] == "RuntimeError" and "expired" in place_ref._failure(got)[1]
 
 
 @pytest.mark.parametrize("signum", [signal.SIGTERM, signal.SIGINT])
@@ -185,7 +176,7 @@ def test_supervisor_refuses_a_thread_without_launching(monkeypatch):
             future.result()
 
 
-def test_expiration_is_recomputed_after_spawn(monkeypatch):
+def test_a_slow_spawn_is_still_bounded_and_reaped(monkeypatch):
     real = subprocess.Popen
     seen = []
     def spawn(cmd, **kwargs):

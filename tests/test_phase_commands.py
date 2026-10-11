@@ -228,17 +228,3 @@ def test_current_buses_preserve_each_bus_call_and_its_task_widths():
     assert [c.nets for c in calls] == [("A",), ("B",)] and [c.tasks for c in calls] == [(tasks[0],), (tasks[1],)]
     cmd = router_command("py", "route.py", "in", "out", set(), ["F.Cu", "B.Cu"], "s.json", connections=Path("tasks.json"), bus_nets=["A", "B"])
     assert cmd[cmd.index("--connections") + 1] == "tasks.json" and cmd[cmd.index("--bus-nets") + 1:cmd.index("--bus-nets") + 3] == ["A", "B"]
-
-
-def test_router_fallback_deadline_uses_call_budget_and_preserves_earlier_caller_limit(tmp_path, monkeypatch):
-    from types import SimpleNamespace as N
-    from placemat.kicad import phase_run
-    observed = []
-    monkeypatch.setattr(phase_run.time, "time", lambda: 100.0)
-    monkeypatch.setattr(phase_run.subprocess, "run", lambda *a, **kw: observed.append(kw) or N(returncode=0))
-    ctx = N(router_dir=tmp_path, env={"KRT_ROUTE_DEADLINE_UTC": "103"}, timeout=10)
-    assert phase_run._run(["router"], tmp_path / "call.log", ctx) == 0
-    assert float(observed[0]["env"]["KRT_ROUTE_DEADLINE_UTC"]) == 103 and ctx.env == {"KRT_ROUTE_DEADLINE_UTC": "103"}
-    ctx.env = {}
-    phase_run._run(["router"], tmp_path / "call.log", ctx)
-    assert float(observed[1]["env"]["KRT_ROUTE_DEADLINE_UTC"]) == 110

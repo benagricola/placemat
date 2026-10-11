@@ -149,7 +149,7 @@ def _process_text(value) -> str:
 def placemat_run(script: pathlib.Path, extra: tuple = ()) -> tuple[dict | None, float]:
     """Run one placement in an owned process group; only RC0 and a fresh run.json can be adopted.
 
-    Logs and the shared deadline protocol are retained beside the copied script.
+    Logs and the process facts are kept beside the copied script.
     A malformed fresh record, nonzero exit or timeout is a failed result. Signals
     and KeyboardInterrupt reap the owned group before propagating.
     """
@@ -163,7 +163,7 @@ def placemat_run(script: pathlib.Path, extra: tuple = ()) -> tuple[dict | None, 
     audits.mkdir(parents=True, exist_ok=True)
     audit = pathlib.Path(tempfile.mkdtemp(prefix="invocation-", dir=audits))
     cmd = [sys.executable, "-m", "placemat", "run", str(script), *RUN_ARGS, *extra]
-    facts = {"argv": cmd, "cwd": str(pathlib.Path.cwd()), "protocol": "fresh record, RC0, shared router deadline, owned process group",
+    facts = {"argv": cmd, "cwd": str(pathlib.Path.cwd()), "protocol": "fresh record, RC0, owned process group",
              "timeout_s": RUN_TIMEOUT_S}
 
     def log(stdout, stderr):
@@ -175,9 +175,7 @@ def placemat_run(script: pathlib.Path, extra: tuple = ()) -> tuple[dict | None, 
         return {"status": "failed", "failure": {"kind": kind, "message": message}}, time.monotonic() - started
 
     try:
-        env = route_ref.owned_env(RUN_TIMEOUT_S)
-        facts["router_deadline_utc"] = env["KRT_ROUTE_DEADLINE_UTC"]
-        proc = route_ref.run_owned(cmd, timeout=RUN_TIMEOUT_S, env=env)
+        proc = route_ref.run_owned(cmd, timeout=RUN_TIMEOUT_S)
     except BaseException as error:
         facts["exception"] = type(error).__name__
         facts["exitcode"] = error.code if isinstance(error, SystemExit) else None

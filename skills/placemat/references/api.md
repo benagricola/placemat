@@ -5665,46 +5665,8 @@ A run's start is the end reached first while walking the declared outline path
 
 ### Final phase measurements
 
-Routing phase records distinguish clean closure from electrical connectivity. `final_joined`
-counts obligations that pass connectivity, applicable width proof and DRC; `final_connected`
-counts obligations electrically joined on the final copper. Among connected obligations,
-`final_width_known_under` counts measured under-width paths and `final_width_unknown` counts
-unproved required-width paths. These two width counts may overlap. Neither count certifies a
-complete path, and a missing field in an older report means unknown rather than zero.
-
-Reference collectors preserve verified completed-invalid routing measurements separately
-from certification. RC1 still fails certification and remains held against a previously
-passed baseline. An unverified, stale or incomplete artifact carries no measured routing
-comparison. Inherited manufacturing errors remain visible separately from new errors;
-connectivity comparisons require matching original selected obligations and rules.
-
-### Complete-board routing comparisons
-
-A full Run can retain its original layout/check context for a bounded routing
-comparison when the configured backend advertises the required source-bound
-capability. A replay can replace the existing pocket proposal; it never adds a
-third routing proposal or extends the original deadline. Original selected
-terminals, effective widths, fixed copper, zone intent and held placement remain
-the comparison contract. Each incumbent current-path join must be preserved.
-Unsupported call custody or missing authority keeps ordinary routing behavior.
-
-Ordinary pocket selection and strict certification are separate. A selected
-ordinary output is finalized and freshly checked; unknown widths and inherited
-invalid manufacturing remain reported. It is not a strict complete-board
-certificate. Optional comparison refusals are recorded as code/facts in the
-Run's separate `route_optional` metric, without changing the sealed original
-route report. No public override enables acceptance of unproved evidence.
-
-Fresh manufacturing comparison uses the retained original manufacturing capsule,
-source companions and deadline. It checks complete via annular dimensions and
-original-rule DRC, then checks captured factory and per-net clearance floors on
-the same original-rule-filled copper. Numeric net identifiers are resolved
-through the original parser to semantic net names. A stricter measurement never
-changes the route's original rules or refills copper under those stricter rules.
-
-Missing, incomplete or unsupported evidence remains unproved. A proved inherited
-violation is invalid; sharing it with the incumbent does not permit a candidate
-to compete. Error counts merge overlapping original and mandatory clearance
-report domains by item identity and maximum multiplicity; they are not claims
-of unique physical violation locations. All measurements consume the original
-route deadline without an additional routing proposal.
+Each phase record in `route.json` is judged again on the finished board. `final_joined` counts
+connections that are joined, at their width and with no DRC error on their net; `final_connected`
+counts connections that are joined at all. Of the joined ones, `final_width_known_under` counts
+paths measured narrower than asked and `final_width_unknown` counts paths whose width could not be
+measured; one path can be in both. A report from before these fields has none of them.

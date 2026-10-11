@@ -16,8 +16,6 @@ section for each hand-written pattern a newer form replaces.
 
 ### Changed
 
-- **Routing comparison evidence.** Fresh complete annular and clearance measurements can resolve specific manufacturing uncertainties under the retained original rules. Proved inherited violations remain invalid, unsupported evidence stays unproved, and comparison consumes the original deadline without another routing proposal. No setting or fabrication permission is inferred from generated copper.
-
 - **Routing phases.** Net clearance comes from the capture's clearance field. Trapped-pad findings are `setup.net_clearance`.
 
 - **Routing phases.** Required-width paths that cannot be proved are explicitly unproven and never counted as clean joins.
