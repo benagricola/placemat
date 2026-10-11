@@ -180,10 +180,10 @@ def test_bend_generator_gain_can_hide_a_common_objective_loss():
 
 
 def test_shared_pair_price_changes_actual_common_finalist_choice():
-    board, plan, inp, group = scene(points=[(19, 8), (14, 16), (32, 12), (12.8, 12.8)], paired=True)
+    board, plan, inp, group = scene(points=[(30.9, 37.9), (11.9, 38.3), (35.9, 26.1), (19.8, 8.6)], paired=True)
     candidates = [replace(group.results[0], assign={net: (('U1', pin),)
                                                   for net, pin in zip('ABCD', pins)})
-                  for pins in ('3412', '1423')]
+                  for pins in ('1342', '2314')]
     winners = []
     for price in (.1, 80.0):
         cfg = replace(board.settings, score_crossing_pair_net=price, score_escape_crossed=0,
@@ -455,9 +455,9 @@ def test_study_stamp_path_checks_simultaneous_candidates_before_advice(monkeypat
 def test_longer_advice_rejudges_both_maps_after_pair_price_changes(monkeypatch):
     from placemat import pinmap
     from placemat.suggestions import pin_advice
-    board, plan, inp, group = scene(points=((19, 8), (14, 16), (32, 12), (12.8, 12.8)), paired=True)
+    board, plan, inp, group = scene(points=((30.9, 37.9), (11.9, 38.3), (35.9, 26.1), (19.8, 8.6)), paired=True)
     candidates = tuple(replace(group.results[0], assign={net: (('U1', pin),) for net, pin in zip('ABCD', pins)})
-                       for pins in ('3412', '1423'))
+                       for pins in ('1342', '2314'))
     group = replace(group, results=candidates)
     low = replace(board.settings, score_crossing_pair_net=.1, score_escape_crossed=0,
                   score_escape_closed=0, score_escape_via=0)

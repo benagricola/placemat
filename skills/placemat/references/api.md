@@ -5595,6 +5595,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `score.escape_lane` | `400.0` | mm | mm a declared `board.escape` lane costs that another net's pad, hole or copper already placed blocks, or whose via has no legal spot: in the search at each candidate, and in the run score as the `escape_lane` finding |
 | `score.congestion` | `10.0` | mm | mm per `score.congestion_step` of the worst RUDY cell, in every run's score |
 | `score.congestion_step` | `0.05` | fraction | the worst RUDY cell is counted in steps of this, at `score.congestion` each (0 leaves congestion out) |
+| `score.congestion_box` | `3.0` | mm | each net's RUDY box is at least this wide each way, about its centre (placemat's own rule): a short net along one axis spreads its wire over this width rather than one 0.5 mm cell, so a small turn of it cannot move the worst cell by several steps |
 | `score.link` | `1.0` | multiplier | the run score's link term: each declared link's weight times its pad-to-pad length, times this |
 | `score.area` | `0.25` | mm | mm of score per mm2 of a fitted frame (`board.rect(fit=...)`), on the axes it fits; 0 on a fixed outline |
 | `score.via_share` | `1.0` | mm | mm the search adds to a spot for each carried via that shares a via of its net there |
@@ -5667,7 +5668,7 @@ what they connect to and took a pocket instead; the run prints their names.
 And `metrics.footprints`, in courtyard mode, when any courtyard understates
 its part, and `metrics.cleanup` when the cleanup pass ran. And `metrics.rudy`:
 the placed board's congestion by RUDY - each routed net's wire spread over its
-box on a 0.5 mm grid, against what a cell's layers carry - as
+box, at least `score.congestion_box` each way, on a 0.5 mm grid, against what a cell's layers carry - as
 the worst cell's share of capacity and where it is, the 99th percentile cell
 and the overflow; the run prints the worst cell as `congestion`. On a study
 of the fixture modules the worst cell was the one congestion measure that

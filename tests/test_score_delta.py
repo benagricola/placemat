@@ -593,7 +593,7 @@ def test_native_congestion_matches_one_ulp_step_boundaries_and_repeated_candidat
         levels.add(expected)
         delta = native.NativeDelta(native.NativeRatsnest(), [], [[]], [], (4.0, 3.0, 5.0, 0.0, 2.0))
         delta.configure_layout([[]], [(0, 0, 0, 0)], None,
-            ((0, 0, 2, 2), 2, pitch, 0.05, 0.5, [('n', 0.25, 0.25)], [[('n', (0.25, 0.25, 0.25, 0.25))]]),
+            ((0, 0, 2, 2), 2, pitch, 0.05, 0.5, 0.5, [('n', 0.25, 0.25)], [[('n', (0.25, 0.25, 0.25, 0.25))]]),
             (0.0, 0.0, 0.0, 1.0))
         for _ in range(20):
             assert delta.terms(0.0, 0.0, 0)[-1] == expected
@@ -616,7 +616,7 @@ def test_native_multinet_scratch_cells_match_signed_rebuilds_without_drift():
     moving = [('0', (0.0, 0.0, 0.0, 0.0)), ('1', (0.2, 0.1, 0.2, 0.1)), ('2', (-0.2, -0.1, -0.2, -0.1))]
     delta = native.NativeDelta(native.NativeRatsnest(), [], [[]], [], (4.0, 3.0, 5.0, 0.0, 2.0))
     delta.configure_layout([[]], [(0, 0, 0, 0)], None,
-        ((0, 0, 10, 10), 2, 0.4, 0.05, 0.5, pads, [moving]), (0.0, 0.0, 0.0, 1.0))
+        ((0, 0, 10, 10), 2, 0.4, 0.05, 0.5, 0.5, pads, [moving]), (0.0, 0.0, 0.0, 1.0))
     changes = set()
     for _ in range(100):
         x, y = rng.uniform(1, 9), rng.uniform(1, 9)
@@ -677,10 +677,10 @@ def test_native_grid_refuses_outside_and_overflowing_rest_snapshots():
     delta = native.NativeDelta(native.NativeRatsnest(), [], [[]], [], (4.0, 3.0, 5.0, 0.0, 2.0))
     with pytest.raises(ValueError, match='rest pads'):
         delta.configure_layout([[]], [(0, 0, 0, 0)], None,
-            ((0, 0, 2, 2), 2, 0.4, 0.05, 0.5, [('n', 1e300, 1e300)], [[]]), (0.0, 0.0, 0.0, 1.0))
+            ((0, 0, 2, 2), 2, 0.4, 0.05, 0.5, 0.5, [('n', 1e300, 1e300)], [[]]), (0.0, 0.0, 0.0, 1.0))
     with pytest.raises(ValueError, match='grid|capacity'):
         delta.configure_layout([[]], [(0, 0, 0, 0)], None,
-            ((-1e308, -1e308, 1e308, 1e308), 2, 0.4, 0.05, 0.5,
+            ((-1e308, -1e308, 1e308, 1e308), 2, 0.4, 0.05, 0.5, 0.5,
              [('n', 1e300, 1e300)], [[]]), (0.0, 0.0, 0.0, 1.0))
 
 
@@ -1312,3 +1312,48 @@ def test_escape_delta_does_not_treat_unknown_nonempty_net_as_netless():
                            netclasses={n: c for n, c in occ.geometry.netclasses.items() if n!='RING'})
     with pytest.raises(KeyError, match="no net named 'RING'"):
         EscapeDelta(occ, {'U9'})
+
+
+def test_native_terms_match_python_and_whole_for_a_short_net_crossing_the_box_floor():
+    """A net whose box is under `score.congestion_box` at some candidates and over it at others: the native search,
+    the Python delta and the whole board agree on every term."""
+    from dataclasses import replace
+    from placemat import geometry, score
+    from placemat.score_delta import Delta
+    from placemat.settings import Settings
+    from placemat.values import Location, Part
+    from tests.test_score_measures import _two_part_board
+    if geometry._native is None or not hasattr(geometry._native.NativeDelta, 'configure_layout'):
+        pytest.skip('NativeDelta layout not built')
+    floor = 3.0
+    board = _two_part_board(settings=Settings(score_congestion_box=floor))
+    board.place(Part('u1'), at=Location(10, 10))
+    board.place(Part('c1'), at=Location(16, 10))
+    plan = board.resolve()
+    occ, item = plan.occupancy, plan._items['c1']
+    original = plan.placement('c1')
+    occ.lift(['C1'])
+    turns = [0.0, 90.0, 180.0]
+    keys = ('airwire', 'crossings', 'link', 'link_over', 'area', 'congestion')
+    rng = random.Random(5)
+    before = score.whole(board, occ, plan)
+    spans, moved = set(), set()
+    for turn, rotation in enumerate(turns):
+        for _ in range(20):
+            delta = Delta(board, occ, item, plan.links, plan=plan)
+            native = delta.native(turns, original.face)
+            assert native is not None
+            candidate = replace(original, rotation=rotation,
+                                location=Location(16 + rng.uniform(-1.0, 1.0), 10 + rng.uniform(-1.0, 1.0)))
+            expected = delta(candidate)
+            measured = dict(zip(keys, native.terms(candidate.location.x, candidate.location.y, turn)))
+            assert measured == pytest.approx({k: expected.terms[k] for k in keys}, abs=1e-6)
+            occ.commit(item, candidate)
+            gnd = [occ.pad_location(ref, pad) for ref, pad in (('U1', '2'), ('C1', '2'))]
+            spans.add(abs(gnd[0].x - gnd[1].x) < floor)
+            after = score.whole(board, occ, plan)
+            assert measured == pytest.approx({k: after[k] - before[k] for k in keys}, abs=1e-6)
+            moved.add(measured['congestion'])
+            occ.lift(['C1'])
+    assert spans == {True, False}
+    assert len(moved) > 1

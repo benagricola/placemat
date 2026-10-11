@@ -126,3 +126,41 @@ def test_grid_worst_matches_display_rudy_and_removing_all_pads_clears_it():
     assert grid.change({'a': []}) == -grid.steps()
     grid.remove_net('a')
     assert grid.steps() == 0 and grid.worst() == 0
+
+
+def test_a_net_box_is_floored_at_the_set_width_about_its_centre():
+    """`score.congestion_box`: a net along one axis spreads its wire over the floor's width, not one cell."""
+    pads = [_pad("A", 2.0, 5.25), _pad("A", 4.0, 5.25)]
+    thin = rudy(pads, Box(0, 0, 10, 10), layers=2, pitch=0.4, cell=0.5)
+    wide = rudy(pads, Box(0, 0, 10, 10), layers=2, pitch=0.4, cell=0.5, box=2.0)
+    assert wide.demand == thin.demand == pytest.approx(2.0)
+    assert wide.worst == pytest.approx(thin.worst / 4, abs=1e-4)          # 2 mm high, not 0.5 mm
+    assert wide.worst_at.y == pytest.approx(thin.worst_at.y, abs=1.0)
+    assert rudy(pads, Box(0, 0, 10, 10), 2, 0.4, cell=0.5, box=0.5).worst == thin.worst
+
+
+def test_grid_changes_across_the_box_floor_match_a_rebuilt_grid_and_the_display():
+    import random
+    from placemat.congestion import RudyGrid
+    from placemat.values import Location
+    rng = random.Random(7)
+    box = Box(0, 0, 12, 12)
+    rest = {str(i): [Location(rng.uniform(1, 11), rng.uniform(1, 11)) for _ in range(3)] for i in range(5)}
+    grid = RudyGrid(box, 2, 0.4, 0.05, box=2.5)
+    for net, pads in rest.items():
+        grid.add_net(net, pads)
+    grid.add_net("s", [Location(5, 5), Location(6, 5)])
+    baseline = grid.steps()
+    widths = set()
+    for _ in range(200):
+        x, y = rng.uniform(4, 9), rng.uniform(4, 6)                     # the short net's box crosses 2.5 mm either way
+        moved = [Location(5, 5), Location(x, y)]
+        widths.add((abs(x - 5) < 2.5, abs(y - 5) < 2.5))
+        rebuilt = RudyGrid(box, 2, 0.4, 0.05, box=2.5)
+        for net, pads in dict(rest, s=moved).items():
+            rebuilt.add_net(net, pads)
+        assert grid.change({"s": moved}) == rebuilt.steps() - baseline
+        display = rudy([_pad(net, p.x, p.y) for net, pads in dict(rest, s=moved).items() for p in pads],
+                       box, 2, 0.4, box=2.5)
+        assert rebuilt.worst() == pytest.approx(display.worst, abs=0.00005)
+    assert {w for w, _ in widths} == {True, False}

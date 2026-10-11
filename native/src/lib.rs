@@ -842,11 +842,11 @@ impl NativeDelta {
     #[allow(clippy::type_complexity)]
     fn configure_layout(&mut self, links: Vec<Vec<score_layout::Link>>, boxes: Vec<score_layout::Bounds>,
         fit: Option<(Option<score_layout::Bounds>, f64, Option<f64>, Option<f64>, f64)>,
-        grid: Option<(score_layout::Bounds, usize, f64, f64, f64, Vec<(String,f64,f64)>, Vec<Vec<(String,score_layout::Bounds)>>)>,
+        grid: Option<(score_layout::Bounds, usize, f64, f64, f64, f64, Vec<(String,f64,f64)>, Vec<Vec<(String,score_layout::Bounds)>>)>,
         weights: (f64,f64,f64,f64)) -> PyResult<()> {
         let revision = self.revision.checked_add(1).ok_or_else(|| PyValueError::new_err("NativeDelta revision exhausted"))?;
-        let grid = grid.map(|(frame,layers,pitch,step,cell,pads,turns)|
-            score_layout::Grid::new(frame,layers,pitch,step,cell,pads,turns)).transpose().map_err(PyValueError::new_err)?;
+        let grid = grid.map(|(frame,layers,pitch,step,cell,floor,pads,turns)|
+            score_layout::Grid::new(frame,layers,pitch,step,cell,floor,pads,turns)).transpose().map_err(PyValueError::new_err)?;
         self.layout = Some(score_layout::Layout::new(links,boxes,fit,grid,weights).map_err(PyValueError::new_err)?);
         self.revision = revision;
         Ok(())

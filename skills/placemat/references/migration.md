@@ -7,6 +7,8 @@ section for each hand-written pattern a newer form replaces.
 
 ## Unreleased
 
+- **A net's RUDY box is at least `score.congestion_box` (3.0 mm) each way.** It was one 0.5 mm cell, so a short net along one axis put its whole wire into a strip one cell wide, and a small turn that widened it could lower the worst cell by several `score.congestion_step` steps: tens of mm of run score, and `turn.better` notices, from a sub-millimetre change of wire. The floor applies to the search, the run score (`rudy_steps`), the turn check and `metrics.rudy` alike. On the bench modules the worst cell falls by about a half (`rudy_steps` 290 to 144 summed), so a run score recorded before reads higher than the same placement scores now; `score.congestion_box = 0.5` restores the old figures.
+
 - **Pin advice now requires a current common physical judgment.** Standalone study records are explicitly generator-only (`score_scope="generator"`, `generator_gain`, `common_unavailable`) and offer no executable map or turn. Plan-bound rows expose common `total`, validity and refusal records, with generator breakdowns labeled separately. Update clients reading facts v4: generator weighted crossings are not common saving, unknown totals are `null`, and validity repairs can have negative soft gain. Independent module/group gains cannot certify a combined stamp.
 
 - **Saved pin advice is rejudged before a longer search compares it.** Its old scalar does not survive changes to weights or geometry as evidence. Legacy proof-less advice refuses with `common_proof_missing`; unsupported cell rebasing refuses with `cell_advice_rebase_unavailable`; malformed saved payloads return stable `incoming_*_invalid` codes. Regenerate advice from a current plan rather than editing the stored total.

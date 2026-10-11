@@ -1341,7 +1341,7 @@ class Occupancy:
             width = min((c.track_width for c in classes), default=0.2)
             pitch = width + (self.geometry.default_clearance or 0.2)
             grid = RudyGrid(frame, max(1, len(self.geometry.layers)), pitch,
-                            self.settings.score_congestion_step)
+                            self.settings.score_congestion_step, box=self.settings.score_congestion_box)
             self.__dict__["_congestion"] = grid
             self.__dict__["_congestion_pads"] = {}
             self._congestion_refresh(set(self.items))

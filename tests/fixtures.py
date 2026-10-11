@@ -99,16 +99,16 @@ def make_pdf(path, body: str):
     return Path(path)
 
 
-def placement_findings(plan) -> list:
-    """The plan's findings less the escape findings, a routing diagnosis, and the `turn.better` notices, advice on the
-    run score: neither is what the geometry tests are about."""
+def placement_findings(plan, unturned: bool = False) -> list:
+    """The plan's findings less the escape findings, a routing diagnosis the geometry tests are not about; with
+    `unturned`, less the `turn.better` notices too (`unturned_findings`)."""
     return [f for f in plan.findings if not getattr(f, "kind", "").startswith("escape_")
-            and getattr(f, "cause", None) is not FindingCause.TURN_BETTER]
+            and not (unturned and getattr(f, "cause", None) is FindingCause.TURN_BETTER)]
 
 
 def unturned_findings(plan) -> list:
-    """The plan's findings less the `turn.better` notices: advice on the run score, which a test of where a part may
-    stand is not about."""
+    """The plan's findings less the `turn.better` notices: advice on the run score. Only for a scene whose turn notice
+    is a real gain the test is not about; anywhere else a turn notice is a finding like any other."""
     return [f for f in plan.findings if getattr(f, "cause", None) is not FindingCause.TURN_BETTER]
 
 

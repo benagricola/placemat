@@ -275,7 +275,9 @@ def test_polar_about_a_part_is_resolved_when_the_polar_item_is_placed():
     b.place(Part("u1"), at=Location(10.0, 30.0))
     plan = b.resolve()
     assert plan.box("d1").center == Location(10.0, 25.0)
-    assert placement_findings(plan) == []
+    # u1's turn notice is one congestion step (the worst cell on a step boundary) for 0.3 mm less wire: advice the
+    # run score gives, which this test is not about
+    assert placement_findings(plan, unturned=True) == []
 
 
 def test_polar_about_a_pad():

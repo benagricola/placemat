@@ -88,6 +88,7 @@ pub struct Grid {
     nx: usize,
     ny: usize,
     cell: f64,
+    floor: f64,
     capacity: f64,
     step: f64,
     rest: Vec<Vec<(f64, f64)>>,
@@ -110,6 +111,7 @@ impl Grid {
         pitch: f64,
         step: f64,
         cell: f64,
+        floor: f64,
         pads: Vec<(String, f64, f64)>,
         turns: Vec<Vec<(String, Bounds)>>,
     ) -> Result<Self, String> {
@@ -121,6 +123,8 @@ impl Grid {
             || step <= 0.0
             || !cell.is_finite()
             || cell <= 0.0
+            || !floor.is_finite()
+            || floor <= 0.0
         {
             return Err("NativeDelta congestion grid parameters invalid".into());
         }
@@ -178,6 +182,7 @@ impl Grid {
             nx,
             ny,
             cell,
+            floor,
             capacity,
             step,
             rest,
@@ -231,13 +236,15 @@ impl Grid {
             y1 = y1.max(y);
         }
         let wire = (x1 - x0) + (y1 - y0);
-        if x1 - x0 < self.cell {
-            let (a, b) = ((x0 + x1 - self.cell) / 2.0, (x0 + x1 + self.cell) / 2.0);
+        // The box floor (`score.congestion_box`), as congestion.py's `_floored`:
+        // placemat's own rule, so a short net's small turn cannot move the worst cell by many steps.
+        if x1 - x0 < self.floor {
+            let (a, b) = ((x0 + x1 - self.floor) / 2.0, (x0 + x1 + self.floor) / 2.0);
             x0 = a;
             x1 = b;
         }
-        if y1 - y0 < self.cell {
-            let (a, b) = ((y0 + y1 - self.cell) / 2.0, (y0 + y1 + self.cell) / 2.0);
+        if y1 - y0 < self.floor {
+            let (a, b) = ((y0 + y1 - self.floor) / 2.0, (y0 + y1 + self.floor) / 2.0);
             y0 = a;
             y1 = b;
         }

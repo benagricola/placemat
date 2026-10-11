@@ -338,7 +338,7 @@ class Delta:
                 rest = [(net, point.x, point.y) for net, points in self.occ.__dict__['_congestion_pads'].items()
                         for point in points.values()]
                 grid = (bounds(self.grid.board), max(1, len(self.board.geometry.layers)), pitch,
-                        self.grid.step, self.grid.cell, rest, pad_boxes)
+                        self.grid.step, self.grid.cell, self.grid.box, rest, pad_boxes)
             kernel.configure_layout(links, boxes, fit, grid,
                 (cfg.score_link, cfg.score_link_over, cfg.score_area, cfg.score_congestion))
             self._native[key] = kernel

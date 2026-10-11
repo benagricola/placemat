@@ -127,7 +127,8 @@ def test_actual_scan_spreads_dense_net_on_common_congestion_objective(monkeypatc
     parts = [_part_of(ref, ref.lower(), [pad(ref, ref.lower(), 1, 'S', x, 10, 0.01, 0.01)], x, 10)
              for ref, x in [('P1', 10), ('P2', 10.21), ('M', 10.42)]]
     board = Board(board_geometry(parts, width=60, height=60), keep_going=True,
-                  settings=replace(Settings(), place_search_wire='mst', cleanup_enabled=False))
+                  settings=replace(Settings(), place_search_wire='mst', cleanup_enabled=False,
+                                   score_congestion_box=0.5))     # a one-cell box: three pads 0.2 mm apart crowd it
     board.rect(width=60, height=60)
     for part in parts:
         board.place(Part(part.inst), at=part.location)

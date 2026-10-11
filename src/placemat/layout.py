@@ -8490,7 +8490,7 @@ class Board:
         width = min((c.track_width for c in classes), default=0.2)
         pitch = width + (self.geometry.default_clearance or 0.2)
         return rudy(pads, box, max(1, len(self.geometry.layers)), pitch,
-                    skip=self._plane_nets() | self._free_nets)
+                    skip=self._plane_nets() | self._free_nets, box=self.settings.score_congestion_box)
 
     @staticmethod
     def _time_facts(spent) -> dict:

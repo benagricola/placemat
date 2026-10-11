@@ -81,8 +81,7 @@ def test_a_place_the_script_decided_is_judged_at_the_boards_own_clearance():
     b.place(Part("u1"), at=Location(20, 20))
     b.place(Part("r1"), at=Location(20, 18.8 - SILK - 0.95 + 0.0))        # R1's silk bottom at 18.6
     plan = b.resolve()
-    from tests.fixtures import unturned_findings
-    assert not unturned_findings(plan), plan.findings
+    assert not plan.findings, plan.findings
 
 
 def test_a_place_placement_chooses_keeps_the_margin():

@@ -34,10 +34,12 @@ class Rudy:
     origin: Location = None  # the grid's top-left corner
 
 
-def rudy(pads, board: Box, layers: int, pitch: float, cell: float = 0.5, skip=frozenset()) -> Rudy:
+def rudy(pads, board: Box, layers: int, pitch: float, cell: float = 0.5, skip=frozenset(), box: float = None) -> Rudy:
     """`pads` are (net, box, copper layer count) of the placed pads - each net's
-    box is read from its pads' centres; `pitch` is a track and its clearance;
+    box is read from its pads' centres, and is at least `box` mm (one cell if
+    None) each way (`score.congestion_box`); `pitch` is a track and its clearance;
     nets in `skip` (planes, free nets) and nets with one pad ask for nothing."""
+    floor = cell if box is None else box
     nx = max(1, int(math.ceil(board.width / cell)))
     ny = max(1, int(math.ceil(board.height / cell)))
     x_org, y_org = board.left, board.top
@@ -55,10 +57,7 @@ def rudy(pads, board: Box, layers: int, pitch: float, cell: float = 0.5, skip=fr
         y0, y1 = min(p.y for p in pts), max(p.y for p in pts)
         wire = (x1 - x0) + (y1 - y0)
         total += wire
-        if x1 - x0 < cell:                      # a box at least a cell each way
-            x0, x1 = (x0 + x1 - cell) / 2, (x0 + x1 + cell) / 2
-        if y1 - y0 < cell:
-            y0, y1 = (y0 + y1 - cell) / 2, (y0 + y1 + cell) / 2
+        x0, x1, y0, y1 = _floored(x0, x1, y0, y1, floor)
         density = max(wire, cell) / ((x1 - x0) * (y1 - y0))
         for j, oy in _spans(y0, y1, y_org, cell, ny):
             row = demand[j]
@@ -84,6 +83,18 @@ def rudy(pads, board: Box, layers: int, pitch: float, cell: float = 0.5, skip=fr
                 Location(x_org, y_org))
 
 
+def _floored(x0, x1, y0, y1, floor):
+    """A net's box widened about its centre to at least `floor` each way.
+    placemat's own rule (no upstream RUDY handles a thin box): a short net along
+    one axis would otherwise pack its wire into one row of cells, and a small turn
+    that widens it would move the worst cell by many steps."""
+    if x1 - x0 < floor:
+        x0, x1 = (x0 + x1 - floor) / 2, (x0 + x1 + floor) / 2
+    if y1 - y0 < floor:
+        y0, y1 = (y0 + y1 - floor) / 2, (y0 + y1 + floor) / 2
+    return x0, x1, y0, y1
+
+
 def _spans(lo: float, hi: float, origin: float, cell: float, n: int):
     """(index, overlap) of the cells a span [lo, hi] covers along one axis."""
     first = max(0, int(math.floor((lo - origin) / cell)))
@@ -102,8 +113,9 @@ class RudyGrid:
     box can reduce demand as well as increase it; unchanged cells retain
     their congestion-step counts without a full candidate grid scan.
     """
-    def __init__(self, board: Box, layers: int, pitch: float, step: float, cell: float = 0.5):
+    def __init__(self, board: Box, layers: int, pitch: float, step: float, cell: float = 0.5, box: float = None):
         self.board, self.cell, self.step = board, cell, step
+        self.box = cell if box is None else box             # the net box floor, as `rudy` takes it
         self.nx = max(1, math.ceil(board.width / cell))
         self.ny = max(1, math.ceil(board.height / cell))
         self.capacity = layers * cell * cell / pitch
@@ -121,10 +133,7 @@ class RudyGrid:
         x0, x1 = min(p.x for p in points), max(p.x for p in points)
         y0, y1 = min(p.y for p in points), max(p.y for p in points)
         wire = (x1 - x0) + (y1 - y0)
-        if x1 - x0 < self.cell:
-            x0, x1 = (x0 + x1 - self.cell) / 2, (x0 + x1 + self.cell) / 2
-        if y1 - y0 < self.cell:
-            y0, y1 = (y0 + y1 - self.cell) / 2, (y0 + y1 + self.cell) / 2
+        x0, x1, y0, y1 = _floored(x0, x1, y0, y1, self.box)
         density = max(wire, self.cell) / ((x1 - x0) * (y1 - y0))
         return {j * self.nx + i: density * ox * oy
                 for j, oy in _spans(y0, y1, self.board.top, self.cell, self.ny)
