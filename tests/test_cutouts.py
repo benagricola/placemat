@@ -13,7 +13,7 @@ from placemat.layout import Board, PlacementCollision
 from placemat.outline import Outline
 from placemat.values import (Along, Box, Centre, Cutout, Disc, Edge, Fraction, Location, OnBore,
                              OnEdge, OnRim, Part, Polar, X, Y)
-from tests.fixtures import board_geometry, footprint
+from tests.fixtures import board_geometry, footprint, unturned_findings
 
 # 17 mm tip to tip, 3 mm across, centred at (20, 28): its top face sits at
 # y = 26.5 and its straight sides run x = 11.5 .. 28.5.
@@ -592,7 +592,7 @@ def test_a_free_edge_item_shares_a_rectangle_with_a_cutout():
     b.place(Part("u1"), at=OnEdge(Edge.NORTH))          # free along the edge
     b.place(Part("d1"), at=OnEdge(Edge.NORTH))          # and its fellow
     plan = b.resolve()
-    assert not plan.findings, plan.findings
+    assert not unturned_findings(plan), plan.findings
     assert plan.box("u1").center.x != plan.box("d1").center.x       # they shared the edge
 
 
@@ -625,7 +625,7 @@ def test_a_cutout_named_after_a_part_does_not_stand_in_for_it():
     b.place(Part("d1"), at=Centre(X(Part("u1")), Y(Part("u1"), 6.0)))   # waits for the PART
     b.place(Part("u1"), at=Location(20.0, 25.0))                        # declared after it
     plan = b.resolve()
-    assert not plan.findings, plan.findings
+    assert not unturned_findings(plan), plan.findings
     assert plan.box("d1").center.y == pytest.approx(plan.box("u1").center.y + 6.0, abs=0.05)
     assert plan.box("d1").center.x == pytest.approx(20.0, abs=0.05)
 

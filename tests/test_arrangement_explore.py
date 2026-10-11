@@ -93,7 +93,9 @@ def test_a_tight_slack_draws_only_the_best():
         assert (note["id"], note["score"]) == (plain["id"], plain["score"])
 
 
-EITHER = dataclasses.replace(Settings(), explore_spot_slack=5.0, score_back_face=0.5)
+# The back mirrors the cell's VIN pads toward r8 and its OUT pad toward r9, so its best spot scores about 4 to 7 mm
+# below the front's: a back-face cost of 4 mm leaves both faces, in both arrangements, among the seeds' draws.
+EITHER = dataclasses.replace(Settings(), explore_spot_slack=5.0, score_back_face=4.0)
 
 
 def test_an_either_face_cell_is_drawn_onto_either_face_in_either_arrangement():
@@ -118,7 +120,7 @@ def test_a_drawn_back_spot_is_noted_at_its_own_score():
         backs += 1
         (said,) = faced
         assert plan.step("mod").back_face
-        assert said["cost"] == 0.5 and arrangement_note(plan)["score"] == pytest.approx(said["back"] + said["cost"], abs=1e-3)
+        assert said["cost"] == EITHER.score_back_face and arrangement_note(plan)["score"] == pytest.approx(said["back"] + said["cost"], abs=1e-3)
     assert backs and fronts
 
 

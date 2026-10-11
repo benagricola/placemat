@@ -222,6 +222,9 @@ def test_a_block_scan_gathers_each_members_obstacles_once(monkeypatch):
     blk = b.block(Part("ldo"), satellites=[(Part("cin"), "VIN"), (Part("cout"), "VOUT")], gap=None)
     b.place(blk, at=Near(Location(30, 40), radius=4.0, step=0.5))
     monkeypatch.setattr(Occupancy, "obstacles", counting)
+    # the turn check judges each placed part's other turns for legality on the finished board: calls this count is
+    # not about
+    monkeypatch.setattr("placemat.layout.Board._report_turns", lambda *args: None)
     plan = b.resolve()
     assert plan.findings == []
     assert sum(r is not None for r in calls) == 3          # the block's three members, once each

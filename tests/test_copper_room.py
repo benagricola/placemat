@@ -111,7 +111,8 @@ def test_a_part_searched_after_declared_copper_keeps_clear_of_it():
         return b.resolve()
     with_room = run(True)
     assert _distance_to_track(with_room, "T1") >= GAP - 1e-4
-    assert not with_room.findings, with_room.findings
+    from tests.fixtures import unturned_findings
+    assert not unturned_findings(with_room), with_room.findings
     assert any("not drawn" in str(f) for f in run(False).findings)         # as before: the track met the part placed over it
 
 

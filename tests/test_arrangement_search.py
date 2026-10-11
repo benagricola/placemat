@@ -8,6 +8,7 @@ from placemat.layout import Board
 from placemat.settings import Settings
 from placemat.values import Cell, Location, Near, Part
 from tests.arrangement_support import OBSTACLE, east_doc, stamped_geometry, with_arrangement
+from tests.fixtures import unturned_findings
 
 NEAR = dict(radius=8.0, step=0.5)
 
@@ -672,7 +673,7 @@ def test_a_rider_beside_an_arranged_cell_is_laid_beside_the_arrangements_edge():
     plan = b.resolve()
     assert plan.placement("mod").arrangement == "c_in.far"
     assert plan.box("r9").left >= plan.box("mod").right - 1e-6
-    assert not [f for f in plan.findings if f.facts.get("item") == "r9"]
+    assert not [f for f in unturned_findings(plan) if f.facts.get("item") == "r9"]
 
 
 def test_a_rider_is_judged_in_the_search_where_the_arrangement_lays_it():
@@ -683,7 +684,7 @@ def test_a_rider_is_judged_in_the_search_where_the_arrangement_lays_it():
     b.place(Part("r9"), at=Beside(Cell("mod"), Edge.EAST))
     plan = b.resolve()
     assert plan.step("r9").placement is not None and not plan.box("r9").overlaps(plan.box("obst"))
-    assert not [f for f in plan.findings if f.facts.get("item") == "r9"]
+    assert not [f for f in unturned_findings(plan) if f.facts.get("item") == "r9"]
 
 
 def test_a_rider_that_meets_the_default_wherever_it_goes_does_not_stop_an_arrangement_it_fits():
@@ -695,7 +696,7 @@ def test_a_rider_that_meets_the_default_wherever_it_goes_does_not_stop_an_arrang
     b.place(Part("r9"), at=Centre(X(pad), Y(pad)))
     plan = b.resolve()
     assert plan.placement("mod").arrangement == "c_in.east" and plan.step("r9").placement is not None
-    assert not [f for f in plan.findings if f.facts.get("item") in ("mod", "r9")]
+    assert not [f for f in unturned_findings(plan) if f.facts.get("item") in ("mod", "r9")]
 
 
 def test_the_escape_lane_pricer_is_asked_of_each_arranged_item(monkeypatch):

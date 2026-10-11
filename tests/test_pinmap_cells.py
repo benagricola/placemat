@@ -167,8 +167,11 @@ def test_a_resolve_gives_the_study_each_placed_cell_its_members_envelope_and_rot
     assert (c.members, c.rotation, c.face, c.flipped, c.stamps) == (("C1", "U1"), 90.0, "front", False, 1)
     assert c.envelope == Box.union([occ.courtyard_box("U1"), occ.courtyard_box("C1")])
     assert placed.parts["U1"].cell == "c" and placed.parts["R1"].cell == ""
-    (f,) = [f for f in plan.findings if f.cause is C.PINS_REMAP]
-    assert f.facts["cell"] == "c"
+    # the study's best map here does not lower the run score (Task 13's rescoring), so the cell is read from the
+    # summary, which reports every studied group, rather than from a pins.remap finding
+    from placemat import pinmap
+    (g,) = pinmap.plan_summary(b, plan)
+    assert g["turns"][0]["cell"] == "c"
 
 
 def test_a_cells_module_is_read_from_the_generators_log_beside_the_board(tmp_path):

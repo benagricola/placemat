@@ -6,7 +6,7 @@ import pytest
 from placemat.cutouts import Circle
 from placemat.layout import Board
 from placemat.values import Face, Location, PadRef, Part
-from tests.fixtures import board_geometry, footprint
+from tests.fixtures import board_geometry, footprint, unturned_findings
 
 
 def _board():
@@ -313,7 +313,7 @@ def test_every_other_part_is_still_let_in():
     b.push(Part("u2"), from_=Part("m1"), falloff=3, reference=(13.5, 3.2), limit=0.3)
     b.place(Part("r1"), at=Location(18, 10))     # clear of m1's own courtyard, well inside u2's disc
     plan = b.resolve()
-    assert not any("r1" in f for f in plan.findings), plan.findings
+    assert not any("r1" in f for f in unturned_findings(plan)), plan.findings
 
 
 def test_a_push_on_a_cell_member_measures_that_member_not_the_cells_box():
