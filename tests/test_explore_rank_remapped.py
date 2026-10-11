@@ -147,7 +147,7 @@ def test_the_routing_worker_makes_the_remap_on_the_board_it_routes(tmp_path, eve
         assert explore.route_line(row).endswith("; routed with its pin remap made on its pads")
 
 
-def _route_in_process(monkeypatch, tmp_path, remap):
+def _route_in_process(monkeypatch, tmp_path, remap, keep_stub=False):
     """The routing worker run in this process on the plain placement, with pinmap.plan_remap giving `remap`: the
     entry it sends and the router's log. The worker's process set-up (signals, the parent-death signal, the channel
     and the time cap switched off) is stubbed out, as it would change this process."""
@@ -155,7 +155,8 @@ def _route_in_process(monkeypatch, tmp_path, remap):
     import queue
     import signal
     from placemat import channel, pinmap, stop, timecap
-    monkeypatch.setattr(pinmap, "plan_remap", lambda board, plan: remap)
+    if not keep_stub:
+        monkeypatch.setattr(pinmap, "plan_remap", lambda board, plan: remap)
     monkeypatch.setattr(signal, "signal", lambda *args: None)
     monkeypatch.setattr(stop, "parent_death_signal", lambda: None)
     monkeypatch.setattr(channel, "disable", lambda: None)
@@ -193,6 +194,20 @@ def test_a_remap_whose_groups_together_do_not_lower_the_run_score_is_not_made_on
     (made,) = [row for row in log if row.get("kind") == "remap"]
     assert [g["refs"] for g in made["groups"]] == [["U1"], ["U2"]]
     assert entry["remapped"]["saving"] == 2.0 and entry["remapped"]["pads"] == 2
+
+
+def test_a_pin_study_that_failed_leaves_the_variant_routed_as_it_stands(tmp_path, monkeypatch):
+    """A pin study that raises a contained error gives a remap record with the error and no groups: the variant is
+    still routed, as it stands."""
+    from placemat import pinmap
+
+    def fails(board, plan):
+        raise ValueError("study failed")
+
+    monkeypatch.setattr(pinmap, "plan_remap", fails)
+    entry, log = _route_in_process(monkeypatch, tmp_path, None, keep_stub=True)
+    assert "error" not in entry and "remapped" not in entry
+    assert not [row for row in log if row.get("kind") == "remap"]
 
 
 class RemapRouter(eb.StandInRouter):

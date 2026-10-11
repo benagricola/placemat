@@ -619,7 +619,7 @@ def ranked(board, plan, total: float) -> dict:
     except BaseException as e:                   # a stop or an interrupt still ends the explore
         if not pinmap.contained(e):
             raise
-        r = {"saving": 0.0, "crossings": 0.0, "groups": [], "error": {"type": type(e).__name__, "message": str(e)}}
+        r = {"saving": 0.0, "actionable": False, "groups": [], "error": {"type": type(e).__name__, "message": str(e)}}
     if r is None:
         return {}
     r["seconds"] = round(time.perf_counter() - t0, 3)
@@ -739,7 +739,7 @@ def _route_work(make_board, focus, lock, reuse, routing, rq, out, parent):
                     remap = ranked(b, p, 0.0).get("remap")
                     # routed as it would stand once the remap is made: only a remap whose groups, judged together,
                     # lower the run score (pinmap.plan_remap's `actionable`)
-                    if remap and remap["actionable"] and remap["groups"]:
+                    if remap and remap.get("actionable") and remap["groups"]:
                         entry["remapped"] = dict(router.remap(pcb, remap["groups"]), saving=remap["saving"])
                     r = router.route(pcb, d / "route", exclude_nets=set(p.plane_nets) | set(routing.exclude), quick=True,
                                      resume=routing.resume)
