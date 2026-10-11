@@ -89,10 +89,9 @@ result worse than the recorded baseline, goes to the user before work on it star
 | 23, 24 | circuit-capture rules (local 1efad41, 1475634: 0.1.7, 0.1.8, not pushed); skill gaps | e2d5fb91, 33d09a61 |
 | 25 | Fixed stages, `[route] islands`, `pair_layers`, `net_halos`, `route --islands`, class-pattern pairs removed and refused | e2d5fb91, b079eaf5 |
 
-Two changes in that work that the user has not approved, and should know about:
-- b677898a: a join through a pour or through a pad's interior is `width_unknown`, and so never clean. The plan said
-  such a join meets its width. The user decided on 2026-10-11 to replace this by measuring the pour's real width
-  (below); until then it lowers clean closure on boards with pours.
+A change in that work that the user has not approved, and should know about (b677898a, which made a join through a
+pour or a pad `width_unknown` and never clean, was replaced on 2026-10-11 by measuring the filled copper's width along
+the join: fix rounds A and 2, 71b47e65 and e53e49fd):
 - Fixture changes on the reference set: the obstructed-route board is 13 mm high, not 12 (the plan's geometry broke
   its own edge rule), and routes with `KICAD_NET_RESCUE=0`; the hand modules had a fitted-pour migration.
 
@@ -116,8 +115,8 @@ than step 0:
    - The splitflap pocket rule (rip the nets that wall in a boxed pin first; research splitflap-pin10/): find why
      esp-rust-board gets worse with the rule always on, before choosing when it applies. An investigation was
      dispatched on 2026-10-11.
-   - Pour and pad-interior joins: measure the pour's real width, the narrowest neck of filled copper along the join,
-     in place of b677898a's "unknown, never clean".
+   - Pour and pad-interior joins: done (fix rounds A and 2). A join's width is measured along its copper, through
+     fills and pads, each narrow stretch where it lies.
    - The current-first default phase stays; fix why usb-c-power-adapter's signals are stranded after it.
 2. route_ref: `placemat route` exits 1 when the input board already had DRC faults, and the runner now raises
    RouteFailure on that, so 7 of the 8 human boards in test (a) read closure 0. Measure such a board as step 0 did
