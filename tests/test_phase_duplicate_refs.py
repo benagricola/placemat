@@ -57,3 +57,46 @@ def test_a_joining_path_ends_at_the_footprint_its_end_names():
     ob = {"net": "V", "from": {"ref": "TP4", "pad": "1", "fp": "fp-a"}, "to": {"ref": "J1", "pad": "1"}}
     assert phase_run.joining_spans(g, ob) is not None
     assert phase_run.joining_spans(g, dict(ob, **{"from": {"ref": "TP4", "pad": "1", "fp": "fp-b"}})) is None
+
+
+def _shared_board():
+    """J1 and two TP4s, each with pad 1 on VB and a stated current."""
+    amps = {"Pm.I": "2A"}
+    return board_geometry([footprint("J1", 25, 25, nets=("VB", ""), fields=amps),
+                           replace(footprint("TP4", 5, 5, nets=("VB", ""), fields=amps), uuid="fp-a"),
+                           replace(footprint("TP4", 15, 15, nets=("VB", ""), fields=amps), uuid="fp-b")])
+
+
+def _select(raw, g):
+    from placemat.kicad.phase_select import select
+    from placemat.route_phase import parse_phases
+    return select(parse_phases([raw])[0], g, None, open_nets={"VB"}, excluded=set(), pour_nets=set(),
+                  route_layers=["F.Cu", "B.Cu"], rise_c=10, copper_oz=1)
+
+
+def test_a_connection_to_a_shared_reference_is_a_task_to_each_footprint(tmp_path):
+    sel = _select({"name": "c", "width": 0.5, "connections": [{"from": {"part": "J1", "pad": "1"},
+                                                                "to": {"part": "TP4", "pad": "1"}}]}, _shared_board())
+    assert sorted((t.start, t.end) for t in sel.tasks) == [(("J1", "1"), ("TP4", "1", "fp-a")),
+                                                           (("J1", "1"), ("TP4", "1", "fp-b"))]
+    written = json.loads(phase_run.write_connections(sel.tasks, tmp_path / "c.json", ["F.Cu", "B.Cu"]).read_text())
+    assert [(w["from"], w["to"]) for w in written] == [({"ref": "J1", "pad": "1"}, {"ref": "TP4", "pad": "1", "fp": "fp-a"}),
+                                                       ({"ref": "J1", "pad": "1"}, {"ref": "TP4", "pad": "1", "fp": "fp-b"})]
+    (asked,) = phase_run.obligations_of([sel], [], set())
+    assert [o["to"].get("fp") for o in asked] == ["fp-a", "fp-b"]
+
+
+def test_current_paths_take_each_footprint_of_a_shared_reference_as_a_carrier():
+    sel = _select({"name": "p", "current_paths": True}, _shared_board())
+    assert sorted((t.start, t.end) for t in sel.tasks) == [(("J1", "1"), ("TP4", "1", "fp-a")),
+                                                           (("J1", "1"), ("TP4", "1", "fp-b")),
+                                                           (("TP4", "1", "fp-a"), ("TP4", "1", "fp-b"))]
+
+
+def test_an_ordinary_boards_connections_file_names_no_footprint(tmp_path):
+    g = board_geometry([footprint("J1", 25, 25, nets=("VB", "")), footprint("TP4", 5, 5, nets=("VB", ""))])
+    sel = _select({"name": "c", "width": 0.5, "connections": [{"from": {"part": "J1", "pad": "1"},
+                                                                "to": {"part": "TP4", "pad": "1"}}]}, g)
+    written = phase_run.write_connections(sel.tasks, tmp_path / "c.json", ["F.Cu", "B.Cu"]).read_text()
+    assert written == json.dumps([{"net": "VB", "from": {"ref": "J1", "pad": "1"}, "to": {"ref": "TP4", "pad": "1"},
+                                   "widths": {"F.Cu": 0.5, "B.Cu": 0.5}}], indent=1) + "\n"

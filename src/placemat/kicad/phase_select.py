@@ -9,17 +9,35 @@ import fnmatch
 from ..route_phase import CAPTURE_SELECTORS, CURRENT, REST, PhaseError
 
 
+def end_record(end) -> dict:
+    """A task end as records name it: {"ref", "pad"}, and "fp" (the footprint's uuid) when the end carries one."""
+    return {"ref": end[0], "pad": end[1], "fp": end[2]} if len(end) > 2 else {"ref": end[0], "pad": end[1]}
+
+
 @dataclass(frozen=True)
 class Task:
     net: str
-    start: tuple            # (ref, pad number)
+    start: tuple            # (ref, pad number), with the footprint's uuid third when another footprint has its ref
     end: tuple
     widths: tuple           # ((layer name, mm), ...) in the phase's layer order
     amps: float | None = None
 
     def record(self) -> dict:
-        return {"net": self.net, "from": {"ref": self.start[0], "pad": self.start[1]},
-                "to": {"ref": self.end[0], "pad": self.end[1]}, "widths": dict(self.widths), "amps": self.amps}
+        return {"net": self.net, "from": end_record(self.start), "to": end_record(self.end),
+                "widths": dict(self.widths), "amps": self.amps}
+
+
+def shared_refs(geometry) -> set:
+    """The references two or more footprints of the board share."""
+    seen, out = set(), set()
+    for fp in geometry.footprints:
+        (out if fp.ref in seen else seen).add(fp.ref)
+    return out
+
+
+def _task_end(fp, number, shared) -> tuple:
+    """A task end on footprint `fp`'s pad `number`: (ref, pad), with its uuid when its ref is in `shared`."""
+    return (fp.ref, number, fp.uuid) if fp.ref in shared else (fp.ref, number)
 
 
 @dataclass(frozen=True)
@@ -100,44 +118,54 @@ def layer_widths(amps: float, layers, geometry, rise_c: float, copper_oz: float)
     return tuple(out)
 
 
-def _pads_on(geometry, ref, net) -> list:
-    return sorted({p.number for p in geometry.footprint(ref).pads if p.net == net}, key=lambda n: (len(n), n))
+def _pads_on(fp, net) -> list:
+    return sorted({p.number for p in fp.pads if p.net == net}, key=lambda n: (len(n), n))
 
 
 def current_tasks(geometry, nets, layers, rise_c, copper_oz) -> tuple:
-    """Per net, each pair of the parts that carry current on it (`Pm.I`, checks.carriers_of), at the lesser current:
-    from the first pad of each part to every pad of the other, so every pad of both on the net is joined.
-    Returns (tasks, the nets with fewer than two carriers)."""
-    from ..checks import carriers_of
-    carriers = carriers_of(geometry)
+    """Per net, each pair of the footprints that carry current on it (`Pm.I`, checks.carrier_footprints: two that
+    share a reference are two carriers), at the lesser current: from the first pad of each to every pad of the other,
+    so every pad of both on the net is joined. Returns (tasks, the nets with fewer than two carriers)."""
+    from ..checks import carrier_footprints
+    carriers = carrier_footprints(geometry)
+    shared = shared_refs(geometry)
+    fps = geometry.footprints
     tasks, missing = [], []
     for net in sorted(nets):
         on = carriers.get(net, {})
         if len(on) < 2:
             missing.append(net)
             continue
-        refs = sorted(on)
-        for i, a in enumerate(refs):
-            for b in refs[i + 1:]:
+        order = sorted(on, key=lambda i: (fps[i].ref, fps[i].uuid, i))
+        for k, a in enumerate(order):
+            for b in order[k + 1:]:
                 amps = min(on[a], on[b])
                 widths = layer_widths(amps, layers, geometry, rise_c, copper_oz)
-                pa, pb = _pads_on(geometry, a, net), _pads_on(geometry, b, net)
-                tasks.append(Task(net, (a, pa[0]), (b, pb[0]), widths, amps))
-                tasks += [Task(net, (a, x), (b, pb[0]), widths, amps) for x in pa[1:]]
-                tasks += [Task(net, (a, pa[0]), (b, y), widths, amps) for y in pb[1:]]
+                fa, fb = fps[a], fps[b]
+                pa, pb = _pads_on(fa, net), _pads_on(fb, net)
+                ea, eb = (lambda n: _task_end(fa, n, shared)), (lambda n: _task_end(fb, n, shared))
+                tasks.append(Task(net, ea(pa[0]), eb(pb[0]), widths, amps))
+                tasks += [Task(net, ea(x), eb(pb[0]), widths, amps) for x in pa[1:]]
+                tasks += [Task(net, ea(pa[0]), eb(y), widths, amps) for y in pb[1:]]
     return tuple(tasks), missing
 
 
-def _end(phase, geometry, end):
-    try:
-        fp = geometry.footprint(end.part)
-    except KeyError:
-        raise PhaseError("not_on_board", name=phase.name, kind="part", value=end.part) from None
-    try:
-        pad = fp.pad(int(end.pad) if end.pad.isdigit() else end.pad)
-    except KeyError:
-        raise PhaseError("not_on_board", name=phase.name, kind="pad", value="%s %s" % (end.part, end.pad)) from None
-    return fp.ref, pad.number, pad.net
+def _ends(phase, geometry, end) -> list:
+    """The footprints and pads a connection end names, [(index in geometry.footprints, pad)]: the footprint whose
+    instance it names, else every footprint with that reference (two may share one) that has the pad."""
+    fps = geometry.footprints
+    named = [i for i, fp in enumerate(fps) if fp.inst == end.part] or [i for i, fp in enumerate(fps) if fp.ref == end.part]
+    if not named:
+        raise PhaseError("not_on_board", name=phase.name, kind="part", value=end.part)
+    out = []
+    for i in named:
+        try:
+            out.append((i, fps[i].pad(int(end.pad) if end.pad.isdigit() else end.pad)))
+        except KeyError:
+            pass
+    if not out:
+        raise PhaseError("not_on_board", name=phase.name, kind="pad", value="%s %s" % (end.part, end.pad))
+    return out
 
 
 def _class_widths(geometry, net, layers) -> tuple:
@@ -202,34 +230,41 @@ def select(phase, geometry, capture, *, open_nets, excluded, pour_nets, route_la
         return Selection(buses=tuple(b for b in buses if b), width=numeric, **base)
     if phase.selector == "current_paths":
         # A numeric width is not used here: the tasks are sized from their currents (the user's decision of 2026-10-07).
-        from ..checks import carriers_of
-        nets = sorted(n for n, on in carriers_of(geometry).items() if n and n in geometry.nets and len(on) >= 2
+        from ..checks import carrier_footprints
+        nets = sorted(n for n, on in carrier_footprints(geometry).items() if n and n in geometry.nets and len(on) >= 2
                       and n not in excluded)
         tasks, _ = current_tasks(geometry, nets, layers, rise_c, copper_oz)
         return Selection(tasks=tasks, pour_nets=_pours(tasks, pour_nets), **base)
     if phase.selector == "connections":
-        from ..checks import carriers_of
-        carriers = carriers_of(geometry) if phase.width == CURRENT else {}
+        from ..checks import carrier_footprints
+        carriers = carrier_footprints(geometry) if phase.width == CURRENT else {}
+        shared = shared_refs(geometry)
+        fps = geometry.footprints
         tasks, short = [], []
         for i, c in enumerate(phase.connections):
-            a_ref, a_pad, a_net = _end(phase, geometry, c.start)
-            b_ref, b_pad, b_net = _end(phase, geometry, c.end)
-            for ref, pad, net in ((a_ref, a_pad, a_net), (b_ref, b_pad, b_net)):
-                if not net:
-                    raise PhaseError("not_on_board", name=phase.name, kind="pad", value="%s %s on a net" % (ref, pad))
-            if a_net != b_net:
-                raise PhaseError("ends_on_two_nets", name=phase.name, index=i, nets=[a_net, b_net])
-            if phase.width == CURRENT:
-                on = carriers.get(a_net, {})
-                if a_ref not in on or b_ref not in on:
-                    short.append({"net": a_net, "from": a_ref, "to": b_ref})
-                    continue
-                amps = min(on[a_ref], on[b_ref])
-                widths = layer_widths(amps, layers, geometry, rise_c, copper_oz)
-            else:
-                amps = None
-                widths = tuple((l, numeric) for l in layers) if numeric else _class_widths(geometry, a_net, layers)
-            tasks.append(Task(a_net, (a_ref, a_pad), (b_ref, b_pad), widths, amps))
+            starts, ends = _ends(phase, geometry, c.start), _ends(phase, geometry, c.end)
+            for fi, pad in starts + ends:
+                if not pad.net:
+                    raise PhaseError("not_on_board", name=phase.name, kind="pad",
+                                     value="%s %s on a net" % (fps[fi].ref, pad.number))
+            # an end on a reference two footprints share names each of them: one task per pair of ends on one net
+            pairs = [(a, b) for a in starts for b in ends if a[1].net == b[1].net]
+            if not pairs:
+                raise PhaseError("ends_on_two_nets", name=phase.name, index=i, nets=[starts[0][1].net, ends[0][1].net])
+            for (fa, pa), (fb, pb) in pairs:
+                net = pa.net
+                if phase.width == CURRENT:
+                    on = carriers.get(net, {})
+                    if fa not in on or fb not in on:
+                        short.append({"net": net, "from": fps[fa].ref, "to": fps[fb].ref})
+                        continue
+                    amps = min(on[fa], on[fb])
+                    widths = layer_widths(amps, layers, geometry, rise_c, copper_oz)
+                else:
+                    amps = None
+                    widths = tuple((l, numeric) for l in layers) if numeric else _class_widths(geometry, net, layers)
+                tasks.append(Task(net, _task_end(fps[fa], pa.number, shared), _task_end(fps[fb], pb.number, shared),
+                                  widths, amps))
         if short:
             raise PhaseError("no_current", name=phase.name, connections=short)
         return Selection(tasks=tuple(tasks), pour_nets=_pours(tasks, pour_nets), **base)

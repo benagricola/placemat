@@ -38,8 +38,11 @@ def write_connections(tasks, path, layers) -> Path:
         if named != set(layers):
             raise ValueError("layer_width_missing" if set(layers) - named else "layer_not_routed", t.record())
     path = Path(path)
-    path.write_text(json.dumps([{"net": t.net, "from": {"ref": t.start[0], "pad": t.start[1]},
-                                 "to": {"ref": t.end[0], "pad": t.end[1]}, "widths": dict(t.widths)} for t in tasks],
+    from .phase_select import end_record
+    # an end names its footprint's uuid ("fp") only when another footprint has its reference: an ordinary board's
+    # file is as before
+    path.write_text(json.dumps([{"net": t.net, "from": end_record(t.start), "to": end_record(t.end),
+                                 "widths": dict(t.widths)} for t in tasks],
                                indent=1) + "\n")
     return path
 
@@ -793,9 +796,16 @@ def width_shortfall(path, widths, neck_mm) -> dict:
     return out
 
 
+def _ref_pad(end):
+    """An end as the router's records name it: (ref, pad)."""
+    return (end.get("ref"), end.get("pad")) if isinstance(end, dict) else None
+
+
 def _record_of(o, connections):
-    return next((r for r in connections if r.get("net") == o["net"] and r.get("from") == o["from"]
-                 and r.get("to") == o["to"]), None)
+    """The router's record of an obligation's task, matched by net and each end's ref and pad (the router does not
+    echo "fp")."""
+    return next((r for r in connections if r.get("net") == o["net"] and _ref_pad(r.get("from")) == _ref_pad(o["from"])
+                 and _ref_pad(r.get("to")) == _ref_pad(o["to"])), None)
 
 
 def outcome_of(o, connections):
@@ -901,7 +911,9 @@ def connection_summary(path, pending, phase, log):
         else:
             for index, (task, record) in enumerate(zip(pending, recs)):
                 asked = task.record()
-                if not isinstance(record, dict) or any(record.get(k) != asked[k] for k in ("net", "from", "to", "widths")):
+                # the router echoes an end as {ref, pad}: an "fp" placemat gave is not compared
+                if not isinstance(record, dict) or any(record.get(k) != asked[k] for k in ("net", "widths")) or \
+                        any(_ref_pad(record.get(k)) != _ref_pad(asked[k]) for k in ("from", "to")):
                     reason = "task_identity"
                     break
                 if record.get("status") not in {"routed", "joined_before", "joined_narrow", "failed", "deferred", "refused"}:
@@ -1116,7 +1128,7 @@ def narrow_join_widths(phase, sel, connections, routed_pcb, cfg) -> list:
     narrow = [r for r in connections if r.get("status") == "joined_narrow" and r.get("path")]
     if not narrow:
         return []
-    tasks = {(t.net, tuple(t.start), tuple(t.end)): t for t in sel.tasks}
+    tasks = {(t.net, tuple(t.start[:2]), tuple(t.end[:2])): t for t in sel.tasks}
     routed = read_board(str(routed_pcb))
     neck = neck_allowance(tuple(cfg.route_router_args) + tuple(phase.router_args)) if phase.neckdown else 0.0
     out = []
@@ -1145,7 +1157,7 @@ def task_widths(phase, sel, connections) -> list:
     from .route_widths import _UNDER_MM
     if phase.neckdown:
         return []
-    tasks = {(t.net, tuple(t.start), tuple(t.end)): t for t in sel.tasks}
+    tasks = {(t.net, tuple(t.start[:2]), tuple(t.end[:2])): t for t in sel.tasks}
     out = []
     for r in connections:
         if r.get("status") != "routed":

@@ -473,9 +473,9 @@ def _setup_net_clearance(f):
 @renders(C.SETUP_DUPLICATE_REFERENCE, "ref", "nets", "footprints")
 def _setup_duplicate_reference(f):
     places = [_loc(fp["at"]) for fp in f["footprints"]]
-    return ("%d footprints share the reference %s, at %s, on %s: each is routed and judged as its own part; give each a "
-            "reference of its own to tell them apart in reports" % (len(places), f["ref"], ", ".join(places[:-1]) +
-                                                                     " and " + places[-1], ", ".join(f["nets"])))
+    return ("%d footprints share the reference %s, at %s, on %s: placemat asks and judges each connection on its own "
+            "footprint, but the router may join a connection to either of them; give each a reference of its own"
+            % (len(places), f["ref"], ", ".join(places[:-1]) + " and " + places[-1], ", ".join(f["nets"])))
 
 
 @renders(C.SETUP_ACCEPT, "variant", "check", "subject")

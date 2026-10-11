@@ -158,8 +158,9 @@ SAMPLES = [
      "short: draw its escape out past the clearance in the module (a longer run= on its board.escape), or give SW a smaller clearance"),
     (C.SETUP_DUPLICATE_REFERENCE, {"ref": "TP4", "nets": ["VB"], "footprints": [{"uuid": "a", "at": [5.0, 5.0]},
                                                                              {"uuid": "b", "at": [15.0, 15.0]}]},
-     "2 footprints share the reference TP4, at (5.00, 5.00) and (15.00, 15.00), on VB: each is routed and judged as its own "
-     "part; give each a reference of its own to tell them apart in reports"),
+     "2 footprints share the reference TP4, at (5.00, 5.00) and (15.00, 15.00), on VB: placemat asks and judges each "
+     "connection on its own footprint, but the router may join a connection to either of them; give each a reference of "
+     "its own"),
     (C.ROUTE_DROPPED, {"key": "X","why": Refusal(Code.ROUTE_END, at=[1.0, 2.0]).to_json()},
      "adopted route X dropped: its end at (1.00, 2.00) no longer meets the net's other copper; the router routes it again"),
     (C.ROUTE_WIDTH, {"net": "V", "stage": "islands", "requested_mm": 1.37, "delivered_min_mm": 0.16, "length_under_mm": 16.61,

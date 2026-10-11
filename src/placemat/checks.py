@@ -1770,11 +1770,23 @@ def _judged_parallel(nodes, path: list, par, amps: float, start: str, to: str, n
 
 def carriers_of(geometry: BoardGeometry) -> dict[str, dict[str, float]]:
     """The parts that carry current on each net, {net: {ref: amps}}, from their
-    `Pm.I` facts."""
-    f = facts(geometry)
+    `Pm.I` facts (carrier_footprints, footprints that share a reference
+    taken together at the larger current)."""
+    out: dict[str, dict] = {}
+    for net, on in carrier_footprints(geometry).items():
+        for i, amps in on.items():
+            ref = geometry.footprints[i].ref
+            out.setdefault(net, {})[ref] = max(out.get(net, {}).get(ref, 0.0), amps)
+    return out
+
+
+def carrier_footprints(geometry: BoardGeometry) -> dict[str, dict[int, float]]:
+    """The footprints that carry current on each net, {net: {index in
+    geometry.footprints: amps}}, each from its own `Pm.I` facts: two
+    footprints that share a reference are two carriers."""
     carriers: dict[str, dict] = {}
-    for fp in geometry.footprints:
-        fact = f[fp.ref]
+    for i, fp in enumerate(geometry.footprints):
+        fact = _facts_of(fp)
         for p in fp.pads:
             if fact.currents is None:
                 amps = fact.current_a
@@ -1785,7 +1797,7 @@ def carriers_of(geometry: BoardGeometry) -> dict[str, dict[str, float]]:
                 amps = max(matching)[1] if matching else None
             if amps is not None and amps > 0:          # a net given no current, or 0, is not one it carries
                 on = carriers.setdefault(p.net, {})
-                on[fp.ref] = max(on.get(fp.ref, 0.0), amps)
+                on[i] = max(on.get(i, 0.0), amps)
     return carriers
 
 

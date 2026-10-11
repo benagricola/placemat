@@ -4080,10 +4080,12 @@ is refused the same way, with its own code.
 A flag in `router_args` is read as the router reads it: the flag itself, or the one flag of the router's own list it
 abbreviates (`--clearance-c` is `--clearance-ceiling`); an abbreviation of two or more flags names none.
 
-**Footprints that share a reference.** KiCad allows two footprints with one reference. The route goes ahead, judging
-each connection end on its own footprint (`"fp"` above), and says it with a `setup.duplicate_reference` warning before
-routing: `ref`, `nets` (the routed nets their pads are on) and `footprints` (each `uuid` and `at`). `route.json` lists
-them under `duplicate_references`.
+**Footprints that share a reference.** KiCad allows two footprints with one reference. The route goes ahead: each
+connection end on such a footprint names it by uuid (`"fp"` above), a `connections` end on the shared reference is a
+task to each of them, `current_paths` takes each as a carrier, and the router's connections file names the uuid on
+those ends. The current router does not read it yet and may join a task to either footprint; placemat judges each on
+its own footprint. A `setup.duplicate_reference` warning says so before routing: `ref`, `nets` (the routed nets their
+pads are on) and `footprints` (each `uuid` and `at`). `route.json` lists them under `duplicate_references`.
 
 **Nets with DRC violations.** The route's summary line ends `with DRC violations: NET (hole_to_hole)` for each net
 with a real DRC violation in the routed copy; the closure counts such a net as unrouted ("clean"). `route.json` and
