@@ -1045,12 +1045,14 @@ def pair_flags_refused(caps, phases) -> list:
     """Each flag a phase that routes pairs gives in its `router_args` that the pair router (route_diff.py) does not
     accept, as {"phase", "flag"}: its pair call takes the phase's flags and route_diff.py parses its arguments strictly
     (KRT py_router/route_diff.py, parse_args), so such a flag would fail the call mid-route. The accepted set is the
-    router's own listing (`flags["route_diff.py"]`); with none, no flag is accepted."""
+    router's own listing (`flags["route_diff.py"]`), a flag read as its argparse reads it (settings.resolve_flag: the
+    flag, or the one flag it abbreviates); with no listing, no flag is accepted."""
+    from ..settings import resolve_flag
     accepted = set(((caps or {}).get("flags") or {}).get("route_diff.py") or ())
     def flag(a):            # a negative number ("-1", "-.5") is a value, not a flag
         return a.startswith("--") or (len(a) > 1 and a[0] == "-" and not (a[1].isdigit() or a[1] == "."))
     return [{"phase": p.name, "flag": a.split("=", 1)[0]} for p in phases if p.selector == "pairs"
-            for a in p.router_args if flag(a) and a.split("=", 1)[0] not in accepted]
+            for a in p.router_args if flag(a) and resolve_flag(a, accepted) is None]
 
 
 def router_flags(caps) -> list | None:

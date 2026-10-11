@@ -579,3 +579,10 @@ def test_a_reference_two_footprints_share_routes_and_is_said_as_a_setup_finding(
     assert f.facts["ref"] == "J1" and f.facts["nets"] == ["FB"] and len(f.facts["footprints"]) == 2
     assert [g.facts for g in report.setup_findings() if g.cause.value == "setup.duplicate_reference"] == [f.facts]
     assert report.phases[0]["asked"] == 2
+
+
+def test_a_pair_phase_flag_is_read_as_the_pair_router_abbreviates_it():
+    from placemat.kicad.route import pair_flags_refused
+    caps = {"flags": {"route_diff.py": ["--track-width", "--track-proximity-cost", "--via-cost"]}}
+    (pair,) = phases({"name": "usb", "pairs": [["P", "N"]], "router_args": ["--track-w", "0.3", "--via=2", "--track"]})
+    assert pair_flags_refused(caps, [pair]) == [{"phase": "usb", "flag": "--track"}]
