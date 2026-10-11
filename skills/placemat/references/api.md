@@ -4072,7 +4072,7 @@ the code and its facts):
 | `width_policy_failed` | the router's width query gave no answer (`router`; `failure`: `timeout` with `seconds`, `failed` with `exit_code`, or `malformed` with `problem`; `log`, its output); routing stops before changing copper |
 | `router_owned` | `[route] router_args` or a phase's `router_args` names, by the router's own flag list, a flag placemat sets itself (`phase`, null for `[route]`; `flag`; `owned`, the router flag it names). The settings refuse the plain cases when they are read; this catches an abbreviation only the router's list resolves |
 | `pair_flag` | a phase that routes pairs gives in `router_args` a flag the pair router (route_diff.py) does not take, by the router's own capability listing (`phase`, `flag`): its pair call would fail |
-| `router_refused` | the router refused a task placemat selected (`facts`: `phase`, `tasks` each `{net, from, to, reason}`); the route stops |
+| `router_refused` | the router refused a task placemat selected (`facts`: `phase`, `tasks` each `{net, from, to, reason}`; an end on a reference two footprints share also names its footprint's uuid, `fp`); the route stops |
 
 A phase that cannot be obeyed on the board (a selector naming nothing, a layer the board lacks, a current not stated)
 is refused the same way, with its own code.
@@ -4085,7 +4085,9 @@ connection end on such a footprint names it by uuid (`"fp"` above), a `connectio
 task to each of them, `current_paths` takes each as a carrier, and the router's connections file names the uuid on
 those ends. The current router does not read it yet and may join a task to either footprint; placemat judges each on
 its own footprint. A `setup.duplicate_reference` warning says so before routing: `ref`, `nets` (the routed nets their
-pads are on) and `footprints` (each `uuid` and `at`). `route.json` lists them under `duplicate_references`.
+pads are on) and `footprints` (each `uuid` and `at`). `route.json` lists them under `duplicate_references`. The
+phase record's `connections` (the router's records), its `open` entries and a `router_refused` refusal name `fp` on
+such an end, the router's record taking it from the task it answers.
 
 **Nets with DRC violations.** The route's summary line ends `with DRC violations: NET (hole_to_hole)` for each net
 with a real DRC violation in the routed copy; the closure counts such a net as unrouted ("clean"). `route.json` and

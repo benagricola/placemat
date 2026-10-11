@@ -966,11 +966,16 @@ def connection_summary(path, pending, phase, log):
 
 def answered(pending, recs) -> list:
     """The router's records of one call, each naming the task it answers: the router writes one record per task it
-    was sent, in order (connection_summary checks the count and each end's ref and pad), so record i's ends become
-    task i's own, its footprint uuid ("fp") included where the task has one. A task stated twice, or tasks on a shared
-    reference split across calls, keep their own records."""
+    was sent, in order (connection_summary checks the count and each end's ref and pad), so an end of record i takes
+    task i's footprint uuid ("fp") where that task's end has one; what the router said of each end is kept. A task
+    stated twice, or tasks on a shared reference split across calls, keep their own records."""
     from .phase_select import end_record
-    return [dict(r, **{"from": end_record(t.start), "to": end_record(t.end)}) for t, r in zip(pending, recs)]
+
+    def end(said, task_end):
+        fp = end_record(task_end).get("fp")
+        return dict(said or {}, fp=fp) if fp else said
+    return [dict(r, **{"from": end(r.get("from"), t.start), "to": end(r.get("to"), t.end)})
+            for t, r in zip(pending, recs)]
 
 
 def route_calls(ctx, index, phase, sel, board) -> PhaseOutcome:

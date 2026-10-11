@@ -139,3 +139,11 @@ def test_shared_reference_tasks_split_across_calls_take_their_own_records():
     recs = phase_run.answered([b], [_plain(b, "routed")]) + phase_run.answered([a], [_plain(a, "failed")])
     asked = [dict(a.record(), widths=dict(a.widths)), dict(b.record(), widths=dict(b.widths))]
     assert [r["status"] for r in phase_run.records_of(asked, recs)] == ["failed", "routed"]
+
+
+def test_a_router_record_keeps_what_it_said_of_each_end():
+    t = _task("fp-a")
+    rec = dict(_plain(t, "failed"), to={"ref": "TP4", "pad": "1", "at": [1.0, 2.0]})
+    (got,) = phase_run.answered([t], [rec])
+    assert got["to"] == {"ref": "TP4", "pad": "1", "at": [1.0, 2.0], "fp": "fp-a"}
+    assert got["from"] == {"ref": "J1", "pad": "1"}
