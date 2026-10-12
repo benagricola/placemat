@@ -10,10 +10,11 @@ import sys
 import pytest
 
 from placemat.runner import run
-from tests.conftest import ECOSYSTEM, needs_kicad
+from tests.conftest import ECOSYSTEM, ECOSYSTEM_ENV, needs_kicad, outside_file_missing
 
 needs_pcb = pytest.mark.skipif(shutil.which("pcb") is None, reason="pcb toolchain not on PATH")
-pytestmark = [needs_kicad, needs_pcb, pytest.mark.skipif(not (ECOSYSTEM / "breakout").exists(), reason="no ecosystem")]
+pytestmark = [needs_kicad, needs_pcb, pytest.mark.skipif(bool(outside_file_missing(ECOSYSTEM and ECOSYSTEM / "breakout", ECOSYSTEM_ENV)),
+                                                          reason=outside_file_missing(ECOSYSTEM and ECOSYSTEM / "breakout", ECOSYSTEM_ENV) or "found")]
 
 SCRIPT = '''
 from placemat import board, Part, Cell, Centre, Location, Edge, Net, CopperLayer, OnEdge

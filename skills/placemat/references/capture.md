@@ -17,11 +17,11 @@ case-insensitively; use these:
 
 | key | values | read by |
 |---|---|---|
-| `Pm.Loop` | a loop's name: the parts that share one form one loop; `hot` by convention for the fast-current loop (input caps, the switch) | hot-loop |
+| `Pm.Loop` | a loop's name: the parts that share one form one loop; `hot` by convention for the fast-current loop, whose parts the converter topology decides (a buck's input caps and switch; a boost's switch, output diode and output caps): use the datasheet's layout section | hot-loop |
 | `Pm.Aggressor` | `true` | switch-node, keep-out |
 | `Pm.Sensitive` | the net on the part's pads that must stay clear, by name: `VFB` | keep-out, crossings-under |
 | `Pm.KeepOut` | a datasheet keep-out distance for the part's pins, cited: `0.7mm pads=FB,COMP away=SW,BOOT; datasheet rev B, section 10.2, layout example` | keep-out, the layout (a clearance) |
-| `Pm.I` | amps at full load per net the part's pads carry: `vin:3A sw:3A`; a bare `3A` means every pad | current-path |
+| `Pm.I` | amps at full load per net the part's pads carry: `vin:3A sw:3A`; a bare `3A` means every pad. A net is named as for `Pm.KeepOut`: its whole name or the last part of its path | current-path |
 | `Pm.Pd` | watts at full load, worst case, from the datasheet | heat |
 | `Pm.TjMax` | e.g. `125C` | heat |
 | `Pm.ThetaJb` | junction-to-board, e.g. `15.5C/W`: what a board temperature wants | heat |
@@ -51,6 +51,10 @@ net (a current-sense pin, an ideal-diode controller's anode and cathode)
 gives that net its own small current, or leaves it out: the check judges a
 pair of carriers at the lesser of their currents, so its sense pin is judged
 at what it draws, not at the load.
+
+Where no document gives the full load, give the bound the circuit guarantees instead
+(a converter's switch current limit, a fuse's or a connector's rating), and say in
+the comment beside it that the figure is a bound, not a load.
 
 A value is a plain string with its unit, with its source in a comment
 beside it (the datasheet section); a placeholder says so.
@@ -196,13 +200,19 @@ unplaced and its finding names the push.
 - A hot loop is the parts sharing one `Pm.Loop` name, and the nets two or
   more of them share.
 - A switch node is a net on two or more parts whose every pad belongs to a
-  `Pm.Aggressor` part: mark the switch and the inductor.
+  `Pm.Aggressor` part: mark every part with a pad on the node, including
+  bootstrap capacitors, snubbers and ripple-injection parts. One unmarked
+  part on the node hides it.
 - A sensitive net is the net `Pm.Sensitive` names on its part: the feedback
   node on the feedback divider's resistors.
 - A current path is a net some part gives a current in `Pm.I`.
 
 A net-level fact with no part to carry it does not reach the board: state a
 current on the parts that carry it (`Pm.I`).
+
+A current that pours or planes carry is stated the same way and needs no class
+width: use a phase with `width = "current"` or `current_paths = true`, or declare
+the pour (api.md, "Routing phases").
 
 ## Net classes
 
@@ -215,7 +225,10 @@ differential pair's `diff_pair_width` and `diff_pair_gap` are what
 class other than Default that sets `diff_pair_width` and `diff_pair_gap`
 pairs its nets, exactly two outright whatever they are called, more than two
 by the router's suffix convention (`_P`/`_N`, `P`/`N`, `+`/`-`); Default never
-makes pairs. A class whose clearance does not fit a part's pad pitch
+makes pairs. This class inference is for placement scoring; routing selects pairs
+from `DiffPair` instances in the capture or explicit phase pairs. A class imported
+from another tool may carry pair figures on every class: remove `diff_pair_width`
+and `diff_pair_gap` where the nets are not a pair. A class whose clearance does not fit a part's pad pitch
 is a setup finding on every run, naming the part.
 
 ## What placemat checks
@@ -272,8 +285,9 @@ not by loosening a limit for the whole board.
 
 ## Annotating a capture
 
-1. Mark every part the datasheet's layout rules name: the switch and its
-   input caps (`Pm.Loop`), the switch and the inductor (`Pm.Aggressor`),
+1. Mark every part the datasheet's layout rules name: the
+   hot loop's parts for its topology (`Pm.Loop`), every part with a pad on
+   the switch node (`Pm.Aggressor`),
    the feedback divider (`Pm.Sensitive`).
    A part that emits a field or heat other parts must not read (a magnet,
    an inductor, a hot converter) gets `Pm.Emits` and `Pm.EmitsAt`; a part
@@ -292,6 +306,11 @@ together, wherever the cell's tightest job needs to sit. A cell that
 holds two or more jobs joined only through board-level nets - a shared
 bus, status lines, pull-ups, a plane - carries every other job's part to
 wherever the tightest one goes.
+
+A sheet imported from another tool (`pcb import`) is a module too: layout stamps
+it as a group, and placemat places that rigid cell in its generated arrangement
+unless the module has its own layout script. `placemat parts` lists `cell <name>`.
+Flatten it into its parent in the capture when its parts must sit apart.
 
 `placemat run` reports this back as a `split` finding, naming the groups
 it found among a cell's parts:
@@ -323,3 +342,7 @@ elsewhere. Neither is a split candidate; each is placed by that physical
 need, not by a group. A part with no such need (a pull-up on a shared
 bus, a status-line resistor) may belong with the rest of its job, in
 another cell.
+
+Routing phases select the capture's net types, bound interfaces and `DiffPair`
+instances from `nets.layout.json`. An interface selector names its type or its
+bound instance path.

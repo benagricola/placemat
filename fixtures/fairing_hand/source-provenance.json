@@ -1,0 +1,1534 @@
+{
+  "modules": [
+    {
+      "module": "backlight",
+      "name": "Backlight",
+      "commit": "e462b14a4bee648e98cf331dbee40d4da80906f3",
+      "hand": "backlight/layout_hand.kicad_pcb",
+      "hand_sha256": "95282ce8249759e25f5c19330967c26cd6e917a54bd211dccdfc2828a0ae8cbc",
+      "project": "backlight/layout_hand.kicad_pro",
+      "project_sha256": "e0d61ed205e4e5b214842809e6cb580b5af7f9705b0c083b210e82375469b224",
+      "helper_sha256": "6586f48d856b3cb69bb8e30f302e2a7799278f01c8282c22ed9fc25d6ab8679f",
+      "dependencies": {
+        "boards/core/modules/backlight/Backlight.zen": "d96dca43d9ca6bdb2c6b8cc0fad3f3f264af555d95758a4300fd6a8475ae181c",
+        "boards/core/board_rules.zen": "5927c2d9cb64dc5ee0ac06bf3c1baf3a6b7144e9369524bfcb0bc4d7b98cb1d2",
+        "adapted/parts/Sunlord_SWPA4030S331MT.zen": "2f96e2d6e2745ea83599fc21c5e23b1c5758ff55a10688740df5137dcce66d42",
+        "adapted/parts/Sunlord_SWPA4030S331MT/SWPA4030S331MT.kicad_sym": "2e101879618ca3949005a028b1f874bafe136afd9036cf8b4e4dcfc3517e6556",
+        "parts/Sunlord_SWPA4030S331MT/IND-SMD_L4.0-W4.0.kicad_mod": "f919fc692d80c64dc46ca714b89c6e0c8696fb3a5f343199561f3986077e855d",
+        "adapted/parts/MDD_Microdiode_Semiconductor_B5819W.zen": "38dca0fcb0dcee0cfe70231db8070b5faf0bc00350c0875a9b0b71f00c08d411",
+        "adapted/parts/MDD_Microdiode_Semiconductor_B5819W/B5819W.kicad_sym": "706a0fcf87d29bf30161a6528c1407c93c643a84febc18a9a219c6915d1b68ed",
+        "parts/MDD_Microdiode_Semiconductor_B5819W/SOD-123_L2.8-W1.8-LS3.7-RD.kicad_mod": "fc390f0509e7077aaf109feaf8ea0568a5d583559c4f9ab8b7ff0e5ccb70c861",
+        "adapted/parts/PowTech_CR_PowTech_Shanghai_PT4115B89E.zen": "f2c4b4db3aed55c2a2ce7d641f8637e7851f2a6426a2c24e0c00db8d96b400dc",
+        "adapted/parts/PowTech_CR_PowTech_Shanghai_PT4115B89E/PT4115B89E.kicad_sym": "f6bb82434a2bb08d60a7e3a99e8c09e23c3120360500060a41c1213549295019",
+        "parts/PowTech_CR_PowTech_Shanghai_PT4115B89E/SOT-89-5_L4.5-W2.5-P1.50-LS4.5-BR.kicad_mod": "47e0b554c013a49f5eb0979f09dd29775bfe204a53b8fcf5461cebbe054c1994"
+      },
+      "staged_dependencies": {
+        "boards/core/modules/backlight/Backlight.zen": {
+          "original_sha256": "d96dca43d9ca6bdb2c6b8cc0fad3f3f264af555d95758a4300fd6a8475ae181c",
+          "staged_file": "modules/backlight/Backlight.zen",
+          "staged_sha256": "278cc2d21929abff8bd9e726ff624afbb7abc0a656520f744a35da21beaa74fb",
+          "intentional_path_rewrite": true
+        },
+        "adapted/parts/Sunlord_SWPA4030S331MT.zen": {
+          "original_sha256": "2f96e2d6e2745ea83599fc21c5e23b1c5758ff55a10688740df5137dcce66d42",
+          "staged_file": "adapted/parts/Sunlord_SWPA4030S331MT.zen",
+          "staged_sha256": "2f96e2d6e2745ea83599fc21c5e23b1c5758ff55a10688740df5137dcce66d42",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/Sunlord_SWPA4030S331MT/SWPA4030S331MT.kicad_sym": {
+          "original_sha256": "2e101879618ca3949005a028b1f874bafe136afd9036cf8b4e4dcfc3517e6556",
+          "staged_file": "adapted/parts/Sunlord_SWPA4030S331MT/SWPA4030S331MT.kicad_sym",
+          "staged_sha256": "2e101879618ca3949005a028b1f874bafe136afd9036cf8b4e4dcfc3517e6556",
+          "intentional_path_rewrite": false
+        },
+        "parts/Sunlord_SWPA4030S331MT/IND-SMD_L4.0-W4.0.kicad_mod": {
+          "original_sha256": "f919fc692d80c64dc46ca714b89c6e0c8696fb3a5f343199561f3986077e855d",
+          "staged_file": "parts/Sunlord_SWPA4030S331MT/IND-SMD_L4.0-W4.0.kicad_mod",
+          "staged_sha256": "f919fc692d80c64dc46ca714b89c6e0c8696fb3a5f343199561f3986077e855d",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/MDD_Microdiode_Semiconductor_B5819W.zen": {
+          "original_sha256": "38dca0fcb0dcee0cfe70231db8070b5faf0bc00350c0875a9b0b71f00c08d411",
+          "staged_file": "adapted/parts/MDD_Microdiode_Semiconductor_B5819W.zen",
+          "staged_sha256": "38dca0fcb0dcee0cfe70231db8070b5faf0bc00350c0875a9b0b71f00c08d411",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/MDD_Microdiode_Semiconductor_B5819W/B5819W.kicad_sym": {
+          "original_sha256": "706a0fcf87d29bf30161a6528c1407c93c643a84febc18a9a219c6915d1b68ed",
+          "staged_file": "adapted/parts/MDD_Microdiode_Semiconductor_B5819W/B5819W.kicad_sym",
+          "staged_sha256": "706a0fcf87d29bf30161a6528c1407c93c643a84febc18a9a219c6915d1b68ed",
+          "intentional_path_rewrite": false
+        },
+        "parts/MDD_Microdiode_Semiconductor_B5819W/SOD-123_L2.8-W1.8-LS3.7-RD.kicad_mod": {
+          "original_sha256": "fc390f0509e7077aaf109feaf8ea0568a5d583559c4f9ab8b7ff0e5ccb70c861",
+          "staged_file": "parts/MDD_Microdiode_Semiconductor_B5819W/SOD-123_L2.8-W1.8-LS3.7-RD.kicad_mod",
+          "staged_sha256": "fc390f0509e7077aaf109feaf8ea0568a5d583559c4f9ab8b7ff0e5ccb70c861",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/PowTech_CR_PowTech_Shanghai_PT4115B89E.zen": {
+          "original_sha256": "f2c4b4db3aed55c2a2ce7d641f8637e7851f2a6426a2c24e0c00db8d96b400dc",
+          "staged_file": "adapted/parts/PowTech_CR_PowTech_Shanghai_PT4115B89E.zen",
+          "staged_sha256": "f2c4b4db3aed55c2a2ce7d641f8637e7851f2a6426a2c24e0c00db8d96b400dc",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/PowTech_CR_PowTech_Shanghai_PT4115B89E/PT4115B89E.kicad_sym": {
+          "original_sha256": "f6bb82434a2bb08d60a7e3a99e8c09e23c3120360500060a41c1213549295019",
+          "staged_file": "adapted/parts/PowTech_CR_PowTech_Shanghai_PT4115B89E/PT4115B89E.kicad_sym",
+          "staged_sha256": "f6bb82434a2bb08d60a7e3a99e8c09e23c3120360500060a41c1213549295019",
+          "intentional_path_rewrite": false
+        },
+        "parts/PowTech_CR_PowTech_Shanghai_PT4115B89E/SOT-89-5_L4.5-W2.5-P1.50-LS4.5-BR.kicad_mod": {
+          "original_sha256": "47e0b554c013a49f5eb0979f09dd29775bfe204a53b8fcf5461cebbe054c1994",
+          "staged_file": "parts/PowTech_CR_PowTech_Shanghai_PT4115B89E/SOT-89-5_L4.5-W2.5-P1.50-LS4.5-BR.kicad_mod",
+          "staged_sha256": "47e0b554c013a49f5eb0979f09dd29775bfe204a53b8fcf5461cebbe054c1994",
+          "intentional_path_rewrite": false
+        }
+      },
+      "electrical_partition": {
+        "same": true,
+        "hand": {
+          "nodes": 16,
+          "independent": 0,
+          "duplicate_pad_numbers": [
+            [
+              "U1",
+              "2",
+              2
+            ]
+          ],
+          "duplicate_references": []
+        },
+        "generated": {
+          "nodes": 16,
+          "independent": 0,
+          "duplicate_pad_numbers": [
+            [
+              "U1",
+              "2",
+              2
+            ]
+          ],
+          "duplicate_references": []
+        },
+        "hand_only": [],
+        "generated_only": []
+      },
+      "script_migration": {
+        "module": "backlight",
+        "file": "modules/backlight/Backlight_layout.py",
+        "original_sha256": "867e4dad93e86b905526e376a23cedd36efe63361ee953559c6bb2337f93c187",
+        "migrated_sha256": "010d5b2501331833e5a92c38daa781ef9d9cc76c200d6c3e806073affabc48d7",
+        "original_commit": "e462b14a4bee648e98cf331dbee40d4da80906f3",
+        "semantic_change": "board.size call attribute renamed to board.rect; arguments and all other AST nodes unchanged",
+        "calls": 1,
+        "guide": "skills/placemat/references/migration.md",
+        "guide_sha256": "8e2f7fdbb3b23093947ed93dc70b8ed19a550aa89cfd1a40b856638d02d8982d",
+        "guide_section": "To 0.85.0"
+      },
+      "original_script_sha256": "867e4dad93e86b905526e376a23cedd36efe63361ee953559c6bb2337f93c187",
+      "checked_in_script_sha256": "010d5b2501331833e5a92c38daa781ef9d9cc76c200d6c3e806073affabc48d7"
+    },
+    {
+      "module": "debug",
+      "name": "Debug",
+      "commit": "4deb0cfc8a7e28d6465093df42a4d98c105e7da2",
+      "hand": "debug/layout_hand-2026-09-30.kicad_pcb",
+      "hand_sha256": "5a0af8906165ed813ae922dfd9ffa2b43708a77ea1e4627b540d03b06e269e6f",
+      "project": "debug/layout_hand-2026-09-30.kicad_pro",
+      "project_sha256": "0ad090aa61cb7f3c9302e97bd5118839a64710099a4e2a48b7ec329325f9a70d",
+      "helper_sha256": "e2589c86387801cb01b5d188e42c94e924867ccf16f6b3fd288e26fa7b60005c",
+      "dependencies": {
+        "boards/core/modules/debug/Debug.zen": "57bcc7bbf963198074f77ec5d2f22ed8447db9cb5e773bbb324e4dbd7834c374",
+        "boards/core/board_rules.zen": "cc1b8a3de63d6c818d52e6f1fd31b7f004831b8c9dde2b89e9bb3b94c34d14b3",
+        "adapted/parts/Hubei_KENTO_Elec_KT_0603W.zen": "de6d0cad03c27efc86f557dbfcb2e8abbc1f953d005695de0dae8a890ff252c2",
+        "adapted/parts/Hubei_KENTO_Elec_KT_0603W/KT_0603W.kicad_sym": "3714b395cd833fbbd1aa769f7291e4c604752af06fd3074a59f29a4278795474",
+        "parts/Hubei_KENTO_Elec_KT_0603W/LED0603-R-RD_WHITE.kicad_mod": "96173f1763167b6d03cac32700d0eb22987c415f3c6eb233bae32303744b4e30",
+        "adapted/parts/Hubei_KENTO_Elec_KT_0603YG.zen": "a4169ecc7ed2236185fdc88d2f0ce794d03dd504cdb815349ae0465a87f2b509",
+        "adapted/parts/Hubei_KENTO_Elec_KT_0603YG/KT_0603YG.kicad_sym": "d321a74a3d5f8dd69fd26bd07d9e24e4a89a75a15f518379471eb5927caef026",
+        "parts/Hubei_KENTO_Elec_KT_0603YG/LED0603-RD.kicad_mod": "8a15bf16d41f2f1153c07309cd3e357dae98ede4b6622f7e5e38b90747fffec6",
+        "adapted/parts/Hubei_KENTO_Elec_KT_0603R.zen": "7cf84897082b4da900a43806cec5c7a1e661d09135eb7e7eacfb7669575c7d5f",
+        "adapted/parts/Hubei_KENTO_Elec_KT_0603R/KT_0603R.kicad_sym": "f49d31c0aec8cc23c63bed51fb38ce2d2ca3b43d47a2d50b73e28e2f795ebf5c",
+        "parts/Hubei_KENTO_Elec_KT_0603R/LED-SMD_L1.6-W0.8-R-RD.kicad_mod": "10d21a1af2c3c4ef17c1ab0b29d05e4367c9fb5d9c885fe1cb856c44f65d4b31",
+        "adapted/parts/Omron_Electronics_B3U_1000P.zen": "e334dc14b14d914db4103132e63fc66b8f4b699e1f310d1965c6b17e83f43bb2",
+        "adapted/parts/Omron_Electronics_B3U_1000P/B3U_1000P.kicad_sym": "86039c996134a70402028836cf5d5c8a15cf26f8c1066c2154c967c09f050523",
+        "parts/Omron_Electronics_B3U_1000P/KEY-SMD_B3U-1000PM.kicad_mod": "6e1904cf9824c362de75be0b094d9a8ec11e1c5671c86e25806d6c53bf63d7c4"
+      },
+      "staged_dependencies": {
+        "boards/core/modules/debug/Debug.zen": {
+          "original_sha256": "57bcc7bbf963198074f77ec5d2f22ed8447db9cb5e773bbb324e4dbd7834c374",
+          "staged_file": "modules/debug/Debug.zen",
+          "staged_sha256": "c69a65633eb77c055ad699b19ecb2569b961bffdef43fed2f21c77af334adf22",
+          "intentional_path_rewrite": true
+        },
+        "adapted/parts/Hubei_KENTO_Elec_KT_0603W.zen": {
+          "original_sha256": "de6d0cad03c27efc86f557dbfcb2e8abbc1f953d005695de0dae8a890ff252c2",
+          "staged_file": "adapted/parts/Hubei_KENTO_Elec_KT_0603W.zen",
+          "staged_sha256": "de6d0cad03c27efc86f557dbfcb2e8abbc1f953d005695de0dae8a890ff252c2",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/Hubei_KENTO_Elec_KT_0603W/KT_0603W.kicad_sym": {
+          "original_sha256": "3714b395cd833fbbd1aa769f7291e4c604752af06fd3074a59f29a4278795474",
+          "staged_file": "adapted/parts/Hubei_KENTO_Elec_KT_0603W/KT_0603W.kicad_sym",
+          "staged_sha256": "3714b395cd833fbbd1aa769f7291e4c604752af06fd3074a59f29a4278795474",
+          "intentional_path_rewrite": false
+        },
+        "parts/Hubei_KENTO_Elec_KT_0603W/LED0603-R-RD_WHITE.kicad_mod": {
+          "original_sha256": "96173f1763167b6d03cac32700d0eb22987c415f3c6eb233bae32303744b4e30",
+          "staged_file": "parts/Hubei_KENTO_Elec_KT_0603W/LED0603-R-RD_WHITE.kicad_mod",
+          "staged_sha256": "96173f1763167b6d03cac32700d0eb22987c415f3c6eb233bae32303744b4e30",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/Hubei_KENTO_Elec_KT_0603YG.zen": {
+          "original_sha256": "a4169ecc7ed2236185fdc88d2f0ce794d03dd504cdb815349ae0465a87f2b509",
+          "staged_file": "adapted/parts/Hubei_KENTO_Elec_KT_0603YG.zen",
+          "staged_sha256": "a4169ecc7ed2236185fdc88d2f0ce794d03dd504cdb815349ae0465a87f2b509",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/Hubei_KENTO_Elec_KT_0603YG/KT_0603YG.kicad_sym": {
+          "original_sha256": "d321a74a3d5f8dd69fd26bd07d9e24e4a89a75a15f518379471eb5927caef026",
+          "staged_file": "adapted/parts/Hubei_KENTO_Elec_KT_0603YG/KT_0603YG.kicad_sym",
+          "staged_sha256": "d321a74a3d5f8dd69fd26bd07d9e24e4a89a75a15f518379471eb5927caef026",
+          "intentional_path_rewrite": false
+        },
+        "parts/Hubei_KENTO_Elec_KT_0603YG/LED0603-RD.kicad_mod": {
+          "original_sha256": "8a15bf16d41f2f1153c07309cd3e357dae98ede4b6622f7e5e38b90747fffec6",
+          "staged_file": "parts/Hubei_KENTO_Elec_KT_0603YG/LED0603-RD.kicad_mod",
+          "staged_sha256": "8a15bf16d41f2f1153c07309cd3e357dae98ede4b6622f7e5e38b90747fffec6",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/Hubei_KENTO_Elec_KT_0603R.zen": {
+          "original_sha256": "7cf84897082b4da900a43806cec5c7a1e661d09135eb7e7eacfb7669575c7d5f",
+          "staged_file": "adapted/parts/Hubei_KENTO_Elec_KT_0603R.zen",
+          "staged_sha256": "7cf84897082b4da900a43806cec5c7a1e661d09135eb7e7eacfb7669575c7d5f",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/Hubei_KENTO_Elec_KT_0603R/KT_0603R.kicad_sym": {
+          "original_sha256": "f49d31c0aec8cc23c63bed51fb38ce2d2ca3b43d47a2d50b73e28e2f795ebf5c",
+          "staged_file": "adapted/parts/Hubei_KENTO_Elec_KT_0603R/KT_0603R.kicad_sym",
+          "staged_sha256": "f49d31c0aec8cc23c63bed51fb38ce2d2ca3b43d47a2d50b73e28e2f795ebf5c",
+          "intentional_path_rewrite": false
+        },
+        "parts/Hubei_KENTO_Elec_KT_0603R/LED-SMD_L1.6-W0.8-R-RD.kicad_mod": {
+          "original_sha256": "10d21a1af2c3c4ef17c1ab0b29d05e4367c9fb5d9c885fe1cb856c44f65d4b31",
+          "staged_file": "parts/Hubei_KENTO_Elec_KT_0603R/LED-SMD_L1.6-W0.8-R-RD.kicad_mod",
+          "staged_sha256": "10d21a1af2c3c4ef17c1ab0b29d05e4367c9fb5d9c885fe1cb856c44f65d4b31",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/Omron_Electronics_B3U_1000P.zen": {
+          "original_sha256": "e334dc14b14d914db4103132e63fc66b8f4b699e1f310d1965c6b17e83f43bb2",
+          "staged_file": "adapted/parts/Omron_Electronics_B3U_1000P.zen",
+          "staged_sha256": "e334dc14b14d914db4103132e63fc66b8f4b699e1f310d1965c6b17e83f43bb2",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/Omron_Electronics_B3U_1000P/B3U_1000P.kicad_sym": {
+          "original_sha256": "86039c996134a70402028836cf5d5c8a15cf26f8c1066c2154c967c09f050523",
+          "staged_file": "adapted/parts/Omron_Electronics_B3U_1000P/B3U_1000P.kicad_sym",
+          "staged_sha256": "86039c996134a70402028836cf5d5c8a15cf26f8c1066c2154c967c09f050523",
+          "intentional_path_rewrite": false
+        },
+        "parts/Omron_Electronics_B3U_1000P/KEY-SMD_B3U-1000PM.kicad_mod": {
+          "original_sha256": "6e1904cf9824c362de75be0b094d9a8ec11e1c5671c86e25806d6c53bf63d7c4",
+          "staged_file": "parts/Omron_Electronics_B3U_1000P/KEY-SMD_B3U-1000PM.kicad_mod",
+          "staged_sha256": "6e1904cf9824c362de75be0b094d9a8ec11e1c5671c86e25806d6c53bf63d7c4",
+          "intentional_path_rewrite": false
+        }
+      },
+      "electrical_partition": {
+        "same": true,
+        "hand": {
+          "nodes": 16,
+          "independent": 0,
+          "duplicate_pad_numbers": [],
+          "duplicate_references": []
+        },
+        "generated": {
+          "nodes": 16,
+          "independent": 0,
+          "duplicate_pad_numbers": [],
+          "duplicate_references": []
+        },
+        "hand_only": [],
+        "generated_only": []
+      },
+      "original_script_sha256": "2bc77f5846bb8e360b4d88cd74b198e7518b2018c077451c8dc182b0d74257dd",
+      "checked_in_script_sha256": "2bc77f5846bb8e360b4d88cd74b198e7518b2018c077451c8dc182b0d74257dd"
+    },
+    {
+      "module": "gnssreceiver",
+      "name": "GnssReceiver",
+      "commit": "c151a503f618c127a5d1e47e165004d97a5b6563",
+      "hand": "gnssreceiver/layout_hand-2026-09-30-2013.kicad_pcb",
+      "hand_sha256": "ec4c5727cd46b53e2466a1c78fd1739cd85dff0495f60bef18b26e4ab091b56e",
+      "project": "gnssreceiver/layout_hand-2026-09-30-2013.kicad_pro",
+      "project_sha256": "3ef753ad10823a3548b4c7de0190dddda64e427327430ede76893c11538740c1",
+      "helper_sha256": "e2589c86387801cb01b5d188e42c94e924867ccf16f6b3fd288e26fa7b60005c",
+      "dependencies": {
+        "boards/core/modules/gnssreceiver/GnssReceiver.zen": "03f2e4b1a1211a2a5efa7c26317824dea21dc5132c9989f04ea8e66fd75ffbd8",
+        "boards/core/board_rules.zen": "cc1b8a3de63d6c818d52e6f1fd31b7f004831b8c9dde2b89e9bb3b94c34d14b3",
+        "adapted/parts/Quectel_L76KB_A58.zen": "dc2e4cf0ea725b46801dc7a905cb06d64c87a3a0f8996794e7a5edd924eae95b",
+        "adapted/parts/Quectel_L76KB_A58/L76KB_A58.kicad_sym": "31eb10b3ff11513568c27eb70b1ec9e3eea4bcdf74c8ae16cc3cf5a2268400f9",
+        "adapted/parts/Quectel_L76KB_A58/GNSS_LCC18_shared_land.kicad_mod": "ded956b59bd7cce1e32166f04fb49c3791aab79651094094fa74eb4bad870f12",
+        "adapted/parts/U_BLOX_MAX_M10S_00B.zen": "08b84219a8fe3584d0f1989c94a9cb76c19ccdb871812b969ba66b51a45486e9",
+        "adapted/parts/U_BLOX_MAX_M10S_00B/MAX_M10S_00B.kicad_sym": "1fcfd427546942b1ab144a941632cb29cb9dd87877a1523773155c6145b6c43f",
+        "adapted/parts/U_BLOX_MAX_M10S_00B/GNSS_LCC18_shared_land.kicad_mod": "fa4ad57a4e080379d97a998cb9b030a88bee627a94ff00dc3deb26f9bcf1a810"
+      },
+      "staged_dependencies": {
+        "boards/core/modules/gnssreceiver/GnssReceiver.zen": {
+          "original_sha256": "03f2e4b1a1211a2a5efa7c26317824dea21dc5132c9989f04ea8e66fd75ffbd8",
+          "staged_file": "modules/gnssreceiver/GnssReceiver.zen",
+          "staged_sha256": "e0e9cd773b67b26c7acf1fbeb8e5dd22fd8c796d553606596c76bd7eddc7b723",
+          "intentional_path_rewrite": true
+        },
+        "adapted/parts/Quectel_L76KB_A58.zen": {
+          "original_sha256": "dc2e4cf0ea725b46801dc7a905cb06d64c87a3a0f8996794e7a5edd924eae95b",
+          "staged_file": "adapted/parts/Quectel_L76KB_A58.zen",
+          "staged_sha256": "dc2e4cf0ea725b46801dc7a905cb06d64c87a3a0f8996794e7a5edd924eae95b",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/Quectel_L76KB_A58/L76KB_A58.kicad_sym": {
+          "original_sha256": "31eb10b3ff11513568c27eb70b1ec9e3eea4bcdf74c8ae16cc3cf5a2268400f9",
+          "staged_file": "adapted/parts/Quectel_L76KB_A58/L76KB_A58.kicad_sym",
+          "staged_sha256": "31eb10b3ff11513568c27eb70b1ec9e3eea4bcdf74c8ae16cc3cf5a2268400f9",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/Quectel_L76KB_A58/GNSS_LCC18_shared_land.kicad_mod": {
+          "original_sha256": "ded956b59bd7cce1e32166f04fb49c3791aab79651094094fa74eb4bad870f12",
+          "staged_file": "adapted/parts/Quectel_L76KB_A58/GNSS_LCC18_shared_land.kicad_mod",
+          "staged_sha256": "ded956b59bd7cce1e32166f04fb49c3791aab79651094094fa74eb4bad870f12",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/U_BLOX_MAX_M10S_00B.zen": {
+          "original_sha256": "08b84219a8fe3584d0f1989c94a9cb76c19ccdb871812b969ba66b51a45486e9",
+          "staged_file": "adapted/parts/U_BLOX_MAX_M10S_00B.zen",
+          "staged_sha256": "08b84219a8fe3584d0f1989c94a9cb76c19ccdb871812b969ba66b51a45486e9",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/U_BLOX_MAX_M10S_00B/MAX_M10S_00B.kicad_sym": {
+          "original_sha256": "1fcfd427546942b1ab144a941632cb29cb9dd87877a1523773155c6145b6c43f",
+          "staged_file": "adapted/parts/U_BLOX_MAX_M10S_00B/MAX_M10S_00B.kicad_sym",
+          "staged_sha256": "1fcfd427546942b1ab144a941632cb29cb9dd87877a1523773155c6145b6c43f",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/U_BLOX_MAX_M10S_00B/GNSS_LCC18_shared_land.kicad_mod": {
+          "original_sha256": "fa4ad57a4e080379d97a998cb9b030a88bee627a94ff00dc3deb26f9bcf1a810",
+          "staged_file": "adapted/parts/U_BLOX_MAX_M10S_00B/GNSS_LCC18_shared_land.kicad_mod",
+          "staged_sha256": "fa4ad57a4e080379d97a998cb9b030a88bee627a94ff00dc3deb26f9bcf1a810",
+          "intentional_path_rewrite": false
+        }
+      },
+      "electrical_partition": {
+        "same": true,
+        "hand": {
+          "nodes": 26,
+          "independent": 0,
+          "duplicate_pad_numbers": [],
+          "duplicate_references": []
+        },
+        "generated": {
+          "nodes": 26,
+          "independent": 0,
+          "duplicate_pad_numbers": [],
+          "duplicate_references": []
+        },
+        "hand_only": [],
+        "generated_only": []
+      },
+      "original_script_sha256": "5421ff092452d87ae42f8e951340d1f305e99b68f594fe9ce5d2bf1779e6c89e",
+      "checked_in_script_sha256": "5421ff092452d87ae42f8e951340d1f305e99b68f594fe9ce5d2bf1779e6c89e"
+    },
+    {
+      "module": "mcu",
+      "name": "Mcu",
+      "commit": "c151a503f618c127a5d1e47e165004d97a5b6563",
+      "hand": "mcu/2026-10-02/layout_hand.kicad_pcb",
+      "hand_sha256": "62ca80944439c5bd34f70cdeb0a6dc76ce20536204be663783371a40039ad801",
+      "project": "mcu/2026-10-02/layout_hand.kicad_pro",
+      "project_sha256": "95b23c99b879f5d7338d8c2e86efcf1a444e022f3609935beb9a61351c999931",
+      "helper_sha256": "e2589c86387801cb01b5d188e42c94e924867ccf16f6b3fd288e26fa7b60005c",
+      "dependencies": {
+        "boards/core/modules/mcu/Mcu.zen": "36f07e8a73e0f20d25474ee85f555facbdc69a42bbd8050e9f27399809f00b5d",
+        "boards/core/board_rules.zen": "cc1b8a3de63d6c818d52e6f1fd31b7f004831b8c9dde2b89e9bb3b94c34d14b3",
+        "adapted/parts/C426988.zen": "33110fcea1f0750a8c59db73fb19e33705d55691826bf3df7beda7933af93540",
+        "adapted/parts/C426988/C426988.kicad_sym": "995e5e2db9f149a30ac49adf64ce4fba4171d089dea705b01a8a5dc5c581943b",
+        "parts/C426988/CRYSTAL-SMD_4P-L3_2-W2_5-BL.kicad_mod": "6695fa6f0371bf43e768512dcb30902eb4f98137fd741a5c628adcd2f1af611d",
+        "adapted/parts/GigaDevice_Semicon_Beijing_GD25Q64CWIGR.zen": "92b754130a06b3450be115aeac868dcbc6759f026f12fe4fe79464b60b1ccfb8",
+        "adapted/parts/GigaDevice_Semicon_Beijing_GD25Q64CWIGR/GD25Q64CWIGR.kicad_sym": "28ef55d099d8ec9ca6fdd9e5c3a55adfb0ce39332a8b4e6eedd1182e4e81cf2d",
+        "parts/GigaDevice_Semicon_Beijing_GD25Q64CWIGR/WSON-8_L6.0-W5.0-P1.27-BL-EP.kicad_mod": "95be2ae876671a8c7cbb8200fee76af03f5ff14bb470bb88289090a4f2ceee68",
+        "adapted/parts/C2913194.zen": "86952e2826be396267743e59e1c71667e47e46cbc8f31aa0de900e1729c2ed26",
+        "adapted/parts/C2913194/C2913194.kicad_sym": "37e9604815e428fb16c36d575979dcfbab18ab19fb5dddebe1d86580830e8ff5",
+        "parts/C2913194/QFN-56_L7_0-W7_0-P0_40-TL-EP4_0.kicad_mod": "c9be314e3fffcc832b2283867da6ed28e58e5669195fe87a202f9fe76b791373",
+        "adapted/parts/Espressif_Systems_ESP32_S3FH4R2.zen": "2cf22578ec5b39787d0c970f72b2713a12369a0352c0af9b1cd59f62ecbe7234",
+        "adapted/parts/Espressif_Systems_ESP32_S3FH4R2/ESP32_S3FH4R2.kicad_sym": "380cd44ccdaf4e85740481e7c8edae1ffca60aca221f938655ea5f731089cf9a",
+        "parts/Espressif_Systems_ESP32_S3FH4R2/QFN-56_L7.0-W7.0-P0.40-BL-EP5.7.kicad_mod": "e629552510ba3b91355c188c34da75a42633b1b540d1be2182d5cd70b4b8689d"
+      },
+      "staged_dependencies": {
+        "boards/core/modules/mcu/Mcu.zen": {
+          "original_sha256": "36f07e8a73e0f20d25474ee85f555facbdc69a42bbd8050e9f27399809f00b5d",
+          "staged_file": "modules/mcu/Mcu.zen",
+          "staged_sha256": "cf6508925027ce084622e4bd3a359d8b37062ef71e6bec0594187cab094bae1f",
+          "intentional_path_rewrite": true
+        },
+        "adapted/parts/C426988.zen": {
+          "original_sha256": "33110fcea1f0750a8c59db73fb19e33705d55691826bf3df7beda7933af93540",
+          "staged_file": "adapted/parts/C426988.zen",
+          "staged_sha256": "33110fcea1f0750a8c59db73fb19e33705d55691826bf3df7beda7933af93540",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/C426988/C426988.kicad_sym": {
+          "original_sha256": "995e5e2db9f149a30ac49adf64ce4fba4171d089dea705b01a8a5dc5c581943b",
+          "staged_file": "adapted/parts/C426988/C426988.kicad_sym",
+          "staged_sha256": "995e5e2db9f149a30ac49adf64ce4fba4171d089dea705b01a8a5dc5c581943b",
+          "intentional_path_rewrite": false
+        },
+        "parts/C426988/CRYSTAL-SMD_4P-L3_2-W2_5-BL.kicad_mod": {
+          "original_sha256": "6695fa6f0371bf43e768512dcb30902eb4f98137fd741a5c628adcd2f1af611d",
+          "staged_file": "parts/C426988/CRYSTAL-SMD_4P-L3_2-W2_5-BL.kicad_mod",
+          "staged_sha256": "6695fa6f0371bf43e768512dcb30902eb4f98137fd741a5c628adcd2f1af611d",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/GigaDevice_Semicon_Beijing_GD25Q64CWIGR.zen": {
+          "original_sha256": "92b754130a06b3450be115aeac868dcbc6759f026f12fe4fe79464b60b1ccfb8",
+          "staged_file": "adapted/parts/GigaDevice_Semicon_Beijing_GD25Q64CWIGR.zen",
+          "staged_sha256": "92b754130a06b3450be115aeac868dcbc6759f026f12fe4fe79464b60b1ccfb8",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/GigaDevice_Semicon_Beijing_GD25Q64CWIGR/GD25Q64CWIGR.kicad_sym": {
+          "original_sha256": "28ef55d099d8ec9ca6fdd9e5c3a55adfb0ce39332a8b4e6eedd1182e4e81cf2d",
+          "staged_file": "adapted/parts/GigaDevice_Semicon_Beijing_GD25Q64CWIGR/GD25Q64CWIGR.kicad_sym",
+          "staged_sha256": "28ef55d099d8ec9ca6fdd9e5c3a55adfb0ce39332a8b4e6eedd1182e4e81cf2d",
+          "intentional_path_rewrite": false
+        },
+        "parts/GigaDevice_Semicon_Beijing_GD25Q64CWIGR/WSON-8_L6.0-W5.0-P1.27-BL-EP.kicad_mod": {
+          "original_sha256": "95be2ae876671a8c7cbb8200fee76af03f5ff14bb470bb88289090a4f2ceee68",
+          "staged_file": "parts/GigaDevice_Semicon_Beijing_GD25Q64CWIGR/WSON-8_L6.0-W5.0-P1.27-BL-EP.kicad_mod",
+          "staged_sha256": "95be2ae876671a8c7cbb8200fee76af03f5ff14bb470bb88289090a4f2ceee68",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/C2913194.zen": {
+          "original_sha256": "86952e2826be396267743e59e1c71667e47e46cbc8f31aa0de900e1729c2ed26",
+          "staged_file": "adapted/parts/C2913194.zen",
+          "staged_sha256": "86952e2826be396267743e59e1c71667e47e46cbc8f31aa0de900e1729c2ed26",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/C2913194/C2913194.kicad_sym": {
+          "original_sha256": "37e9604815e428fb16c36d575979dcfbab18ab19fb5dddebe1d86580830e8ff5",
+          "staged_file": "adapted/parts/C2913194/C2913194.kicad_sym",
+          "staged_sha256": "37e9604815e428fb16c36d575979dcfbab18ab19fb5dddebe1d86580830e8ff5",
+          "intentional_path_rewrite": false
+        },
+        "parts/C2913194/QFN-56_L7_0-W7_0-P0_40-TL-EP4_0.kicad_mod": {
+          "original_sha256": "c9be314e3fffcc832b2283867da6ed28e58e5669195fe87a202f9fe76b791373",
+          "staged_file": "parts/C2913194/QFN-56_L7_0-W7_0-P0_40-TL-EP4_0.kicad_mod",
+          "staged_sha256": "c9be314e3fffcc832b2283867da6ed28e58e5669195fe87a202f9fe76b791373",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/Espressif_Systems_ESP32_S3FH4R2.zen": {
+          "original_sha256": "2cf22578ec5b39787d0c970f72b2713a12369a0352c0af9b1cd59f62ecbe7234",
+          "staged_file": "adapted/parts/Espressif_Systems_ESP32_S3FH4R2.zen",
+          "staged_sha256": "2cf22578ec5b39787d0c970f72b2713a12369a0352c0af9b1cd59f62ecbe7234",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/Espressif_Systems_ESP32_S3FH4R2/ESP32_S3FH4R2.kicad_sym": {
+          "original_sha256": "380cd44ccdaf4e85740481e7c8edae1ffca60aca221f938655ea5f731089cf9a",
+          "staged_file": "adapted/parts/Espressif_Systems_ESP32_S3FH4R2/ESP32_S3FH4R2.kicad_sym",
+          "staged_sha256": "380cd44ccdaf4e85740481e7c8edae1ffca60aca221f938655ea5f731089cf9a",
+          "intentional_path_rewrite": false
+        },
+        "parts/Espressif_Systems_ESP32_S3FH4R2/QFN-56_L7.0-W7.0-P0.40-BL-EP5.7.kicad_mod": {
+          "original_sha256": "e629552510ba3b91355c188c34da75a42633b1b540d1be2182d5cd70b4b8689d",
+          "staged_file": "parts/Espressif_Systems_ESP32_S3FH4R2/QFN-56_L7.0-W7.0-P0.40-BL-EP5.7.kicad_mod",
+          "staged_sha256": "e629552510ba3b91355c188c34da75a42633b1b540d1be2182d5cd70b4b8689d",
+          "intentional_path_rewrite": false
+        }
+      },
+      "electrical_partition": {
+        "same": true,
+        "hand": {
+          "nodes": 117,
+          "independent": 6,
+          "duplicate_pad_numbers": [
+            [
+              "C4",
+              "",
+              2
+            ],
+            [
+              "C5",
+              "",
+              2
+            ],
+            [
+              "L1",
+              "",
+              2
+            ]
+          ],
+          "duplicate_references": []
+        },
+        "generated": {
+          "nodes": 117,
+          "independent": 6,
+          "duplicate_pad_numbers": [
+            [
+              "C4",
+              "",
+              2
+            ],
+            [
+              "C5",
+              "",
+              2
+            ],
+            [
+              "L1",
+              "",
+              2
+            ]
+          ],
+          "duplicate_references": []
+        },
+        "hand_only": [],
+        "generated_only": []
+      },
+      "original_script_sha256": "778cd77039abc9b17c4b94e8056142d86aebc71888a871e7764bc195ac7f8ba9",
+      "checked_in_script_sha256": "778cd77039abc9b17c4b94e8056142d86aebc71888a871e7764bc195ac7f8ba9",
+      "hand_rules_sha256": "9ca32705cffd7441249a34f3e1969d6e55e40c229c52c982c64b987c7e105f4a"
+    },
+    {
+      "module": "protection",
+      "name": "Protection",
+      "commit": "444504a1d0a3b13c063e33d2efcd1a6ea0192c9c",
+      "hand": "protection/layout_hand-2026-09-30-2013.kicad_pcb",
+      "hand_sha256": "e402a1f100a2948423e66010d1e485c599335050ae31b877055159b1cff90c82",
+      "project": "protection/layout_hand-2026-09-30-2013.kicad_pro",
+      "project_sha256": "678330612da5e0f7d7ba99ad460e786a19953b6822fa4d7eedbc3aac5b11b0be",
+      "helper_sha256": "0688cdb97444fd8762096016b70f54aad4609f504f4dc4419395ac12e72c1a96",
+      "dependencies": {
+        "boards/core/modules/protection/Protection.zen": "005512c60a5d8c85b107f77caa488d8500da66363bbd5ee6760c61faec86790e",
+        "boards/core/board_rules.zen": "9751402d44ded0920275bb9f00ca213e2c732bee30233279df07f9f94557ca54",
+        "adapted/parts/YAGEO_PE1206DRM470R01L.zen": "c10f659d8f42a287f4960329344f12ae9dcbd22521fc632eb0329814b2043082",
+        "adapted/parts/YAGEO_PE1206DRM470R01L/PE1206DRM470R01L.kicad_sym": "79ce2a8b8e29e1cddd6c558910223695177ed69351181dc0dbc72686b2b97bd7",
+        "adapted/parts/YAGEO_PE1206DRM470R01L/PE1206_Yageo_Table8.kicad_mod": "07088fc1b1f750af22e5f8039e0786d9d54fe89047d1406f617bccaf8a015a53",
+        "adapted/parts/MDD_Microdiode_Semiconductor_MDDG06R10Q.zen": "48bfbe989329786c4a51236e1a68a0f1fa8438064803b1dcdfc5fd44ee2f6ce8",
+        "adapted/parts/MDD_Microdiode_Semiconductor_MDDG06R10Q/MDDG06R10Q.kicad_sym": "05881ac7922d5d31f729a0c8bf0215501b83f757be8779f60f908e2852be26b7",
+        "parts/MDD_Microdiode_Semiconductor_MDDG06R10Q/DFN-8_L3.3-W3.3-P0.65-BL.kicad_mod": "ecd077767ba0f657b1cc029c216fd621aa8f6a2f33b1682a2e8ae33f577900fb",
+        "adapted/parts/Texas_Instruments_INA226AIDGSR.zen": "fe13db6fdb2c968f50b89c2ff422f88ad44ce268a3a769fa8cfc95c5ab36f4e1",
+        "adapted/parts/Texas_Instruments_INA226AIDGSR/INA226AIDGSR.kicad_sym": "0c4e9ddf0cd954593cbe9ebd7b17cd8317c0efa2c80cf8a898a6867f78a37ee2",
+        "parts/Texas_Instruments_INA226AIDGSR/MSOP-10_L3.0-W3.0-P0.50-LS5.0-BL.kicad_mod": "0b94debb3a0ebf3eabafe94768f6236a89a0b191cd234fcba2fa7a6e18af59bd",
+        "adapted/parts/Texas_Instruments_LM74700QDBVRQ1.zen": "547fc0d66c13d7a1839f56989137e6c084f30ad22705a1490280bdd257bbac3a",
+        "adapted/parts/Texas_Instruments_LM74700QDBVRQ1/LM74700QDBVRQ1.kicad_sym": "c60944ec45272f5c1a3b6f7a5cbe28e9616f212c697f42aa043b601513d4c92b",
+        "parts/Texas_Instruments_LM74700QDBVTQ1/SOT-23-6_L2.9-W1.6-P0.95-LS2.8-TL.kicad_mod": "92fa161d442c72772978baaa270a3ccf54f9640a734f524d7b66113587284fa1",
+        "adapted/parts/Texas_Instruments_TPS16630PWPR.zen": "a78b9e4f72cdf20bac0dd84ae2010f7674beec76eb78d91bf5903d33f015b640",
+        "adapted/parts/Texas_Instruments_TPS16630PWPR/TPS16630PWPR.kicad_sym": "3509dcc1906715190ef9ddae8b04c2fd9c04133fda0614ce82f5b4f6febc018c",
+        "parts/Texas_Instruments_TPS16630PWPR/HTSSOP-20_L6.5-W4.4-P0.65-LS6.4-TL-EP2.58.kicad_mod": "116676789778fa1878e4bfcf75db261d14631ab36dfa7c670e1fd56c0c9f9065"
+      },
+      "staged_dependencies": {
+        "boards/core/modules/protection/Protection.zen": {
+          "original_sha256": "005512c60a5d8c85b107f77caa488d8500da66363bbd5ee6760c61faec86790e",
+          "staged_file": "modules/protection/Protection.zen",
+          "staged_sha256": "59e5d624436f91c57ccb4ae2f9c9bee95482f2673c1f6920909067644e43f04e",
+          "intentional_path_rewrite": true
+        },
+        "adapted/parts/YAGEO_PE1206DRM470R01L.zen": {
+          "original_sha256": "c10f659d8f42a287f4960329344f12ae9dcbd22521fc632eb0329814b2043082",
+          "staged_file": "adapted/parts/YAGEO_PE1206DRM470R01L.zen",
+          "staged_sha256": "c10f659d8f42a287f4960329344f12ae9dcbd22521fc632eb0329814b2043082",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/YAGEO_PE1206DRM470R01L/PE1206DRM470R01L.kicad_sym": {
+          "original_sha256": "79ce2a8b8e29e1cddd6c558910223695177ed69351181dc0dbc72686b2b97bd7",
+          "staged_file": "adapted/parts/YAGEO_PE1206DRM470R01L/PE1206DRM470R01L.kicad_sym",
+          "staged_sha256": "79ce2a8b8e29e1cddd6c558910223695177ed69351181dc0dbc72686b2b97bd7",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/YAGEO_PE1206DRM470R01L/PE1206_Yageo_Table8.kicad_mod": {
+          "original_sha256": "07088fc1b1f750af22e5f8039e0786d9d54fe89047d1406f617bccaf8a015a53",
+          "staged_file": "adapted/parts/YAGEO_PE1206DRM470R01L/PE1206_Yageo_Table8.kicad_mod",
+          "staged_sha256": "07088fc1b1f750af22e5f8039e0786d9d54fe89047d1406f617bccaf8a015a53",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/MDD_Microdiode_Semiconductor_MDDG06R10Q.zen": {
+          "original_sha256": "48bfbe989329786c4a51236e1a68a0f1fa8438064803b1dcdfc5fd44ee2f6ce8",
+          "staged_file": "adapted/parts/MDD_Microdiode_Semiconductor_MDDG06R10Q.zen",
+          "staged_sha256": "48bfbe989329786c4a51236e1a68a0f1fa8438064803b1dcdfc5fd44ee2f6ce8",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/MDD_Microdiode_Semiconductor_MDDG06R10Q/MDDG06R10Q.kicad_sym": {
+          "original_sha256": "05881ac7922d5d31f729a0c8bf0215501b83f757be8779f60f908e2852be26b7",
+          "staged_file": "adapted/parts/MDD_Microdiode_Semiconductor_MDDG06R10Q/MDDG06R10Q.kicad_sym",
+          "staged_sha256": "05881ac7922d5d31f729a0c8bf0215501b83f757be8779f60f908e2852be26b7",
+          "intentional_path_rewrite": false
+        },
+        "parts/MDD_Microdiode_Semiconductor_MDDG06R10Q/DFN-8_L3.3-W3.3-P0.65-BL.kicad_mod": {
+          "original_sha256": "ecd077767ba0f657b1cc029c216fd621aa8f6a2f33b1682a2e8ae33f577900fb",
+          "staged_file": "parts/MDD_Microdiode_Semiconductor_MDDG06R10Q/DFN-8_L3.3-W3.3-P0.65-BL.kicad_mod",
+          "staged_sha256": "ecd077767ba0f657b1cc029c216fd621aa8f6a2f33b1682a2e8ae33f577900fb",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/Texas_Instruments_INA226AIDGSR.zen": {
+          "original_sha256": "fe13db6fdb2c968f50b89c2ff422f88ad44ce268a3a769fa8cfc95c5ab36f4e1",
+          "staged_file": "adapted/parts/Texas_Instruments_INA226AIDGSR.zen",
+          "staged_sha256": "fe13db6fdb2c968f50b89c2ff422f88ad44ce268a3a769fa8cfc95c5ab36f4e1",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/Texas_Instruments_INA226AIDGSR/INA226AIDGSR.kicad_sym": {
+          "original_sha256": "0c4e9ddf0cd954593cbe9ebd7b17cd8317c0efa2c80cf8a898a6867f78a37ee2",
+          "staged_file": "adapted/parts/Texas_Instruments_INA226AIDGSR/INA226AIDGSR.kicad_sym",
+          "staged_sha256": "0c4e9ddf0cd954593cbe9ebd7b17cd8317c0efa2c80cf8a898a6867f78a37ee2",
+          "intentional_path_rewrite": false
+        },
+        "parts/Texas_Instruments_INA226AIDGSR/MSOP-10_L3.0-W3.0-P0.50-LS5.0-BL.kicad_mod": {
+          "original_sha256": "0b94debb3a0ebf3eabafe94768f6236a89a0b191cd234fcba2fa7a6e18af59bd",
+          "staged_file": "parts/Texas_Instruments_INA226AIDGSR/MSOP-10_L3.0-W3.0-P0.50-LS5.0-BL.kicad_mod",
+          "staged_sha256": "0b94debb3a0ebf3eabafe94768f6236a89a0b191cd234fcba2fa7a6e18af59bd",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/Texas_Instruments_LM74700QDBVRQ1.zen": {
+          "original_sha256": "547fc0d66c13d7a1839f56989137e6c084f30ad22705a1490280bdd257bbac3a",
+          "staged_file": "adapted/parts/Texas_Instruments_LM74700QDBVRQ1.zen",
+          "staged_sha256": "547fc0d66c13d7a1839f56989137e6c084f30ad22705a1490280bdd257bbac3a",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/Texas_Instruments_LM74700QDBVRQ1/LM74700QDBVRQ1.kicad_sym": {
+          "original_sha256": "c60944ec45272f5c1a3b6f7a5cbe28e9616f212c697f42aa043b601513d4c92b",
+          "staged_file": "adapted/parts/Texas_Instruments_LM74700QDBVRQ1/LM74700QDBVRQ1.kicad_sym",
+          "staged_sha256": "c60944ec45272f5c1a3b6f7a5cbe28e9616f212c697f42aa043b601513d4c92b",
+          "intentional_path_rewrite": false
+        },
+        "parts/Texas_Instruments_LM74700QDBVTQ1/SOT-23-6_L2.9-W1.6-P0.95-LS2.8-TL.kicad_mod": {
+          "original_sha256": "92fa161d442c72772978baaa270a3ccf54f9640a734f524d7b66113587284fa1",
+          "staged_file": "parts/Texas_Instruments_LM74700QDBVTQ1/SOT-23-6_L2.9-W1.6-P0.95-LS2.8-TL.kicad_mod",
+          "staged_sha256": "92fa161d442c72772978baaa270a3ccf54f9640a734f524d7b66113587284fa1",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/Texas_Instruments_TPS16630PWPR.zen": {
+          "original_sha256": "a78b9e4f72cdf20bac0dd84ae2010f7674beec76eb78d91bf5903d33f015b640",
+          "staged_file": "adapted/parts/Texas_Instruments_TPS16630PWPR.zen",
+          "staged_sha256": "a78b9e4f72cdf20bac0dd84ae2010f7674beec76eb78d91bf5903d33f015b640",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/Texas_Instruments_TPS16630PWPR/TPS16630PWPR.kicad_sym": {
+          "original_sha256": "3509dcc1906715190ef9ddae8b04c2fd9c04133fda0614ce82f5b4f6febc018c",
+          "staged_file": "adapted/parts/Texas_Instruments_TPS16630PWPR/TPS16630PWPR.kicad_sym",
+          "staged_sha256": "3509dcc1906715190ef9ddae8b04c2fd9c04133fda0614ce82f5b4f6febc018c",
+          "intentional_path_rewrite": false
+        },
+        "parts/Texas_Instruments_TPS16630PWPR/HTSSOP-20_L6.5-W4.4-P0.65-LS6.4-TL-EP2.58.kicad_mod": {
+          "original_sha256": "116676789778fa1878e4bfcf75db261d14631ab36dfa7c670e1fd56c0c9f9065",
+          "staged_file": "parts/Texas_Instruments_TPS16630PWPR/HTSSOP-20_L6.5-W4.4-P0.65-LS6.4-TL-EP2.58.kicad_mod",
+          "staged_sha256": "116676789778fa1878e4bfcf75db261d14631ab36dfa7c670e1fd56c0c9f9065",
+          "intentional_path_rewrite": false
+        }
+      },
+      "electrical_partition": {
+        "same": true,
+        "hand": {
+          "nodes": 70,
+          "independent": 0,
+          "duplicate_pad_numbers": [],
+          "duplicate_references": []
+        },
+        "generated": {
+          "nodes": 70,
+          "independent": 0,
+          "duplicate_pad_numbers": [],
+          "duplicate_references": []
+        },
+        "hand_only": [],
+        "generated_only": []
+      },
+      "script_migration": {
+        "module": "protection",
+        "file": "modules/protection/Protection_layout.py",
+        "original_sha256": "d3b20c65e95aebbd25a213b07ba90942809db181099debb4351b4a835c97db8a",
+        "migrated_sha256": "abf5e7f5d8d203316712367058cef1c228cfebd0943697dffa5967ce8960cc90",
+        "original_commit": "444504a1d0a3b13c063e33d2efcd1a6ea0192c9c",
+        "semantic_change": "board.size call attribute renamed to board.rect; arguments and all other AST nodes unchanged",
+        "calls": 1,
+        "guide": "skills/placemat/references/migration.md",
+        "guide_sha256": "8e2f7fdbb3b23093947ed93dc70b8ed19a550aa89cfd1a40b856638d02d8982d",
+        "guide_section": "To 0.85.0"
+      },
+      "pour_migration": {
+        "module": "protection",
+        "file": "modules/protection/Protection_layout.py",
+        "before_sha256": "abf5e7f5d8d203316712367058cef1c228cfebd0943697dffa5967ce8960cc90",
+        "after_sha256": "495317d343443c723e4931f34dc0d7ab348cd17c67fcf46c6b10044e002adc93",
+        "category": "geometry-changing API migration",
+        "guide_section": "To0.67.0 fitted pours",
+        "changes": [
+          {
+            "call": "board.pour",
+            "removed_cover": "Cover.BOX",
+            "line": 169
+          }
+        ],
+        "invariants": "pad sets, net, layer, width, placement statements and all other AST nodes unchanged; remove now-unused helper cover parameter and its callers only"
+      },
+      "original_script_sha256": "d3b20c65e95aebbd25a213b07ba90942809db181099debb4351b4a835c97db8a",
+      "checked_in_script_sha256": "495317d343443c723e4931f34dc0d7ab348cd17c67fcf46c6b10044e002adc93"
+    },
+    {
+      "module": "supervisor",
+      "name": "Supervisor",
+      "commit": "c151a503f618c127a5d1e47e165004d97a5b6563",
+      "hand": "supervisor/layout_hand.kicad_pcb",
+      "hand_sha256": "e59d59ee3ddde08aa9b3f24a11c163b53ea5af5fe41bc85130d870aa40e30854",
+      "project": "supervisor/layout_hand.kicad_pro",
+      "project_sha256": "fc1c15da7faf1bdc9dc659e5099db7ffc770248b5c1dcb6b06c11b31419d74ef",
+      "helper_sha256": "e2589c86387801cb01b5d188e42c94e924867ccf16f6b3fd288e26fa7b60005c",
+      "dependencies": {
+        "boards/core/modules/supervisor/Supervisor.zen": "cfca531594787a031730905835822bc2a10561b4008134cc8ef02299c211b317",
+        "boards/core/board_rules.zen": "cc1b8a3de63d6c818d52e6f1fd31b7f004831b8c9dde2b89e9bb3b94c34d14b3",
+        "adapted/parts/Jiangsu_Changjing_Electronics_Technology_Co_Ltd_2N7002.zen": "766ea70ac9f2060539268b17a629497136e3af3815fbedd14b52f81223737c82",
+        "adapted/parts/Jiangsu_Changjing_Electronics_Technology_Co_Ltd_2N7002/2N7002.kicad_sym": "2474aadfe0ac0b3eaa1a424755f80849fde6b1c610ea98deeb12186eea66b921",
+        "parts/Jiangsu_Changjing_Electronics_Technology_Co_Ltd_2N7002/SOT-23-3_L2.9-W1.3-P1.90-LS2.4-BR.kicad_mod": "ffd79c2fa413cde71476652dc8082f3457875a8a7aff9ce896c4b51ebdc62102",
+        "adapted/parts/Texas_Instruments_MSPM0L1106TRGER.zen": "dc35d403984ba359c02d50ad1b682250522ef130fa5c97d72799069cdb7abfa2",
+        "adapted/parts/Texas_Instruments_MSPM0L1106TRGER/MSPM0L1106TRGER.kicad_sym": "54cb8a46b0c6d4778502e93cfbb3d250c98b021ea1e5ae1afcc1511e214bb4e2",
+        "parts/Texas_Instruments_MSPM0L1106TRGER/VQFN-24_L4.0-W4.0-P0.50-TL-EP2.5.kicad_mod": "3d970ad7032af78ebec300a06acf20c3645d9020553cfd2de63936469838ab5c",
+        "adapted/parts/Texas_Instruments_TPS7B6933DBVR.zen": "6a7b3b7e260548194f4b9695565bea970c95683e66c65ba7f3efc735535e4c7b",
+        "adapted/parts/Texas_Instruments_TPS7B6933DBVR/TPS7B6933DBVR.kicad_sym": "8498ec4faed8cce168f1421e12fcd21c2f313961165b496a76e6f077ed0ab17f",
+        "parts/Texas_Instruments_TPS7B6933DBVR/TSOT-23-5_L2.9-W1.6-P0.95-LS2.8-BR.kicad_mod": "498cdad93ffe2fd2b83293a4c807ac82ecf51a43ed262ada9b4df0f80cb9c194"
+      },
+      "staged_dependencies": {
+        "boards/core/modules/supervisor/Supervisor.zen": {
+          "original_sha256": "cfca531594787a031730905835822bc2a10561b4008134cc8ef02299c211b317",
+          "staged_file": "modules/supervisor/Supervisor.zen",
+          "staged_sha256": "1aa53538f5b06f593df22c62322730f3454c53bc84f29b0db61cd1c97c71b506",
+          "intentional_path_rewrite": true
+        },
+        "adapted/parts/Jiangsu_Changjing_Electronics_Technology_Co_Ltd_2N7002.zen": {
+          "original_sha256": "766ea70ac9f2060539268b17a629497136e3af3815fbedd14b52f81223737c82",
+          "staged_file": "adapted/parts/Jiangsu_Changjing_Electronics_Technology_Co_Ltd_2N7002.zen",
+          "staged_sha256": "766ea70ac9f2060539268b17a629497136e3af3815fbedd14b52f81223737c82",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/Jiangsu_Changjing_Electronics_Technology_Co_Ltd_2N7002/2N7002.kicad_sym": {
+          "original_sha256": "2474aadfe0ac0b3eaa1a424755f80849fde6b1c610ea98deeb12186eea66b921",
+          "staged_file": "adapted/parts/Jiangsu_Changjing_Electronics_Technology_Co_Ltd_2N7002/2N7002.kicad_sym",
+          "staged_sha256": "2474aadfe0ac0b3eaa1a424755f80849fde6b1c610ea98deeb12186eea66b921",
+          "intentional_path_rewrite": false
+        },
+        "parts/Jiangsu_Changjing_Electronics_Technology_Co_Ltd_2N7002/SOT-23-3_L2.9-W1.3-P1.90-LS2.4-BR.kicad_mod": {
+          "original_sha256": "ffd79c2fa413cde71476652dc8082f3457875a8a7aff9ce896c4b51ebdc62102",
+          "staged_file": "parts/Jiangsu_Changjing_Electronics_Technology_Co_Ltd_2N7002/SOT-23-3_L2.9-W1.3-P1.90-LS2.4-BR.kicad_mod",
+          "staged_sha256": "ffd79c2fa413cde71476652dc8082f3457875a8a7aff9ce896c4b51ebdc62102",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/Texas_Instruments_MSPM0L1106TRGER.zen": {
+          "original_sha256": "dc35d403984ba359c02d50ad1b682250522ef130fa5c97d72799069cdb7abfa2",
+          "staged_file": "adapted/parts/Texas_Instruments_MSPM0L1106TRGER.zen",
+          "staged_sha256": "dc35d403984ba359c02d50ad1b682250522ef130fa5c97d72799069cdb7abfa2",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/Texas_Instruments_MSPM0L1106TRGER/MSPM0L1106TRGER.kicad_sym": {
+          "original_sha256": "54cb8a46b0c6d4778502e93cfbb3d250c98b021ea1e5ae1afcc1511e214bb4e2",
+          "staged_file": "adapted/parts/Texas_Instruments_MSPM0L1106TRGER/MSPM0L1106TRGER.kicad_sym",
+          "staged_sha256": "54cb8a46b0c6d4778502e93cfbb3d250c98b021ea1e5ae1afcc1511e214bb4e2",
+          "intentional_path_rewrite": false
+        },
+        "parts/Texas_Instruments_MSPM0L1106TRGER/VQFN-24_L4.0-W4.0-P0.50-TL-EP2.5.kicad_mod": {
+          "original_sha256": "3d970ad7032af78ebec300a06acf20c3645d9020553cfd2de63936469838ab5c",
+          "staged_file": "parts/Texas_Instruments_MSPM0L1106TRGER/VQFN-24_L4.0-W4.0-P0.50-TL-EP2.5.kicad_mod",
+          "staged_sha256": "3d970ad7032af78ebec300a06acf20c3645d9020553cfd2de63936469838ab5c",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/Texas_Instruments_TPS7B6933DBVR.zen": {
+          "original_sha256": "6a7b3b7e260548194f4b9695565bea970c95683e66c65ba7f3efc735535e4c7b",
+          "staged_file": "adapted/parts/Texas_Instruments_TPS7B6933DBVR.zen",
+          "staged_sha256": "6a7b3b7e260548194f4b9695565bea970c95683e66c65ba7f3efc735535e4c7b",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/Texas_Instruments_TPS7B6933DBVR/TPS7B6933DBVR.kicad_sym": {
+          "original_sha256": "8498ec4faed8cce168f1421e12fcd21c2f313961165b496a76e6f077ed0ab17f",
+          "staged_file": "adapted/parts/Texas_Instruments_TPS7B6933DBVR/TPS7B6933DBVR.kicad_sym",
+          "staged_sha256": "8498ec4faed8cce168f1421e12fcd21c2f313961165b496a76e6f077ed0ab17f",
+          "intentional_path_rewrite": false
+        },
+        "parts/Texas_Instruments_TPS7B6933DBVR/TSOT-23-5_L2.9-W1.6-P0.95-LS2.8-BR.kicad_mod": {
+          "original_sha256": "498cdad93ffe2fd2b83293a4c807ac82ecf51a43ed262ada9b4df0f80cb9c194",
+          "staged_file": "parts/Texas_Instruments_TPS7B6933DBVR/TSOT-23-5_L2.9-W1.6-P0.95-LS2.8-BR.kicad_mod",
+          "staged_sha256": "498cdad93ffe2fd2b83293a4c807ac82ecf51a43ed262ada9b4df0f80cb9c194",
+          "intentional_path_rewrite": false
+        }
+      },
+      "electrical_partition": {
+        "same": true,
+        "hand": {
+          "nodes": 57,
+          "independent": 0,
+          "duplicate_pad_numbers": [],
+          "duplicate_references": []
+        },
+        "generated": {
+          "nodes": 57,
+          "independent": 0,
+          "duplicate_pad_numbers": [],
+          "duplicate_references": []
+        },
+        "hand_only": [],
+        "generated_only": []
+      },
+      "original_script_sha256": "9fed9f3c3c43040e6bfcf7e2d3050a7347a8590458fba402cf604749e25196c4",
+      "checked_in_script_sha256": "9fed9f3c3c43040e6bfcf7e2d3050a7347a8590458fba402cf604749e25196c4"
+    },
+    {
+      "module": "usb5v",
+      "name": "Usb5v",
+      "commit": "ca0c966534c82ddca7490d82b71c2b0734c5d0e4",
+      "hand": "usb5v/layout_hand.kicad_pcb",
+      "hand_sha256": "3f708b6721d45e32b01a6eae18d1dcd34e14d39bacedd97cfe9af78165825f75",
+      "project": "usb5v/layout_hand.kicad_pro",
+      "project_sha256": "dda555b5d090d4a5649b50b328d664f62391f41d9c53d68ea7bd0e423f80f06a",
+      "helper_sha256": "0688cdb97444fd8762096016b70f54aad4609f504f4dc4419395ac12e72c1a96",
+      "dependencies": {
+        "boards/core/modules/usb5v/Usb5v.zen": "a6c893757ed92d13da523baadd7473ad3d3cfea55837a199225e78f4cdb7385e",
+        "boards/core/board_rules.zen": "9751402d44ded0920275bb9f00ca213e2c732bee30233279df07f9f94557ca54",
+        "adapted/parts/UMW_Youtai_Semiconductor_Co_Ltd_SN74LVC1G07DRYR_UMW.zen": "bd594c07e2f5d3ca921fd79b72a16fe0f8d333f2b109f51478a072b3af710fed",
+        "adapted/parts/UMW_Youtai_Semiconductor_Co_Ltd_SN74LVC1G07DRYR_UMW/SN74LVC1G07DRYR_UMW.kicad_sym": "2c8f6172bd9a7b6c6f3d0ade6c66ef806380623268be4466905277fb83998698",
+        "parts/Texas_Instruments_SN74LVC1G08DRYR/SON-6_L1.5-W1.0-P0.50-BL.kicad_mod": "aba881806a5af513012d92fcd9f984ab364b169e0220c3944a128830032deb10",
+        "adapted/parts/KEMET_T520T107M006APE070.zen": "f71f7edade0b68a97d1796f77003ca9765d82dba7cd61026cda7384555649d7c",
+        "adapted/parts/KEMET_T520T107M006APE070/T520T107M006APE070.kicad_sym": "37e65367eaf952d8b537a6861981da028959781fdd5a043e36ce84747097d33d",
+        "parts/KEMET_T520T107M006APE070/CP_EIA-3528-12_Kemet-T.kicad_mod": "440bcb040c6b0c985317bf7518aa12f47558e45d3d73e058e3ae6e6650ec5ab0",
+        "adapted/parts/APV_APH404012C1R5MP01.zen": "f1077a9eb43270fc1a6214a323ea51f7a782eedad3c929540e8f85e51c1d081f",
+        "adapted/parts/APV_APH404012C1R5MP01/APH404012C1R5MP01.kicad_sym": "3a903be1dbec389c59451ebae452070a658e44b062e48e9b116887f036026580",
+        "adapted/parts/APV_APH404012C2R2MP01/APH404012_APV_land.kicad_mod": "2d2492e8e3688b66605cafb12bc0962cb6754d911191ab866d1c854371860203",
+        "adapted/parts/Texas_Instruments_LM61440AASQRJRRQ1.zen": "b09d68f80232b82d6039b958c96bdc9a396cf79a73f682e499ce7e10c3afc3c1",
+        "adapted/parts/Texas_Instruments_LM61440AASQRJRRQ1/LM61440AASQRJRRQ1.kicad_sym": "12a6b93ce7688332526c57d5bce1556ce47f71ad2a1f6f61e6e1bd04247fe6ee",
+        "parts/Texas_Instruments_LM61440AASQRJRRQ1/VQFN-14_L4.0-W3.5-P0.5-BL-RJR0014A.kicad_mod": "02684236093ab62acafae4417fb509329b45df29401e23104e78e2dcb17408cb"
+      },
+      "staged_dependencies": {
+        "boards/core/modules/usb5v/Usb5v.zen": {
+          "original_sha256": "a6c893757ed92d13da523baadd7473ad3d3cfea55837a199225e78f4cdb7385e",
+          "staged_file": "modules/usb5v/Usb5v.zen",
+          "staged_sha256": "2dd4fa7cdb738db1da2781d98a6f8f2761a990f71b215400c0681fa2b1b71ff7",
+          "intentional_path_rewrite": true
+        },
+        "adapted/parts/UMW_Youtai_Semiconductor_Co_Ltd_SN74LVC1G07DRYR_UMW.zen": {
+          "original_sha256": "bd594c07e2f5d3ca921fd79b72a16fe0f8d333f2b109f51478a072b3af710fed",
+          "staged_file": "adapted/parts/UMW_Youtai_Semiconductor_Co_Ltd_SN74LVC1G07DRYR_UMW.zen",
+          "staged_sha256": "bd594c07e2f5d3ca921fd79b72a16fe0f8d333f2b109f51478a072b3af710fed",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/UMW_Youtai_Semiconductor_Co_Ltd_SN74LVC1G07DRYR_UMW/SN74LVC1G07DRYR_UMW.kicad_sym": {
+          "original_sha256": "2c8f6172bd9a7b6c6f3d0ade6c66ef806380623268be4466905277fb83998698",
+          "staged_file": "adapted/parts/UMW_Youtai_Semiconductor_Co_Ltd_SN74LVC1G07DRYR_UMW/SN74LVC1G07DRYR_UMW.kicad_sym",
+          "staged_sha256": "2c8f6172bd9a7b6c6f3d0ade6c66ef806380623268be4466905277fb83998698",
+          "intentional_path_rewrite": false
+        },
+        "parts/Texas_Instruments_SN74LVC1G08DRYR/SON-6_L1.5-W1.0-P0.50-BL.kicad_mod": {
+          "original_sha256": "aba881806a5af513012d92fcd9f984ab364b169e0220c3944a128830032deb10",
+          "staged_file": "parts/Texas_Instruments_SN74LVC1G08DRYR/SON-6_L1.5-W1.0-P0.50-BL.kicad_mod",
+          "staged_sha256": "aba881806a5af513012d92fcd9f984ab364b169e0220c3944a128830032deb10",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/KEMET_T520T107M006APE070.zen": {
+          "original_sha256": "f71f7edade0b68a97d1796f77003ca9765d82dba7cd61026cda7384555649d7c",
+          "staged_file": "adapted/parts/KEMET_T520T107M006APE070.zen",
+          "staged_sha256": "f71f7edade0b68a97d1796f77003ca9765d82dba7cd61026cda7384555649d7c",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/KEMET_T520T107M006APE070/T520T107M006APE070.kicad_sym": {
+          "original_sha256": "37e65367eaf952d8b537a6861981da028959781fdd5a043e36ce84747097d33d",
+          "staged_file": "adapted/parts/KEMET_T520T107M006APE070/T520T107M006APE070.kicad_sym",
+          "staged_sha256": "37e65367eaf952d8b537a6861981da028959781fdd5a043e36ce84747097d33d",
+          "intentional_path_rewrite": false
+        },
+        "parts/KEMET_T520T107M006APE070/CP_EIA-3528-12_Kemet-T.kicad_mod": {
+          "original_sha256": "440bcb040c6b0c985317bf7518aa12f47558e45d3d73e058e3ae6e6650ec5ab0",
+          "staged_file": "parts/KEMET_T520T107M006APE070/CP_EIA-3528-12_Kemet-T.kicad_mod",
+          "staged_sha256": "440bcb040c6b0c985317bf7518aa12f47558e45d3d73e058e3ae6e6650ec5ab0",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/APV_APH404012C1R5MP01.zen": {
+          "original_sha256": "f1077a9eb43270fc1a6214a323ea51f7a782eedad3c929540e8f85e51c1d081f",
+          "staged_file": "adapted/parts/APV_APH404012C1R5MP01.zen",
+          "staged_sha256": "f1077a9eb43270fc1a6214a323ea51f7a782eedad3c929540e8f85e51c1d081f",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/APV_APH404012C1R5MP01/APH404012C1R5MP01.kicad_sym": {
+          "original_sha256": "3a903be1dbec389c59451ebae452070a658e44b062e48e9b116887f036026580",
+          "staged_file": "adapted/parts/APV_APH404012C1R5MP01/APH404012C1R5MP01.kicad_sym",
+          "staged_sha256": "3a903be1dbec389c59451ebae452070a658e44b062e48e9b116887f036026580",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/APV_APH404012C2R2MP01/APH404012_APV_land.kicad_mod": {
+          "original_sha256": "2d2492e8e3688b66605cafb12bc0962cb6754d911191ab866d1c854371860203",
+          "staged_file": "adapted/parts/APV_APH404012C2R2MP01/APH404012_APV_land.kicad_mod",
+          "staged_sha256": "2d2492e8e3688b66605cafb12bc0962cb6754d911191ab866d1c854371860203",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/Texas_Instruments_LM61440AASQRJRRQ1.zen": {
+          "original_sha256": "b09d68f80232b82d6039b958c96bdc9a396cf79a73f682e499ce7e10c3afc3c1",
+          "staged_file": "adapted/parts/Texas_Instruments_LM61440AASQRJRRQ1.zen",
+          "staged_sha256": "b09d68f80232b82d6039b958c96bdc9a396cf79a73f682e499ce7e10c3afc3c1",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/Texas_Instruments_LM61440AASQRJRRQ1/LM61440AASQRJRRQ1.kicad_sym": {
+          "original_sha256": "12a6b93ce7688332526c57d5bce1556ce47f71ad2a1f6f61e6e1bd04247fe6ee",
+          "staged_file": "adapted/parts/Texas_Instruments_LM61440AASQRJRRQ1/LM61440AASQRJRRQ1.kicad_sym",
+          "staged_sha256": "12a6b93ce7688332526c57d5bce1556ce47f71ad2a1f6f61e6e1bd04247fe6ee",
+          "intentional_path_rewrite": false
+        },
+        "parts/Texas_Instruments_LM61440AASQRJRRQ1/VQFN-14_L4.0-W3.5-P0.5-BL-RJR0014A.kicad_mod": {
+          "original_sha256": "02684236093ab62acafae4417fb509329b45df29401e23104e78e2dcb17408cb",
+          "staged_file": "parts/Texas_Instruments_LM61440AASQRJRRQ1/VQFN-14_L4.0-W3.5-P0.5-BL-RJR0014A.kicad_mod",
+          "staged_sha256": "02684236093ab62acafae4417fb509329b45df29401e23104e78e2dcb17408cb",
+          "intentional_path_rewrite": false
+        }
+      },
+      "electrical_partition": {
+        "same": true,
+        "hand": {
+          "nodes": 58,
+          "independent": 0,
+          "duplicate_pad_numbers": [],
+          "duplicate_references": []
+        },
+        "generated": {
+          "nodes": 58,
+          "independent": 0,
+          "duplicate_pad_numbers": [],
+          "duplicate_references": []
+        },
+        "hand_only": [],
+        "generated_only": []
+      },
+      "script_migration": {
+        "module": "usb5v",
+        "file": "modules/usb5v/Usb5v_layout.py",
+        "original_sha256": "d7fc9dae8bc5619cdae04ec2e2f82fbad9847f450375a0ab24853672c0e9dd17",
+        "migrated_sha256": "c12f4f569683264deb869a18e200a59ddb1716d9e0c881a9c1b3988bd3afa261",
+        "original_commit": "ca0c966534c82ddca7490d82b71c2b0734c5d0e4",
+        "semantic_change": "board.size call attribute renamed to board.rect; arguments and all other AST nodes unchanged",
+        "calls": 1,
+        "guide": "skills/placemat/references/migration.md",
+        "guide_sha256": "8e2f7fdbb3b23093947ed93dc70b8ed19a550aa89cfd1a40b856638d02d8982d",
+        "guide_section": "To 0.85.0"
+      },
+      "pour_migration": {
+        "module": "usb5v",
+        "file": "modules/usb5v/Usb5v_layout.py",
+        "before_sha256": "c12f4f569683264deb869a18e200a59ddb1716d9e0c881a9c1b3988bd3afa261",
+        "after_sha256": "40af4b3d0e023a70237360663eaec3d263ad44bed6c9a49e7203254633deeed5",
+        "category": "geometry-changing API migration",
+        "guide_section": "To0.67.0 fitted pours",
+        "changes": [
+          {
+            "call": "pour",
+            "removed_cover": "Cover.BOX",
+            "line": 166
+          },
+          {
+            "call": "pour",
+            "removed_cover": "Cover.BOX",
+            "line": 167
+          },
+          {
+            "call": "pour",
+            "removed_cover": "Cover.BOX",
+            "line": 182
+          },
+          {
+            "call": "pour",
+            "removed_cover": "Cover.BOX",
+            "line": 186
+          },
+          {
+            "call": "board.pour",
+            "removed_cover": "cover",
+            "line": 69
+          }
+        ],
+        "invariants": "pad sets, net, layer, width, placement statements and all other AST nodes unchanged; remove now-unused helper cover parameter and its callers only"
+      },
+      "original_script_sha256": "d7fc9dae8bc5619cdae04ec2e2f82fbad9847f450375a0ab24853672c0e9dd17",
+      "checked_in_script_sha256": "40af4b3d0e023a70237360663eaec3d263ad44bed6c9a49e7203254633deeed5"
+    },
+    {
+      "module": "usbconverter",
+      "name": "UsbConverter",
+      "commit": "c151a503f618c127a5d1e47e165004d97a5b6563",
+      "hand": "usbconverter/layout_hand-2026-10-01-1009.kicad_pcb",
+      "hand_sha256": "eaa7b510954813905e7ce66d63cc79905141e079331090119ae811e62dbc6851",
+      "project": "usbconverter/layout_hand-2026-10-01-0729.kicad_pro",
+      "project_sha256": "8714891939c2f51536a90be4352d167b63e59a7e7bf15bed04a245b054a79929",
+      "helper_sha256": "e2589c86387801cb01b5d188e42c94e924867ccf16f6b3fd288e26fa7b60005c",
+      "dependencies": {
+        "boards/core/modules/usbconverter/UsbConverter.zen": "aa35476a91dd4127f30f505312136591518ff88fad8ea2b84755b6ed77d48545",
+        "boards/core/board_rules.zen": "cc1b8a3de63d6c818d52e6f1fd31b7f004831b8c9dde2b89e9bb3b94c34d14b3",
+        "adapted/parts/YAGEO_PE1206DRM470R01L.zen": "c10f659d8f42a287f4960329344f12ae9dcbd22521fc632eb0329814b2043082",
+        "adapted/parts/YAGEO_PE1206DRM470R01L/PE1206DRM470R01L.kicad_sym": "79ce2a8b8e29e1cddd6c558910223695177ed69351181dc0dbc72686b2b97bd7",
+        "adapted/parts/YAGEO_PE1206DRM470R01L/PE1206_Yageo_Table8.kicad_mod": "07088fc1b1f750af22e5f8039e0786d9d54fe89047d1406f617bccaf8a015a53",
+        "adapted/parts/Sunlord_MWSA0518S_2R2MT.zen": "6aa4264a11b16f62a910d1e8e951b683fb81d3293a5593b6c689779a75dad2a4",
+        "adapted/parts/Sunlord_MWSA0518S_2R2MT/MWSA0518S_2R2MT.kicad_sym": "bb6fdffacba5b239f9c4ab279b783906c3df33d45ed447dea9b3f0ff0ec2bfd6",
+        "parts/Sunlord_MWSA0518S_2R2MT/IND-SMD_L5.4-W5.2.kicad_mod": "dd9cbb8213d24e04919310a68ba8350c49dc053b0847d8761669c2b06e3382e1",
+        "adapted/parts/Alpha_Omega_Semicon_AON7934.zen": "a900be4198b39f6c84213a68e29e7e549118b3b684d4c6a23deeb276df5ff87f",
+        "adapted/parts/Alpha_Omega_Semicon_AON7934/AON7934.kicad_sym": "e1759c33a9516f0668ec6b05391d31e9bf390fbbab5d8517559bbe66fd554b68",
+        "parts/Alpha_Omega_Semicon_AON7934/DFN-8_L3.0-W3.0-P0.65-BL_AON7934.kicad_mod": "576a11056b26970221e0dd696f31d19c2ad1be8183b125ba7dcfca62ed01ca3a",
+        "adapted/parts/Texas_Instruments_TPS55288RPMR.zen": "496b9167703e571981b3caa0197f62dc9accaba302112b71e9e2d9047187240b",
+        "adapted/parts/Texas_Instruments_TPS55288RPMR/TPS55288RPMR.kicad_sym": "4501d96e830916c466224e0a2539df69293378c20804903b413b18ccd9d91f01",
+        "adapted/parts/Texas_Instruments_TPS55288RPMR/RPM0026A.kicad_mod": "37dfb3763119803a12b6c8ca781199a4674fcf0499cde42700a562195848482d"
+      },
+      "staged_dependencies": {
+        "boards/core/modules/usbconverter/UsbConverter.zen": {
+          "original_sha256": "aa35476a91dd4127f30f505312136591518ff88fad8ea2b84755b6ed77d48545",
+          "staged_file": "modules/usbconverter/UsbConverter.zen",
+          "staged_sha256": "6c43f2d518804721e6de1c2cab17b72cf027d69ba0eba6eadb97783cde413484",
+          "intentional_path_rewrite": true
+        },
+        "adapted/parts/YAGEO_PE1206DRM470R01L.zen": {
+          "original_sha256": "c10f659d8f42a287f4960329344f12ae9dcbd22521fc632eb0329814b2043082",
+          "staged_file": "adapted/parts/YAGEO_PE1206DRM470R01L.zen",
+          "staged_sha256": "c10f659d8f42a287f4960329344f12ae9dcbd22521fc632eb0329814b2043082",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/YAGEO_PE1206DRM470R01L/PE1206DRM470R01L.kicad_sym": {
+          "original_sha256": "79ce2a8b8e29e1cddd6c558910223695177ed69351181dc0dbc72686b2b97bd7",
+          "staged_file": "adapted/parts/YAGEO_PE1206DRM470R01L/PE1206DRM470R01L.kicad_sym",
+          "staged_sha256": "79ce2a8b8e29e1cddd6c558910223695177ed69351181dc0dbc72686b2b97bd7",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/YAGEO_PE1206DRM470R01L/PE1206_Yageo_Table8.kicad_mod": {
+          "original_sha256": "07088fc1b1f750af22e5f8039e0786d9d54fe89047d1406f617bccaf8a015a53",
+          "staged_file": "adapted/parts/YAGEO_PE1206DRM470R01L/PE1206_Yageo_Table8.kicad_mod",
+          "staged_sha256": "07088fc1b1f750af22e5f8039e0786d9d54fe89047d1406f617bccaf8a015a53",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/Sunlord_MWSA0518S_2R2MT.zen": {
+          "original_sha256": "6aa4264a11b16f62a910d1e8e951b683fb81d3293a5593b6c689779a75dad2a4",
+          "staged_file": "adapted/parts/Sunlord_MWSA0518S_2R2MT.zen",
+          "staged_sha256": "6aa4264a11b16f62a910d1e8e951b683fb81d3293a5593b6c689779a75dad2a4",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/Sunlord_MWSA0518S_2R2MT/MWSA0518S_2R2MT.kicad_sym": {
+          "original_sha256": "bb6fdffacba5b239f9c4ab279b783906c3df33d45ed447dea9b3f0ff0ec2bfd6",
+          "staged_file": "adapted/parts/Sunlord_MWSA0518S_2R2MT/MWSA0518S_2R2MT.kicad_sym",
+          "staged_sha256": "bb6fdffacba5b239f9c4ab279b783906c3df33d45ed447dea9b3f0ff0ec2bfd6",
+          "intentional_path_rewrite": false
+        },
+        "parts/Sunlord_MWSA0518S_2R2MT/IND-SMD_L5.4-W5.2.kicad_mod": {
+          "original_sha256": "dd9cbb8213d24e04919310a68ba8350c49dc053b0847d8761669c2b06e3382e1",
+          "staged_file": "parts/Sunlord_MWSA0518S_2R2MT/IND-SMD_L5.4-W5.2.kicad_mod",
+          "staged_sha256": "dd9cbb8213d24e04919310a68ba8350c49dc053b0847d8761669c2b06e3382e1",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/Alpha_Omega_Semicon_AON7934.zen": {
+          "original_sha256": "a900be4198b39f6c84213a68e29e7e549118b3b684d4c6a23deeb276df5ff87f",
+          "staged_file": "adapted/parts/Alpha_Omega_Semicon_AON7934.zen",
+          "staged_sha256": "a900be4198b39f6c84213a68e29e7e549118b3b684d4c6a23deeb276df5ff87f",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/Alpha_Omega_Semicon_AON7934/AON7934.kicad_sym": {
+          "original_sha256": "e1759c33a9516f0668ec6b05391d31e9bf390fbbab5d8517559bbe66fd554b68",
+          "staged_file": "adapted/parts/Alpha_Omega_Semicon_AON7934/AON7934.kicad_sym",
+          "staged_sha256": "e1759c33a9516f0668ec6b05391d31e9bf390fbbab5d8517559bbe66fd554b68",
+          "intentional_path_rewrite": false
+        },
+        "parts/Alpha_Omega_Semicon_AON7934/DFN-8_L3.0-W3.0-P0.65-BL_AON7934.kicad_mod": {
+          "original_sha256": "576a11056b26970221e0dd696f31d19c2ad1be8183b125ba7dcfca62ed01ca3a",
+          "staged_file": "parts/Alpha_Omega_Semicon_AON7934/DFN-8_L3.0-W3.0-P0.65-BL_AON7934.kicad_mod",
+          "staged_sha256": "576a11056b26970221e0dd696f31d19c2ad1be8183b125ba7dcfca62ed01ca3a",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/Texas_Instruments_TPS55288RPMR.zen": {
+          "original_sha256": "496b9167703e571981b3caa0197f62dc9accaba302112b71e9e2d9047187240b",
+          "staged_file": "adapted/parts/Texas_Instruments_TPS55288RPMR.zen",
+          "staged_sha256": "496b9167703e571981b3caa0197f62dc9accaba302112b71e9e2d9047187240b",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/Texas_Instruments_TPS55288RPMR/TPS55288RPMR.kicad_sym": {
+          "original_sha256": "4501d96e830916c466224e0a2539df69293378c20804903b413b18ccd9d91f01",
+          "staged_file": "adapted/parts/Texas_Instruments_TPS55288RPMR/TPS55288RPMR.kicad_sym",
+          "staged_sha256": "4501d96e830916c466224e0a2539df69293378c20804903b413b18ccd9d91f01",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/Texas_Instruments_TPS55288RPMR/RPM0026A.kicad_mod": {
+          "original_sha256": "37dfb3763119803a12b6c8ca781199a4674fcf0499cde42700a562195848482d",
+          "staged_file": "adapted/parts/Texas_Instruments_TPS55288RPMR/RPM0026A.kicad_mod",
+          "staged_sha256": "37dfb3763119803a12b6c8ca781199a4674fcf0499cde42700a562195848482d",
+          "intentional_path_rewrite": false
+        }
+      },
+      "electrical_partition": {
+        "same": true,
+        "hand": {
+          "nodes": 80,
+          "independent": 0,
+          "duplicate_pad_numbers": [
+            [
+              "U3",
+              "1",
+              2
+            ],
+            [
+              "U3",
+              "13",
+              2
+            ],
+            [
+              "U3",
+              "19",
+              2
+            ],
+            [
+              "U3",
+              "7",
+              2
+            ]
+          ],
+          "duplicate_references": []
+        },
+        "generated": {
+          "nodes": 80,
+          "independent": 0,
+          "duplicate_pad_numbers": [
+            [
+              "U3",
+              "1",
+              2
+            ],
+            [
+              "U3",
+              "13",
+              2
+            ],
+            [
+              "U3",
+              "19",
+              2
+            ],
+            [
+              "U3",
+              "7",
+              2
+            ]
+          ],
+          "duplicate_references": []
+        },
+        "hand_only": [],
+        "generated_only": []
+      },
+      "original_script_sha256": "2bfe87bbb4f94773ec10bad5d7708da5d6c4a05faf73f0673fae5bb7e9d8a2e4",
+      "checked_in_script_sha256": "2bfe87bbb4f94773ec10bad5d7708da5d6c4a05faf73f0673fae5bb7e9d8a2e4"
+    },
+    {
+      "module": "usbmoisture",
+      "name": "UsbMoisture",
+      "commit": "c151a503f618c127a5d1e47e165004d97a5b6563",
+      "hand": "usbmoisture/layout_hand.kicad_pcb",
+      "hand_sha256": "ad486afbe039f9d6ca83a942238f70c31203ee3d82c2df6ec8fa00622eb21e36",
+      "project": "usbmoisture/layout_hand.kicad_pro",
+      "project_sha256": "2fc3ee9197f2cd6270ff1ee4bb57cb80277c12cbf6ab03285348637593be4244",
+      "helper_sha256": "e2589c86387801cb01b5d188e42c94e924867ccf16f6b3fd288e26fa7b60005c",
+      "dependencies": {
+        "boards/core/modules/usbmoisture/UsbMoisture.zen": "0911b92e1191b6d8cbfb2bdd8b487f0844859ec41441a3bc061a869acec9f952",
+        "boards/core/board_rules.zen": "cc1b8a3de63d6c818d52e6f1fd31b7f004831b8c9dde2b89e9bb3b94c34d14b3",
+        "adapted/parts/Texas_Instruments_CSD15380F3.zen": "078d3ae8b2ae8449d801a2a59adb193cf7d4ec59e2f851a52cba3e8139f9e1a0",
+        "adapted/parts/Texas_Instruments_CSD15380F3/CSD15380F3.kicad_sym": "db10a604368d5b7555a7d3938fb30b5767e9bae194be6c27d3142076264d3cac",
+        "parts/Texas_Instruments_CSD15380F3/PICOSTAR-3_L0.7-W0.6-P0.35-TL.kicad_mod": "23834232967025cb9293e8b8a9da921adc71864b252ee68c560371677a694d37",
+        "adapted/parts/Diodes_Incorporated_DMG1013T_7.zen": "3c1d99dc60c80ca8b0ddb1f3ced74b14a02a847822ad17e3c123045d38bd7ead",
+        "adapted/parts/Diodes_Incorporated_DMG1013T_7/DMG1013T_7.kicad_sym": "9ff466911b9faa61e5478e205ac8dc5aeac4ed0c33545ce16d9cfb9274a66e01",
+        "parts/Diodes_Incorporated_DMG1013T_7/SC-75-3_L1.6-W0.8-P1.00-LS1.6-BR.kicad_mod": "dde23928373b07f4d5e83d060a6d263483bec541d18c07fc940368915b26d44f",
+        "adapted/parts/Texas_Instruments_TPD6S300RUKR.zen": "c873f353eaa3ffddf6b6204280f6db0d801667fe801e22ea22069c37e4dd2098",
+        "adapted/parts/Texas_Instruments_TPD6S300RUKR/TPD6S300RUKR.kicad_sym": "0184c691e2e0630b320c09fc2744b79d6ca0f5b2cfe4b1832c67264836556c74",
+        "parts/Texas_Instruments_TPD6S300RUKR/WQFN-20_L3.0-W3.0-P0.40-BL-EP1.7.kicad_mod": "f5a82baec66dec99d1c0bc2e7fea419915901b654d5515f1b91cf0f48ae4a425"
+      },
+      "staged_dependencies": {
+        "boards/core/modules/usbmoisture/UsbMoisture.zen": {
+          "original_sha256": "0911b92e1191b6d8cbfb2bdd8b487f0844859ec41441a3bc061a869acec9f952",
+          "staged_file": "modules/usbmoisture/UsbMoisture.zen",
+          "staged_sha256": "f072a8305767761ef969b06a85105f760cda799c02787ccb5b2a2ddc0460dd88",
+          "intentional_path_rewrite": true
+        },
+        "adapted/parts/Texas_Instruments_CSD15380F3.zen": {
+          "original_sha256": "078d3ae8b2ae8449d801a2a59adb193cf7d4ec59e2f851a52cba3e8139f9e1a0",
+          "staged_file": "adapted/parts/Texas_Instruments_CSD15380F3.zen",
+          "staged_sha256": "078d3ae8b2ae8449d801a2a59adb193cf7d4ec59e2f851a52cba3e8139f9e1a0",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/Texas_Instruments_CSD15380F3/CSD15380F3.kicad_sym": {
+          "original_sha256": "db10a604368d5b7555a7d3938fb30b5767e9bae194be6c27d3142076264d3cac",
+          "staged_file": "adapted/parts/Texas_Instruments_CSD15380F3/CSD15380F3.kicad_sym",
+          "staged_sha256": "db10a604368d5b7555a7d3938fb30b5767e9bae194be6c27d3142076264d3cac",
+          "intentional_path_rewrite": false
+        },
+        "parts/Texas_Instruments_CSD15380F3/PICOSTAR-3_L0.7-W0.6-P0.35-TL.kicad_mod": {
+          "original_sha256": "23834232967025cb9293e8b8a9da921adc71864b252ee68c560371677a694d37",
+          "staged_file": "parts/Texas_Instruments_CSD15380F3/PICOSTAR-3_L0.7-W0.6-P0.35-TL.kicad_mod",
+          "staged_sha256": "23834232967025cb9293e8b8a9da921adc71864b252ee68c560371677a694d37",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/Diodes_Incorporated_DMG1013T_7.zen": {
+          "original_sha256": "3c1d99dc60c80ca8b0ddb1f3ced74b14a02a847822ad17e3c123045d38bd7ead",
+          "staged_file": "adapted/parts/Diodes_Incorporated_DMG1013T_7.zen",
+          "staged_sha256": "3c1d99dc60c80ca8b0ddb1f3ced74b14a02a847822ad17e3c123045d38bd7ead",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/Diodes_Incorporated_DMG1013T_7/DMG1013T_7.kicad_sym": {
+          "original_sha256": "9ff466911b9faa61e5478e205ac8dc5aeac4ed0c33545ce16d9cfb9274a66e01",
+          "staged_file": "adapted/parts/Diodes_Incorporated_DMG1013T_7/DMG1013T_7.kicad_sym",
+          "staged_sha256": "9ff466911b9faa61e5478e205ac8dc5aeac4ed0c33545ce16d9cfb9274a66e01",
+          "intentional_path_rewrite": false
+        },
+        "parts/Diodes_Incorporated_DMG1013T_7/SC-75-3_L1.6-W0.8-P1.00-LS1.6-BR.kicad_mod": {
+          "original_sha256": "dde23928373b07f4d5e83d060a6d263483bec541d18c07fc940368915b26d44f",
+          "staged_file": "parts/Diodes_Incorporated_DMG1013T_7/SC-75-3_L1.6-W0.8-P1.00-LS1.6-BR.kicad_mod",
+          "staged_sha256": "dde23928373b07f4d5e83d060a6d263483bec541d18c07fc940368915b26d44f",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/Texas_Instruments_TPD6S300RUKR.zen": {
+          "original_sha256": "c873f353eaa3ffddf6b6204280f6db0d801667fe801e22ea22069c37e4dd2098",
+          "staged_file": "adapted/parts/Texas_Instruments_TPD6S300RUKR.zen",
+          "staged_sha256": "c873f353eaa3ffddf6b6204280f6db0d801667fe801e22ea22069c37e4dd2098",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/Texas_Instruments_TPD6S300RUKR/TPD6S300RUKR.kicad_sym": {
+          "original_sha256": "0184c691e2e0630b320c09fc2744b79d6ca0f5b2cfe4b1832c67264836556c74",
+          "staged_file": "adapted/parts/Texas_Instruments_TPD6S300RUKR/TPD6S300RUKR.kicad_sym",
+          "staged_sha256": "0184c691e2e0630b320c09fc2744b79d6ca0f5b2cfe4b1832c67264836556c74",
+          "intentional_path_rewrite": false
+        },
+        "parts/Texas_Instruments_TPD6S300RUKR/WQFN-20_L3.0-W3.0-P0.40-BL-EP1.7.kicad_mod": {
+          "original_sha256": "f5a82baec66dec99d1c0bc2e7fea419915901b654d5515f1b91cf0f48ae4a425",
+          "staged_file": "parts/Texas_Instruments_TPD6S300RUKR/WQFN-20_L3.0-W3.0-P0.40-BL-EP1.7.kicad_mod",
+          "staged_sha256": "f5a82baec66dec99d1c0bc2e7fea419915901b654d5515f1b91cf0f48ae4a425",
+          "intentional_path_rewrite": false
+        }
+      },
+      "electrical_partition": {
+        "same": true,
+        "hand": {
+          "nodes": 47,
+          "independent": 0,
+          "duplicate_pad_numbers": [],
+          "duplicate_references": []
+        },
+        "generated": {
+          "nodes": 47,
+          "independent": 0,
+          "duplicate_pad_numbers": [],
+          "duplicate_references": []
+        },
+        "hand_only": [],
+        "generated_only": []
+      },
+      "original_script_sha256": "8ab6779ee42846589a915dd1febfd22ceb39655b8275747c611c6ebf13e89e7a",
+      "checked_in_script_sha256": "8ab6779ee42846589a915dd1febfd22ceb39655b8275747c611c6ebf13e89e7a"
+    },
+    {
+      "module": "usbpowerpath",
+      "name": "UsbPowerPath",
+      "commit": "32e752c4f587abb52afb0c5ed7b88ff7de6305ae",
+      "hand": "usbpowerpath/layout_hand.kicad_pcb",
+      "hand_sha256": "56506112ed192664e29e6dad43a919d34cbca28f910cc8fe0119868638367d96",
+      "project": "usbpowerpath/layout_hand.kicad_pro",
+      "project_sha256": "eb67c78d5a6992a0d260d65f607fcc949d92fa165bf99152500c988cf888955f",
+      "helper_sha256": "0688cdb97444fd8762096016b70f54aad4609f504f4dc4419395ac12e72c1a96",
+      "dependencies": {
+        "boards/core/modules/usbpowerpath/UsbPowerPath.zen": "67896ffbf3ce00dea46ddeec2504954d44a7a36f8ac16cbabab8e4e887477dd1",
+        "boards/core/board_rules.zen": "c7287b87e9aaa0150dbfa44253528dda6be413763c3c90afc5215322cd2b4cc2",
+        "adapted/parts/Texas_Instruments_SN74LVC1G08DRYR.zen": "c127357c17738aeb27b2329db0e75024f51ae4c5765b5519a88d05e2ad78ad29",
+        "adapted/parts/Texas_Instruments_SN74LVC1G08DRYR/SN74LVC1G08DRYR.kicad_sym": "57e86b21938fbc3231c46054ef517336a00607709c0a3730fb0369f9b7ff62e6",
+        "parts/Texas_Instruments_SN74LVC1G08DRYR/SON-6_L1.5-W1.0-P0.50-BL.kicad_mod": "aba881806a5af513012d92fcd9f984ab364b169e0220c3944a128830032deb10",
+        "adapted/parts/Texas_Instruments_TPS259470LRPWR.zen": "65e8a860ca693d4350149962dbce0d4fbb737640653df46531a074b368131684",
+        "adapted/parts/Texas_Instruments_TPS259470LRPWR/TPS259470LRPWR.kicad_sym": "c927e07b6f9e1808c1ce924454799eef552af7356d5c7f3408a3da9bb9390f4a",
+        "adapted/parts/Texas_Instruments_TPS259470LRPWR/RPW0010A.kicad_mod": "9a549f3303907c6efb485a1e322921847d26e35f2799988b52fc93e21e92a06f"
+      },
+      "staged_dependencies": {
+        "boards/core/modules/usbpowerpath/UsbPowerPath.zen": {
+          "original_sha256": "67896ffbf3ce00dea46ddeec2504954d44a7a36f8ac16cbabab8e4e887477dd1",
+          "staged_file": "modules/usbpowerpath/UsbPowerPath.zen",
+          "staged_sha256": "3060552e7d82227ce7cc913edd4c483dfbedc7876dafe489d92c28ae6b5bce24",
+          "intentional_path_rewrite": true
+        },
+        "adapted/parts/Texas_Instruments_SN74LVC1G08DRYR.zen": {
+          "original_sha256": "c127357c17738aeb27b2329db0e75024f51ae4c5765b5519a88d05e2ad78ad29",
+          "staged_file": "adapted/parts/Texas_Instruments_SN74LVC1G08DRYR.zen",
+          "staged_sha256": "c127357c17738aeb27b2329db0e75024f51ae4c5765b5519a88d05e2ad78ad29",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/Texas_Instruments_SN74LVC1G08DRYR/SN74LVC1G08DRYR.kicad_sym": {
+          "original_sha256": "57e86b21938fbc3231c46054ef517336a00607709c0a3730fb0369f9b7ff62e6",
+          "staged_file": "adapted/parts/Texas_Instruments_SN74LVC1G08DRYR/SN74LVC1G08DRYR.kicad_sym",
+          "staged_sha256": "57e86b21938fbc3231c46054ef517336a00607709c0a3730fb0369f9b7ff62e6",
+          "intentional_path_rewrite": false
+        },
+        "parts/Texas_Instruments_SN74LVC1G08DRYR/SON-6_L1.5-W1.0-P0.50-BL.kicad_mod": {
+          "original_sha256": "aba881806a5af513012d92fcd9f984ab364b169e0220c3944a128830032deb10",
+          "staged_file": "parts/Texas_Instruments_SN74LVC1G08DRYR/SON-6_L1.5-W1.0-P0.50-BL.kicad_mod",
+          "staged_sha256": "aba881806a5af513012d92fcd9f984ab364b169e0220c3944a128830032deb10",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/Texas_Instruments_TPS259470LRPWR.zen": {
+          "original_sha256": "65e8a860ca693d4350149962dbce0d4fbb737640653df46531a074b368131684",
+          "staged_file": "adapted/parts/Texas_Instruments_TPS259470LRPWR.zen",
+          "staged_sha256": "65e8a860ca693d4350149962dbce0d4fbb737640653df46531a074b368131684",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/Texas_Instruments_TPS259470LRPWR/TPS259470LRPWR.kicad_sym": {
+          "original_sha256": "c927e07b6f9e1808c1ce924454799eef552af7356d5c7f3408a3da9bb9390f4a",
+          "staged_file": "adapted/parts/Texas_Instruments_TPS259470LRPWR/TPS259470LRPWR.kicad_sym",
+          "staged_sha256": "c927e07b6f9e1808c1ce924454799eef552af7356d5c7f3408a3da9bb9390f4a",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/Texas_Instruments_TPS259470LRPWR/RPW0010A.kicad_mod": {
+          "original_sha256": "9a549f3303907c6efb485a1e322921847d26e35f2799988b52fc93e21e92a06f",
+          "staged_file": "adapted/parts/Texas_Instruments_TPS259470LRPWR/RPW0010A.kicad_mod",
+          "staged_sha256": "9a549f3303907c6efb485a1e322921847d26e35f2799988b52fc93e21e92a06f",
+          "intentional_path_rewrite": false
+        }
+      },
+      "electrical_partition": {
+        "same": true,
+        "hand": {
+          "nodes": 60,
+          "independent": 0,
+          "duplicate_pad_numbers": [
+            [
+              "U1",
+              "1",
+              2
+            ],
+            [
+              "U1",
+              "10",
+              2
+            ],
+            [
+              "U1",
+              "4",
+              2
+            ],
+            [
+              "U1",
+              "7",
+              2
+            ],
+            [
+              "U3",
+              "1",
+              2
+            ],
+            [
+              "U3",
+              "10",
+              2
+            ],
+            [
+              "U3",
+              "4",
+              2
+            ],
+            [
+              "U3",
+              "7",
+              2
+            ]
+          ],
+          "duplicate_references": []
+        },
+        "generated": {
+          "nodes": 60,
+          "independent": 0,
+          "duplicate_pad_numbers": [
+            [
+              "U1",
+              "1",
+              2
+            ],
+            [
+              "U1",
+              "10",
+              2
+            ],
+            [
+              "U1",
+              "4",
+              2
+            ],
+            [
+              "U1",
+              "7",
+              2
+            ],
+            [
+              "U3",
+              "1",
+              2
+            ],
+            [
+              "U3",
+              "10",
+              2
+            ],
+            [
+              "U3",
+              "4",
+              2
+            ],
+            [
+              "U3",
+              "7",
+              2
+            ]
+          ],
+          "duplicate_references": []
+        },
+        "hand_only": [],
+        "generated_only": []
+      },
+      "script_migration": {
+        "module": "usbpowerpath",
+        "file": "modules/usbpowerpath/UsbPowerPath_layout.py",
+        "original_sha256": "847a3a88b81da59bcc2c33f76b7ca681e84ecdc0686200582b0312448240c75f",
+        "migrated_sha256": "22cbae679b16258eb3b36f9a45aa73dd82a7078e5ba4b3c04b5447e0f0bfcf78",
+        "original_commit": "32e752c4f587abb52afb0c5ed7b88ff7de6305ae",
+        "semantic_change": "board.size call attribute renamed to board.rect; arguments and all other AST nodes unchanged",
+        "calls": 1,
+        "guide": "skills/placemat/references/migration.md",
+        "guide_sha256": "8e2f7fdbb3b23093947ed93dc70b8ed19a550aa89cfd1a40b856638d02d8982d",
+        "guide_section": "To 0.85.0"
+      },
+      "original_script_sha256": "847a3a88b81da59bcc2c33f76b7ca681e84ecdc0686200582b0312448240c75f",
+      "checked_in_script_sha256": "22cbae679b16258eb3b36f9a45aa73dd82a7078e5ba4b3c04b5447e0f0bfcf78"
+    },
+    {
+      "module": "usbsink",
+      "name": "UsbSink",
+      "commit": "c151a503f618c127a5d1e47e165004d97a5b6563",
+      "hand": "usbsink/2026-10-03/layout_hand.kicad_pcb",
+      "hand_sha256": "6b92351629733e4bf02c233b10f7fb13bb2791cd3cc97b5aa8d42bf5cd98b6a7",
+      "project": "usbsink/2026-10-03/layout_hand.kicad_pro",
+      "project_sha256": "85fd5816c014afc3e3bbee57fa13147b1491fb7e341e900c1fc0aa409370d8ac",
+      "helper_sha256": "e2589c86387801cb01b5d188e42c94e924867ccf16f6b3fd288e26fa7b60005c",
+      "dependencies": {
+        "boards/core/modules/usbsink/UsbSink.zen": "a5fec31e9a0a2578586859d4d74d96b71d76ace14ce2e9bb225fc5270c904b4a",
+        "boards/core/board_rules.zen": "cc1b8a3de63d6c818d52e6f1fd31b7f004831b8c9dde2b89e9bb3b94c34d14b3",
+        "adapted/parts/onsemi_MM3Z5V1ST1G.zen": "e1228a25504ffd48babeab7acf7eae39f6e96c570a7fa2e723e01ef4a63f8867",
+        "adapted/parts/onsemi_MM3Z5V1ST1G/MM3Z5V1ST1G.kicad_sym": "4e443ffd85a678c860418da42fc6ee2517b63cac1553b11571ab2c13dad0a9bf",
+        "parts/onsemi_MM3Z5V1ST1G/SOD-323_L1.7-W1.3-LS2.5-RD.kicad_mod": "1dd31a29aaaae08404f34854d96bbd31fef5a6604b4d8f917dbae4924246feef",
+        "adapted/parts/Texas_Instruments_TPS259470LRPWR.zen": "65e8a860ca693d4350149962dbce0d4fbb737640653df46531a074b368131684",
+        "adapted/parts/Texas_Instruments_TPS259470LRPWR/TPS259470LRPWR.kicad_sym": "c927e07b6f9e1808c1ce924454799eef552af7356d5c7f3408a3da9bb9390f4a",
+        "adapted/parts/Texas_Instruments_TPS259470LRPWR/RPW0010A.kicad_mod": "9a549f3303907c6efb485a1e322921847d26e35f2799988b52fc93e21e92a06f"
+      },
+      "staged_dependencies": {
+        "boards/core/modules/usbsink/UsbSink.zen": {
+          "original_sha256": "a5fec31e9a0a2578586859d4d74d96b71d76ace14ce2e9bb225fc5270c904b4a",
+          "staged_file": "modules/usbsink/UsbSink.zen",
+          "staged_sha256": "0df2cf6747eec15ead3684b36fc2d73e6c2ccdc3e3bb48273f0610521bf40ce1",
+          "intentional_path_rewrite": true
+        },
+        "adapted/parts/onsemi_MM3Z5V1ST1G.zen": {
+          "original_sha256": "e1228a25504ffd48babeab7acf7eae39f6e96c570a7fa2e723e01ef4a63f8867",
+          "staged_file": "adapted/parts/onsemi_MM3Z5V1ST1G.zen",
+          "staged_sha256": "e1228a25504ffd48babeab7acf7eae39f6e96c570a7fa2e723e01ef4a63f8867",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/onsemi_MM3Z5V1ST1G/MM3Z5V1ST1G.kicad_sym": {
+          "original_sha256": "4e443ffd85a678c860418da42fc6ee2517b63cac1553b11571ab2c13dad0a9bf",
+          "staged_file": "adapted/parts/onsemi_MM3Z5V1ST1G/MM3Z5V1ST1G.kicad_sym",
+          "staged_sha256": "4e443ffd85a678c860418da42fc6ee2517b63cac1553b11571ab2c13dad0a9bf",
+          "intentional_path_rewrite": false
+        },
+        "parts/onsemi_MM3Z5V1ST1G/SOD-323_L1.7-W1.3-LS2.5-RD.kicad_mod": {
+          "original_sha256": "1dd31a29aaaae08404f34854d96bbd31fef5a6604b4d8f917dbae4924246feef",
+          "staged_file": "parts/onsemi_MM3Z5V1ST1G/SOD-323_L1.7-W1.3-LS2.5-RD.kicad_mod",
+          "staged_sha256": "1dd31a29aaaae08404f34854d96bbd31fef5a6604b4d8f917dbae4924246feef",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/Texas_Instruments_TPS259470LRPWR.zen": {
+          "original_sha256": "65e8a860ca693d4350149962dbce0d4fbb737640653df46531a074b368131684",
+          "staged_file": "adapted/parts/Texas_Instruments_TPS259470LRPWR.zen",
+          "staged_sha256": "65e8a860ca693d4350149962dbce0d4fbb737640653df46531a074b368131684",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/Texas_Instruments_TPS259470LRPWR/TPS259470LRPWR.kicad_sym": {
+          "original_sha256": "c927e07b6f9e1808c1ce924454799eef552af7356d5c7f3408a3da9bb9390f4a",
+          "staged_file": "adapted/parts/Texas_Instruments_TPS259470LRPWR/TPS259470LRPWR.kicad_sym",
+          "staged_sha256": "c927e07b6f9e1808c1ce924454799eef552af7356d5c7f3408a3da9bb9390f4a",
+          "intentional_path_rewrite": false
+        },
+        "adapted/parts/Texas_Instruments_TPS259470LRPWR/RPW0010A.kicad_mod": {
+          "original_sha256": "9a549f3303907c6efb485a1e322921847d26e35f2799988b52fc93e21e92a06f",
+          "staged_file": "adapted/parts/Texas_Instruments_TPS259470LRPWR/RPW0010A.kicad_mod",
+          "staged_sha256": "9a549f3303907c6efb485a1e322921847d26e35f2799988b52fc93e21e92a06f",
+          "intentional_path_rewrite": false
+        }
+      },
+      "electrical_partition": {
+        "same": true,
+        "hand": {
+          "nodes": 32,
+          "independent": 0,
+          "duplicate_pad_numbers": [
+            [
+              "U1",
+              "1",
+              2
+            ],
+            [
+              "U1",
+              "10",
+              2
+            ],
+            [
+              "U1",
+              "4",
+              2
+            ],
+            [
+              "U1",
+              "7",
+              2
+            ]
+          ],
+          "duplicate_references": []
+        },
+        "generated": {
+          "nodes": 32,
+          "independent": 0,
+          "duplicate_pad_numbers": [
+            [
+              "U1",
+              "1",
+              2
+            ],
+            [
+              "U1",
+              "10",
+              2
+            ],
+            [
+              "U1",
+              "4",
+              2
+            ],
+            [
+              "U1",
+              "7",
+              2
+            ]
+          ],
+          "duplicate_references": []
+        },
+        "hand_only": [],
+        "generated_only": []
+      },
+      "original_script_sha256": "94e00d011f4bbe66683d0a53711d44f2cbba2544dcd797f735fcbcf44febc54f",
+      "checked_in_script_sha256": "94e00d011f4bbe66683d0a53711d44f2cbba2544dcd797f735fcbcf44febc54f"
+    }
+  ],
+  "family_config_source": "c151a503f618c127a5d1e47e165004d97a5b6563",
+  "family_rules_sha256": "cc1b8a3de63d6c818d52e6f1fd31b7f004831b8c9dde2b89e9bb3b94c34d14b3",
+  "route_omitted_for_prephase_baseline": true,
+  "comparison_protocol": {
+    "historical_source": "original historical-script failures preserved outside fixture; four rect API renames and two fitted-pour migrations are shared inputs for old624 and feature",
+    "hand_validity": "all original hand boards have no Edge.Cuts and are manufacturing-invalid fragments; MCU additionally has inherited clearance. Diagnostic electrical closure is not manufacturing success.",
+    "migration_findings": "old624 migrated Protection has9clearance errors; Usb5v has2clearance,4shorting,2solder-mask-bridge. Geometry-changing migration is not a routing-algorithm improvement."
+  },
+  "checked_in_route_phase_names": [
+    "signals"
+  ],
+  "checked_in_phase_config": "feature comparison enables the signal phase; historical old624 baseline omitted route phases"
+}

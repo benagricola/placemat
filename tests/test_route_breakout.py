@@ -1,15 +1,14 @@
-"""placemat route on the placed Breakout: the router runs on the signal nets
+"""placemat route on the placed Breakout, one rest phase: the router runs on the signal nets
 only, closure comes back as numbers, and the placed board is untouched."""
 import shutil
-from pathlib import Path
 
 import pytest
 
-from placemat.kicad.route import ROUTER_DEFAULT, route_board
-from tests.conftest import needs_breakout, needs_kicad
+from placemat.kicad.route import route_board
+from tests.conftest import needs_breakout, needs_kicad, needs_router
+from tests.phase_helpers import phases
 
-needs_router = pytest.mark.skipif(not (Path(ROUTER_DEFAULT) / ".venv/bin/python").exists(),
-                                  reason="KiCadRoutingTools not at %s" % ROUTER_DEFAULT)
+
 pytestmark = [needs_kicad, needs_breakout, needs_router]
 
 
@@ -20,7 +19,8 @@ def test_routing_the_committed_breakout_scores_and_leaves_the_board_alone(breako
             shutil.copy(src, tmp_path / ("layout" + ext))
     pcb = tmp_path / "layout.kicad_pcb"
     before = pcb.read_bytes()
-    report = route_board(pcb, tmp_path / "route", exclude_nets={"V48P", "GND"}, quick=True, iterations=200)
+    report = route_board(pcb, tmp_path / "route", pour_nets={"V48P", "GND"}, quick=True, iterations=200,
+                         phases=phases())
     assert pcb.read_bytes() == before                     # routing works on a copy
     assert report.valid is True                           # the committed board is DRC clean
     assert 0.0 <= report.closure_clean <= 1.0

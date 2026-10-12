@@ -1,0 +1,15 @@
+(footprint "APH404012_APV_land"
+	(version 20240108)
+	(generator "fairing-instrument")
+	(layer "F.Cu")
+	(descr "APV APH404012 molded power inductor, 1.2 mm, recommended land: APH-C series datasheet (revised 2026-05-17) p2, APH404012 row: A 4.1, B 4.1, C 1.3 mm (the same land as APH404020); the EasyEDA model is drawn 2.0 mm tall and is scaled to the 1.2 mm body")
+	(attr smd)
+	(fp_text reference "REF**" (at 0 -3) (layer "F.SilkS") (effects (font (size 1 1) (thickness 0.15))))
+	(fp_text value "APH404012C2R2MP01" (at 0 3) (layer "F.Fab") (effects (font (size 1 1) (thickness 0.15))))
+	(fp_rect (start -2.05 -2.05) (end 2.05 2.05) (stroke (width 0.05) (type solid)) (fill none) (layer "F.Fab"))
+	(fp_rect (start -2.150 -2.150) (end 2.150 2.150) (stroke (width 0.05) (type solid)) (fill none) (layer "F.CrtYd"))
+	(pad "1" smd rect (at -1.350 0) (size 1.40 4.10) (layers "F.Cu" "F.Paste" "F.Mask"))
+	(pad "2" smd rect (at 1.350 0) (size 1.40 4.10) (layers "F.Cu" "F.Paste" "F.Mask"))
+	(model "${KIPRJMOD}/../../../parts/APV_APH404012C2R2MP01/IND-SMD_L4.1-W4.1_FTC404020S.step"
+		(offset (xyz 0 0 0)) (scale (xyz 1 1 0.6)) (rotate (xyz 0 0 0)))
+)

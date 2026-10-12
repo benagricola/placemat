@@ -144,6 +144,13 @@ def cause_fields(s: "Stopped") -> dict:
     return {**s.cause, **timecap.report()}
 
 
+def _folder_words(rec: dict) -> str:
+    """What a stop record says of the layout folder, from its `layout`."""
+    if rec.get("layout") == "placed_unrouted":
+        return "the layout folder holds the placed board, unrouted"
+    return "the layout folder is as the last run left it"
+
+
 def line(rec: dict) -> str:
     """The one line a stop record says, for the console and `placemat watch`."""
     who = ("run %s" % rec["run_id"]) if rec.get("run_id") else rec.get("command") or "the command"
@@ -155,7 +162,7 @@ def line(rec: dict) -> str:
     if rec.get("elapsed_s") is not None:
         out += " after %.0f s" % rec["elapsed_s"]
     if rec.get("run_id"):
-        out += "; the layout folder is as the last run left it; %s" % rec.get("record", "")
+        out += "; %s; %s" % (_folder_words(rec), rec.get("record", ""))
     return out.rstrip("; ")
 
 
@@ -184,7 +191,7 @@ def _cap_line(rec: dict, who: str) -> str:
             out += " (the %d finished steps are replayed, not searched again)" % done
         out += ", with a larger --max-time or none"
     if rec.get("run_id"):
-        out += "; the layout folder is as the last run left it; %s" % rec.get("record", "")
+        out += "; %s; %s" % (_folder_words(rec), rec.get("record", ""))
     return out.rstrip("; ")
 
 

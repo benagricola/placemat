@@ -1,0 +1,65 @@
+# Independent source and PC-input paths. TPS25947 section 8.2.6 documents
+# source-port use with reverse blocking. The PD's external FETs remain on
+# the sink path; their gate driver is not used to source high voltage.
+# Layout facts (placemat-design Pm.*): roles, hot loops, aggressors, sensitive nets,
+# full-load currents and dissipation, worked in
+# ../../../../docs/decisions/schematics/power-stage-facts-2026-09-27.md.
+EFUSE = Module("../../adapted/parts/Texas_Instruments_TPS259470LRPWR.zen")
+AND = Module("../../adapted/parts/Texas_Instruments_SN74LVC1G08DRYR.zen")
+R = Module("@stdlib/generics/Resistor.zen")
+C = Module("@stdlib/generics/Capacitor.zen")
+gnd = io("GND", Net)
+v3v3 = io("V3V3", Net)
+hv = io("USB_HV", Net)
+vbus = io("VBUS", Net)
+pc_in = io("PC_IN", Net)
+vsys = io("VSHUNT", Net)
+source = io("PD_SOURCE", Net)
+sink = io("PD_SINK", Net)
+request = io("VBUS_EN", Net)
+wet = io("USB_WET", Net)
+source_en = Net("SOURCE_EN")
+source_limit = Net("SOURCE_LIMIT")
+sink_limit = Net("SINK_LIMIT")
+sink_ov = Net("SINK_OVLO")
+sink_slew = Net("SINK_SLEW")
+# Converter permission and PD high-power-source permission are both required.
+# USB_WET high independently opens the source switch through OVLO.
+AND(name = "source_permit", VCC = v3v3, GND = gnd, A = request, B = source, Y = source_en, NC = NotConnected())
+C(name = "c_logic", value = "100nF", package = "0402", voltage = "16V", mpn = "CL05B104KB54PNC", manufacturer = "Samsung Electro-Mechanics", annotations = {"LCSC": "C307331"}, P1 = v3v3, P2 = gnd)
+R(name = "r_source_en", value = "100kohm", package = "0402", P1 = source_en, P2 = gnd)
+R(name = "r_source_permission", value = "100kohm", package = "0402", P1 = source, P2 = gnd)
+EFUSE(name = "source_switch", IN = hv, OUT = vbus, GND = gnd,
+      EN_UVLO = source_en, OVLO_OVCSEL = wet, ILM = source_limit,
+      DVDT = NotConnected(), ITIMER = NotConnected(),
+      PG_AUXOFF = NotConnected(), FLT_PGTH = NotConnected(),
+      annotations = {"Pm.I": "USB_HV:3A VBUS:3A", "Pm.Pd": "0.41W", "Pm.ThetaJb": "20C/W", "Pm.TjMax": "125C"})
+R(name = "r_source_limit", value = "976ohm", package = "0402", P1 = source_limit, P2 = gnd)
+C(name = "c_source_in", value = "100nF", package = "0402", voltage = "50V", mpn = "CL05B104KB54PNC", manufacturer = "Samsung Electro-Mechanics", P1 = hv, P2 = gnd,
+  annotations = {"LCSC": "C307331", "Pm.Role": "bypass"})
+# Local OUT bypasses per TPS25947 section 8.4.1: the JLC basic 50 V X5R
+# (../../../../docs/decisions/schematics/basic-passives-screen-2026-09-28.md).
+C(name = "c_source_out", value = "2.2uF", package = "0805", voltage = "50V", mpn = "CL21A225KBQNNNE", manufacturer = "Samsung Electro-Mechanics", P1 = vbus, P2 = gnd,
+  annotations = {"LCSC": "C377773", "Pm.Role": "output"})
+# Only a 5 V PC contract is accepted. A nominal 6 V independent OVLO
+# prevents a higher USB voltage reaching the device through this path.
+EFUSE(name = "sink_switch", IN = pc_in, OUT = vsys, GND = gnd,
+      EN_UVLO = sink, OVLO_OVCSEL = sink_ov, ILM = sink_limit, DVDT = sink_slew,
+      ITIMER = NotConnected(), PG_AUXOFF = NotConnected(), FLT_PGTH = NotConnected(),
+      annotations = {"Pm.I": "PC_IN:0.5A VSHUNT:0.5A", "Pm.Pd": "0.01W", "Pm.ThetaJb": "20C/W", "Pm.TjMax": "125C"})
+R(name = "r_sink_en", value = "100kohm", package = "0402", P1 = sink, P2 = gnd)
+R(name = "r_sink_ov_top", value = "400kohm", package = "0402", P1 = pc_in, P2 = sink_ov)
+R(name = "r_sink_ov_bottom", value = "100kohm", package = "0402", P1 = sink_ov, P2 = gnd)
+# 0.5 A nominal fault limit (+/-15%). Firmware must enforce the actual
+# USB advertised/enumerated current budget; this resistor is not that budget.
+R(name = "r_sink_limit", value = "6.65kohm", package = "0402", P1 = sink_limit, P2 = gnd)
+C(name = "c_sink_slew", value = "10nF", package = "0402", voltage = "50V", mpn = "CL05B103KB5NNNC", manufacturer = "Samsung Electro-Mechanics", annotations = {"LCSC": "C15195"}, P1 = sink_slew, P2 = gnd)
+C(name = "c_sink_in", value = "100nF", package = "0402", voltage = "50V", mpn = "CL05B104KB54PNC", manufacturer = "Samsung Electro-Mechanics", P1 = pc_in, P2 = gnd,
+  annotations = {"LCSC": "C307331", "Pm.Role": "bypass"})
+C(name = "c_sink_out", value = "2.2uF", package = "0805", voltage = "50V", mpn = "CL21A225KBQNNNE", manufacturer = "Samsung Electro-Mechanics", P1 = vsys, P2 = gnd,
+  annotations = {"LCSC": "C377773", "Pm.Role": "output"})
+load("../../board_rules.zen", "CONFIG", "LAYERS")
+stamp_layout = config("stamp_layout", bool, default = True)
+if stamp_layout:
+    Board(name = "UsbPowerPath", layout_path = "layout", layers = LAYERS, config = CONFIG)
+Project(name = "UsbPowerPath", path = "kicad", schematic = True, layout = False)

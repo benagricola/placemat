@@ -271,3 +271,25 @@ def test_between_two_carrying_parts_the_path_between_them_is_judged():
     wide_stub = track("VIN", 8.6, 10, 8.6, 20, w=3.0)                     # to the capacitor, wider than the trunk
     (v,) = [x for x in current_paths(board_geometry([u, q, c], copper=[trunk, wide_stub])) if x.subject == "VIN"]
     assert v.value == pytest.approx(0.8)
+
+
+def test_a_per_net_current_names_its_net_by_the_last_part_of_the_path():
+    from placemat.checks import carriers_of
+    u = footprint("U1", 2, 2, nets=("/sheet/VCC", "GND"), fields={"Pm.I": "vcc:0.5A"})
+    c = footprint("C1", 6, 2, nets=("CELL.VCC", "GND"), fields={"Pm.I": "VCC:0.5A"})
+    w = footprint("W1", 10, 2, nets=("XVCC", "GND"), fields={"Pm.I": "vcc:0.5A"})
+    assert carriers_of(board_geometry([u, c, w])) == {"/sheet/VCC": {"U1": 0.5}, "CELL.VCC": {"C1": 0.5}}
+
+
+@pytest.mark.parametrize("value", ["VIN:1A module/VIN:2A", "module/VIN:2A VIN:1A"])
+def test_per_net_current_prefers_the_most_specific_name_in_either_order(value):
+    from placemat.checks import carriers_of
+    u = footprint("U1", 2, 2, nets=("module/VIN", "GND"), fields={"Pm.I": value})
+    assert carriers_of(board_geometry([u])) == {"module/VIN": {"U1": 2.0}}
+
+
+@pytest.mark.parametrize("value", ["VIN:1A vin:2A", "vin:2A VIN:1A"])
+def test_repeated_current_aliases_keep_the_largest_bound_in_either_order(value):
+    from placemat.checks import carriers_of
+    u = footprint("U1", 2, 2, nets=("module/VIN", "GND"), fields={"Pm.I": value})
+    assert carriers_of(board_geometry([u])) == {"module/VIN": {"U1": 2.0}}

@@ -203,8 +203,8 @@ def test_the_islands_stage_says_how_many_nets_it_will_take(tmp_path):
 def test_the_pair_routers_pair_name_and_queue_are_turned_back_to_the_boards_nets(tmp_path):
     sent = []
     rev = route_progress.RouteEvents(tmp_path, sent.append)
-    rev.names = {"PAIR0": "USB_DP/USB_DN"}
     rev.begin("pairs")
+    rev.names = {"PAIR0": "USB_DP/USB_DN"}          # a pair call sets them within its phase (route_pairs)
     _send_lines(rev, json.dumps({"ev": "queue", "nets": ["PAIR0"]}) + "\n" + json.dumps({"ev": "net_begin", "net": "PAIR0"}) + "\n")
     rev.end("pairs")
     assert sent[1]["nets"] == ["USB_DP/USB_DN"] and sent[2]["net"] == "USB_DP/USB_DN"
@@ -331,8 +331,8 @@ def test_each_stage_that_ends_leaves_the_record_as_it_stands_for_a_stopped_route
 def test_the_pair_routers_aliases_are_turned_back_to_the_boards_nets(tmp_path):
     sent = []
     rev = route_progress.RouteEvents(tmp_path, sent.append)
-    rev.names = {"PAIR0_P": "USB_DP", "PAIR0_N": "USB_DN"}
     rev.begin("pairs")
+    rev.names = {"PAIR0_P": "USB_DP", "PAIR0_N": "USB_DN"}
     _send_lines(rev, json.dumps(_commit(["PAIR0_P", "PAIR0_N"], 0)) + "\n" + json.dumps({"ev": "net_end", "net": "PAIR0_P", "ok": True}) + "\n")
     events = rev.end("pairs")
     assert events[0]["net"] == ["USB_DP", "USB_DN"] and events[1]["net"] == "USB_DP" and sent[-1]["net"] == "USB_DP"
@@ -455,23 +455,30 @@ def _breakout_with_a_partial_pour(breakout_pcb, tmp_path, net):
 def test_the_real_router_sends_its_nets_as_it_routes_them_and_the_record_replays(breakout_pcb, tmp_path, monkeypatch):
     from pathlib import Path
     from placemat import channel
-    from placemat.kicad.route import ROUTER_DEFAULT, route_board
-    if not (Path(ROUTER_DEFAULT) / ".venv/bin/python").exists():
-        pytest.skip("KiCadRoutingTools not at %s" % ROUTER_DEFAULT)
+    from placemat.kicad.route import route_board
+    from tests.conftest import router_missing
+    if router_missing():
+        pytest.skip(router_missing())
     net = "PERMIT_A"
     pcb = _breakout_with_a_partial_pour(breakout_pcb, tmp_path, net)
     sent = []
     monkeypatch.setattr(channel, "current", lambda: types.SimpleNamespace(send=sent.append))
-    report = route_board(pcb, tmp_path / "route", exclude_nets={net, "GND", "V48P"}, layers=["F.Cu", "In2.Cu", "B.Cu"], quick=True, islands={net: None},
+    from tests.phase_helpers import phases
+    report = route_board(pcb, tmp_path / "route", pour_nets={net, "GND", "V48P"}, layers=["F.Cu", "In2.Cu", "B.Cu"], quick=True,
+                         phases=phases({"name": "pour", "nets": [net]}, {"name": "signals"}),
                          board_info={"run": "r1", "script": "x_layout.py"})
     kinds = [e["ev"] for e in sent]
     assert kinds[0] == "route_board" and "route_stage" in kinds and kinds.index("route_queue") < kinds.index("route_net_begin") < kinds.index("route_net_end")
-    assert [e for e in sent if e["ev"] == "route_commit" and e["net"] == net]            # a net's copper is committed after its search ends; the pair stage sends commits only
-    assert [e for e in sent if e["ev"] == "route_net_end" and e["net"] == net][0]["ok"] is True
-    commit = [e for e in sent if e["ev"] == "route_commit" and e["net"] == net][0]
+    # the pour phase joins its net by the plane repair's drops (pour_join.join_pour, D31), a router script outside the hooks; with every pad
+    # joined by the drops it makes no task call, so the hooked router's nets are the signals phase's
+    assert [j["net"] for j in report.phases[0]["pour_joins"]] == [net]
+    ends = [i for i, e in enumerate(sent) if e["ev"] == "route_net_end" and e.get("stage") == "signals" and e["ok"] is True]
+    assert ends
+    routed = sent[ends[0]]["net"]
+    commit = next(e for e in sent[ends[0]:] if e["ev"] == "route_commit" and e["net"] == routed)      # a net's copper is committed after its search ends
     assert commit["seg"] and all(len(s) == 6 for s in commit["seg"])
     assert report.record and Path(report.record).is_file()
     record = route_progress.read_record(Path(report.record))
-    assert record["board"]["run"] == "r1" and [s["stage"] for s in record["stages"]][0] in ("pairs", "islands")
+    assert record["board"]["run"] == "r1" and [s["stage"] for s in record["stages"]] == ["pour", "signals"]
     doc = route_view.route_doc(record, json.loads((tmp_path / "route" / route_progress.BOARD).read_text()))
     assert doc["route"]["routed"] >= 1 and doc["copper"] and [s for s in doc["steps"] if s["kind"] == "copper"][0]["copper"]

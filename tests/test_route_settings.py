@@ -23,7 +23,8 @@ def test_the_route_command_s_layers_flag_overrides_for_one_run(tmp_path, monkeyp
     seen = {}
 
     class Report:
-        valid, keepout_breaches, open_nets, routed_pcb, resumed, widths, pair_layers_refused = True, [], {}, pcb, [], [], []
+        valid, keepout_breaches, open_nets, routed_pcb, resumed, widths = True, [], {}, pcb, [], []
+        phases, phases_without_copper, pour_routed_by = [], [], {}
 
         def has_findings(self):
             return False
@@ -45,8 +46,8 @@ def test_the_route_command_s_layers_flag_overrides_for_one_run(tmp_path, monkeyp
 @needs_kicad
 @needs_breakout
 def test_the_route_command_leaves_the_boards_plane_nets_to_their_pours(breakout_pcb, tmp_path, monkeypatch):
-    """run --route leaves the plan's plane nets out; placemat route did not,
-    and the router laid thin tracks on a net with a pour, and on GND."""
+    """run --route hands the route the plan's plane nets as pour nets, which no phase routes unless one names them;
+    placemat route did not, and the router laid thin tracks on a net with a pour, and on GND."""
     import shutil
     import pcbnew
     from placemat import cli
@@ -68,7 +69,8 @@ def test_the_route_command_leaves_the_boards_plane_nets_to_their_pours(breakout_
     seen = {}
 
     class Report:
-        valid, keepout_breaches, open_nets, routed_pcb, resumed, widths, pair_layers_refused = True, [], {}, pcb, [], [], []
+        valid, keepout_breaches, open_nets, routed_pcb, resumed, widths = True, [], {}, pcb, [], []
+        phases, phases_without_copper, pour_routed_by = [], [], {}
 
         def has_findings(self):
             return False
@@ -76,12 +78,12 @@ def test_the_route_command_leaves_the_boards_plane_nets_to_their_pours(breakout_
         def summary(self):
             return "stand-in"
 
-    def stand_in(pcb, work, exclude_nets=(), **kw):
-        seen["exclude"] = set(exclude_nets)
+    def stand_in(pcb, work, exclude_nets=(), pour_nets=(), **kw):
+        seen["exclude"], seen["pours"] = set(exclude_nets), set(pour_nets)
         return Report()
     monkeypatch.setattr(route_mod, "route_board", stand_in)
     assert cli.main(["route", str(pcb), "--exclude", "EXTRA"]) == 0
-    assert {"V48P", "EXTRA"} <= seen["exclude"]
+    assert seen["exclude"] == {"EXTRA"} and "V48P" in seen["pours"]
 
 
 @needs_kicad

@@ -1,0 +1,46 @@
+# Debug: what a person on the bench touches or reads with the case open.
+# Boot and reset buttons, the six programming pads and three indicator lights,
+# laid out once as a panel in Debug_layout.py and stamped onto the core as one
+# cell inside the seal, so they read as one panel wherever the core puts it.
+SW = Module("../../adapted/parts/Omron_Electronics_B3U_1000P.zen")
+LED_RED = Module("../../adapted/parts/Hubei_KENTO_Elec_KT_0603R.zen")
+LED_YG = Module("../../adapted/parts/Hubei_KENTO_Elec_KT_0603YG.zen")
+LED_WHITE = Module("../../adapted/parts/Hubei_KENTO_Elec_KT_0603W.zen")
+TP = Module("@stdlib/generics/TestPoint.zen")
+
+gnd = io("GND", Net)
+v3v3 = io("V3V3", Net)
+mcu_en = io("MCU_EN", Net)
+boot = io("BOOT_STRAP", Net)
+uart_tx = io("UART_TX", Net)
+uart_rx = io("UART_RX", Net)
+led_bike = io("LED_BIKE", Net)
+led_usb_k = io("LED_USB_K", Net)
+led_status = io("LED_STATUS", Net)
+
+SW(name = "sw_boot", P_1 = boot, P_2 = gnd)
+SW(name = "sw_reset", P_1 = mcu_en, P_2 = gnd)
+
+# The three lights. Each one's current is set where its signal starts, so only
+# a limited current runs to the panel: the bike light's 10k and reverse diode
+# are in InputPower.zen, the USB light's 1k in SlotControl.zen and the status
+# light's 100 ohm in Mcu.zen.
+LED_RED(name = "led_bike", A = led_bike, K = gnd)
+LED_YG(name = "led_usb", A = v3v3, K = led_usb_k)
+LED_WHITE(name = "led_status", A = led_status, K = gnd)
+
+TP(name = "tp_3v3", variant = "Pad_1.0x1.0mm", P1 = v3v3)
+TP(name = "tp_gnd", variant = "Pad_1.0x1.0mm", P1 = gnd)
+TP(name = "tp_txd0", variant = "Pad_1.0x1.0mm", P1 = uart_tx)
+TP(name = "tp_rxd0", variant = "Pad_1.0x1.0mm", P1 = uart_rx)
+TP(name = "tp_boot", variant = "Pad_1.0x1.0mm", P1 = boot)
+TP(name = "tp_reset", variant = "Pad_1.0x1.0mm", P1 = mcu_en)
+
+load("../../board_rules.zen", "CONFIG", "LAYERS")
+
+# A Board() rather than a Layout(), so the fragment is laid out by the core's
+# design rules (board_rules.zen). Its project registers only when this file
+# is built on its own.
+Board(name = "Debug", layout_path = "layout", layers = LAYERS, config = CONFIG)
+
+Project(name = "Debug buttons, pads and lights", path = "kicad", schematic = True, layout = False)

@@ -1,9 +1,11 @@
 """A setting reaches the code that uses it. Each test changes one value and
 asserts the behaviour it governs, rather than that the attribute exists."""
+import pytest
+
 from placemat.layout import Board
 from placemat.occupancy import Occupancy
 from placemat.placement import Placement
-from placemat.settings import Settings, load
+from placemat.settings import Settings, bind, load
 from placemat.values import Face, Location, Part
 from tests.conftest import needs_breakout, needs_kicad
 from tests.fixtures import board_geometry, footprint
@@ -189,10 +191,27 @@ def test_the_router_directory_prefers_the_settings_over_the_environment(monkeypa
     assert route.router_dir(Settings(route_router_dir="/from/toml")) == "/from/toml"
 
 
-def test_the_router_directory_falls_back_to_the_built_in(monkeypatch):
+def test_with_no_router_named_a_route_refuses_naming_the_setting_and_the_variable(monkeypatch, tmp_path):
     from placemat.kicad import route
+    from tests.phase_helpers import phases
     monkeypatch.delenv("KRT_DIR", raising=False)
-    assert route.router_dir(Settings()).endswith("KRT-upstream")
+    with pytest.raises(route.RouterMissing) as e:
+        route.router_dir(Settings())
+    assert e.value.code == "router_unset"
+    assert e.value.record() == {"code": "router_unset", "setting": "[route] router_dir", "env": "KRT_DIR"}
+    assert "[route] router_dir" in str(e.value) and "$KRT_DIR" in str(e.value)
+    with bind(Settings()), pytest.raises(route.RouterMissing):
+        route.route_board(tmp_path / "b.kicad_pcb", tmp_path / "work", phases=phases())
+
+
+def test_a_router_folder_without_a_router_is_refused_with_what_it_lacks(monkeypatch, tmp_path):
+    from placemat.kicad import route
+    from tests.phase_helpers import phases
+    monkeypatch.setenv("KRT_DIR", str(tmp_path))
+    with bind(Settings()), pytest.raises(route.RouterMissing) as e:
+        route.route_board(tmp_path / "b.kicad_pcb", tmp_path / "work", phases=phases())
+    assert e.value.record() == {"code": "router_not_found", "path": str(tmp_path), "source": "$KRT_DIR",
+                                "missing": [".venv/bin/python", "py_router/route.py"]}
 
 
 def test_the_check_constants_come_from_the_settings():

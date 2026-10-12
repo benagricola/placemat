@@ -166,6 +166,21 @@ def test_a_socket_path_too_long_for_an_address_moves_to_a_short_one_named_in_the
     reader.wait("hello")
 
 
+@pytest.mark.parametrize('parts', [('temporary-directory-' * 8,), ('é' * 40,) * 3])
+def test_a_long_temporary_directory_also_uses_a_short_socket_address(tmp_path, monkeypatch, parts):
+    long_tmp = tmp_path.joinpath(*parts)
+    long_tmp.mkdir(parents=True)
+    monkeypatch.setattr(channel.tempfile, 'gettempdir', lambda: str(long_tmp))
+    deep = long_tmp / ('project-directory-' * 8)
+    deep.mkdir()
+    _, rep, entry = _start(deep)
+    assert len(entry['socket'].encode()) <= 100 and os.path.exists(entry['socket'])
+    reader = Reader(entry)
+    reader.wait('hello')
+    rep.finish()
+    assert not os.path.exists(entry['socket']) and not os.path.exists(entry['_file'])
+
+
 def test_the_events_are_mirrored_in_short_form_and_the_next_command_deletes_a_dead_ones_file(tmp_path):
     script, rep, entry = _start(tmp_path)
     progress = channel.sockets_dir(tmp_path).parent / "views" / "x" / "nothing"

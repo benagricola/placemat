@@ -36,6 +36,14 @@ class RunFailure(Exception):
         return {"failure": self.kind, **({"item": self.details["item"]} if self.details.get("item") else {}), "detail": detail}
 
 
+def _capture_beside(pcb) -> Path | None:
+    """The capture's nets.layout.json beside the run's board, for routes made on boards written elsewhere (an
+    explore's variants); None when there is none."""
+    from .capture_nets import SIDECAR
+    path = Path(pcb).with_name(SIDECAR)
+    return path if path.is_file() else None
+
+
 def _merged_by_cell(merged) -> list:
     """(cell, "GND on In1.Cu, In4.Cu; V3V3 on In3.Cu (its pads were ...)")
     per cell, in the order the write met them."""
@@ -180,8 +188,8 @@ def _set_aside(src: BoardSource, run_dir: Path, cache: Path, quiet: bool, keep_r
     notes = []
     hand = [r for r in foreign if str(r) not in _RENDERS]
     if hand:
-        notes.append("kept %d file(s) placemat did not write, put back after generation: %s" % (
-            len(hand), ", ".join(str(r) for r in hand)))
+        notes.append("kept %d file(s) placemat did not write in %s: %s" % (
+            len(hand), kept_dir, ", ".join(str(r) for r in hand)))
     try:
         last = latest_for(src.board_dir / ".placemat" / "runs", src.name)
     except (ValueError, OSError):
@@ -196,14 +204,41 @@ def _set_aside(src: BoardSource, run_dir: Path, cache: Path, quiet: bool, keep_r
     return foreign, notes
 
 
-def _put_back(src: BoardSource, run_dir: Path, foreign: list) -> None:
+def _put_back(src: BoardSource, run_dir: Path, foreign: list, quiet: bool) -> list:
+    """Restore files generation did not replace. A freshly generated file
+    wins a name collision; its previous contents remain in the run's kept/.
+    In particular, restoring an old netlist must not stale its new sidecar."""
+    notes = []
     for rel in foreign:
-        (src.layout_dir / rel).parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(run_dir / "kept" / rel, src.layout_dir / rel)
+        target = src.layout_dir / rel
+        ancestor, collision = src.layout_dir, None
+        for part in rel.parts[:-1]:
+            ancestor /= part
+            if ancestor.is_symlink() or (ancestor.exists() and not ancestor.is_dir()):
+                collision = ancestor
+                break
+        if collision is None and (target.exists() or target.is_symlink()):
+            collision = target
+        if collision is not None:
+            note = "generation occupies %s; original kept as %s" % (
+                collision.relative_to(src.layout_dir), run_dir / "kept" / rel)
+            notes.append(note)
+            _say(quiet, "board   " + note)
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(run_dir / "kept" / rel, target)
+    return notes
 
 
 # KiCad's lock files (~name.kicad_pro.lck) belong to an open session and may vanish while a folder is copied: never copied
 _KICAD_LOCKS = shutil.ignore_patterns("~*.lck", "*.lck")
+
+# What a failed run's last lines say of the layout folder, by `failure.layout` ("as_written" says nothing)
+_LAYOUT_SAID = {
+    "placed_unrouted": "the layout folder holds the placed board, unrouted; run the same command again to route it: "
+                       "the route's work is kept in %(route)s",
+    "restored": "the layout folder is as the last run left it",
+}
 
 
 def generate(src: BoardSource, run_dir: Path, fresh: bool, quiet: bool,
@@ -220,7 +255,7 @@ def generate(src: BoardSource, run_dir: Path, fresh: bool, quiet: bool,
     if cache.exists() and not fresh and not stale:
         shutil.rmtree(src.layout_dir, ignore_errors=True)
         shutil.copytree(cache, src.layout_dir, ignore=_KICAD_LOCKS)
-        _put_back(src, run_dir, foreign)
+        notes.extend(_put_back(src, run_dir, foreign, quiet))
         log.write_text("restored the cached generation from %s\n" % cache + "".join(n + "\n" for n in notes))
         _say(quiet, "board   restored from cache (%s)" % cache.relative_to(src.board_dir))
         return False
@@ -241,7 +276,7 @@ def generate(src: BoardSource, run_dir: Path, fresh: bool, quiet: bool,
                           "exit_code": rc, "log": str(log), "tail": _tail(log)})
     shutil.rmtree(cache, ignore_errors=True)
     shutil.copytree(src.layout_dir, cache, ignore=_KICAD_LOCKS)
-    _put_back(src, run_dir, foreign)            # after the cache is taken: it holds only what was generated
+    notes.extend(_put_back(src, run_dir, foreign, quiet))  # cache holds only what was generated
     with open(log, "a") as f:
         f.writelines(n + "\n" for n in notes)
     _inputs_record(src).write_text(json.dumps(inputs, indent=1, sort_keys=True))
@@ -529,7 +564,7 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
                 lock_entries, explored = explore_mod.before_resolve(
                     script, board, explore_mod.BoardFactory(script, src, cfg, fab, keep_going, board.geometry),
                     explore, say, run_id=rid, keep_state=True, variants_dir=run_dir / "explore",
-                    route_exclude=route_exclude, route_resume=resume)
+                    route_exclude=route_exclude, route_resume=resume, route_capture=_capture_beside(src.pcb))
         except (explore_mod.FocusError, ResumeRefused) as e:
             raise RunFailure("explore", str(e), {"tail": str(e)})
         stage = "resolve"
@@ -749,14 +784,20 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
                     (run_dir / "plan.json").write_text(json.dumps(plan_json(plan, declared_sites(board)), separators=(",", ":")))
                 except Exception as e:                  # a courtesy: the run goes on without it
                     say("route", "no plan.json for the build replay: %s: %s" % (type(e).__name__, e))
-                from .kicad.route import RouterFailed
+                from .kicad.route import RouteRefused, RouterFailed, RouterMissing
+                from .route_phase import PhaseError
                 try:
-                    report = route_board(src.pcb, run_dir / "route", exclude_nets=set(plan.plane_nets) | set(route_exclude),
-                                         quick=route_quick, resume=resume, board_info={"run": rec.run_id, "script": str(script)},
+                    report = route_board(src.pcb, run_dir / "route", exclude_nets=set(route_exclude),
+                                         pour_nets=set(plan.plane_nets), quick=route_quick, resume=resume,
+                                         board_info={"run": rec.run_id, "script": str(script)},
                                          on_setup=lambda fs: [console.finding(f, "route") for f in fs])
+                except (RouteRefused, PhaseError) as e:
+                    raise RunFailure("route", "Routing refused", {"code": e.code, "facts": e.facts, "error": str(e)}) from e
                 except RouterFailed as e:
-                    raise RunFailure("route", "Routing failed", {"error": e.what, "exit_code": e.exit_code, "log": str(e.log),
-                                                                 "tail": e.tail}) from e
+                    raise RunFailure("route", "Routing failed", {"error": e.what, "code": e.code, "facts": e.facts,
+                                                                 "exit_code": e.exit_code, "log": str(e.log), "tail": e.tail}) from e
+                except RouterMissing as e:
+                    raise RunFailure("route", "Routing refused", {"error": str(e), **e.record()}) from e
                 except Exception as e:                  # anything else the route raises fails the run too
                     raise RunFailure("route", "Routing failed", {"error": "%s: %s" % (type(e).__name__, e),
                                                                  "traceback": traceback.format_exc()}) from e
@@ -767,15 +808,18 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
                 metrics["closure_clean"] = report.closure_clean
                 rec.timing_s["route"] = round(time.time() - t0, 1)
                 say("route", "%s  (%.0fs)" % (report.summary(), rec.timing_s["route"]))
+                from .kicad.route import phase_lines
+                for line in phase_lines(report.phases, report.phases_without_copper, report.pour_routed_by):
+                    say("route", line)
                 for breach in report.keepout_breaches:
                     say("route", breach, level="finding")
                 if report.has_findings():
-                    from .findings import FindingCause
+                    from .findings import FindingKind
                     from .kicad.route_widths import stated_currents
                     short = report.findings(stated_currents(read_board(src.pcb)) if report.widths else {})
                     plan.findings.extend(short)
                     for f in short:
-                        if f.cause is not FindingCause.SETUP_NET_HALO:    # said before the route started
+                        if f.cause.kind is not FindingKind.SETUP:              # said before the route started
                             console.finding(f, "route")
                 if report.open_nets:
                     worst = sorted(report.open_nets.items(), key=lambda kv: -kv[1])[:8]
@@ -818,10 +862,19 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         channel.error("run_failure", str(e.details.get("script") or ""), e.details.get("line"), **e.record())
         say("fail", str(e), level="fail")
         kept = run_dir / "before"
-        if kept.exists() and "item" not in e.details:     # a critical item's failure writes the board as it stood
+        if e.kind == "route":
+            # the placement finished and the board is written: keep it, unrouted, with the route's work in
+            # run_dir/route for the rerun (a failed long command keeps its work)
+            layout = "placed_unrouted"
+        elif kept.exists() and "item" not in e.details:     # a critical item's failure writes the board as it stood
             shutil.rmtree(src.layout_dir, ignore_errors=True)
             shutil.copytree(kept, src.layout_dir, ignore=_KICAD_LOCKS)
-            say("fail", "the layout folder is as the last run left it")
+            layout = "restored"
+        else:
+            layout = "as_written"
+        rec.failure["layout"] = layout
+        if layout in _LAYOUT_SAID:
+            say("fail", _LAYOUT_SAID[layout] % {"route": run_dir / "route"})
         for k in ("script", "line", "source", "error", "command", "cwd", "exit_code", "log"):
             if e.details.get(k) is not None:
                 say("fail", "%-9s %s" % (k, e.details[k]))
@@ -836,9 +889,19 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         rec.failure = {"kind": "stopped", "signal": s.name, "stage": s.stage, "elapsed_s": round(time.time() - began, 1),
                        "explore": s.explore, **stop.cause_fields(s)}
         kept = run_dir / "before"
-        if kept.exists():                  # whatever the stop left half written: the folder as the last run left it
+        if stage == "route":
+            # the placement finished and the board is written: keep it, unrouted, with the route's work in
+            # run_dir/route for the rerun (a stopped long command keeps its work)
+            layout = "placed_unrouted"
+        elif kept.exists():                # whatever the stop left half written: the folder as the last run left it
             shutil.rmtree(src.layout_dir, ignore_errors=True)
             shutil.copytree(kept, src.layout_dir, ignore=_KICAD_LOCKS)
+            layout = "restored"
+        else:
+            layout = "as_written"
+        rec.failure["layout"] = layout
+        if layout == "placed_unrouted":
+            say("stop", _LAYOUT_SAID[layout] % {"route": run_dir / "route"})
     if rec.status == "ok":
         shutil.rmtree(run_dir / "before", ignore_errors=True)    # only a failure needs it
     try:
@@ -860,7 +923,8 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
     if stopped is not None:
         say("record", str(run_dir / "run.json"))
         info = stop.record(stopped, run_id=rec.run_id, elapsed_s=rec.failure["elapsed_s"], record=str(run_dir / "run.json"),
-                           explore=stopped.explore)
+                           explore=stopped.explore,
+                           layout=rec.failure["layout"])
         stop.say(stop.line(info))
         stopped.said = True
         channel.stopped(info)               # the studios and `placemat watch` are told it was stopped, not that it died

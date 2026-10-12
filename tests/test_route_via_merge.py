@@ -199,3 +199,106 @@ def test_a_merge_that_would_bring_a_track_within_clearance_of_another_net_is_lef
     kept = result.vias_kept_close[0]
     assert kept["net"] == "A" and kept["reason"] == "clearance" and kept["other_net"] == "B"
     assert sorted([kept["at_mm"], kept["near_mm"]]) == [[50.0, 50.0], [50.4, 50.0]]
+
+
+VIA_BLOCK = r"\t\(via\n.*?\n\t\)\n"
+
+
+def _listed_first(pcb, at):
+    """Rewrite `pcb` with its vias in file order, the one at `at` (x, y) first: pcbnew lists a board's tracks in the
+    order of its file, as the router's uuids left it."""
+    import re
+    text = pcb.read_text()
+    blocks = re.findall(VIA_BLOCK, text, flags=re.S)
+    first = "(at %g %g)" % at
+    ordered = sorted(blocks, key=lambda b: first not in b)
+    pieces = iter(ordered)
+    pcb.write_text(re.sub(VIA_BLOCK, lambda m: next(pieces), text, flags=re.S))
+    return pcb
+
+
+def _order(pcb):
+    import pcbnew
+    return [(round(t.GetPosition().x / 1e6, 3), round(t.GetPosition().y / 1e6, 3))
+            for t in pcbnew.LoadBoard(str(pcb)).GetTracks() if t.GetClass() == "PCB_VIA"]
+
+
+def _copper(pcb):
+    import pcbnew
+    return sorted((t.GetClass(), t.GetLayerName(), t.GetStart().x, t.GetStart().y, t.GetEnd().x, t.GetEnd().y)
+                  for t in pcbnew.LoadBoard(str(pcb)).GetTracks())
+
+
+def _routed_both_ways(tmp_path, board, a, b):
+    """`board(path, router)` routed with the via at `a` listed first, and again with `b` first: [(Cleanup, path)]."""
+    given = board(tmp_path / "given.kicad_pcb", False)
+    out = []
+    for name, first in (("a", a), ("b", b)):
+        routed = _listed_first(board(tmp_path / ("routed_%s.kicad_pcb" % name), True), first)
+        assert _order(routed)[0] == first
+        out.append((remove_dangling_router_copper(str(routed), str(given)), routed))
+    return out
+
+
+def test_the_via_kept_is_the_same_whichever_the_board_lists_first(tmp_path):
+    """The pair board's two vias carry three track ends each: the tie goes to the lower x, then y."""
+    results = _routed_both_ways(tmp_path, lambda p, r: _pair_board(p, router=r), (50, 50), (50.1, 50))
+    for result, routed in results:
+        assert result.vias_merged == {"A": 1}
+        assert _vias(routed) == [(50.0, 50.0, "A")]
+    assert _copper(results[0][1]) == _copper(results[1][1])
+
+
+def test_the_via_more_track_ends_land_on_is_kept(tmp_path):
+    """Pad 1's F.Cu track and pad 2's B.Cu track both end on the via at (50.1, 50); the one at (50, 50) has only the
+    short link between them. The lower x would keep (50, 50); the via with more ends is kept."""
+    import pcbnew
+
+    def board(path, router):
+        b, n = _plain_board(path, ("A",), (("1", (45, 50), "A"), ("2", (55, 50), "A")))
+        _smd(b, ("2",))
+        if router:
+            a = n["A"]
+            _track(b, a, 45, 50, 50.1, 50, pcbnew.F_Cu)
+            _via(b, a, 50.1, 50)
+            _track(b, a, 50.1, 50, 55, 50, pcbnew.B_Cu)
+            _via(b, a, 50, 50)
+            _track(b, a, 50, 50, 50.1, 50, pcbnew.F_Cu)
+        return _save(b, path)
+
+    for result, routed in _routed_both_ways(tmp_path, board, (50, 50), (50.1, 50)):
+        assert result.vias_merged == {"A": 1}
+        assert _vias(routed) == [(50.1, 50.0, "A")]
+
+
+@pytest.mark.parametrize("beside", ["B.Cu", "F.Cu"])
+def test_a_merge_that_clashes_one_way_is_made_the_other_way(tmp_path, beside):
+    """Vias 0.4 mm apart with two track ends each, as in the clearance case, but net B runs beside one swing only:
+    on B.Cu, dropping (50.4, 50) swings pad 2's track into it, so (50, 50) is dropped instead; on F.Cu, dropping
+    (50, 50) swings pad 1's track into it, so (50.4, 50) is dropped. Either way the pair is merged, whichever via
+    the board lists first."""
+    import pcbnew
+
+    def board(path, router):
+        b, n = _plain_board(path, ("A", "B"), (("1", (50, 53), "A"), ("2", (50.4, 53), "A")))
+        _smd(b, ("2",))
+        if beside == "B.Cu":
+            _track(b, n["B"], 49.85, 50.8, 49.85, 51.8, pcbnew.B_Cu)
+        else:
+            _track(b, n["B"], 50.55, 50.8, 50.55, 51.8, pcbnew.F_Cu)
+        if router:
+            a = n["A"]
+            _track(b, a, 50, 53, 50, 50, pcbnew.F_Cu)
+            _via(b, a, 50, 50)
+            _track(b, a, 50, 50, 50.4, 50, pcbnew.B_Cu)
+            _via(b, a, 50.4, 50)
+            _track(b, a, 50.4, 50, 50.4, 53, pcbnew.B_Cu)
+        return _save(b, path)
+
+    kept = (50.4, 50.0, "A") if beside == "B.Cu" else (50.0, 50.0, "A")
+    for result, routed in _routed_both_ways(tmp_path, board, (50, 50), (50.4, 50)):
+        assert result.vias_merged == {"A": 1}
+        assert result.vias_kept_close == []
+        assert _vias(routed) == [kept]
+        after = run_drc(routed, tmp_path / "after.json")
+        assert _of(after, "clearance") == [] and _of(after, "hole_to_hole") == []

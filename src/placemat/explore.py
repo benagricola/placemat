@@ -206,11 +206,15 @@ def _compact(curve, cap: int = 2000):
 @dataclass(frozen=True)
 class Routing:
     """What an explore's routing worker needs (`explore(routing=)`): the folder its variants are written in, the nets
-    left out of their routes, route_board's `resume`, and the board writer and router (VariantRouter; a test's stand-in)."""
+    left out of their routes, route_board's `resume`, the board writer and router (VariantRouter; a test's stand-in),
+    and the capture's nets.layout.json (`capture`, beside the run's board; None: none), which a variant's board,
+    written in a folder of its own, does not have beside it."""
     folder: Path
     exclude: tuple = ()
     resume: bool = True
     router: object = None
+    capture: Path | None = None
+    rank: tuple = ()
 
 
 class VariantRouter:
@@ -225,9 +229,10 @@ class VariantRouter:
         from .kicad.remap import apply_remap
         return apply_remap(pcb, groups)
 
-    def route(self, pcb, work, exclude_nets=(), quick=True, resume=True):
+    def route(self, pcb, work, exclude_nets=(), pour_nets=(), quick=True, resume=True, capture_path=None):
         from .kicad import route as route_mod
-        return route_mod.route_board(pcb, work, exclude_nets=exclude_nets, quick=quick, resume=resume)
+        return route_mod.route_board(pcb, work, exclude_nets=exclude_nets, pour_nets=pour_nets, quick=quick,
+                                     resume=resume, capture_path=capture_path)
 
 
 def explore(make_board, focus, seconds: float, jobs: int | None = None, seeds=None, lock=None,
@@ -740,10 +745,12 @@ def _route_work(make_board, focus, lock, reuse, routing, rq, out, parent):
                     if remap and remap["groups"]:            # routed as it would stand once the remap is made
                         entry["remapped"] = dict(router.remap(pcb, remap["groups"]), saving=remap["saving"],
                                                  crossings=remap["crossings"])
-                    r = router.route(pcb, d / "route", exclude_nets=set(p.plane_nets) | set(routing.exclude), quick=True,
-                                     resume=routing.resume)
+                    r = router.route(pcb, d / "route", exclude_nets=set(routing.exclude), pour_nets=set(p.plane_nets),
+                                     quick=True, resume=routing.resume, capture_path=routing.capture)
                 entry.update(closure_clean=r.closure_clean, closure=r.closure, open_before=r.open_before,
-                             open_after=r.open_after, valid=r.valid)
+                             open_after=r.open_after, valid=r.valid,
+                             phases={p["name"]: p.get("final_closure_clean", p["closure_clean"])
+                                     for p in getattr(r, "phases", ())})
             except Exception as e:
                 entry["error"] = {"type": type(e).__name__, "message": str(e)}
             entry["seconds"] = round(time.perf_counter() - t0, 3)
@@ -909,7 +916,7 @@ def _write_lock(path, entries, focus, new, plan) -> list:
 def search(make_board, script, seconds: float, jobs: int | None = None, keys=(), after_line=None, box=None,
            accept: bool = False, seeds=None, release: str = "", run_id: str = "", checkpoint_dir=None,
            resume: str = "auto", keep_state: bool = False, route_best: bool | None = None, variants_dir=None,
-           route_exclude=(), route_resume: bool = True, router=None) -> tuple:
+           route_exclude=(), route_resume: bool = True, router=None, route_capture=None, route_rank=()) -> tuple:
     """What `--explore` does: read the script's lock, choose the focus, run
     the variants, and report what the best would move against the current
     placement. With `accept`, write the best's decisions for the focused
@@ -950,7 +957,7 @@ def search(make_board, script, seconds: float, jobs: int | None = None, keys=(),
         ck = _checkpoint.Checkpoint(checkpoint_dir, _parts(script, base, make_board, entries, focus), focus, resume,
                                     base.settings.explore_checkpoint_max_variants, script_files=_script_code(script))
     on = base.settings.explore_route_best if route_best is None else bool(route_best)
-    routing = Routing(Path(variants_dir), tuple(route_exclude), route_resume, router) \
+    routing = Routing(Path(variants_dir), tuple(route_exclude), route_resume, router, route_capture, tuple(route_rank)) \
         if on and variants_dir is not None else None
     try:
         result = explore(make_board, focus, seconds, jobs, seeds=seeds, lock=entries, checkpoint=ck, routing=routing)
@@ -983,7 +990,7 @@ def search(make_board, script, seconds: float, jobs: int | None = None, keys=(),
         report["routes"], report["routes_skipped"] = [], "no_board"
     elif on:
         report["routes"] = result.routes
-        closed = _taken(result.routes, {r[0]: result.rank_of(r[0], r[1]) for r in result.results})
+        closed = _taken(result.routes, {r[0]: result.rank_of(r[0], r[1]) for r in result.results}, rank=routing.rank if routing else ())
         if closed is not None:
             taken = report["taken_seed"] = closed
     if saved(taken):
@@ -1044,13 +1051,13 @@ def _write_variant(make_board, board, plan, folder: Path) -> Path:
     return pcb
 
 
-def _taken(routes: list, scores: dict):
+def _taken(routes: list, scores: dict, rank=()):
     """The seed of the routed variant with the best clean closure, the better run score (`scores`, {seed: score}) of a
     tie; None when every route failed."""
-    closed = [r for r in routes if "error" not in r]
+    closed = [r for r in routes if not r.get("error")]
     if not closed:
         return None
-    return min(closed, key=lambda r: (-r["closure_clean"], scores.get(r["seed"], r["score"]), r["seed"]))["seed"]
+    return min(closed, key=lambda r: tuple(-(r.get("phases") or {}).get(name, 0.0) for name in rank) + (-r["closure_clean"], scores.get(r["seed"], r["score"]), r["seed"]))["seed"]
 
 
 def _send_done(report, kept: bool, **more) -> None:
@@ -1269,10 +1276,11 @@ class ExploreOptions:
     accept: bool = False
     resume: str = "auto"            # "yes": --resume, "no": --no-resume
     route_best: bool | None = None  # --route-best; None: [explore] route_best
+    route_rank: tuple = ()
 
 
 def before_resolve(script, board, make_board, options, say, run_id: str = "", keep_state: bool = False, variants_dir=None,
-                   route_exclude=(), route_resume: bool = True) -> tuple:
+                   route_exclude=(), route_resume: bool = True, route_capture=None) -> tuple:
     """The lock entries a run resolves with, and the explore report when
     --explore was given (else None): the search runs first, and with
     --accept its decisions are in the entries returned. `variants_dir` is
@@ -1286,7 +1294,7 @@ def before_resolve(script, board, make_board, options, say, run_id: str = "", ke
                              options.after_line, options.box, options.accept, release=__version__,
                              run_id=run_id, checkpoint_dir=state, resume=options.resume, keep_state=keep_state,
                              route_best=options.route_best, variants_dir=variants_dir, route_exclude=route_exclude,
-                             route_resume=route_resume)
+                             route_resume=route_resume, route_capture=route_capture, route_rank=options.route_rank)
     for line in report_lines(report):
         say("explore", line)
     return entries, report
@@ -1397,7 +1405,8 @@ def route_line(r: dict) -> str:
     return at + "closure %.1f%% clean (%.1f%% raw), %d open, in %s%s%s" % (
         100 * r["closure_clean"], 100 * r["closure"], r["open_after"], duration(r["seconds"]),
         "" if r.get("valid", True) else "; the placement's DRC was not clean before routing",
-        "; routed with its pin remap made on its pads" if r.get("remapped") else "")
+        "; routed with its pin remap made on its pads" if r.get("remapped") else "") + (
+        "; " + ", ".join("%s %.1f%%" % (n, 100 * c) for n, c in r["phases"].items()) if r.get("phases") else "")
 
 
 def budget_passed_line(ev: dict) -> str:

@@ -1,0 +1,22 @@
+# MM3Z5V1ST1G: imported native symbol and footprint.
+
+K = io("K", Net, optional = True)
+A = io("A", Net, optional = True)
+
+annotations = config(dict, default = {}, optional = True,
+                     help = "Pm.* layout facts (placemat-design): forwarded into the footprint's fields")
+_properties = {"LCSC": "C236206", "MPN": "MM3Z5V1ST1G"}
+_properties.update(annotations)
+
+Component(
+    name = "onsemi_MM3Z5V1ST1G",
+    footprint = File("../../parts/onsemi_MM3Z5V1ST1G/SOD-323_L1.7-W1.3-LS2.5-RD.kicad_mod"),
+    symbol = Symbol("onsemi_MM3Z5V1ST1G/MM3Z5V1ST1G.kicad_sym"),
+    prefix = "D",
+    part = Part(mpn = "MM3Z5V1ST1G", manufacturer = "onsemi"),
+    properties = _properties,
+    pins = {
+        "K": K,
+        "A": A,
+    },
+)

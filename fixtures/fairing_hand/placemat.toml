@@ -1,0 +1,92 @@
+# Parts claim what they draw (pads, mask, silk, body) at the board's own gaps,
+# including the 0.2 mm silk clearance, rather than their courtyards: the
+# footprints are what must not overlap (Ben, 2026-09-23).
+[place]
+envelope = "physical"
+# Escape corridors 1.5 mm out from each pad: of the depths tried, the one that
+# routes both the MCU cell (100%) and the core (84.2%) best on a full route
+# (tuning sweep, 2026-09-24).
+escape_depth = 1.5
+
+# Preserve routed endpoints in fixed blocks. Cleanup currently moves block
+# satellites after fixed copper is planned (reported to placemat).
+[cleanup]
+enabled = false
+
+# With parts spaced by what they draw, courtyards meet and overlap by design,
+# so a courtyard overlap does not count against a run. The default list less
+# courtyards_overlap.
+[drc]
+real_kinds = ["clearance", "shorting_items", "track_width", "annular_width",
+              "hole_clearance", "hole_to_hole", "copper_edge_clearance"]
+
+# The same for KiCad's own DRC: the generated project reports courtyard
+# overlaps as ignored rather than as errors.
+[drc.severities]
+courtyards_overlap = "ignore"
+
+# Crossings weigh twice the default in the search and the ranking: with
+# escape_depth 1.5 it routed best of the 25 settings tried (2026-09-24).
+[score]
+crossing = 8.0
+
+# The rise the current-path widths are sized for: 10 C, IPC-2221's usual
+# figure, for a sealed case with no airflow (Ben, 2026-09-30).
+[check]
+rise_c = 10.0
+
+# Each searched cell is seeded one at a time from what is placed. With the
+# RT1715 core on placemat 0.79 this places every cell and scores best of the
+# runs of these parts; the whole-netlist solve left the buck-boost without
+# room (2026-10-02).
+[solve]
+enabled = false
+
+# The MCU module places best seeded from the whole netlist at once: its RF
+# match lands inside its link limit, which the one-at-a-time seed misses.
+[scripts."modules/mcu/Mcu_layout.py".solve]
+enabled = true
+
+[facts.boards]
+"modules/usbsource/UsbSource_layout.py" = "467673416e76a5327b1017017d2f639eab0ebac237eea29c518b7017a46b8fcb"
+"modules/usbsink/UsbSink_layout.py" = "467673416e76a5327b1017017d2f639eab0ebac237eea29c518b7017a46b8fcb"
+"modules/usbmoisture/UsbMoisture_layout.py" = "467673416e76a5327b1017017d2f639eab0ebac237eea29c518b7017a46b8fcb"
+"modules/usbesd/UsbEsd_layout.py" = "40c34ebd9e135b025d33091874485ecbce67820771abe16ffa1e43f4d44cf6e8"
+"modules/usbconverter/UsbConverter_layout.py" = "467673416e76a5327b1017017d2f639eab0ebac237eea29c518b7017a46b8fcb"
+"modules/usbconnector/UsbConnector_layout.py" = "40c34ebd9e135b025d33091874485ecbce67820771abe16ffa1e43f4d44cf6e8"
+"modules/usb5v/Usb5v_layout.py" = "467673416e76a5327b1017017d2f639eab0ebac237eea29c518b7017a46b8fcb"
+"modules/supervisor/Supervisor_layout.py" = "467673416e76a5327b1017017d2f639eab0ebac237eea29c518b7017a46b8fcb"
+"modules/status/Status_layout.py" = "467673416e76a5327b1017017d2f639eab0ebac237eea29c518b7017a46b8fcb"
+"modules/statuspulls/StatusPulls_layout.py" = "467673416e76a5327b1017017d2f639eab0ebac237eea29c518b7017a46b8fcb"
+"modules/sensors/Sensors_layout.py" = "467673416e76a5327b1017017d2f639eab0ebac237eea29c518b7017a46b8fcb"
+"modules/ringsensor/RingSensor_layout.py" = "467673416e76a5327b1017017d2f639eab0ebac237eea29c518b7017a46b8fcb"
+"modules/protection/Protection_layout.py" = "467673416e76a5327b1017017d2f639eab0ebac237eea29c518b7017a46b8fcb"
+"modules/powerpulls/PowerPulls_layout.py" = "467673416e76a5327b1017017d2f639eab0ebac237eea29c518b7017a46b8fcb"
+"modules/pdpullups/PdPullups_layout.py" = "467673416e76a5327b1017017d2f639eab0ebac237eea29c518b7017a46b8fcb"
+"modules/pdeeprom/PdEeprom_layout.py" = "467673416e76a5327b1017017d2f639eab0ebac237eea29c518b7017a46b8fcb"
+"modules/pdcontroller/PdController_layout.py" = "467673416e76a5327b1017017d2f639eab0ebac237eea29c518b7017a46b8fcb"
+"modules/monitoring/Monitoring_layout.py" = "467673416e76a5327b1017017d2f639eab0ebac237eea29c518b7017a46b8fcb"
+"modules/mcu/Mcu_layout.py" = "40c34ebd9e135b025d33091874485ecbce67820771abe16ffa1e43f4d44cf6e8"
+"modules/logicsupply/LogicSupply_layout.py" = "467673416e76a5327b1017017d2f639eab0ebac237eea29c518b7017a46b8fcb"
+"modules/lightsensor/LightSensor_layout.py" = "467673416e76a5327b1017017d2f639eab0ebac237eea29c518b7017a46b8fcb"
+"modules/inputpower/InputPower_layout.py" = "467673416e76a5327b1017017d2f639eab0ebac237eea29c518b7017a46b8fcb"
+"modules/inputfilter/InputFilter_layout.py" = "467673416e76a5327b1017017d2f639eab0ebac237eea29c518b7017a46b8fcb"
+"modules/haptics/Haptics_layout.py" = "467673416e76a5327b1017017d2f639eab0ebac237eea29c518b7017a46b8fcb"
+"modules/hapticdriver/HapticDriver_layout.py" = "467673416e76a5327b1017017d2f639eab0ebac237eea29c518b7017a46b8fcb"
+"modules/gnssreceiver/GnssReceiver_layout.py" = "467673416e76a5327b1017017d2f639eab0ebac237eea29c518b7017a46b8fcb"
+"modules/gnssantenna/GnssAntenna_layout.py" = "467673416e76a5327b1017017d2f639eab0ebac237eea29c518b7017a46b8fcb"
+"modules/environment/Environment_layout.py" = "467673416e76a5327b1017017d2f639eab0ebac237eea29c518b7017a46b8fcb"
+"modules/display/Display_layout.py" = "467673416e76a5327b1017017d2f639eab0ebac237eea29c518b7017a46b8fcb"
+"modules/debug/Debug_layout.py" = "467673416e76a5327b1017017d2f639eab0ebac237eea29c518b7017a46b8fcb"
+"modules/convtemp/ConverterTemp_layout.py" = "467673416e76a5327b1017017d2f639eab0ebac237eea29c518b7017a46b8fcb"
+"modules/ble/Ble_layout.py" = "467673416e76a5327b1017017d2f639eab0ebac237eea29c518b7017a46b8fcb"
+"modules/backlight/Backlight_layout.py" = "467673416e76a5327b1017017d2f639eab0ebac237eea29c518b7017a46b8fcb"
+"Core_layout.py" = "40c34ebd9e135b025d33091874485ecbce67820771abe16ffa1e43f4d44cf6e8"
+
+# The pin map study tries the diagonals too (Ben, 2026-10-05).
+[pins]
+rotations = [0, 45, 90, 135, 180, 225, 270, 315]
+
+# Open module connections route at the project class widths.
+[[route.phase]]
+name = "signals"

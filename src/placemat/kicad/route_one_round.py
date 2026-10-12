@@ -6,12 +6,14 @@ board, cost most of a full run and rarely change the result, so the quick
 route skips them. The router is executed from its own source with one
 keyword added to its top-level call; nothing in the router checkout is
 modified; the progress hooks of route_events.py are installed first. Run by placemat's routing with `quick=True`, under the router's
-own interpreter; $KRT_DIR is the checkout (default ~/work/KRT-upstream).
+own interpreter; $KRT_DIR is the checkout, which the route sets.
 """
 import os
 import sys
 
-router_dir = os.environ.get("KRT_DIR", os.path.expanduser("~/work/KRT-upstream"))
+router_dir = os.environ.get("KRT_DIR")
+if not router_dir:
+    sys.exit("route_one_round: $KRT_DIR is not set; placemat's route sets it to the router checkout")
 py_router = os.path.join(router_dir, "py_router")
 route_py = os.path.join(py_router, "route.py")
 if not os.path.exists(route_py):

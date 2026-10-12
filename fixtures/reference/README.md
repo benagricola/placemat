@@ -12,21 +12,30 @@ commit in its upstream repository, and each file to a sha256, in `manifest.json`
 3. Route with the board's own layer count, net-class rules and via sizes.
 
 Pass is 100% clean closure, with no copper DRC error beyond the baseline. Closure is also recorded at the widths the
-human actually used (`human_track_mm` in the manifest). Vias and track length are compared with the human board.
+human actually used (`human_track_mm` in the manifest). `placemat route` exits 1 when the input board already has DRC
+errors; the runner takes that exit with a fresh `route.json` (`valid: false`, no `error`) as a completed route and judges
+it the same way. A board or width whose route did not complete records its new DRC as unknown.
+Vias and track length are compared with the human board.
 
 **Test (b), place and route:**
 1. The board's mechanical parts (connectors, holes, edge parts) are held where the original put them (`fixed` in the
    manifest).
 2. placemat places everything else and routes it.
-3. The result is compared with the human board, and with placemat's own test (a) route of the human placement.
+3. The result is compared with the regenerated reference, and with placemat's test (a) route of the original placement.
 
-The human board in test (b) is the manifest's original board, fetched and stripped as for test (a): its vias, track
-length and stripped DRC are what the routed board's are judged against. It is not the board `pcb layout` generates from
-the imported capture, because the preparation works on the original and the generated board has the standard library's
-footprints rather than the human's.
+Test (b) regenerates its reference with `pcb import` followed by `pcb layout`, using the pinned source project.
+Its vias, track length and stripped DRC are judged against that regenerated board. Both reference and placement
+run use the imported capture's library footprints. The original human placement remains test (a)'s reference.
 
 Test (a) runs on all eight boards. Test (b) needs the board to import with `pcb import`, so it runs on the boards
 listed with `b` in `tests`.
+
+Each route or placement subprocess runs in a session of its own with a timeout, and its process group is killed when
+it ends, times out or the runner is stopped (INT or TERM). Placement results require exit code zero and a new or
+rewritten `run.json` from that invocation. A stale or malformed record cannot supply a successful result.
+Full placement stdout/stderr, argv, working directory and record digest are retained under the copied script's
+`.placemat/reference-runs/`. Regenerated references retain each import/layout/legacy-upgrade command and its full
+stdout/stderr beside their output, including failed commands.
 
 ## Fetching
 
@@ -49,7 +58,7 @@ files.
 | `board` | Path of the `.kicad_pcb` |
 | `licence` | SPDX identifier |
 | `tests` | `a` and/or `b` |
-| `islands` | Nets passed to `--islands` |
+| `phases` | Named routing phases before the board's example phases: explicit nets, pairs and buses |
 | `fixed` | References held at the human board's coordinates in test (b) |
 | `human_track_mm` | The human board's most-used track width |
 | `kicad5` | The board is a KiCad 5 file |
@@ -66,7 +75,7 @@ placemat rather than the quirks of a script.
   link with a worked number), or searched. Each declaration has a `why=` naming its basis: mechanical, datasheet,
   physics or capture (a fact read from the capture's own annotations). No steering: no priority, order, `Near` or
   link added to improve a result.
-- **Routing phases:** the default set from `placemat settings --example`, plus only phases the capture's interfaces and currents
+- **Routing phases:** the example phases from `placemat settings --example`, plus only phases the capture's interfaces and currents
   call for.
 - **A check:** a script lint in the runner lists every declaration by its basis. A reviewer checks each new or changed
   reference script against these rules before it is accepted.
@@ -85,6 +94,12 @@ then also gives what the values alone say. `--changing` takes one or more of `pl
 
 A board or module whose preparation or run raises is a failed result, with the exception's type as its failure, and the
 run goes on to the next. A failure where the recorded entry had none is worse.
+
+A board (tests a and b) is worse than its recorded entry if the route failed, closure_clean fell, open connections on
+non-pour nets rose, open connections on pour nets rose, or new DRC errors rose, even when closure_clean improved; the line
+names the values. It is better only if none of those is worse and one improved. A pour net is a net with a copper zone on
+the routed board. An entry recorded without the split compares its total open count with the new total, and the line says
+"split not recorded". A module is compared on failure and closure_clean, then area; it records no open count or DRC.
 
 The ratchet: no board or module may get worse without the user's approval. `--update` writes the entries that are
 new, same, better or not comparable, and holds back an entry that is worse, and one that is not comparable but worse
@@ -123,4 +138,41 @@ A coordinate on a fixed part is listed with the declaration (`[coordinate]`) and
 | spimux | MPL-2.0 | https://github.com/oxidecomputer/hw-spimux | a |
 | chainlinkDriver | Apache-2.0 | https://github.com/scottbez1/splitflap, `electronics/chainlinkDriver` | a |
 
-pic_programmer needs `--islands VCC`: its pour does not reach its pads.
+pic_programmer uses a `vcc` phase for VCC: its pour does not reach its pads.
+
+## Local fixtures
+
+The `fixtures` key in results.json records each local fixture's phase requests,
+joins, final clean closure and open connections, including router diagnoses and
+blocker names. These comparisons say `same` or `changed`; an intentional failed
+connection can be the behavior the fixture verifies.
+
+`obstructed-route` is the local two-layer current-path fixture in
+`fixtures/obstructed_route`. U1 blocks the requested wide route between J1 and
+J2; a later class-width route joins the net while the original width remains
+unfulfilled. Run it with `route_ref.py obstructed-route`; a default route_ref
+run includes all local fixtures alongside the manifest boards under the same
+shared real-board lock.
+
+
+### Hand-placed modules
+
+A family may keep `hand/<Name>.kicad_pcb` beside `modules/*/<Name>_layout.py`.
+The module runner strips and routes the hand reference with the same family
+settings, and records clean closure, open joins, airwire crossings and length.
+Both the hand board and the generated placement use the box around KiCad's
+cached front/back courtyard polygons (footprint bounds when absent). Cached
+polygons include KiCad's stroke extent; they can extend beyond the drawing's
+centreline. The same method applies to both boards, including side and rotation.
+These facts accompany the existing module closure/area comparison. A failed
+hand preparation or route remains visible as a failed reference fact.
+The hand runner retains the full family configuration and script context in its
+owned copy, checks effective settings against the source, and refuses ambiguous
+module-specific routing overrides.
+
+`fairing_hand` holds eleven historical module references. Its source manifest
+records original hand/project/helper hashes and the required API migrations.
+The fitted-pour migrations change geometry and are shared by the old-source and
+feature comparisons. These hand boards have no physical outline, and Mcu also
+has an inherited clearance violation; their diagnostics do not certify finished
+boards. See the family's notes for the migrated placements' additional findings.

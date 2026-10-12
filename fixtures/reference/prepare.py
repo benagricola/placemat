@@ -6,7 +6,8 @@
 copper, loaded and saved with pcbnew for a KiCad 5 board, which writes the
 .kicad_pro with its net classes from the legacy .pro beside it), test.kicad_pcb
 (the same with its tracks, arcs, vias and zone fills stripped by the router's
-strip_copper_only.py, zone definitions kept) and baseline-drc.json (kicad-cli
+strip_copper_only.py, zone definitions kept, then loaded and saved with pcbnew
+so every item has an id, the same in every run) and baseline-drc.json (kicad-cli
 DRC of test.kicad_pcb). Copper layers keep their names: placemat reads them by
 the standard ones.
 """
@@ -24,6 +25,8 @@ from placemat.kicad.route import router_dir
 
 from . import fetch
 
+REGENERATED = "regenerated"
+PCB_TIMEOUT_S = 900
 REF = "ref.kicad_pcb"
 TEST = "test.kicad_pcb"
 BASELINE = "baseline-drc.json"
@@ -93,8 +96,12 @@ def measure(pcb: pathlib.Path) -> tuple[int, HumanCopper]:
 
 
 def _upgrade(pcb: pathlib.Path) -> None:
+    """Load and save a board with pcbnew: the current format, and an id on every item, the same ids in every run
+    (write.load_board seeds them from the file). kicad-cli would give an item with none a new random id at every DRC,
+    and KiCad's DRC names a violation's items by id."""
     import pcbnew
-    pcbnew.SaveBoard(str(pcb), pcbnew.LoadBoard(str(pcb)))
+    from placemat.kicad.write import load_board
+    pcbnew.SaveBoard(str(pcb), load_board(pcb))
 
 
 def _copy_project(src_board: pathlib.Path, dst_board: pathlib.Path, suffixes) -> None:
@@ -113,17 +120,69 @@ def strip(src: pathlib.Path, dst: pathlib.Path) -> None:
         raise RuntimeError("strip_copper_only failed (rc %d): %s" % (proc.returncode, proc.stderr.strip()[-500:]))
 
 
-def prepare(board: fetch.Board, src: pathlib.Path, work: pathlib.Path) -> Prepared:
+def _generation_step(command, cwd, work, stage, label):
+    """Retain complete diagnostics before reporting a bounded summary."""
+    work = pathlib.Path(work)
     work.mkdir(parents=True, exist_ok=True)
-    original = pathlib.Path(src) / board.board
+    (work / (stage + ".command.json")).write_text(json.dumps({
+        "argv": command, "cwd": str(cwd) if cwd is not None else None}, indent=2) + "\n")
+    def save(stdout, stderr):
+        for stream, text in (("stdout", stdout), ("stderr", stderr)):
+            if isinstance(text, bytes):
+                text = text.decode("utf-8", errors="replace")
+            (work / (stage + "." + stream + ".log")).write_text(text or "")
+    try:
+        proc = subprocess.run(command, capture_output=True, text=True, cwd=cwd, timeout=PCB_TIMEOUT_S)
+    except subprocess.TimeoutExpired as error:
+        save(error.stdout, error.stderr)
+        raise
+    save(proc.stdout, proc.stderr)
+    if proc.returncode != 0:
+        raise RuntimeError("%s failed (rc %d): %s" % (
+            label, proc.returncode, (proc.stderr or proc.stdout).strip()[-500:]))
+
+
+def regenerate(board: fetch.Board, src: pathlib.Path, work: pathlib.Path) -> pathlib.Path:
+    """Generate test (b)'s reference from the pinned source import, in work."""
+    project = (pathlib.Path(src) / board.board).with_suffix(".kicad_pro")
+    if board.kicad5:
+        # Upgrade only an isolated family copy: legacy projects and sheet paths
+        # must remain beside the board while KiCad migrates their settings.
+        legacy = pathlib.Path(work) / "legacy-source"
+        shutil.rmtree(legacy, ignore_errors=True)
+        shutil.copytree(src, legacy)
+        copied_board = legacy / board.board
+        _upgrade(copied_board)
+        project = copied_board.with_suffix(".kicad_pro")
+        for index, schematic in enumerate(sorted(legacy.rglob("*.sch"))):
+            _generation_step(["kicad-cli", "sch", "upgrade", str(schematic)], None,
+                             work, "legacy-upgrade-%d" % index, "legacy schematic upgrade")
+    if not project.is_file():
+        raise RuntimeError("pcb import source project missing: %s" % project)
+    out = pathlib.Path(work) / REGENERATED
+    shutil.rmtree(out, ignore_errors=True)
+    for command, cwd in ((["pcb", "import", str(project), str(out)], None),
+                         # --no-open: `pcb layout` otherwise opens the board in KiCad's GUI and leaves it running
+                         (["pcb", "layout", "--no-open", "-S", "errors", project.stem + ".zen"], out)):
+        _generation_step(command, cwd, work, "regenerated-" + command[1], "pcb " + command[1])
+    pcb = out / "layout" / (project.stem + ".kicad_pcb")
+    if not pcb.exists():
+        raise RuntimeError("pcb layout wrote no %s" % pcb)
+    return pcb
+
+
+def prepare(board: fetch.Board, src: pathlib.Path, work: pathlib.Path, *, regenerated: bool = False) -> Prepared:
+    work.mkdir(parents=True, exist_ok=True)
+    original = regenerate(board, src, work) if regenerated else pathlib.Path(src) / board.board
     ref, test = work / REF, work / TEST
     shutil.copy(original, ref)
-    if board.kicad5:
+    if board.kicad5 and not regenerated:
         _upgrade(ref)   # writes the .kicad_pro; a project file copied from the source would replace it
     else:
         _copy_project(original, ref, PROJECT_SUFFIXES)
     strip(ref, test)
-    _copy_project(ref, test, PROJECT_SUFFIXES)
+    _upgrade(test)   # the stripped board is the source's text, and an older format leaves ids out
+    _copy_project(ref, test, PROJECT_SUFFIXES)   # after: the save writes a project of its own
     layers, human = measure(ref)
     run_drc(test, work / BASELINE, refill_zones=True)
     return Prepared(ref, test, violations(work / BASELINE), layers, human)

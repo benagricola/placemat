@@ -1,0 +1,24 @@
+# DMG1013T-7: imported native symbol and footprint.
+
+S = io("S", Net, optional = True)
+G = io("G", Net, optional = True)
+D = io("D", Net, optional = True)
+
+annotations = config(dict, default = {}, optional = True,
+                     help = "Pm.* layout facts (placemat-design): forwarded into the footprint's fields")
+_properties = {"LCSC": "C96676", "MPN": "DMG1013T-7"}
+_properties.update(annotations)
+
+Component(
+    name = "Diodes_Incorporated_DMG1013T_7",
+    footprint = File("../../parts/Diodes_Incorporated_DMG1013T_7/SC-75-3_L1.6-W0.8-P1.00-LS1.6-BR.kicad_mod"),
+    symbol = Symbol("Diodes_Incorporated_DMG1013T_7/DMG1013T_7.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "DMG1013T-7", manufacturer = "Diodes Incorporated"),
+    properties = _properties,
+    pins = {
+        "S": S,
+        "G": G,
+        "D": D,
+    },
+)

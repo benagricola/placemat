@@ -1,0 +1,54 @@
+# Quectel L76K GNSS module (L76KB-A58), LCC-18 10.1 x 9.7 x 2.0 mm, on the core's shared GNSS land
+# (identical copper to the MAX-M10S build's), which covers Quectel's recommended footprint (L76K
+# Hardware Design V1.0 5.1). The adapted symbol names each RESERVED pad on its own
+# (../symbol-pin-renames.json), so pad 7 (V_IO on the MAX) can sit on the same net in both builds.
+# Land provenance: Quectel_L76KB_A58/land-pattern-provenance.json.
+
+GND = io("GND", Net, optional = True)
+TXD = io("TXD", Net, optional = True)
+RXD = io("RXD", Net, optional = True)
+P_1PPS = io("P_1PPS", Net, optional = True)
+WAKE_UP = io("WAKE_UP", Net, optional = True)
+V_BCKP = io("V_BCKP", Net, optional = True)
+RESERVED_7 = io("RESERVED_7", Net, optional = True)
+RESERVED_15 = io("RESERVED_15", Net, optional = True)
+RESERVED_16 = io("RESERVED_16", Net, optional = True)
+RESERVED_17 = io("RESERVED_17", Net, optional = True)
+VCC = io("VCC", Net, optional = True)
+RESET_N = io("RESET_N", Net, optional = True)
+RF_IN = io("RF_IN", Net, optional = True)
+ANTON = io("ANTON", Net, optional = True)
+VDD_RF = io("VDD_RF", Net, optional = True)
+SET = io("SET", Net, optional = True)
+
+annotations = config(dict, default = {}, optional = True,
+                     help = "Pm.* layout facts (placemat-design): forwarded into the footprint's fields")
+_properties = {"LCSC": "C2916234", "MPN": "L76KB-A58"}
+_properties.update(annotations)
+
+Component(
+    name = "Quectel_L76KB_A58",
+    footprint = File("Quectel_L76KB_A58/GNSS_LCC18_shared_land.kicad_mod"),
+    symbol = Symbol("Quectel_L76KB_A58/L76KB_A58.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "L76KB-A58", manufacturer = "Quectel"),
+    properties = _properties,
+    pins = {
+        "GND": GND,
+        "TXD": TXD,
+        "RXD": RXD,
+        "1PPS": P_1PPS,
+        "WAKE_UP": WAKE_UP,
+        "V_BCKP": V_BCKP,
+        "RESERVED_7": RESERVED_7,
+        "RESERVED_15": RESERVED_15,
+        "RESERVED_16": RESERVED_16,
+        "RESERVED_17": RESERVED_17,
+        "VCC": VCC,
+        "RESET_N": RESET_N,
+        "RF_IN": RF_IN,
+        "ANTON": ANTON,
+        "VDD_RF": VDD_RF,
+        "SET": SET,
+    },
+)

@@ -1,0 +1,51 @@
+# TPS25751 datasheet Figure 9-9: two SBU probes, one excitation GPIO. The
+# ESP32 reads LD1/LD2 on its ADC and drives EXCITE (the PD stack runs on it).
+# TPD6S300 SBU channels protect the low-voltage sensing nodes from VBUS.
+#
+# Layout facts (placemat-design Pm.*): the TPD6S300 sits between the
+# connector-side C_SBU1/C_SBU2 pins and the sensing FETs' LD1/LD2, and is
+# Pm.Role=barrier. TPD6S300RUKR datasheet (C2649810) section 11 "Layout",
+# 11.1 "Layout Guidelines" (p26). Its own and the excitation switches'
+# supply bypasses are Pm.Role=bypass. Worked in
+# ../../../../docs/decisions/schematics/signal-layout-facts-2026-09-27.md.
+PROTECT = Module("../../adapted/parts/Texas_Instruments_TPD6S300RUKR.zen")
+PMOS = Module("../../adapted/parts/Diodes_Incorporated_DMG1013T_7.zen")
+NMOS = Module("../../adapted/parts/Texas_Instruments_CSD15380F3.zen")
+R = Module("@stdlib/generics/Resistor.zen")
+C = Module("@stdlib/generics/Capacitor.zen")
+gnd = io("GND", Net)
+vldo = io("V3V3", Net)
+sbu1 = io("USB_SBU1", Net)
+sbu2 = io("USB_SBU2", Net)
+ld1 = io("LD1", Net)
+ld2 = io("LD2", Net)
+excite = io("EXCITE", Net)
+bias = Net("SBU_BIAS")
+pull1 = Net("PULL1")
+pull2 = Net("PULL2")
+down1 = Net("DOWN1")
+down2 = Net("DOWN2")
+PROTECT(name = "protect", VPWR = vldo, GND = gnd, EP = gnd, VBIAS = bias,
+        C_SBU1 = sbu1, C_SBU2 = sbu2, SBU1 = ld1, SBU2 = ld2,
+        C_CC1 = gnd, C_CC2 = gnd, RPD_G1 = gnd, RPD_G2 = gnd,
+        CC1 = NotConnected(), CC2 = NotConnected(), D1 = NotConnected(),
+        D2 = NotConnected(), FLT = NotConnected(), N_C = NotConnected(),
+        annotations = {"Pm.Role": "barrier"})
+C(name = "c_bias", value = "100nF", package = "0402", voltage = "50V", mpn = "CL05B104KB54PNC", manufacturer = "Samsung Electro-Mechanics", P1 = bias, P2 = gnd,
+  annotations = {"LCSC": "C307331", "Pm.Role": "bypass"})
+C(name = "c_supply", value = "100nF", package = "0402", voltage = "16V", mpn = "CL05B104KB54PNC", manufacturer = "Samsung Electro-Mechanics", P1 = vldo, P2 = gnd,
+  annotations = {"LCSC": "C307331", "Pm.Role": "bypass"})
+PMOS(name = "q_p1", S = vldo, G = excite, D = pull1)
+PMOS(name = "q_p2", S = vldo, G = excite, D = pull2)
+NMOS(name = "q_n1", S = gnd, G = excite, D = down1)
+NMOS(name = "q_n2", S = gnd, G = excite, D = down2)
+R(name = "r_up1", mpn = "ERJ-2RKF1003X", manufacturer = "Panasonic Industry", value = "100kohm", package = "0402", P1 = pull1, P2 = ld1)
+R(name = "r_up2", mpn = "ERJ-2RKF1003X", manufacturer = "Panasonic Industry", value = "100kohm", package = "0402", P1 = pull2, P2 = ld2)
+R(name = "r_down1", mpn = "ERJ-2RKF1004X", manufacturer = "Panasonic Industry", value = "1Mohm", package = "0402", P1 = ld1, P2 = down1)
+R(name = "r_down2", mpn = "ERJ-2RKF1004X", manufacturer = "Panasonic Industry", value = "1Mohm", package = "0402", P1 = ld2, P2 = down2)
+R(name = "r_excitation", mpn = "ERJ-2RKF1003X", manufacturer = "Panasonic Industry", value = "100kohm", package = "0402", P1 = vldo, P2 = excite)
+load("../../board_rules.zen", "CONFIG", "LAYERS")
+stamp_layout = config("stamp_layout", bool, default = True)
+if stamp_layout:
+    Board(name = "UsbMoisture", layout_path = "layout", layers = LAYERS, config = CONFIG)
+Project(name = "UsbMoisture", path = "kicad", schematic = True, layout = False)

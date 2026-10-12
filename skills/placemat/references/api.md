@@ -145,7 +145,7 @@ request (SKILL.md, "When no form says it").
 | a coupled differential pair, its centreline found | `board.pair(p, n, [(padP, padN), (padP2, padN2)], layer=)` | Copper calls (Pairs) |
 | two nets pairing whatever they are called | a net class of exactly two nets with `diff_pair_width`/`diff_pair_gap` set, in the board's .zen | Copper calls (Pairs) |
 | silk text on a connector, jumper, switch or LED | `board.label(item, text, side=)` | Labels |
-| a routed net kept, relative to its pads | `placemat route <script> --adopt NET` | Commands (Keeping routed copper) |
+| a routed net kept, relative to its pads | `placemat route <script> [--phase NAME [--only]] --adopt NET` | Commands (Keeping routed copper) |
 
 ## Read the board
 
@@ -1041,7 +1041,9 @@ modules/X/X_layout.py` finds the `Layout(name=, path=)` (or the
 beside it, generates the fragment and applies the script. A zen may
 declare one Layout per variant (an `if` on a `config()`), each with its
 own script named for it; the script's first line `# placemat generate:
---config key=value` tells the generator which. A fragment has no outline
+--config key=value` tells the generator which. The line passes any `pcb layout` arguments: `# placemat
+generate: -S bom.unspecified` lets a capture whose parts have no part numbers yet
+generate. A fragment has no outline
 to write, but its script may give it a frame, `board.rect(w, h,
 draw=False)`, sized from its own rows, so the controls that must meet
 a board edge are a `row` on the frame's edge; the board supplies the
@@ -3372,7 +3374,7 @@ allows; a board uses as many as its stackup has), `Face.FRONT / BACK`,
 
 ```
 placemat run <script | its directory> [--label L] [--fresh] [--no-reuse] [--no-resume] [--no-render] [--no-drc] [-v | -q] [--json] [--keep-going] [--route [--route-full] [--route-exclude NET ...]] [--detach]
-placemat route <layout.kicad_pcb | script> [--exclude NET ...] [--islands NET[=WIDTH][@LAYER,...] ...] [--layers L ...] [--full] [--iterations N] [--out DIR] [--no-resume] [--json]
+placemat route <layout.kicad_pcb | script> [--exclude NET ...] [--layers L ...] [--full] [--iterations N] [--out DIR] [--no-resume] [--json]
                [--adopt NET ... | --adopt-all] [--partial] [--no-lock] [--detach]
 placemat routes <script> [--release NET ... | --release-all]
 placemat impact <run> <run> [--board DIR]      # each a run id, a unique id prefix, a --label, or a run directory or run.json path
@@ -3803,8 +3805,10 @@ matches, better than, worse than, or not judged. **A run that comes out
 worse is a finding naming the score and the term that moved it most, and
 `placemat run` exits 1**, so a regression cannot pass unnoticed in a loop. Adding or removing a
 part starts a new family. Routing needs
-KiCadRoutingTools at `[route] router_dir`, else `$KRT_DIR` (default `~/work/KRT-upstream`) with
-its own venv; quick mode is one routing round with the router's post-route
+KiCadRoutingTools at `[route] router_dir`, else `$KRT_DIR`, with its own venv; with neither set, a
+route refuses (`route: no router: set [route] router_dir in placemat.toml or $KRT_DIR ...`, exit 2; with `--json`,
+`{"code": "router_unset", "setting", "env"}`), and a folder without the router is refused as `router_not_found`
+with the files it lacks; quick mode is one routing round with the router's post-route
 smoothing off (a measurement: a small two-layer board routes in about 10 s), `--full`
 is the router's whole run. The search budget per net is the router's own
 unless `--iterations` caps it. Left to itself (no `--layers`), the router
@@ -3812,160 +3816,62 @@ gets every layer whose role in the board's stackup is `signal` or `mixed`,
 F.Cu and B.Cu always among them - the route step prints which layers it
 left out and their role, and the report's `plane_layers` names them too.
 `placemat route --layers` overrides for one run; the board's own roles are
-a .zen fact, not a placemat.toml setting. A net with a zone or a filled
-copper pour on the board is
-left to its pour and not routed, as `run --route` leaves the plan's plane
-nets; `--exclude` adds to them. The router does not see copper zones when it routes other nets: it lays
+a .zen fact, not a placemat.toml setting. What a route routes, in what order
+and at what width is the project's routing phases (below, "Routing phases").
+A net with a zone or a filled copper pour on the board is a pour net: no
+phase routes it unless one names it, as `run --route` hands the route the
+plan's plane nets; `--exclude` leaves more nets out of every phase. The router does not see copper zones when it routes other nets: it lays
 tracks through a board-wide fill, and the refill carves round them, so a fill
 need not be switched off for routing. A partial pour on an inner layer of a
-net left out would be split that way, so the router's input copy keeps other
+pour net would be split that way, so the router's input copy keeps other
 nets' tracks out of its outline (vias may pass) and the route step says how
 many pours it kept (`pours_kept` in the report); a route through one is a
 keepout breach naming the pour. Outer-layer pours are left open to it: other
 nets' pads sit in them.
 
-Every router pass (the pairs, the island nets, the class stages, the main pass) is given
+Every router call of every phase is given
 `route.turn_cost` (20000 by default, where the router's own default is
 1000: at that a 45-degree kink costs the router 0.05 mm of path, and its
 routes stair-step along the line to their target) and runs the router's
 own smoothing; `route.router_args` passes more of its flags through
-(`route.pair_router_args` to the pair router). Routes
+(`route.pair_router_args` to the pair router), before the phase's own `router_args`. Routes
 already kept stay as they were laid: `placemat routes <script>
 --release-all` drops them, and the next `route --adopt-all` lays them again.
 
-Which nets pair comes from the board's own net classes, not a setting: a
+Which nets pair, for placement, comes from the board's own net classes: a
 class other than Default that sets `diff_pair_width` and `diff_pair_gap`
 groups its nets into pairs. Exactly two nets in the class pair outright,
 whatever they are called; more than two pair by the router's own suffix
 convention (`_P`/`_N`, `P`/`N`, `+`/`-`) within the class. The Default
 class never makes pairs - KiCad gives it its own diff pair figures even
-when nobody declared one. A class of two nets named otherwise, such as a
-tank's two leads, is routed the same way a named pair used to be: the route
-step renames the two in its own copy to `PMPAIR<i>_P`/`PMPAIR<i>_N`, a name
+when nobody declared one. A pair phase (`pairs`, below) routes the pairs it names; a pair of two nets
+named otherwise than the router's suffixes is routed the same way: the pair call
+renames the two in its own copy to `PMPAIR<i>_P`/`PMPAIR<i>_N`, a name
 no board net has, routes that pair, and names them back in the routed copy
 before its copper is read or kept. The renamed nets keep their net classes.
 Placement weighs every pair's crossings the same way, by its net class.
 
-The pair router routes every pair on the route's own layers unless
-`[route] pair_layers` names the pair, by its two nets or by its net class:
+A pair's layers are its phase's `layers`.
 
-```toml
-[route]
-pair_layers = {"USB_D_P/USB_D_N" = ["In2.Cu", "B.Cu"]}
-```
+A pour net whose pours do not reach every pad of it (a rail's small taps on the far side of a cell) is routed by a
+phase that names it (`nets` and `width`, on the phase's `layers`): the pour net alone in a router call of its own, its
+pours handed to the router as zones so it joins only the pads and pieces they leave apart.
 
-A key is `"P/N"` (the pair's two nets, either order) or a net class name; a
-pair's own nets win over its class. The router takes one layer list per
-call, so the pair stage runs it once per distinct list, the named pairs
-first, each call on the board the one before it wrote with that call's
-copper fixed (`pairs.log`, then `pairs_1.log` and on). A layer left out is an
-obstacle to the pair, not a layer it routes on: the router lays no track on
-it and its vias clear that layer's copper. So a pair whose escape lanes end in
-vias on F.Cu, given inner and back layers, starts from those vias and cannot
-tap a lane on F.Cu. Its ends must reach one of its layers: from a pad on a
-layer left out, with no via, the pair router cannot start. The router may also
-fail to couple a pair from two vias further apart than its own pair pitch and
-route each half on its own (its single-ended fallback, still on the pair's
-layers); the report's `pairs` says which. A pair it leaves unrouted is routed
-by the main pass on the route's own layers. The report's `pair_layers` holds
-the lists applied (`{"P/N": [layer, ...]}`); an unknown layer name is refused
-when the settings load, and a key that names no pair on the board or a layer
-the board does not have is a `setup.pair_layers` finding (facts `key`,
-`variant` `no_pair` or `layer_missing`, `layers`, `missing`, `board_layers`,
-also in `pair_layers_refused`), the entry not used.
-
-A pour net whose pours do not reach every pad of it (a rail's small taps on
-the far side of a cell) is named in `[route] islands` (or `--islands
-NET[=WIDTH]`): the route then runs the router on those nets first, one at a
-time, each kept out of the other island nets' partial inner-layer pours.
-The router counts a net's own zones as joining what they reach, so it joins
-only the pads and pieces the pours leave apart, at the net's netclass width
-(read from the board's project) or the WIDTH given (the router raises a
-width below its own default track width to that); its tracks are then fixed
-and the main pass leaves the net to its pours, other nets kept out of its
-partial inner-layer pours. A name the board does not have is said and
-skipped; a malformed entry is refused when the settings load. The route step says how many pieces each
-island net had apart before and after (`islands` in the report); the
-island nets count in the closure, and `--adopt NET` keeps their routes like
-any other net's.
-
-An entry may end in `@` and a list of layers, `"VBUS=1.37@F,B"` or
-`"VBUS@F.Cu,B.Cu"` (F, In1 to In30, B, or their `.Cu` names): that net's
-pass lays tracks on those layers only, and its vias still pass through the
-others, joining a pour of the net there. Without `@` the net routes on the
-route's own layers. A layer that is not a copper layer is refused when the
-settings load; one the board does not have stops the route before its first
-router call. A bare `--islands NET` keeps the layers the setting gives it.
-The report's `island_layers` names each net's layers.
-
-```toml
-[route]
-islands = ["VBUS=1.37@F,B", "VSHUNT=0.3"]
-```
-
-A net that should keep other nets' copper further off than its class
-clearance, such as a switch node, gets a halo in `[route] net_halos`:
-
-```toml
-[route]
-net_halos = {"SW" = 2.0}
-```
-
-The router takes a per-net clearance map and spaces two nets at the larger
-of their two values; left to itself it builds the map from the board's net
-classes. With a halo on the board the route writes the map instead
-(`net_clearances.json` in its work folder, `pairs_net_clearances.json` for
-the pair stage, whose nets it renames): the router's own class map, built by
-the router's own function, with each halo net at the larger of its class
-clearance and its halo. A `--clearance-ceiling` in `route.router_args` (or
-`route.pair_router_args`) caps the class entries as the router caps its own,
-not the halos. Every router pass gets the map, so other nets' new copper
-keeps the halo from the halo net's copper, and the halo net's own new copper
-keeps it from everything; `--net-clearances` in the router args is refused
-when the settings load. The report has `net_halos` (the entries applied) and
-the summary line ends `halos: SW 2 mm`. Before the first router call the
-route judges every pad of another net that the route routes and that has
-open connections, lying within a halo of the halo net's copper (its pads,
-tracks, vias, drawn copper and pours, on a layer they share): the router can
-lead it out only from an end of its own copper that is already past the
-halo. The ends are the pad itself, each end of a track joined to it and each
-via on that copper. Only a track or via end counts: drawn copper (a polygon)
-joins the pad to its tracks and vias but is not an end, however far it
-reaches. A track leaving an end keeps its edge the halo away, so an end
-counts as led out only at the halo plus half the pad net's class track width
-from the halo net's copper. If no end lies that far, the pad is trapped: a
-`setup.net_halo` finding, said before the route starts, with facts `variant`
-`trapped`, `net`, `halo_mm`, `ref`, `number`, `pad_net`, `gap_mm` (the pad's
-own gap to the halo net's copper), `reach_mm` (how far its farthest end
-lies from that copper), `needed_mm` (the halo plus half the class track
-width) and `short_mm` (`needed_mm` less `reach_mm`); also in
-`net_halo_trapped`. The cure is in the module that draws the pad: an escape
-that runs out past the halo (a longer `run=` on its `board.escape`), or a
-smaller halo for that node. A halo net with open connections routes in the
-class stage of its halo (below), not in the main pass. A key that names no net on the board is a `setup.net_halo`
-finding with `variant` `no_net` (`net_halos_missing` in the report), the entry
-not used; a halo that is not a number above 0 is refused when the settings
-load.
+A net that should keep other nets' copper further off than its class clearance, such as a switch node, states it in
+the capture, as the clearance field of its net type.
 
 A wide route the router cannot lay is retried at its default track width (its "neck-down"), so a width asked for is not a width
-delivered. An island net given a width in `[route] islands` is judged on the routed board: each of its tracks, on every layer,
-against the width asked. The script chose that width for what the island carries, which may be a tap of a net whose full current
-flows through a declared track; the current itself is `check current-path`'s to judge, carrier to carrier, by IPC-2221 with the
-inner constant on an inner layer. To keep an island off the inner layers, give it layers (`"VBUS=1.37@F,B"`).
-Narrow copper the router leaves at a pad on purpose is not counted: copper within the router's neck length plus its taper of a pad
-(KRT `--neckdown-length` 2.5 mm and `--neckdown-taper-length` 0.5 mm, so 3 mm, read from `[route] router_args`; none with
-`--no-power-tap-neckdown`), measured along narrow copper from the pad. A narrow stretch farther from every pad counts, wherever it is.
+delivered. Each obligation of a phase given a width is judged on the board along the path that joins its two pads (see "Routing
+phases"). Narrow copper the router leaves at a pad on purpose is not counted: copper within the router's neck length plus its
+taper of either end (KRT `--neckdown-length` 2.5 mm and `--neckdown-taper-length` 0.5 mm, so 3 mm, read from `[route]
+router_args` and the phase's; none with `neckdown = false`).
 
-Other nets, an island given no width among them, are left to `check current-path`, which judges copper from carrier to carrier,
-and to the router's own measurement of the copper it shipped. That is read from each stage's summary (`power_widths`,
+The router's own measurement of the copper it shipped is read from each router call's summary (`power_widths`,
 `design_rules.narrowed`, `power_trace_ampacity`; `power_widths` only in a full route's stage given a width). `route.json` keeps
-`widths`: per net and stage that delivered under its need, `net`, `stage` (`islands`, `classes` or `main`), `requested_mm`, `delivered_min_mm`, `length_under_mm`, `length_mm` and `share` (null where the router gave only the
-narrowing), `declared` (the net has a width in `[route] islands`), and `max_a` and `bottleneck_mm` (the current the copper with the
-least capacity carries, and its width: IPC-2221 for an island net judged on the board, the router's IPC-2152 otherwise). A record
-judged on the board also has `bottleneck_layer`, `amps` (the current stated), `necks_mm` (the neck-down not counted),
-`neck_limit_mm`, and `layers`: per layer short, `layer`, `need_mm`, `by` (`asked` or `current`), `under_mm`, `min_mm`. The route's
-summary line ends `UNDER WIDTH: NET 16.6 of 17.2 mm under 1.37 (min 0.16)` (a board record names each layer's need:
-`under F.Cu 1.37, In2.Cu 3.56`), `route_summary.json` has `under_width` (the same records), `placemat watch` and the studio's stream
+`widths`: per net and router call that delivered under its need, `net`, `stage` (the phase's name), `requested_mm`, `delivered_min_mm`, `length_under_mm`, `length_mm` and `share` (null where the router gave only the
+narrowing), `declared` (the net's phase sets a width), and `max_a` and `bottleneck_mm` (the current the copper with the
+least capacity carries, and its width, the router's IPC-2152). The route's
+summary line ends `UNDER WIDTH: NET 16.6 of 17.2 mm under 1.37 (min 0.16)`, `route_summary.json` has `under_width` (the same records), `placemat watch` and the studio's stream
 get a `route_width` event per record, and each is a `route.width` finding in the console, `run.json` and `placemat route --json`
 (`finding_details`). A net the router recorded as narrowed but the script gave no width is not measured per length and has
 `length_mm` null. Net-class and pair widths are reported only where the router records a narrowing of them: its pair router writes no
@@ -3986,7 +3892,9 @@ dangling router copper was kept) and `refused_nets` (the nets kept because the d
 
 Before that cleanup, a router via closer than the board's hole-to-hole to another hole of its net (a via or a plated through-hole
 pad) is merged into it, as the router's own plane passes merge theirs: the via is deleted and the router's tracks ending on it move
-onto the other hole, where the other hole covers the via's layers. KiCad's own cleanup merges only vias at the same spot, but its
+onto the other hole, where the other hole covers the via's layers. Of two router vias, the one kept is the one more copper ends on
+(first copper a merge cannot move: tracks the router was given, and arcs; then any track), then the lower x and y; a net whose merges part its pads or bring a track
+within clearance is tried once more the other way round. KiCad's own cleanup merges only vias at the same spot, but its
 hole_to_hole check ignores nets, so such a pair is a DRC violation. A via stays where the merge would part its net's pads, where a
 moved track would come within clearance of another net's copper (the netclass clearance; a zone by its fill), where the other hole
 does not cover its layers, or where copper the router was given ends on it. `dangling_removed` has `vias_merged` (per net) and
@@ -4001,43 +3909,231 @@ its footprint). The guards are deleted from the routed copy before its DRC
 is run. The router keeps a footprint's copper graphics on every layer, so
 nothing is put back.
 
-**Class stages.** The router spaces every net of one call at the largest
-clearance among the nets that call routes (its routing-side floor), and keeps
-other nets' copper at the larger of that floor and the copper's own class
-clearance. So a 0.2 mm class routed with the Default nets would space every
-one of them at 0.2 mm. The route therefore takes each net it would leave to
-the main pass whose clearance in the router's map (its class clearance, or its
-halo) is above the Default class's, groups those nets by that clearance, and
-routes each group in a router call of its own, widest first, after the islands
-and before the main pass. Each routes at its own clearance; the main pass,
-without them, at the Default's. A `--clearance` or `--clearance-ceiling` in
-`route.router_args` is applied to both sides as the router applies it. A net a
-class stage leaves open is not routed again by the main pass (there it would
-space every net at its clearance again); it stays open in the report. The
-report's `class_stages` lists them, widest first, each `clearance_mm` and
-`nets` (`{net: [open items before, after]}`), and the summary line has
-`class stages: 0.2 mm RF 1 -> 0`.
+### Routing phases
 
-**Stages and resume.** A route works in four stages - the differential
-pairs, the islands, the class stages, the main pass - and keeps each in its work folder
-(`<run dir>/route/`, or `.placemat/route/`, or `--out`) as it finishes:
-`state.json` has the stage, the digest of its inputs (the board and its
-project files, the nets left out, the islands, the layers, `quick`, the
-iteration caps, the router and its version, the `[route]` settings), chained
-from the stage before, and the stage's result (its board, the pair outcome,
-the breaches, the time). A rerun whose digests match takes those stages
-(`took islands, main from an earlier route of the same inputs`;
-`metrics.route.resumed`) and routes the rest; the first stage that does not
-match is dropped with its files and every later stage, and routed. A stop
-(`SIGTERM`, Ctrl-C) or a router failure leaves the finished stages and the
-partial stage's log. `--no-resume` routes every stage again. The main pass is
-one stage: nothing inside it is kept (the router's own `KICAD_STOP_AFTER` /
-`KICAD_STOP_FILE` checkpoint stop, which writes the partial board, could be
-used for that later). The router's raw output is `router_out.kicad_pcb`;
-`routed.kicad_pcb` is made from it, then post-processed, every time.
+A route takes up the project's routing phases, `[[route.phase]]` tables in placemat.toml, in the order given. Each
+phase is a named set of connections, routed at its own width, on its own layers, with its own router flags, on the
+board the phase before it left, that phase's copper locked:
+
+```toml
+[[route.phase]]
+name = "power-legs"
+current_paths = true           # each carrier-to-carrier pair of a net with a stated current (Pm.I)
+width = "current"              # or a number in mm
+layers = ["F", "B"]            # default: every layer the route uses
+neckdown = false               # the router's pad neck-down; default true
+router_args = []               # extra router flags for this phase only
+
+[[route.phase]]
+name = "in-leg"                # one connection at a time
+width = 0.8
+[[route.phase.connections]]
+from = { part = "J1", pad = "2" }
+to   = { part = "Q1", pad = "VIN" }
+
+[[route.phase]]
+name = "diff-pairs"
+pairs = true                   # the capture's DiffPair instances; or [["USB_P", "USB_N"], ...], P first
+
+[[route.phase]]
+name = "buses"
+buses = [["SDA", "SCL"]]       # each list one bus, routed together
+
+[[route.phase]]
+name = "wide-clearance"
+net_classes = ["HV"]
+
+[[route.phase]]
+name = "taps"
+nets = ["VIN", "VOUT_*", "!VOUT_SENSE"]
+width = 0.3
+
+[[route.phase]]
+name = "signals"               # no selector: every connection still open, at the net classes' widths
+```
+
+A phase has at most one selector:
+
+| Key | Selects |
+|---|---|
+| `nets` | nets by name or glob (`DISP_*`); `!NAME` excludes; read as the router reads `--nets` |
+| `net_classes` | every net in these KiCad net classes |
+| `pairs = true` | the differential pairs: the capture's `DiffPair` instances; `pairs = [["P", "N"], ...]` names them by their nets, P first, for a board without a capture |
+| `buses` | a list of buses, each a list of net names or globs, each routed together as one bus |
+| `connections` | pad-to-pad connections, each `{from = {part, pad}, to = {part, pad}}`; a pad by number or by the net it is on |
+| `current_paths = true` | every pair of carriers on each net with a stated current, pad to pad |
+| `interfaces` | every instance of these Zener interface types, each one bus, or instances by path (the capture) |
+| `net_types` | every net of these Zener net types (the capture) |
+
+A phase with none is the rest: every connection still open when it runs, pour nets left out. A phase selects only
+connections still open when it runs; a connection an earlier phase joined is not routed again. A pair is selected
+when either member remains open. The connected member's input copper stays fixed; the pair router may report
+`single_ended` fallback for the remaining member, which routes it as a single track, not as half of a coupled pair. A selector that names a
+net, class, part, pad, type or layer the board lacks, or a glob that matches nothing, refuses the route naming it
+(`route.phase 'NAME': no net 'X' on this board`); so does a selector the board's generator cannot answer (`interfaces`,
+`net_types` and `pairs = true` need the capture's `nets.layout.json` beside the board).
+
+`width`: a number is that width in mm on every layer; `"current"` sizes each connection from the lesser current of its
+two carriers by IPC-2221 at `[check] rise_c`, per layer; a current bus retains one
+call boundary per selected bus, passing both its connection tasks and its bus group (a selected net with fewer than two carriers is refused); left
+out, the net classes' widths. Pair phases use their net classes' widths and refuse an explicit phase width.
+`layers`: the copper layers the phase's tracks may use, by `F`, `In1` to `In30`, `B` or
+their `.Cu` names; vias still pass the others. `neckdown`: the router's pad neck-down, on by default (route.py's
+only: the pair router has none). `router_args`: the router's flags for this phase's calls, its pair call included,
+after `[route] router_args` (`[route] pair_router_args` for the pair call); the flags placemat sets itself are refused,
+and so, in a phase that routes pairs, is a flag the pair router does not take (`pair_flag`).
+
+A phase's nets keep their net classes' clearances (`clearance` is not a phase key). The router spaces every net of one
+call at the largest clearance among the nets it routes, so a phase whose nets have different clearances routes one call
+per clearance, widest first, then the Default's; each call's copper is locked before the next. A `--clearance` or
+`--clearance-ceiling` in the effective global and phase `router_args` is applied in that order, as the router
+applies it. A ceiling caps the class contribution; the capture's stated net clearance remains an immutable lower
+bound and cannot be reduced by either override. Pad-to-pad tasks of one
+net at different widths route one call per width, widest first. A phase's pairs, buses, pour nets, tasks and nets route
+in that order.
+
+A pour net (a net with a zone or filled pour on the board: the plan's plane nets for `run --route`) that a phase names
+is joined to its pours alone, in calls of its own, its pours handed to the router as zones. Via drops come first:
+the router's plane repair gives each pad of the net that KiCad's connectivity finds apart from every pour of the net
+a via in the pad, or a via beside it with a short track on the phase's layers, at the net class's via size and track
+width, never below the board's own rules; its via's hole keeps the board's hole clearance as well. A pad already
+joined (by a cell's via, a track, the pour itself) is left as it is. The repair also joins split pieces of the pour
+with tracks no wider than the phase's width or the net class's, and leaves anything still split to the next step.
+Then the group of the net's pads holding the most pads among those on the pour stands for it, and every other group
+is routed to its nearest pad by one pad-to-pad task, at the phase's width or the net class's; the track reaches the other
+group's pad copper, never only the pour's fill. Which pads are joined is KiCad's judgement (its connectivity with the zones refilled), and each task
+tells the router so: the router routes it even where its own model takes the pads for joined, and answers `routed`
+only when its copper joins the task's ends; otherwise the task is `failed`, its `evidence.diagnosis`
+`joined_by_pour_only` (the router counted the ends joined through a pour KiCad does not) or
+`reverted_by_improvement_gate` (the router laid the track and took it out again). After all of a phase's
+pour calls, every pour net the phase joined is checked once more: one that a later call of the phase split (more pad
+groups than its own call left) is joined once more the same way, drops for the pads now apart and then tasks, and
+that join is judged as a call of the phase. A last look records each net's pad groups as the phase leaves them. A
+part outside the board's outline polygon (the box of its Edge.Cuts items when the outline does not close) gets no
+drop and no task. Neither call crosses a footprint's own copper (an
+antenna) to reach a pad of that footprint. Both take the capture's stated net clearances; the plane repair takes no
+`[route] router_args` or phase `router_args`. The calls leave the board's rules as they were. The tasks run with
+the router's environment variable `KICAD_PLANE_FINALIZE=0`, its own switch for the plane repair it otherwise runs at the
+end of a route, so the tasks are the only tracks the call lays. Every pour net's partial inner-layer pours are kept clear of other nets' tracks on the
+route's layers, whatever the phase's own `layers`, from the first phase on; a pour net's call takes its own net's guard
+off for itself alone. A pour net no phase names is left to its pours and is not counted in the closure. The rest
+phase never takes a pour net. A `current_paths` phase does not route the pour nets it picks up: the pour carries the
+net's current. Their connections are asked of the pour, with no width: after the phase each is judged as the
+phase's other connections are, and one the pour does not join is open and counted in the phase's closure. The
+phase lists them as `pour_served` ({net, from, to, joined}); its line counts the joined ones and names the others
+("left to their pours: GND 12 connections; not reached by the pour: GND J1.2-U1.3"), and says "routed by phase
+NAME" when a later phase routes that net (`pour_routed_by` in `route.json`). A pour net a phase names, by `nets`,
+a class, `connections` or another selector, routes in its own call as above, `width = "current"` or not.
+
+**Kept results.** Each phase's result is kept in the route's work folder (`<run dir>/route/`, or `.placemat/route/`, or
+`--out`) as it finishes, its routed board first, then its judgement (a failure judging it, such as a DRC that wrote no
+report, keeps the routing, and the rerun judges it again): `state.json` holds the phase's digest - the board and its project files, the capture, the nets
+left out and the pour nets, the layers, `quick`, the iteration caps, the router and its version, placemat's version, the
+`[route]` settings, `[check] rise_c` (the current widths), the phase's own definition - chained from the phase before it, and the phase's result. A rerun takes
+each phase whose digest still matches (`took signals from an earlier route of the same inputs`;
+`metrics.route.resumed`) and routes from the first that does not: an edit to the third phase routes the third and later
+again and keeps the first two. A stop (`SIGTERM`, Ctrl-C) or a router failure leaves the finished phases. `--no-resume`
+routes every phase again. Phase i's files are `p<i>_*` (`p<i>_<k>.kicad_pcb` and `.log` for its k-th router call); the
+last phase's board is `router_out.kicad_pcb`, and `routed.kicad_pcb` is made from it, then post-processed, every time.
+
+**Each phase's record.** `route.json` has `phases`, one record per phase in order: `name`, `index`, `selector`,
+`width`, `layers`, `neckdown`, `reused` (taken from an earlier route), `seconds`, `calls` (router calls made), `pairs`
+(the pair router's outcome), `connections` (the router's record of each pad-to-pad task, as it gave them: `status`
+`routed`, `failed`, `joined_before`, `joined_narrow`, `deferred` or `refused`), `bus_groups`, and:
+
+- `asked`: how many obligations the phase has. An obligation is a pad pair, `{"net", "from": {"ref", "pad"}, "to":
+  {"ref", "pad"}, "widths": {layer: mm} | null}`: a task phase's tasks; a net phase's connections the unrouted input
+  board has open on its nets; the rest phase's open connections on nets no earlier phase names. They are fixed from
+  the input board before any phase runs, so a route cannot change its own denominator. When two footprints share a
+  reference, an end on one of them also names its footprint's KiCad uuid (`"fp"`), and is judged on that footprint.
+- `joined`, `closure_clean`: the obligations clean on the board after the phase (a DRC of it, guards off and zones
+  filled) and their share (1.0 with none asked). Clean is joined by copper (KiCad's connectivity), its net in no real
+  error of that DRC that the phase's input board did not already have (the `real` bucket at severity error, matched as
+  `drc_new` matches them; the input board's DRC is the phase before's, or the unrouted board's for the first phase), not narrower than asked along the
+  copper path that joins its two pads (a thin branch to another pad does not count), and not a `joined_narrow`
+  outcome. The path is its tracks and any stretch of a pour's fill, a filled copper polygon or another pad it passes
+  through; such a stretch is as wide as the widest disc that can travel through that copper from where the path
+  enters it to where it leaves (the measure the current-path check uses, read to within one `[check] zone_step`). Copper
+  on one layer joins wherever it overlaps, as KiCad 10's connectivity joins it: a track end anywhere on a pad, a
+  track that crosses or runs along a pour or a pad, two tracks that cross or overlap.
+  Along that path, copper closer than the neck allowance to either end is the router's pad neck-down and is not
+  counted (the router's neck length plus taper, 3 mm by default; none with `neckdown = false`), but the allowance
+  reaches at most half the path from each end: every connection keeps copper at its full width, and on a path too
+  short for both necks its middle point must lie on full-width copper. The rule is on points along the path, so how
+  the copper is split into tracks does not change it.
+- `open`: each obligation not clean, with `outcome` (its task record's `status`; null for a whole-net call),
+  `evidence` (the router's own record of why, as it gave it; null when it gave none), `violated: true` when joined
+  but its net has a DRC error of a `[drc] real_kinds` kind the phase's input board did not have, `under` (`{layer: mm}`) when joined
+  narrower than asked, and `width_unknown: true` when joined but no copper path between its pads could be measured (copper joined only partway along a curved
+  track, which is measured end to end at its own length, or a net the router gave no width for, below).
+- `pour_joins`: one record per pour net the phase joined to its pour: `net`; `pads` (its pads inside the board's
+  outline polygon); `joined_before` (those on the pour before the call, left alone); `apart_before`; `tapped` (pads apart
+  before that the drops joined); `vias` (`in_pad`, `beside`: the drops' vias, in a pad or beside it; `joins`: the
+  vias the repair's joins of the pour's pieces added); `groups_left` (the groups still apart after the drops, one
+  task each); `groups_after` (its pad groups when the call was done); `tasks` (the
+  router's record of each task, as in `connections`); `rejoin`, a record of the same fields, when a later call of
+  the phase split the net and it was joined once more; and `groups_final`, its pad groups when the phase was done.
+  An open connection's `outcome` and `evidence` come from the latest task that answered it. The phase line says the
+  same: "GND: 3 pads on the pour, 82 of 90 apart tapped (47 vias in a pad, 10 beside), 4 vias in joins of the pour's
+  pieces, 1 of 3 groups left joined by a track", and names a net joined again: "; GND split by a later call, joined
+  again: ...".
+- `final_asked`, `final_closure_clean`, `final_open`: the same obligations as `asked`, judged again on the final
+  board, after the last phase and the clean-up, against the same input board's DRC. A short or a narrow join left
+  by a later phase shows in the final fields; a fault is not attributed to a phase.
+
+The report also has `vias`, `track_mm` and `segments` (the copper the route added on the final board, as the router's
+own quality key counts a board's: vias, the straight segments' length end to end, and their count; arcs are left out
+as there), `drc_new` (errors in the DRC's `real` bucket on
+the final board that the unrouted board does not have, matched one to one on type and every item's description and
+position within 0.05 mm; warnings and
+the other buckets never count; null when a DRC wrote no report) and `widths_failed` (obligations joined on the final
+board narrower than asked along their path, reported `joined_narrow` by the router, or with a width that could not be
+measured (`width_unknown`)). The board-wide `closure`, `closure_clean` and `open_nets` are as before.
+
+The width each join is judged against comes from the router: before any copper changes, the route asks the
+configured router which width it will draw each selected net at in each phase and on each layer, as the router works
+it out from the net class, the design rules and its flags (`[route] router_args` first, then the phase's own). A
+connection task is judged at the widths its phase gives it. A pair phase's nets are asked with the flags of its pair
+call. A rest phase with no width of its own judges the nets of an earlier pair phase at that pair's width; with a
+width of its own, or its own `--track-width`, their single tracks are asked at that width as well. A width the router
+would take from an impedance is not asked. A net the router gives no width for is `width_unknown`. The answer is saved as `width_policy.json` (per
+phase and net: `status` and `widths`), the query's output as `width_policy.log`. A query that gives no answer refuses
+the route (below).
+
+**Refusals.** A route placemat will not start says why and exits 2 (`placemat route --json` and the live channel carry
+the code and its facts):
+
+| Code | When |
+|---|---|
+| `no_phases` | the project has no `[[route.phase]]`: `route: no routing phases in placemat.toml; \`placemat settings --example\` writes a placemat.toml with example phases` |
+| `unknown_phase` | a phase named to route up to is not one of the project's |
+| `capture` | the capture's `nets.layout.json` cannot be read, or was written for another netlist (`path`, the sidecar; `reason`; `detail`) |
+| `router_old` | the router lacks a flag the phases need (`--connections`; `--bus-nets` for a phase with buses; for a phase that names a pour net, the plane repair's `--pads`, `--no-join-gate`, `--no-own-pad-lift`, `--net-clearances` and the others its call gives, route.py's `--no-own-pad-lift`, and the task field `apart` in its `task_fields`) |
+| `width_policy_unavailable` | the router has no width query (`py_router/nominal_width_policy.py`, on the placemat fork) or its interpreter will not start (`router`, `script`; `error` and `errno` when it will not start); routing stops before changing copper |
+| `width_policy_failed` | the router's width query gave no answer (`router`; `failure`: `timeout` with `seconds`, `failed` with `exit_code`, or `malformed` with `problem`; `log`, its output); routing stops before changing copper |
+| `router_owned` | `[route] router_args` or a phase's `router_args` names, by the router's own flag list, a flag placemat sets itself (`phase`, null for `[route]`; `flag`; `owned`, the router flag it names). The settings refuse the plain cases when they are read; this catches an abbreviation only the router's list resolves |
+| `pair_flag` | a phase that routes pairs gives in `router_args` a flag the pair router (route_diff.py) does not take, by the router's own capability listing (`phase`, `flag`): its pair call would fail |
+| `router_refused` | the router refused a task placemat selected (`facts`: `phase`, `tasks` each `{net, from, to, reason}`; an end on a reference two footprints share also names its footprint's uuid, `fp`); the route stops |
+
+A phase that cannot be obeyed on the board (a selector naming nothing, a layer the board lacks, a current not stated)
+is refused the same way, with its own code.
+
+A flag in `router_args` is read as the router reads it: the flag itself, or the one flag of the router's own list it
+abbreviates (`--clearance-c` is `--clearance-ceiling`); an abbreviation of two or more flags names none.
+
+**Footprints that share a reference.** KiCad allows two footprints with one reference. The route goes ahead: each
+connection end on such a footprint names it by uuid (`"fp"` above), a `connections` end on the shared reference is a
+task to each of them, `current_paths` takes each as a carrier, and the router's connections file names the uuid on
+those ends. The current router does not read it yet and may join a task to either footprint; placemat judges each on
+its own footprint. A `setup.duplicate_reference` warning says so before routing: `ref`, `nets` (the routed nets their
+pads are on) and `footprints` (each `uuid` and `at`). `route.json` lists them under `duplicate_references`. The
+phase record's `connections` (the router's records), its `open` entries and a `router_refused` refusal name `fp` on
+such an end, the router's record taking it from the task it answers.
 
 **Nets with DRC violations.** The route's summary line ends `with DRC violations: NET (hole_to_hole)` for each net
-with a real DRC violation in the routed copy; the closure counts such a net as unrouted ("clean"). `route.json` and
+with a new DRC error of a `[drc] real_kinds` kind in the routed copy (one the unrouted board did not have; other
+error kinds, such as a solder-mask bridge or a starved thermal, count in `drc_new` only); the closure counts such a
+net as unrouted ("clean"). `route.json` and
 the route record list the nets under `shorted` and the kinds of each under `violations`, `{net: [kind, ...]}`.
 
 **Keeping routed copper.** `placemat route <script> --adopt NET ...` routes
@@ -4117,8 +4213,8 @@ socket for as long as it runs (Linux and macOS):
   doc step and each `item` event's item, rounded to a millisecond; the plan doc's `seconds` is the whole resolve's. `run.json` keeps
   `steps[i].seconds` and `first_seconds`, and `metrics.resolve_seconds`.
 - A route (`placemat route`, or `run --route`) streams per-net events from the router's own process: `route_board` (`doc`: the
-  board and its parts as the studio draws them; with a run's plan the run's plan is used instead), `route_stage` (`stage`: `pairs`,
-  `islands`, `classes` or `main`, `resumed` when the stage was kept from an earlier route), `route_queue` (`nets`: the nets the stage will take, in
+  board and its parts as the studio draws them; with a run's plan the run's plan is used instead), `route_stage` (`stage`: the routing
+  phase's name, `resumed` when the phase was kept from an earlier route), `route_queue` (`nets`: the nets the phase will take, in
   order), `route_net_begin` / `route_net_end` (`net`, `ok`), `route_commit` (`net`, `how` `route` or `restore`, `seg` as
   `[x1, y1, x2, y2, layer, width]`, `via` as `[x, y, size, drill, layers]`: copper as it is laid), `route_rip` (the same shapes:
   copper taken up again), `route_queue_end`, and `route_off` (`reason`: `{"code": "no_function" | "no_parameter" | "no_field" |
@@ -4574,10 +4670,18 @@ written on a stop, even with `--accept`, and `placemat lock <script>
 --accept-seed S` writes variant S from `<board>/.placemat/explore/<script
 stem>/` (refused when the lock or the script changed since). A
 stopped run's `run.json` has `status: "stopped"` and `failure: {kind:
-"stopped", signal, stage, elapsed_s, explore}`, the layout folder is as the
-last run left it, a final line names the stage and the signal, and the exit
+"stopped", signal, stage, elapsed_s, explore, layout}`, the layout folder is as the
+last run left it (except after a stop during the route: it then keeps the
+placed, unrouted board, says so, and a rerun resumes the route), a final line names the stage and the signal, and the exit
 status is 128 + the signal. While a run works its `run.json` says `status:
 "running"` and its `pid`; a record whose pid is gone died without finishing.
+
+**A failed run.** A run that fails records `status: "failed"` and `failure: {kind, message, ..., layout}`. `layout`
+says what the layout folder holds: `placed_unrouted` when the route failed or was refused after the placement was
+written (the folder keeps the placed board, and the run's last lines say so; run the same command again to route it,
+and the route takes the phases the failed one finished), `restored` when the folder was put back as the last run left
+it (a failure before the board was written), `as_written` when a critical item's failure wrote the board as it stood.
+A stopped run's `failure` carries the same `layout`.
 
 **Stages alongside.** Once the board is written, a run starts kicad-cli's DRC and its renders and runs the design
 checks while they work (`run.parallel`, on by default). The console lines, `run.json` and the exit status are those of
@@ -5052,11 +5156,12 @@ its kind.
 | `facts` | warning | the board's facts differ from the last `placemat facts --confirm` |
 | `fab` | critical | a net class's track, clearance or via is below the fab profile's minimum, so the fab would refuse it |
 | `setup` (a web round a cutout under the minimum; a net class that does not fit the pads' pitch) | critical | the board cannot be milled, or the router cannot escape the pads |
-| `setup` (an undeclared part, a lane reserved that no track uses, a part outside its frame's declared reach, an `accept` that matched no verdict, the native module not in use: `setup.native`, a `[route] pair_layers` entry that names no pair or a layer the board lacks: `setup.pair_layers`, a pin annotation the pin map study runs without or a present map that breaks its own rule: `setup.pins`) | warning | the script is incomplete or wrong |
+| `setup` (an undeclared part, a lane reserved that no track uses, a part outside its frame's declared reach, an `accept` that matched no verdict, the native module not in use: `setup.native`, a pin annotation the pin map study runs without or a present map that breaks its own rule: `setup.pins`) | warning | the script is incomplete or wrong |
 | `setup` (a layer a keepout or rule names that the board lacks, a rule not carried to this board, a look-ahead dropped for want of room, an `accept` that was not needed, a search that spent its budget and took the best spot so far) | notice | placemat carried on without it |
-| `setup` (`setup.net_halo`: a pad of another net inside a `[route] net_halos` halo whose own copper ends inside it, a key that names no net) | warning | the router cannot lead the pad out; the entry is not used |
+| `setup` (`setup.net_clearance`: a pad trapped by another net's capture clearance) | warning | the router cannot lead the pad out |
+| `setup` (`setup.duplicate_reference`: two footprints on routed nets share a reference) | warning | reports and the router's connection tasks name a pad by reference |
 | `route` (`route.dropped`) | notice | an adopted route dropped because a part it joins moved; the router routes it again |
-| `route` (`route.width`: a net's copper delivered under the width asked) | critical when the net has a width in `[route] islands` (it carries current), or when the current its narrowest copper carries is under the current the parts state for it (`Pm.I`); warning otherwise | the net is narrower than declared where it carries current; facts `net`, `stage`, `requested_mm`, `delivered_min_mm`, `length_under_mm`, `length_mm`, `share`, `declared`, `max_a`, `bottleneck_mm`, `stated_a`, and for an island net judged on the routed board `bottleneck_layer`, `necks_mm`, `neck_limit_mm`, `layers` |
+| `route` (`route.width`: a net's copper delivered under the width asked) | critical when the net's phase sets a width (it carries current), or when the current its narrowest copper carries is under the current the parts state for it (`Pm.I`); warning otherwise | the net is narrower than declared where it carries current; facts `net`, `stage`, `requested_mm`, `delivered_min_mm`, `length_under_mm`, `length_mm`, `share`, `declared`, `max_a`, `bottleneck_mm`, `stated_a` |
 | `vias` (shared, moved, re-routed, left its pad, shortened, a field re-laid) | notice | carried vias gave way as designed |
 | `vias` (a via dropped, or a field drawn with fewer vias than declared) | warning | fewer vias than were declared |
 | `needs` | notice | an if-needed fab option would have cleared a spot; the item's `unplaced` finding is the fault |
@@ -5474,17 +5579,15 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `pins.probe_budget_steps` | `150000` | steps | the pin map study's search for each part, in steps, when `placemat apply <id> --search` studies a `pins.remap` suggestion again |
 | `pins.guard_ms` | `10000.0` | ms | a safety net on the pin map study's time for each studied part, scaled with its budget for a longer study: past it the study gives no map and says so in a `setup.pins` warning; 0 is off |
 | `drc.severities` | `{}` | table | a table of KiCad rule names to `error`, `warning` or `ignore`, written into the board's .kicad_pro before DRC; a placement the script decided may put a courtyard over another part's hole where `npth_inside_courtyard` or `pth_inside_courtyard` is below `error` |
-| `route.router_dir` | `""` | path | the KiCadRoutingTools checkout; empty: `$KRT_DIR`, else `~/work/KRT-upstream` |
+| `route.router_dir` | `""` | path | the KiCadRoutingTools checkout; empty: `$KRT_DIR`; with neither set, a route refuses |
 | `route.quick` | `true` | bool | one routing round rather than the router's full run |
 | `route.max_iterations` | `unset` | count | cap on the router's search per net; unset: the router's own default |
 | `route.plane_share` | `0.9` | share | how much of the board's own outline a pour must cover to be guarded whole from other nets' tracks while routing (the router's default layers come from each layer's declared role, not this) |
 | `route.turn_cost` | `20000` | cost | what the router charges a turn, per 90 degrees (a 45 half of it), against 1000 a straight grid step: the router's own default of 1000 makes a kink nearly free and its routes stair-step; 20000 measured best on a dense four-layer board (fewer than half the turns, 10% less copper, closure no worse); 1000 gives the router's own behaviour |
 | `route.smoothing` | `true` | bool | the router's own octolinear smoothing, as it defaults; false skips it |
-| `route.router_args` | `[]` | list | more of the router's own flags (`--direction-preference-cost`, `--heuristic-weight`, `--bus`, `--via-cost`, ...), each a string, appended to its route.py passes (the island nets, the class stages, the main pass); one placemat sets itself (`--nets`, `--layers`, `--escalation`, `--keep-input-copper`, `--turn-cost`, `--smoothing`, `--no-smoothing`, `--power-nets`, `--power-nets-widths`, `--max-iterations`, `--max-probe-iterations`, `--json-out`, `--net-clearances`) is refused. Its `--grid-step` also sets the room turned escape lanes leave for the router's grid snap |
+| `route.router_args` | `[]` | list | more of the router's own flags (`--direction-preference-cost`, `--heuristic-weight`, `--bus`, `--via-cost`, ...), each a string, appended to every route.py call of every routing phase, before the phase's own `router_args`; one placemat sets itself (`--nets`, `--layers`, `--escalation`, `--keep-input-copper`, `--turn-cost`, `--smoothing`, `--no-smoothing`, `--power-nets`, `--power-nets-widths`, `--max-iterations`, `--max-probe-iterations`, `--json-out`, `--net-clearances`) is refused. Its `--grid-step` also sets the room turned escape lanes leave for the router's grid snap |
 | `route.pair_router_args` | `[]` | list | the same for the pair router (route_diff.py), which takes flags of its own (`--max-turn-angle`, `--min-turning-radius`, ...) and not all of route.py's |
-| `route.pair_layers` | `{}` | table | the copper layers the pair router may route a differential pair on, for that pair only: a key is the pair's two nets `"P/N"` (either order) or a net class name, its value a list of layer names (`{"USB_D_P/USB_D_N" = ["In2.Cu", "B.Cu"]}`); a pair's own nets win over its class. Every other pair routes on the route's own layers. The pairs are routed in one call of the pair router per distinct list, the named ones first. A key that names no pair on the board, or a layer the board does not have, is a `setup.pair_layers` finding and the entry is not used |
-| `route.net_halos` | `{}` | table | a net mapped to a halo in mm (`{"SW" = 2.0}`): every router pass keeps other nets' new copper that far from the net's copper, and the net's own new copper that far from everything, to keep coupling off a switch node. Each net is given the larger of its net class clearance and its halo in the clearance map placemat hands the router. Before the route, a pad of another net within the halo whose own copper (an escape, a via) ends inside it is a `setup.net_halo` finding: the router cannot leave it. A key that names no net on the board is a `setup.net_halo` finding and the entry is not used |
-| `route.islands` | `[]` | list | nets with pours whose pads the pours do not reach (a pour net's small taps), `"NET"` or `"NET=WIDTH"` (mm), either with `@LAYER,...` after it (`"VBUS=1.37@F,B"`; F, In1 to In30, B or their .Cu names): routed first and alone, joining only the pads and pieces the pours leave apart, at the netclass width or WIDTH, its tracks on the layers given (its vias may still pass through the others) or on the route's own layers; `placemat route --islands` adds to them |
+| `route.phase` | `[]` | list | the routing phases, in order: `[[route.phase]]` tables, each a `name`, at most one selector (`nets`, `net_classes`, `pairs = true`, `buses`, `connections`, `current_paths = true`, `interfaces`, `net_types`; none takes every connection still open), and `width` (mm or "current"), `layers`, `neckdown`, `router_args`. A route needs at least one; `placemat settings --example` writes example phases for a board (api.md "Routing phases") |
 | `route.diff_pair_gap` | `0.0` | mm | mm between a pair's tracks; 0 is the net class's diff pair gap (the router never goes below the class clearance) |
 | `route.diff_pair_width` | `0.0` | mm | mm, a pair's track width; 0 is the net class's diff pair width |
 | `route.adopt_tolerance` | `0.001` | mm | mm any kept pad may lie from where the parts' common motion puts it before the kept routes joining them are dropped |
@@ -5603,3 +5706,34 @@ Three kinds of constant are NOT settable, because they are not behaviour: the
 grid epsilons (ten KiCad units, the file format's resolution), the physical
 constants (IPC-2221 and unit conversions), and the tables that map placemat's
 words onto KiCad's layers and flags.
+
+### Routing phase results
+
+`route --phase NAME` routes through NAME, reusing matching earlier phase results. `--only` routes NAME against
+the existing copper and lists earlier phases without copper. Each phase reports its asked and clean joined
+connections, elapsed time, reused status, width findings and structured router evidence for open connections.
+The studio shows those records at the head of the Findings tab.
+
+Each phase is judged again on the final board on the same pad pairs it was asked to join. Widths are checked on the
+copper path that joins each pair, tracks and the fills and pads it passes through, each measured. A join whose path
+cannot be measured has `width_unknown` and does not count as clean.
+A pair phase takes its width from the net class; an explicit phase width is refused.
+
+`settings <board> --example` writes example phases for capture pairs, interfaces, wide-clearance classes,
+current paths and remaining signals, then a last phase `pours` naming the board's pour nets, which joins their pads to
+their pours (via drops, then tracks for what is left); edit or remove it. Without a board it writes the signals phase. On a board with inner copper layers
+the example current phase has `layers` set to the first and last copper layers of the board's stack, its outer layers:
+an inner layer needs a much wider track for the same current, and a wide inner track takes every via site under it.
+A phase you write yourself keeps the `layers` you give it.
+`run --explore SECONDS --route-best --route-rank PHASE[,PHASE...]` prioritises those phases' final clean closure.
+
+A run's start is the end reached first while walking the declared outline path
+(or the chained edge order for a read board); `run.at(0)[0]` is that point.
+
+### Final phase measurements
+
+Each phase record in `route.json` is judged again on the finished board. `final_joined` counts
+connections that are joined, at their width and with no DRC error on their net; `final_connected`
+counts connections that are joined at all. Of the joined ones, `final_width_known_under` counts
+paths measured narrower than asked and `final_width_unknown` counts paths whose width could not be
+measured; a path is in at most one of them. A report from before these fields has none of them.

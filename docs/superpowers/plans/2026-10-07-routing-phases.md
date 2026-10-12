@@ -73,7 +73,7 @@ Tasks 13, 15 and 18) was read at KRT 375aee58 (`placemat/connections`), placemat
 - `CLAUDE.md`: take board items off with `board.Delete(item)` (after `group.RemoveItem` if grouped), never
   `board.Remove`.
 - Values verbatim from the spec:
-  - the no-phases refusal: `route: no routing phases in placemat.toml; \`placemat settings --example\` writes a placemat.toml with the default phases`
+  - the no-phases refusal: `route: no routing phases in placemat.toml; \`placemat settings --example\` writes a placemat.toml with example phases` (wording changed by the user on 2026-10-11: placemat has no default phases)
   - the sidecar is `nets.layout.json`, versioned `"version": 1`, keyed by net name;
   - selectors: `nets`, `net_classes`, `pairs = true`, `buses`, `connections`, `current_paths = true`, `interfaces`,
     `net_types`; `pairs` also takes a list of `[P net, N net]` (Task 10a, the spec amended there); other keys `name`, `width` (a number in mm or `"current"`), `layers`, `neckdown` (default true),
@@ -99,7 +99,7 @@ with its reason. "Alt" is what changes if it is reversed.
 - D12 The netlist digest is sha256 of the `default.net` bytes written in the same run. Controller ruling: that file is the one the board was generated from. Alt: a digest of nets and pads computed from the board.
 - D13 `width = "current"` on a net-level selector routes each selected net's carrier pairs as tasks; a selected net with under two carriers refuses the phase, naming it. Controller ruling: a net with one carrier has no current path to size. Alt: route the whole net at its largest stated current.
 - D14 `current_paths`: per carrier pair (A, B) on a net, tasks span every pad of A and of B on that net (`|A| + |B| - 1` tasks) at the lesser current. User, 2026-10-07. Alt: one task per pair, first pad of each.
-- D15 A phase that selects a net the board serves by a pour routes it alone, the pour handed to the router as a zone (today's island mechanism); the rest phase never takes pour nets. Controller ruling: the fixtures' pour nets route this way today. Alt: refuse pour nets in phases.
+- D15 A phase that selects a net the board serves by a pour routes it alone, the pour handed to the router as a zone (today's island mechanism); the rest phase never takes pour nets, and a `current_paths` phase leaves the pour nets it picks up to their pours (ruling S13). Controller ruling: the fixtures' pour nets route this way today. Alt: refuse pour nets in phases.
 - D16 A phase's closure is judged on a DRC of the board after the phase (one kicad-cli DRC per phase) and KiCad's pad connectivity for tasks. Controller ruling: the spec's clean closure needs a DRC; KRT's own `joined` does not see clearance errors. Alt: KRT's own `joined` and one DRC at the end.
 - D17 Width judgement for a phase is made on the routed board, on the copper each router call of the phase added, against that call's asked width per layer, with the neck allowance unless `neckdown = false`. Controller ruling: a call answers for the copper it added, not for earlier copper. Alt: KRT's per-task narrowest width alone (Task 15 also reads it, see the controller rulings).
 - D18 A pair selector by net names: `pairs = [["P_NET", "N_NET"], ...]` (first is P) for boards without a capture, beside `pairs = true` (the capture's `DiffPair`); spec amended in Task 10a. Test (a) writes the manifest's `phases`, which carry a pair phase and a bus phase (Task 17), so test (a) exercises pair routing; pic_programmer's POWER class stays single-ended. User, 2026-10-07 (replaces "no pair phase in test (a)"). The user named usb-c-power-adapter's USB pair; that board has none (its NOTES.md, "No USB pair": J1's data pins are unconnected), so the pair phase is esp-rust-board's `USB_D+`/`USB_D-` and usb-c-power-adapter carries the bus phase (`/USB PD/SDA`, `/USB PD/SCL`). Alt: no pair phase in test (a).
@@ -114,6 +114,9 @@ with its reason. "Alt" is what changes if it is reversed.
 - D27 A selector that names a net, class, part, instance, type or layer the board lacks, or a glob that matches nothing, refuses the route naming it. Controller ruling: such a selector is a mistake that an empty phase would hide. Alt: a warning finding and an empty phase.
 - D28 The spec's real-board check (the power legs as a `current_paths` phase) runs on a scratch copy under the lock in the Release task; numbers go to the user, not into commits. Controller ruling: the board is a project's, and commits stay project-agnostic. Alt: skip it.
 - Task 23, the circuit-capture skill change its charter puts under "ask first", is approved. User, 2026-10-07.
+- D29 On a board with inner copper layers, the example `current` phase (`settings --example`, `cli.board_example_phases`) routes on the board's outer copper layers only: `layers` is set to the first and last copper layers of the board's stack (never named in code), and a phase the project writes keeps its own `layers`. User, 2026-10-11, after usb-c-power-adapter's test (b) showed inner-layer current widths (about 2.6x the outer ones) taking In2.Cu and every via site under them (.superpowers/sdd/2026-10-07-routing-phases/usbc-starvation-report.md). Alt: the current phase on every layer.
+- D30 Wording: placemat has no default phases. A route with no `[[route.phase]]` is refused, and `settings --example` writes example phases for a project to start from; the refusal, the spec and the docs say "example phases". User, 2026-10-11. The plan's task text before this date keeps its old wording.
+- D31 A phase that names a pour net joins its pads to the pour by via drops first, then tracks for what is left: the router's plane repair (KRT `repair_planes.py`, its pad repair: a via in the pad, or a via beside it with a short track) for every pad no copper joins to the pour, at the net class's via and track sizes, with no size below the board's own rules and the board's project rules left as they were; a pad already joined (a cell's via, a track, the pour itself) is left alone. Each group of pads still apart is then routed to the nearest pad the pour reaches by one `--connections` task, not by routing the whole net. The example phases (`settings --example`) end with a phase `pours` naming the board's pour nets, after the rest phase; a project edits or removes it. User, 2026-10-12, after .superpowers/sdd/2026-10-07-routing-phases/pour-stitch-report.md showed the old pour call tracking the whole net pad to pad, re-tracking pads cells had already joined, and the example phases joining no pour pad at all. Alt: the whole-net pour call, and no pour phase in the example.
 
 Decided by the user on 2026-10-07:
 - `capture:` stays a basis prefix of a reference script's `why=` (a fact read from the capture's own annotations); the
@@ -205,6 +208,57 @@ Not user decisions. Each line gives the ruling, its reason, and what it costs if
     satisfied obligation sets are equivalent).
   Reason: rank compares final boards, and a denominator a candidate can change is no comparison. Cost if wrong: one
   more pcbnew load and DRC read per route, and closure figures that differ from the old per-net counts.
+- S13 A `current_paths` phase never routes a pour net. A pour net it picks up because it carries a stated current is
+  served by its pour, which carries that current: its tasks make no router call. They are asked of the pour: each is
+  an obligation of the phase with no width (`pour_served: true`), judged after the phase with the phase's own join
+  judgement, so one the pour does not join is open and counted in the phase's closure. The phase record lists them
+  as `pour_served` ({net, from, to, joined}); the phase line counts the joined ones per net ("left to their pours"),
+  names each one not joined ("not reached by the pour: GND J1.2-U1.3") and says when a later phase routes the net
+  ("routed by phase NAME", from `RouteReport.pour_routed_by`). A pour net a phase names (`nets`, `net_classes`,
+  `connections` and the other selectors), with or without `width = "current"`, still routes as D15 says (ruling
+  S5). Reason: routing a pour net for its current laid the whole net as tracks at the widest task width on every
+  layer (usb-c-power-adapter's GND: 9.79 mm, the inner-layer width, on F.Cu, In2.Cu and B.Cu), which took the board
+  from every later phase and did not finish within test (b)'s hour; a net the project names is routed as asked, and
+  a pour that misses a carrier pad is a failure, not a silence (the user, 2026-10-11; amended the same day after
+  review). Cost if wrong: a carrier pad the pour misses stays open until a phase that names the net routes it.
+- S15 A phase's obligation is `violated` only by a real DRC error that its input board did not have: `judge_obligations`
+  compares the DRC after the phase with the phase's input board's (the phase before's judging DRC, or the unrouted
+  board's for the first phase and for `--only`), matched as `drc_new` matches errors; the final re-judgement uses
+  the same input DRC per phase. Reason: a footprint's own pre-existing error (a connector's pad against its own hole)
+  marked every connection on its net as not clean, so a pour phase read 0% clean with its net complete. Cost if
+  wrong: an error already on the board no longer marks its net.
+- S16 (fix round 1 of D31) The plane repair's region joins, which tie split pieces of one pour together with tracks,
+  are part of D31's join to the pour and stay; they are laid no wider than the net class's track width, or the
+  phase's width when it sets one (`--max-track-width`, as `--track-width` and `--min-track-width`). The group with
+  the most pads among those on the pour stands for it; every other group, on another piece of the pour or on none,
+  is routed to it by one task. Reason: without the joins nothing ties a partial pour's islands together, and at the
+  repair's default 2.0 mm they took 236 mm of +3V3 on esp-rust-board. Cost if wrong: a split pour joined by thin
+  tracks.
+- S17 (fork) The fork's plane repair changes for placemat, on the connections branch, each a documented divergence:
+  its via map keeps a tap via's hole at the board's hole clearance; `--no-own-pad-lift` (repair and route.py) keeps
+  a footprint's own copper blocking every net, so no track crosses an antenna to reach its GND pad; `--net-clearances`
+  takes the capture's stated clearances as route.py does; `--pads` limits the taps to the pads KiCad finds apart from
+  the pour; `--no-join-gate` leaves what is still split to placemat's tasks. placemat checks these flags in the
+  router's capability list when a phase names a pour net (`router_old` otherwise). Reason: watchy's drops added a
+  hole-clearance error and an antenna short; the review's I4. Cost if wrong: an antenna GND pad the repair cannot
+  reach is left open instead of shorted.
+- S15 also covers the route's own closure: `closure_clean`'s shorted nets are those in real errors the unrouted
+  board did not have (route.py `_route_board`). Errors are matched one to one, on type and every item's description
+  and position (drc.new_errors), for drc_new as well. Reason: review M3 and M7. Cost if wrong: drc_new and the
+  route's closure read differently from step 0's.
+- S18 (fork) A routed via's hole keeps the board's hole clearance off foreign tracks and pads (GridRouteConfig
+  via_hole_floor / via_hole_raise), raise-only: a board declaring no floor routes as before. Reason: watchy's
+  task call laid a via 0.250 mm hole-to-track where the board asks 0.254. Cost if wrong: fewer via sites on boards
+  whose hole floor exceeds clearance plus annular ring.
+- S19 Which of a pour net's pads are joined is decided by KiCad's connectivity (zones refilled in pcbnew), before
+  and after the drops; that view picks the --pads and the tasks.
+- S20 The pour's task calls run with KICAD_PLANE_FINALIZE=0, upstream's own switch for its in-run plane repair.
+- S21 With the own-pad lift off, an antenna's GND pad the drops cannot reach is left open and named, not shorted.
+- S22 (a) A pour task carries `apart`: the router (fork --connections field) routes it and never answers
+  joined_before from its own model. (b) After a phase's pour calls, one re-check in KiCad's view: a pour net a later
+  pour call split gets one more join, recorded as its pour_joins entry's `rejoin`. Reason: esp-rust-board's GND
+  tasks came back joined_before where KiCad showed them apart, and the VBUS call split +5V. Cost if wrong: one more
+  pad_groups pass per pour net per phase.
 - The "Decisions (to confirm)" heading became "Decisions", each entry naming who decided it. Reason: nothing applied is
   pending confirmation. Cost if wrong: none.
 
@@ -6525,9 +6579,16 @@ route between its two parts because a part on neither end stands in the way. It 
 records what the router reports (the failed connection's evidence, naming the blocker), joins the reference set's
 tracked results in `results.json`, and tests pin it.
 
-The board: 30 x 12 mm, two layers. J1 (one THT pad, VB) at (3, 6) and J2 (one THT pad, VB) at (27, 6), each with
+Reviewer correction on 2026-10-07: the original height 12/Y6 contract gave 0.07 mm edge clearance and violated
+its unchanged 0.5 mm manufacturing minimum. Increase height only to 13 and shift every component Y to 6.5;
+retain X, pads, pitch, currents and all manufacturing rules. The edge gap becomes 0.57 mm, so input is legal,
+but the 0.5 mm edge plus 0.2 mm pad clearance still prevents an edge bypass. Old invalid runs are diagnostics,
+not passing pins. The fixture's explicit recorded search protocol disables fine rescue (`KICAD_NET_RESCUE=0`);
+search exhaustion remains an unknown diagnosis, not a router proof of impossibility.
+
+The board: 30 x 13 mm, two layers. J1 (one THT pad, VB) at (3, 6.5) and J2 (one THT pad, VB) at (27, 6.5), each with
 `Pm.I` "vb:3A"; U1, five THT pads at 2.54 mm pitch across the board at x = 15 on single-pad nets N1-N5, so its gaps
-are 0.84 mm and its end pads sit 0.07 mm from the board edge. THT pads 1.7 mm, drill 1.0. Rules: `min_clearance` 0.2,
+are 0.84 mm and its end pads sit 0.57 mm from the board edge. THT pads 1.7 mm, drill 1.0. Rules: `min_clearance` 0.2,
 `min_track_width` 0.2; the Default class clearance 0.2, track 0.2, via 0.6/0.3. At 3 A the legs phase asks a track
 wider than 0.84 - 2 x 0.2 = 0.44 mm, so it cannot pass U1 on either layer; the `signals` phase then routes VB at the
 class width 0.2 through a gap. Expected: `legs` asks one connection (J1.1-J2.1), joins none, and its open entry

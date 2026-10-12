@@ -6,7 +6,7 @@
 //! chosen (docs/superpowers/specs/2026-09-30-give-way-native-move-design.md).
 
 use crate::exact;
-use crate::geometry::{point_in_polygon, point_segment_distance, point_segment_distance_below, Point};
+use crate::geometry::{point_in_polygon, point_segment_distance_below, Point};
 use crate::shapes::{box_overlaps, clear_limit, conflict, may_meet, Blockers, Bounds, ConflictConfig, Shape, ShapeGrid};
 use crate::shapes::IdSet;
 
@@ -244,6 +244,7 @@ pub fn first_move(grid: &ShapeGrid, cfg: &ConflictConfig, m: &Move, offsets: &[(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::geometry::point_segment_distance;
     use crate::shapes::Kind;
 
     fn square(cx: f64, cy: f64, half: f64) -> Vec<Point> {

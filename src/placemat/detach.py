@@ -247,6 +247,8 @@ def run_facts(doc: dict, path: Path) -> dict:
             out["terms"] = {k: round(v, 1) for k, v in terms.items() if v}
         except Exception:                               # a record the settings no longer read: no score, the rest stands
             pass
+    if m.get("route"):
+        out["route"] = dict(m["route"])
     return out
 
 
@@ -269,7 +271,7 @@ def explore_facts(report, event=None) -> dict | None:
     out["accepted"] = bool(src.get("accepted"))
     out["moves"] = len(src.get("moves") or ())
     out["routes"] = [{k: r[k] for k in ("seed", "score", "score_remapped", "closure", "closure_clean", "open_after", "seconds",
-                                        "valid", "remapped", "error") if k in r} for r in (src.get("routes") or ())]
+                                        "valid", "remapped", "error", "phases") if k in r} for r in (src.get("routes") or ())]
     return out
 
 
@@ -296,6 +298,9 @@ def summary_lines(o: dict) -> list:
             lines.append("  %s | airwires %.1f mm, %s crossings, congestion %s" % (
                 ", ".join(parts), r.get("airwire_mm") or 0.0, r.get("crossings", "-"),
                 "-" if r.get("congestion") is None else "%.2f/cm2" % r["congestion"]))
+        if r.get("route"):
+            from .kicad.route import phase_lines
+            lines += phase_lines(r["route"].get("phases", []), (), r["route"].get("pour_routed_by"))
         if "score" in r:
             lines.append("  score %.1f mm%s" % (r["score"], (": " + ", ".join("%s %.1f" % kv for kv in r["terms"].items()))
                                                 if r.get("terms") else ""))

@@ -5,7 +5,7 @@ module fixtures, judging closure.
 
 An open board (a manifest board with test "b") is run from a clean copy of fixtures/reference/boards/<name>/ with
 `placemat run --route --route-full`: the script is linted first and a lint failure is a failed result. The result is
-compared with results.json["b"] and carries the human board's vias and track length and test (a)'s clean closure of
+compared with results.json["b"] and carries the regenerated reference's vias and track length and test (a)'s clean closure of
 the same board. With --modules the module fixtures (every fixtures/*/modules/*/*_layout.py) are run with
 `placemat run --route` instead of the boards, and compared with results.json["modules"]: closure, then the area of the
 fitted frame. Results of runs whose placemat, router or zener versions differ in a component other than those named in
@@ -30,7 +30,7 @@ import time
 if __package__ in (None, ""):   # run as a script: the repository root, for `fixtures.reference`
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 
-from fixtures.reference import fetch, lint, lock, prepare, route_ref   # noqa: E402
+from fixtures.reference import fetch, hand, lint, lock, prepare, route_ref   # noqa: E402
 
 HERE = pathlib.Path(__file__).resolve().parent
 FIXTURES = HERE.parent
@@ -42,7 +42,7 @@ LINT = "lint"           # failure kinds of the runner's own; a refused run carri
 NO_RECORD = "no run record"
 NO_ROUTE = "no route"
 TIMEOUT = "timeout"
-WORKSPACE_DIRS = ("modules", "parts")   # what a module needs of its family folder besides its own
+WORKSPACE_DIRS = ("modules", "parts", "adapted")   # what a module needs of its family folder besides its own
 DIGEST_CHARS = 16
 STATE_DIRS = (".placemat", ".pcb", "__pycache__")   # never copied into the clean board folder
 RUN_ARGS = ("--route", "--no-render", "--no-resume")
@@ -54,7 +54,7 @@ class BResult:
     board: str
     closure_clean: float
     open: int
-    new_violations: list[prepare.Violation]
+    new_violations: list[prepare.Violation] | None   # None when no route ran or its DRC could not be read
     vias: int
     track_mm: float
     run_score: float
@@ -67,6 +67,8 @@ class BResult:
     detail: str = ""        # what the failure said
     inputs_digest: str = ""   # of the capture's generator inputs: a changed capture is a difference, not a regression
     placement: dict = dataclasses.field(default_factory=dict)   # placement_facts: kept when the route fails or is refused
+    open_pour: int = 0      # open connections on the nets the routed board serves by a pour; open_other is the rest
+    open_other: int = 0
 
 
 @dataclasses.dataclass(frozen=True)
@@ -81,6 +83,8 @@ class MResult:
     detail: str = ""
     inputs_digest: str = ""
     placement: dict = dataclasses.field(default_factory=dict)
+    hand: dict = dataclasses.field(default_factory=dict)
+    placed_area_mm2: float | None = None
 
 
 def asdict(result) -> dict:
@@ -133,25 +137,83 @@ def _copy_folder(src: pathlib.Path, dst: pathlib.Path) -> None:
     shutil.copytree(src, dst, ignore=shutil.ignore_patterns(*STATE_DIRS))
 
 
+def _run_identity(path: pathlib.Path) -> tuple:
+    """Identity of a saved result: unchanged files from an earlier invocation cannot stand for this one."""
+    stat = path.stat()
+    return stat.st_dev, stat.st_ino, stat.st_mtime_ns, stat.st_size, hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _process_text(value) -> str:
+    return value.decode(errors="replace") if isinstance(value, bytes) else value or ""
+
+
 def placemat_run(script: pathlib.Path, extra: tuple = ()) -> tuple[dict | None, float]:
-    """`placemat run <script>` with RUN_ARGS and `extra`: (run.json as a dict, seconds). The record is the newest run of the
-    script's folder, None when the run wrote none (a crash or the timeout); the folder is a clean copy, so it holds this
-    run's only."""
+    """`placemat run <script>` with RUN_ARGS and `extra` (route_ref.run_owned): (run.json as a dict, seconds). Only exit 0
+    and a run.json this invocation wrote or rewrote give a result; a malformed record, a nonzero exit or the timeout is a
+    failed result. Logs and the process facts are kept beside the copied script."""
     script = pathlib.Path(script)
-    started = time.time()
+    started = time.monotonic()
+    records = script.parent / ".placemat" / "runs"
+    before = {p: _run_identity(p) for p in records.glob("*/run.json")}
+    audits = script.parent / ".placemat" / "reference-runs"
+    audits.mkdir(parents=True, exist_ok=True)
+    audit = pathlib.Path(tempfile.mkdtemp(prefix="invocation-", dir=audits))
     cmd = [sys.executable, "-m", "placemat", "run", str(script), *RUN_ARGS, *extra]
+    facts = {"argv": cmd, "cwd": str(pathlib.Path.cwd()), "timeout_s": RUN_TIMEOUT_S}
+
+    def log(stdout, stderr):
+        (audit / "stdout.log").write_text(_process_text(stdout))
+        (audit / "stderr.log").write_text(_process_text(stderr))
+        (audit / "process.json").write_text(json.dumps(facts, indent=2) + "\n")
+
+    def failed(kind, message):
+        return {"status": "failed", "failure": {"kind": kind, "message": message}}, time.monotonic() - started
+
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=RUN_TIMEOUT_S)
-    except subprocess.TimeoutExpired:
-        return {"status": "failed", "failure": {"kind": TIMEOUT, "message": "no result in %d s" % RUN_TIMEOUT_S}}, time.time() - started
-    seconds = time.time() - started
-    records = sorted((script.parent / ".placemat" / "runs").glob("*/run.json"), key=lambda p: p.stat().st_mtime)
-    if not records:
-        return None, seconds
-    record = json.loads(records[-1].read_text())
-    if proc.returncode and not record.get("failure") and record.get("status") == "ok":
-        record["failure"] = {"kind": "exit %d" % proc.returncode, "message": (proc.stderr or proc.stdout)[-500:]}
-    return record, seconds
+        proc = route_ref.run_owned(cmd, timeout=RUN_TIMEOUT_S)
+    except BaseException as error:
+        facts["exception"] = type(error).__name__
+        facts["exitcode"] = error.code if isinstance(error, SystemExit) else None
+        log(getattr(error, "output", None), getattr(error, "stderr", None))
+        if isinstance(error, subprocess.TimeoutExpired):
+            return failed(TIMEOUT, "no result in %s s" % RUN_TIMEOUT_S)
+        if isinstance(error, Exception):
+            return failed(type(error).__name__, str(error))
+        raise
+    facts["returncode"] = proc.returncode
+    try:
+        fresh = [p for p in records.glob("*/run.json") if before.get(p) != _run_identity(p)]
+    except OSError as error:
+        log(proc.stdout, proc.stderr)
+        return failed("malformed run record", str(error))
+    record = None
+    malformed = None
+    if fresh:
+        chosen = max(fresh, key=lambda p: p.stat().st_mtime_ns)
+        facts["record"] = str(chosen)
+        try:
+            raw = chosen.read_bytes()
+            facts["record_sha256"] = hashlib.sha256(raw).hexdigest()
+            record = json.loads(raw)
+            if not isinstance(record, dict) or not isinstance(record.get("status"), str):
+                raise ValueError("run.json must be an object with a status")
+            if record.get("status") == "ok" and not isinstance(record.get("metrics"), dict):
+                raise ValueError("completed run.json must contain metrics")
+            if record.get("failure") is not None and not isinstance(record["failure"], dict):
+                raise ValueError("run.json failure must be an object")
+        except (OSError, ValueError) as error:
+            malformed = str(error)
+    log(proc.stdout, proc.stderr)
+    if proc.returncode:
+        # A CLI exit cannot be promoted by an apparently completed record.
+        message = (_process_text(proc.stderr) or _process_text(proc.stdout))[-500:]
+        result, seconds = failed("exit %d" % proc.returncode, message)
+        if isinstance(record, dict) and record.get("failure"):
+            result = dict(record, status="failed", returncode=proc.returncode)
+        return result, seconds
+    if malformed is not None:
+        return failed("malformed run record", malformed)
+    return record, time.monotonic() - started
 
 
 def _failure(record: dict | None) -> tuple[str, str]:
@@ -168,21 +230,19 @@ def _failure(record: dict | None) -> tuple[str, str]:
 
 def run_b(board: fetch.Board, ref_dir: pathlib.Path, work: pathlib.Path, *, prepared: prepare.Prepared | None = None,
           versions: dict | None = None, a_closure_clean: float | None = None) -> BResult:
-    """Test (b) of one board: lint the script in `ref_dir` (fixtures/reference/boards/<name>/), run it from a clean copy in
-    `work` and judge the routed board against the human board. `prepared` is prepare.prepare's of the board, which gives the
-    human copper and the baseline DRC the violations are judged against; it is made in work/human when not given.
-    The human board here is the manifest's original board, fetched and stripped as for test (a), not the board `pcb
-    layout` generates from the imported capture: prepare works on the original, and the generated board has the standard
-    library's footprints, not the human's. So ref_vias, ref_track_mm and the baseline DRC are the original board's.
-    A DRC error counts as new unless the stripped human board has one of its type and nets where it is, so the violations of
-    the fixed parts' own places are not counted. The runner does not take the lock; main does."""
+    """Run the placement script and judge against a fresh import of the pinned source.
+
+    The regenerated reference uses the same library footprints as the script.
+    Its stripped copper supplies the baseline DRC, so generation differences
+    are measured consistently. The runner does not take the lock; main does.
+    """
     work = pathlib.Path(work)
     versions = dict(versions if versions is not None else route_ref.current_versions())
     human = prepared.human if prepared is not None else prepare.HumanCopper(0, 0.0)
     digest = generation_inputs(lint.find_script(board.name, ref_dir.parent))
 
     def result(**over) -> BResult:
-        fields = dict(board=board.name, closure_clean=NOT_RUN, open=0, new_violations=[], vias=0, track_mm=0.0, run_score=0.0,
+        fields = dict(board=board.name, closure_clean=NOT_RUN, open=0, new_violations=None, vias=0, track_mm=0.0, run_score=0.0,
                       ref_vias=human.vias, ref_track_mm=human.track_mm, a_closure_clean=a_closure_clean, seconds=0.0,
                       versions=versions, inputs_digest=digest)
         return BResult(**dict(fields, **over))
@@ -193,7 +253,7 @@ def run_b(board: fetch.Board, ref_dir: pathlib.Path, work: pathlib.Path, *, prep
         detail = "; ".join("line %d %s %s" % (p.line, p.rule, p.ref) for p in report.problems)
         return result(failure=LINT, detail=detail)
     if prepared is None:   # after the lint: a refused script costs no fetch or DRC
-        prepared = prepare.prepare(board, fetch.fetch(board), work / "human")
+        prepared = prepare.prepare(board, fetch.fetch(board), work / "reference", regenerated=True)
         human = prepared.human
     folder = work / "board"
     _copy_folder(ref_dir, folder)
@@ -207,8 +267,14 @@ def run_b(board: fetch.Board, ref_dir: pathlib.Path, work: pathlib.Path, *, prep
     if not route or not route.get("routed_pcb"):
         return result(failure=NO_ROUTE, seconds=round(seconds, 1), versions=versions, placement=placement)
     _, routed = prepare.measure(pathlib.Path(route["routed_pcb"]))
-    new = route_ref.new_violations(prepare.violations_of(route["drc_after"]), prepared.baseline)
-    return result(closure_clean=route.get("closure_clean", NOT_RUN), open=route.get("open_after", 0), new_violations=new,
+    drc_path = pathlib.Path(route["routed_pcb"]).with_name("drc_after.json")
+    after = prepare.violations(drc_path) if drc_path.is_file() else (
+        prepare.violations_of(route["drc_after"]) if isinstance(route.get("drc_after", {}).get("violations"), list) else None)
+    new = route_ref.new_violations(after, prepared.baseline) if after is not None else None
+    opened = route.get("open_after", 0)
+    pour, other = route_ref.open_split(route.get("open_nets") or {}, opened, route_ref.pour_nets(pathlib.Path(route["routed_pcb"])))
+    return result(closure_clean=route.get("closure_clean", NOT_RUN), open=opened, open_pour=pour, open_other=other,
+                  new_violations=new,
                   vias=routed.vias, track_mm=routed.track_mm, run_score=run_score(record, folder), seconds=round(seconds, 1),
                   versions=versions, placement=placement)
 
@@ -233,6 +299,11 @@ def _copy_family(script: pathlib.Path, dst: pathlib.Path) -> pathlib.Path:
     return dst / script.relative_to(root)
 
 
+def _placed_board(script: pathlib.Path) -> pathlib.Path:
+    from placemat.project import find_board
+    return find_board(script).pcb
+
+
 def run_module(name: str, script: pathlib.Path, work: pathlib.Path, *, versions: dict | None = None) -> MResult:
     """A module fixture run as a user runs it: `placemat run --route` on the script inside a copy of its family's workspace in
     `work`, so placemat generates the board fresh with `pcb layout` (the checked-in layout/ holds an old run's copper and is not
@@ -244,13 +315,21 @@ def run_module(name: str, script: pathlib.Path, work: pathlib.Path, *, versions:
     record, seconds = placemat_run(copy)
     versions["krt"] = krt_version(copy.parent)
     placement = placement_facts(record, copy.parent)
+    extra = {}
+    found = hand.reference_of(script)
+    if found is not None:
+        config = script.parents[2] / "placemat.toml"
+        facts = hand.measure_hand(found, pathlib.Path(work) / "hand", config.read_text() if config.exists() else None, script)
+        placed = _placed_board(copy)
+        extra = {"hand": dataclasses.asdict(facts),
+                 "placed_area_mm2": hand.footprint_area(placed) if placed.exists() else None}
     kind, message = _failure(record)
     if kind:
         return MResult(name, NOT_RUN, placement.get("area_mm2", 0.0), 0.0, round(seconds, 1), versions, kind, message, digest,
-                       placement)
+                       placement, **extra)
     metrics = record["metrics"]
     return MResult(name, metrics.get("closure_clean", NOT_RUN), _area(metrics), run_score(record, copy.parent), round(seconds, 1),
-                   versions, inputs_digest=digest, placement=placement)
+                   versions, inputs_digest=digest, placement=placement, **extra)
 
 
 def _differ(old: dict, new, changing: set[str]) -> list[str]:
@@ -261,37 +340,32 @@ def _differ(old: dict, new, changing: set[str]) -> list[str]:
     return differ + (["inputs"] if new.inputs_digest and old.get("inputs_digest", "") != new.inputs_digest else [])
 
 
-def _worse_closure(old: dict, new) -> bool:
-    return bool(new.failure) and not old.get("failure") or new.closure_clean < old["closure_clean"]
-
-
 def _compared(old: dict | None, new, changing: set[str], value) -> route_ref.Comparison:
     if old is None:
         return route_ref.Comparison("new", [])
     differ = _differ(old, new, changing)
+    values = value(old, new)
     if differ:
-        return route_ref.Comparison("not comparable", differ, value(old, new))
-    return route_ref.Comparison(value(old, new), [])
+        return dataclasses.replace(values, status="not comparable", differ=differ, value=values.status)
+    return values
 
 
-def b_by_value(old: dict, new: BResult) -> str:
-    """same, better or worse on the values alone: worse is a lower clean closure or a failure the recorded run had not."""
-    if _worse_closure(old, new):
-        return "worse"
-    if new.closure_clean > old["closure_clean"] or (old.get("failure") and not new.failure):
-        return "better"
-    return "same"
+def b_by_value(old: dict, new: BResult) -> route_ref.Comparison:
+    """same, better or worse on the values alone: route_ref.routing_values."""
+    return route_ref.routing_values(old, new)
 
 
-def module_by_value(old: dict, new: MResult) -> str:
-    """same, better or worse on the values alone: worse is a lower clean closure, or at equal closure a larger area."""
-    if _worse_closure(old, new):
-        return "worse"
-    if new.closure_clean > old["closure_clean"]:
-        return "better"
+def module_by_value(old: dict, new: MResult) -> route_ref.Comparison:
+    """same, better or worse on the values alone: a failure or lower clean closure is worse, a higher one better; at equal
+    closure a larger area is worse. A module's record has no open counts or DRC, so those are not compared."""
+    values = route_ref.routing_values(old, new, counts=False)
+    if values.status != "same":
+        return values
+    if new.area_mm2 == old["area_mm2"] or new.failure:
+        return values
     if new.area_mm2 > old["area_mm2"]:
-        return "worse"
-    return "better" if new.area_mm2 < old["area_mm2"] else "same"
+        return route_ref.Comparison("worse", [], worse=["area_mm2 rose"])
+    return route_ref.Comparison("better", [])
 
 
 def compare_b(old: dict | None, new: BResult, changing: set[str]) -> route_ref.Comparison:
@@ -306,6 +380,8 @@ def compare_module(old: dict | None, new: MResult, changing: set[str]) -> route_
 
 def save_results(path: pathlib.Path, boards: list[BResult] = (), modules: list[MResult] = ()) -> None:
     """Rewrite the "b" entries of the boards and the "modules" entries of the modules given, keeping every other entry and key."""
+    if not boards and not modules:
+        return   # every result was held: preserve the existing baseline bytes
     data = route_ref.load_results(path)
     for r in boards:
         data.setdefault("b", {})[r.board] = asdict(r)
@@ -315,16 +391,26 @@ def save_results(path: pathlib.Path, boards: list[BResult] = (), modules: list[M
 
 
 def line_b(r: BResult, c: route_ref.Comparison) -> str:
+    if r.failure:
+        return "%-22s b FAIL  %s  FAILED %s: %s" % (r.board, route_ref.said(c), r.failure, r.detail[:200])
     a = "n/a" if r.a_closure_clean is None else "%.1f%%" % (100 * r.a_closure_clean)
-    head = "%-22s b     closure_clean %.1f%% (a %s) open %d new DRC %d vias %d/%d track %.0f/%.0f mm score %.1f %.0fs" % (
-        r.board, 100 * r.closure_clean, a, r.open, len(r.new_violations), r.vias, r.ref_vias, r.track_mm, r.ref_track_mm,
+    head = "%-22s b     closure_clean %.1f%% (a %s) open non-pour %d pour %d new DRC %s vias %d/%d track %.0f/%.0f mm score %.1f %.0fs" % (
+        r.board, 100 * r.closure_clean, a, r.open_other, r.open_pour, "unknown" if r.new_violations is None else len(r.new_violations), r.vias, r.ref_vias, r.track_mm, r.ref_track_mm,
         r.run_score, r.seconds)
-    return "%s  %s%s" % (head, route_ref.said(c), "  FAILED %s: %s" % (r.failure, r.detail[:200]) if r.failure else "")
+    return "%s  %s" % (head, route_ref.said(c))
 
 
 def line_module(r: MResult, c: route_ref.Comparison) -> str:
     head = "%-28s closure_clean %.1f%% area %.1f mm2 score %.1f %.0fs" % (
         r.script, 100 * r.closure_clean, r.area_mm2, r.run_score, r.seconds)
+    if r.hand:
+        h, p = r.hand, r.placement
+        head += "  hand closure_clean %.1f%% area %.1f mm2 crossings %d airwire %.0f mm; placed area %s crossings %s airwire %s" % (
+            100 * h["closure_clean"], h["area_mm2"], h["crossings"], h["airwire_mm"],
+            "n/a" if r.placed_area_mm2 is None else "%.1f mm2" % r.placed_area_mm2,
+            p.get("crossings", "n/a"), "n/a" if p.get("airwire_mm") is None else "%.0f mm" % p["airwire_mm"])
+        if h.get("failure"):
+            head += "  hand FAILED %s: %s" % (h["failure"], h.get("detail", "")[:200])
     return "%s  %s%s" % (head, route_ref.said(c), "  FAILED %s: %s" % (r.failure, r.detail[:200]) if r.failure else "")
 
 
@@ -370,7 +456,8 @@ def main(argv=None) -> int:
         if not args.work:   # a --work folder is the caller's, to inspect
             shutil.rmtree(root, ignore_errors=True)
     for r in held:
-        print("held back, worse than the recorded result: %s (--accept-worse writes it)" % (getattr(r, "board", None) or r.script))
+        name = getattr(r, "board", None) or r.script
+        print("held back, worse than the recorded result: %s (--accept-worse writes it)" % name)
     return 1 if worse or held else 0
 
 
@@ -399,10 +486,10 @@ def _run_boards(boards, root, recorded, versions, changing, results, comparisons
         ref_dir = lint.BOARDS_DIR / board.name
         a = recorded.get("a", {}).get(board.name, {}).get("class", {}).get("closure_clean")
         try:
-            prepared = prepare.prepare(board, fetch.fetch(board), work / "human")
+            prepared = prepare.prepare(board, fetch.fetch(board), work / "reference", regenerated=True)
             r = run_b(board, ref_dir, work, prepared=prepared, versions=versions, a_closure_clean=a)
         except Exception as e:   # a failed result, so the other boards still run and are kept
-            r = BResult(board.name, NOT_RUN, 0, [], 0, 0.0, 0.0, 0, 0.0, a, 0.0, _failed_versions(versions, ref_dir),
+            r = BResult(board.name, NOT_RUN, 0, None, 0, 0.0, 0.0, 0, 0.0, a, 0.0, _failed_versions(versions, ref_dir),
                         type(e).__name__, str(e), _failed_digest(lambda: lint.find_script(board.name, ref_dir.parent)))
         c = compare_b(recorded.get("b", {}).get(board.name), r, changing)
         print(line_b(r, c), flush=True)
@@ -432,4 +519,5 @@ def _run_modules(chosen, root, recorded, versions, changing, results, comparison
 
 
 if __name__ == "__main__":
+    route_ref.stop_on_term()
     sys.exit(main())

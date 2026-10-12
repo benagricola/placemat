@@ -371,7 +371,7 @@ class Settings:
     drc_severities: dict = S(None, "table",
         "a table of KiCad rule names to `error`, `warning` or `ignore`, written into the board's .kicad_pro before DRC; a placement the script decided may put a courtyard over another part's hole where `npth_inside_courtyard` or `pth_inside_courtyard` is below `error`", factory=dict)
     route_router_dir: str = S("", "path",
-        "the KiCadRoutingTools checkout; empty: `$KRT_DIR`, else `~/work/KRT-upstream`")
+        "the KiCadRoutingTools checkout; empty: `$KRT_DIR`; with neither set, a route refuses")
     route_quick: bool = S(True, "bool",
         "one routing round rather than the router's full run")
     route_max_iterations: int | None = S(None, "count",
@@ -383,15 +383,11 @@ class Settings:
     route_smoothing: bool = S(True, "bool",
         "the router's own octolinear smoothing, as it defaults; false skips it")
     route_router_args: tuple = S((), "list",
-        "more of the router's own flags (`--direction-preference-cost`, `--heuristic-weight`, `--bus`, `--via-cost`, ...), each a string, appended to its route.py passes (the island nets, the class stages, the main pass); one placemat sets itself (`--nets`, `--layers`, `--escalation`, `--keep-input-copper`, `--turn-cost`, `--smoothing`, `--no-smoothing`, `--power-nets`, `--power-nets-widths`, `--max-iterations`, `--max-probe-iterations`, `--json-out`, `--net-clearances`) is refused. Its `--grid-step` also sets the room turned escape lanes leave for the router's grid snap")
+        "more of the router's own flags (`--direction-preference-cost`, `--heuristic-weight`, `--bus`, `--via-cost`, ...), each a string, appended to every route.py call of every routing phase, before the phase's own `router_args`; one placemat sets itself (`--nets`, `--layers`, `--escalation`, `--keep-input-copper`, `--turn-cost`, `--smoothing`, `--no-smoothing`, `--power-nets`, `--power-nets-widths`, `--max-iterations`, `--max-probe-iterations`, `--json-out`, `--net-clearances`) is refused. Its `--grid-step` also sets the room turned escape lanes leave for the router's grid snap")
     route_pair_router_args: tuple = S((), "list",
         "the same for the pair router (route_diff.py), which takes flags of its own (`--max-turn-angle`, `--min-turning-radius`, ...) and not all of route.py's")
-    route_pair_layers: dict = S(None, "table",
-        "the copper layers the pair router may route a differential pair on, for that pair only: a key is the pair's two nets `\"P/N\"` (either order) or a net class name, its value a list of layer names (`{\"USB_D_P/USB_D_N\" = [\"In2.Cu\", \"B.Cu\"]}`); a pair's own nets win over its class. Every other pair routes on the route's own layers. The pairs are routed in one call of the pair router per distinct list, the named ones first. A key that names no pair on the board, or a layer the board does not have, is a `setup.pair_layers` finding and the entry is not used", factory=dict)
-    route_net_halos: dict = S(None, "table",
-        "a net mapped to a halo in mm (`{\"SW\" = 2.0}`): every router pass keeps other nets' new copper that far from the net's copper, and the net's own new copper that far from everything, to keep coupling off a switch node. Each net is given the larger of its net class clearance and its halo in the clearance map placemat hands the router. Before the route, a pad of another net within the halo whose own copper (an escape, a via) ends inside it is a `setup.net_halo` finding: the router cannot leave it. A key that names no net on the board is a `setup.net_halo` finding and the entry is not used", factory=dict)
-    route_islands: tuple = S((), "list",
-        "nets with pours whose pads the pours do not reach (a pour net's small taps), `\"NET\"` or `\"NET=WIDTH\"` (mm), either with `@LAYER,...` after it (`\"VBUS=1.37@F,B\"`; F, In1 to In30, B or their .Cu names): routed first and alone, joining only the pads and pieces the pours leave apart, at the netclass width or WIDTH, its tracks on the layers given (its vias may still pass through the others) or on the route's own layers; `placemat route --islands` adds to them")
+    route_phase: tuple = S((), "list",
+        "the routing phases, in order: `[[route.phase]]` tables, each a `name`, at most one selector (`nets`, `net_classes`, `pairs = true`, `buses`, `connections`, `current_paths = true`, `interfaces`, `net_types`; none takes every connection still open), and `width` (mm or \"current\"), `layers`, `neckdown`, `router_args`. A route needs at least one; `placemat settings --example` writes example phases for a board (api.md \"Routing phases\")")
     route_diff_pair_gap: float = S(0.0, "mm",
         "mm between a pair's tracks; 0 is the net class's diff pair gap (the router never goes below the class clearance)")
     route_diff_pair_width: float = S(0.0, "mm",
@@ -613,8 +609,8 @@ class Settings:
         return replace(self, sources=dict(sources))
 
 
-# `[check.limits]`, `[drc.severities]`, `[facts.boards]`, `[route.pair_layers]` and `[route.net_halos]` are the sub-tables: each section is two words.
-_SUBTABLES = ("check.limits", "drc.severities", "facts.boards", "route.pair_layers", "route.net_halos")
+# Two-word sections below are settings whose value is a table.
+_SUBTABLES = ("check.limits", "drc.severities", "facts.boards")
 
 
 def split_key(name: str) -> tuple:
@@ -659,34 +655,6 @@ def _files(start) -> list:
     return list(reversed(found))
 
 
-def _island_entry(item) -> tuple:
-    """One `[route] islands` / `--islands` entry, "NET", "NET=WIDTH" (mm,
-    above 0), either with "@LAYER,LAYER..." after it, as (net, width or
-    None, layers or None). A layer is named as `[route] pair_layers` names
-    one (F.Cu, In1.Cu to In30.Cu, B.Cu) or by its short name (F, In1, B);
-    the layers come back in stack order, F.Cu first."""
-    text = str(item)
-    head, at, tail = text.rpartition("@") if "@" in text else (text, "", "")
-    net, eq, width = head.partition("=")
-    try:
-        w = float(width) if eq else None
-    except ValueError:
-        w = 0.0
-    if not net or (eq and not (w or 0) > 0):
-        raise ValueError("%r is not NET or NET=WIDTH (a width in mm, above 0), with @LAYER,... after it or not" % item)
-    if not at:
-        return net, w, None
-    names = tail.split(",")
-    if not all(n.strip() for n in names):
-        raise ValueError("%r: @ is followed by layer names, a comma between each" % item)
-    layers = []
-    for name in (n.strip() for n in names):
-        full = name if name.endswith(".Cu") else _short_layer(name)
-        if not _COPPER_LAYER.match(full):
-            raise ValueError("%r: %r is not a copper layer (F, In1 to In30, B, or F.Cu, In1.Cu to In30.Cu, B.Cu)" % (item, name))
-        if full not in layers:
-            layers.append(full)
-    return net, w, tuple(sorted(layers, key=_stack_place))
 
 
 def _short_layer(name: str) -> str:
@@ -701,23 +669,52 @@ def _stack_place(layer: str) -> int:
     return 0 if layer == "F.Cu" else 99 if layer == "B.Cu" else int(layer[2:-3])
 
 
-def parse_islands(items) -> dict:
-    """`[route] islands` / `--islands` entries (`_island_entry`) as {net: width or None}."""
-    return {net: w for net, w, _ in map(_island_entry, items or ())}
 
 
-def parse_island_layers(items) -> dict:
-    """The layers `[route] islands` / `--islands` entries give their nets (`_island_entry`): {net: (layer, ...)}, only
-    the nets given some."""
-    return {net: layers for net, _, layers in map(_island_entry, items or ()) if layers}
 
 
-def router_flag(args, name: str):
-    """The value of the router flag `name` in `args` (`--flag value` or `--flag=value`) as a number, or None."""
+# The router flags placemat sets on every pass: [route] router_args may not name them.
+ROUTER_OWNED = frozenset(("--nets", "--layers", "--escalation", "--keep-input-copper", "--turn-cost", "--smoothing",
+                           "--no-smoothing", "--power-nets", "--power-nets-widths", "--max-iterations",
+                           "--max-probe-iterations", "--json-out", "--net-clearances", "--connections",
+                           "--bus-nets", "--output"))
+# KRT route.py's short aliases of owned flags (argparse takes "-nVIN" as "-n VIN").
+ROUTER_SHORT = {"-n": "--nets", "-l": "--layers"}
+# The router's long flags placemat knows without asking the router: the owned ones, the ones it reads itself, and
+# KRT route.py's --bus, a complete flag that --bus-nets starts with. Where the router is known, its own listing
+# (krt_capabilities.py `flags`) is used instead.
+ROUTER_KNOWN = ROUTER_OWNED | {"--bus", "--clearance", "--clearance-ceiling", "--grid-step", "--neckdown-length",
+                               "--neckdown-taper-length", "--no-power-tap-neckdown"}
+
+
+def flag_matches(arg: str, known) -> list:
+    """The flags of `known` that `arg` (a command-line word, `--flag` or `--flag=value`) names as the router's argparse
+    reads a long option: the flag itself when it is one, else every flag it is a prefix of; a short alias by
+    ROUTER_SHORT. [] for a value or an unknown flag."""
+    flag = arg.split("=", 1)[0]
+    if flag.startswith("--") and len(flag) > 2:
+        known = set(known)
+        return [flag] if flag in known else sorted(k for k in known if k.startswith(flag))
+    if len(flag) > 1 and flag[0] == "-" and flag[:2] in ROUTER_SHORT:
+        return [ROUTER_SHORT[flag[:2]]]
+    return []
+
+
+def resolve_flag(arg: str, known) -> str | None:
+    """The one flag of `known` `arg` names (flag_matches); None when it names none, or several (argparse refuses an
+    ambiguous abbreviation)."""
+    got = flag_matches(arg, known)
+    return got[0] if len(got) == 1 else None
+
+
+def router_flag(args, name: str, known=None):
+    """The value of the router flag `name` in `args` (`--flag value` or `--flag=value`, the flag maybe abbreviated) as
+    a number, or None. `known`: the router's long flags (its krt_capabilities listing), None: ROUTER_KNOWN."""
     args = list(args)
+    known = (ROUTER_KNOWN | {name}) if known is None else known
     for i, a in enumerate(args):
-        flag, eq, value = a.partition("=")
-        if flag == name:
+        _, eq, value = a.partition("=")
+        if resolve_flag(a, known) == name:
             try:
                 return float(value if eq else args[i + 1])
             except (IndexError, ValueError):
@@ -725,10 +722,12 @@ def router_flag(args, name: str):
     return None
 
 
-# The router flags placemat sets on every pass: [route] router_args may not name them.
-_ROUTER_OWNED = frozenset(("--nets", "--layers", "--escalation", "--keep-input-copper", "--turn-cost", "--smoothing",
-                           "--no-smoothing", "--power-nets", "--power-nets-widths", "--max-iterations",
-                           "--max-probe-iterations", "--json-out", "--net-clearances"))
+def router_owned(arg: str, known=None) -> str | None:
+    """The owned flag (ROUTER_OWNED) `arg` names, abbreviated or by a short alias; an ambiguous abbreviation that
+    could be an owned flag counts as that flag. `known`: the router's long flags, None: ROUTER_KNOWN."""
+    owned = [f for f in flag_matches(arg, ROUTER_KNOWN if known is None else set(known) | ROUTER_OWNED)
+             if f in ROUTER_OWNED]
+    return owned[0] if owned else None
 
 
 # A copper layer's name as KiCad spells it: F.Cu, In1.Cu to In30.Cu, B.Cu.
@@ -837,28 +836,16 @@ def _validate(name: str, value, path: str):
         if not all(isinstance(v, str) for v in value):
             raise SettingsError("%s: %s: every entry is a string (a command-line word), not %r" % (
                 path, dotted, next(v for v in value if not isinstance(v, str))))
-        owned = sorted({v.split("=", 1)[0] for v in value if v.startswith("-")
-                        and any(o.startswith(v.split("=", 1)[0]) and len(v.split("=", 1)[0]) > 2 for o in _ROUTER_OWNED)})
+        owned = sorted({router_owned(v) for v in value if router_owned(v)})
         if owned:
             raise SettingsError("%s: %s: %s is set by placemat itself (%s)" % (
-                path, dotted, ", ".join(owned), "[route] turn_cost, smoothing, islands, net_halos and route --iterations name them"))
-    if name == "route_pair_layers":
-        for key, layers in value.items():
-            if not (isinstance(layers, (list, tuple)) and layers and all(isinstance(l, str) for l in layers)):
-                raise SettingsError("%s: route.pair_layers.%s must be a list of layer names, not %r" % (path, json.dumps(key), layers))
-            bad = [l for l in layers if not _COPPER_LAYER.match(l)]
-            if bad:
-                raise SettingsError("%s: route.pair_layers.%s: %s is not a copper layer (F.Cu, In1.Cu to In30.Cu, B.Cu)" % (
-                    path, json.dumps(key), ", ".join(bad)))
-    if name == "route_net_halos":
-        for key, halo in value.items():
-            if isinstance(halo, bool) or not isinstance(halo, (int, float)) or not halo > 0:
-                raise SettingsError("%s: route.net_halos.%s must be a halo in mm, above 0, not %r" % (path, json.dumps(key), halo))
-    if name == "route_islands":
+                path, dotted, ", ".join(owned), "[route] turn_cost, smoothing and route --iterations name them"))
+    if name == "route_phase":
+        from .route_phase import PhaseError, parse_phases
         try:
-            parse_islands(value)
-        except ValueError as e:
-            raise SettingsError("%s: %s: %s" % (path, dotted, e)) from None
+            parse_phases(value)
+        except PhaseError as e:
+            raise SettingsError("%s: %s" % (path, e)) from None
     if name in _CHOICES and value not in _CHOICES[name]:
         raise SettingsError("%s: %s must be %s, not %r" % (
             path, dotted, ", ".join(_CHOICES[name][:-1]) + " or " + _CHOICES[name][-1], value))
@@ -883,6 +870,10 @@ _RETIRED = {
 # Keys retired because what they set is now counted another way: {key: what replaced it}. A time is not a count of
 # steps, so the old value is not carried over; the project is told what to set instead.
 _REPLACED = {
+    "route_islands": 'a phase with `nets` and `width` ([[route.phase]], api.md "Routing phases")',
+    "route_pair_layers": 'a phase with `pairs = true` and `layers` ([[route.phase]], api.md "Routing phases")',
+    "route_net_halos": "the clearance field of the net's type in the capture",
+
     "pins_budget_ms": "pins.budget_steps, a count of the study's steps, so a board gives the same map at any speed",
     "pins_probe_budget_ms": "pins.probe_budget_steps, a count of the study's steps, so a board gives the same map at any speed",
     "explore_route_top": "explore.route_best = true, which routes the plain placement and each new best as the search finds them",
@@ -909,6 +900,9 @@ def _flatten(data: dict, path) -> dict:
         for key, value in body.items():
             full = "%s.%s" % (section, key)
             if isinstance(value, dict):
+                retired = join_key(section, key)
+                if retired in _REPLACED:
+                    raise _replaced(path, retired)
                 if full not in _SUBTABLES:
                     raise SettingsError("%s: [%s] is not a section placemat knows" % (path, full))
                 out[join_key(full, "")] = dict(value)
@@ -1059,7 +1053,7 @@ def docs_table() -> str:
     return "\n".join(rows)
 
 
-def example_toml() -> str:
+def example_toml(phases_block=None) -> str:
     """A complete placemat.toml: every section and setting with its default, unit and meaning, grouped by section.
     It loads to the defaults. A setting whose default is no TOML value (unset) is a commented line."""
     import textwrap
@@ -1076,6 +1070,8 @@ def example_toml() -> str:
         out += ["# " + "-" * 76, "# %s: %s" % (section, SECTIONS[section]), "# " + "-" * 76, "[%s]" % section, ""]
         subtables = []
         for f in fs:
+            if f.name == "route_phase":
+                continue
             key = split_key(f.name)[1]
             default = _default_of(f)
             head = textwrap.wrap(describe(f.name), 108, initial_indent="# ", subsequent_indent="# ")
@@ -1088,4 +1084,7 @@ def example_toml() -> str:
             out.append("")
         for f, head, note in subtables:
             out += head + [note, "[%s]" % f.name.replace("_", ".", 1), ""]
+    from .route_phase import example_phases, phases_toml
+    out += ["# " + "-" * 76, "# route.phase: routing phases in order", phases_block or phases_toml(
+        example_phases(pairs=False, interface_types=[], wide_classes=[], currents=False))]
     return "\n".join(out).rstrip("\n") + "\n"

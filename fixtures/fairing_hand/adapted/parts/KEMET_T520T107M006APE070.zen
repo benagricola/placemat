@@ -1,0 +1,23 @@
+# T520T107M006APE070: KEMET polymer tantalum, T case (EIA 3528-12), 100 uF 6.3 V,
+# 1.2 mm maximum. Land and model are KiCad's library KEMET T case; pin 1 the anode.
+
+P_1 = io("P_1", Net, optional = True)
+P_2 = io("P_2", Net, optional = True)
+
+annotations = config(dict, default = {}, optional = True,
+                     help = "Pm.* layout facts (placemat-design): forwarded into the footprint's fields")
+_properties = {"LCSC": "C2158148", "MPN": "T520T107M006APE070"}
+_properties.update(annotations)
+
+Component(
+    name = "KEMET_T520T107M006APE070",
+    footprint = File("../../parts/KEMET_T520T107M006APE070/CP_EIA-3528-12_Kemet-T.kicad_mod"),
+    symbol = Symbol("KEMET_T520T107M006APE070/T520T107M006APE070.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "T520T107M006APE070", manufacturer = "KEMET"),
+    properties = _properties,
+    pins = {
+        "1": P_1,
+        "2": P_2,
+    },
+)

@@ -1,0 +1,52 @@
+# u-blox MAX-M10S on the core's shared GNSS land (identical copper to the L76K build's), which covers
+# u-blox's recommended land (UBX-20053088 R05 4.4.1). Land provenance:
+# U_BLOX_MAX_M10S_00B/land-pattern-provenance.json.
+
+GND = io("GND", Net, optional = True)
+TXD = io("TXD", Net, optional = True)
+RXD = io("RXD", Net, optional = True)
+TIMEPULSE = io("TIMEPULSE", Net, optional = True)
+EXTINT = io("EXTINT", Net, optional = True)
+V_BCKP = io("V_BCKP", Net, optional = True)
+V_IO = io("V_IO", Net, optional = True)
+VCC = io("VCC", Net, optional = True)
+RESET_N = io("RESET_N", Net, optional = True)
+RF_IN = io("RF_IN", Net, optional = True)
+LNA_EN = io("LNA_EN", Net, optional = True)
+VCC_RF = io("VCC_RF", Net, optional = True)
+VIO_SEL = io("VIO_SEL", Net, optional = True)
+SDA = io("SDA", Net, optional = True)
+SCL = io("SCL", Net, optional = True)
+SAFEBOOT_N = io("SAFEBOOT_N", Net, optional = True)
+
+annotations = config(dict, default = {}, optional = True,
+                     help = "Pm.* layout facts (placemat-design): forwarded into the footprint's fields")
+_properties = {"LCSC": "C4153167", "MPN": "MAX-M10S-00B"}
+_properties.update(annotations)
+
+Component(
+    name = "U_BLOX_MAX_M10S_00B",
+    footprint = File("U_BLOX_MAX_M10S_00B/GNSS_LCC18_shared_land.kicad_mod"),
+    symbol = Symbol("U_BLOX_MAX_M10S_00B/MAX_M10S_00B.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "MAX-M10S-00B", manufacturer = "U-BLOX"),
+    properties = _properties,
+    pins = {
+        "GND": GND,
+        "TXD": TXD,
+        "RXD": RXD,
+        "TIMEPULSE": TIMEPULSE,
+        "EXTINT": EXTINT,
+        "V_BCKP": V_BCKP,
+        "V_IO": V_IO,
+        "VCC": VCC,
+        "RESET_N": RESET_N,
+        "RF_IN": RF_IN,
+        "LNA_EN": LNA_EN,
+        "VCC_RF": VCC_RF,
+        "VIO_SEL": VIO_SEL,
+        "SDA": SDA,
+        "SCL": SCL,
+        "SAFEBOOT_N": SAFEBOOT_N,
+    },
+)

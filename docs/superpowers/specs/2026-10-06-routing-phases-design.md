@@ -27,7 +27,7 @@ reserving their lanes.
 
 ## Decisions taken with the user
 
-- Phases are required. There are no implicit stages; placemat writes an example `placemat.toml` with default phases
+- Phases are required. There are no implicit stages; placemat writes an example `placemat.toml` with example phases
   for a project to start from.
 - Connections are structured tables, never strings to parse.
 - Running one phase uses the earlier phases' copper when it still matches the board and routes any missing or stale
@@ -62,6 +62,10 @@ name = "diff-pairs"
 pairs = true                   # the differential pairs the net classes declare
 
 [[route.phase]]
+name = "usb-pair"
+pairs = [["USB_D+", "USB_D-"]]   # by net names, P first: a board without a capture
+
+[[route.phase]]
 name = "buses"
 interfaces = ["Spi", "I2c"]    # every instance in the capture, each routed together as one bus
 layers = ["F"]
@@ -92,7 +96,7 @@ A phase has at most one selector. A phase with none takes every connection still
 |---|---|---|
 | `nets` | nets by name or glob (`DISP_*`); `!NAME` excludes | the board's nets |
 | `net_classes` | every net in these KiCad net classes | the capture's `board_rules.zen` net classes, which reach `layout.kicad_pro` |
-| `pairs = true` | the differential pairs: the capture's `DiffPair` interface instances | the capture, through the Zener fork (below) |
+| `pairs = true`, or `pairs = [["P", "N"], ...]` | the differential pairs: the capture's `DiffPair` interface instances, or the pairs named by net (P first) on a board without a capture | the capture, through the Zener fork (below); or the board's nets |
 | `buses` | a list of buses, each a list of net names or globs | the board's nets |
 | `connections` | pad-to-pad connections, each `{from = {part, pad}, to = {part, pad}}`; a pad by number or by net, as `PadRef` takes it | the capture |
 | `current_paths = true` | every pair of carriers on each net with a `Pm.I`, pad to pad (`checks._pairs(by_pad=True)`) | the capture's `Pm.I` |
@@ -169,9 +173,9 @@ and applies to every phase.
 
 A route of a project with no `[[route.phase]]` is refused:
 
-    route: no routing phases in placemat.toml; `placemat settings --example` writes a placemat.toml with the default phases
+    route: no routing phases in placemat.toml; `placemat settings --example` writes a placemat.toml with example phases
 
-The default phases go in the existing `placemat settings --example` output (decided with the user: no separate
+The example phases go in the existing `placemat settings --example` output (decided with the user: no separate
 command). For a board, it writes a `[[route.phase]]` block: the differential pairs if the board has any, the interfaces
 and the net classes above Default, the nets with a stated current at `width = "current"`, then a final phase for the
 rest, each commented. These defaults reproduce today's stages.
@@ -181,11 +185,22 @@ rest, each commented. These defaults reproduce today's stages.
 KRT always closes a whole net: it groups the net's pads by existing copper and joins the groups (connectivity.py
 `find_connected_groups`). The fork gains:
 
-- `--connections FILE`: a JSON list of `{net, from: "REF.PAD", to: "REF.PAD", widths: {layer: mm}}`. The router routes
-  only these pad pairs, each as a two-terminal task on its net, at the given width per layer, and leaves the net's
-  other pads alone. The tasks may use the net's existing copper. A task whose ends are already joined is skipped and
-  reported as such.
-- Each task's outcome goes in the `--json-out` summary: joined or not, its length and its narrowest width per layer.
+- `--connections FILE` (KRT fork commit 39647d82, docs/connections.md there): a JSON list of
+  `{"net": str, "from": {"ref": str, "pad": str}, "to": {"ref": str, "pad": str}, "widths": {layer: mm}}`, where
+  `widths` names every layer the call routes on. The ends are structured, never "REF.PAD" strings; an end is every
+  pad of that footprint with that number on the net. The router routes only these pad pairs, at the given width per
+  layer, and leaves the net's other pads alone; same-net pads of an end's footprint that are not ends are obstacles.
+  The tasks may use the net's copper already joined to their ends; the net's other copper is an obstacle for the
+  call. `--connections` refuses `--nets` and `--power-nets` alongside.
+- Each task's outcome goes in the `--json-out` summary as `connections`, one record per task in file order:
+  `{"net", "from": {"ref", "pad"}, "to": {"ref", "pad"}, "status", "reason", "joined", "length_mm",
+  "min_width_mm": {layer: mm}, "path"}`, measured on the written board. `status` is `routed`, `failed`,
+  `joined_before` (joined before the call at its width), `joined_narrow` (joined before the call by copper narrower
+  than `widths` on some layer: not routed, counted joined, `path` lists the joining segments as
+  `{"layer", "start": [x, y], "end": [x, y], "width"}`), `deferred` (another group of the same net was routed in this
+  call; route it again) or `refused`, whose `reason` is `unknown_ref`, `unknown_pad`, `pad_not_on_net`,
+  `layer_not_routed` or `width_under_board_minimum`. `path` is null on every other record. The whole-net summary keys
+  still describe whole nets.
 
 placemat writes the file from the phase's `connections` or `current_paths`. The change is made in the fork, on a branch
 off `placemat/upstream-2026-10`, with its own tests in KRT's suite, and pushed to the fork. It is never offered upstream.
@@ -256,7 +271,7 @@ for power legs and buses, and declared copper only for fixed geometry.
 - Settings:
   - parsing and validation of `[[route.phase]]`: each selector, a phase with two selectors refused, a duplicate name
     refused, a removed setting refused with its replacement named;
-  - `settings --example` on a board with pairs, classes and currents writes the default phases.
+  - `settings --example` on a board with pairs, classes and currents writes the example phases.
 - Phase engine:
   - order;
   - copper locked between phases;

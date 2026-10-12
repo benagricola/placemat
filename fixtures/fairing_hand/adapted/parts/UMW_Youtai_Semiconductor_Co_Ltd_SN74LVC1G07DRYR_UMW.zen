@@ -1,0 +1,31 @@
+# UMW_Youtai_Semiconductor_Co_Ltd_SN74LVC1G07DRYR_UMW - component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields). Datasheet: UMW_Youtai_Semiconductor_Co_Ltd-SN74LVC1G07DRYR_UMW_C7598681.pdf
+# The land is TI's DRY (SON-6, 1.0 x 1.5 mm, 0.5 mm pitch), the one the core's
+# SN74LVC1G08DRYR already uses; UMW's DFN6 has the same pin order.
+
+NC = io("NC", Net, optional = True)
+INA = io("INA", Net, optional = True)
+GND = io("GND", Net, optional = True)
+OUTY = io("OUTY", Net, optional = True)
+VCC = io("VCC", Net, optional = True)
+
+annotations = config(dict, default = {}, optional = True,
+                     help = "Pm.* layout facts (placemat-design): forwarded into the footprint's fields")
+_properties = {"LCSC": "C7598681", "MPN": "SN74LVC1G07DRYR(UMW)"}
+_properties.update(annotations)
+
+Component(
+    name = "UMW_Youtai_Semiconductor_Co_Ltd_SN74LVC1G07DRYR_UMW",
+    footprint = File("../../parts/Texas_Instruments_SN74LVC1G08DRYR/SON-6_L1.5-W1.0-P0.50-BL.kicad_mod"),
+    symbol = Symbol("UMW_Youtai_Semiconductor_Co_Ltd_SN74LVC1G07DRYR_UMW/SN74LVC1G07DRYR_UMW.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "SN74LVC1G07DRYR(UMW)", manufacturer = "UMW(Youtai Semiconductor Co., Ltd.)"),
+    properties = _properties,
+    pins = {
+        "NC": NC,
+        "INA": INA,
+        "GND": GND,
+        "OUTY": OUTY,
+        "VCC": VCC,
+    },
+)

@@ -7,16 +7,16 @@ from pathlib import Path
 
 import pytest
 
-from tests.conftest import needs_kicad
+from tests.conftest import ECOSYSTEM, ECOSYSTEM_ENV, needs_kicad, outside_file_missing
 
 pytestmark = [needs_kicad]
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "fixtures"))
-CHIP = Path.home() / "Documents/Hardware/mnb-ecosystem/parts/Raspberry_Pi_RP2350B/QFN-80_L10.0-W10.0-P0.40-TL-EP3.4.kicad_mod"
+CHIP = ECOSYSTEM / "parts/Raspberry_Pi_RP2350B/QFN-80_L10.0-W10.0-P0.40-TL-EP3.4.kicad_mod" if ECOSYSTEM else None
 
 
-@pytest.mark.skipif(not CHIP.exists(), reason="the chip footprint is not on this machine")
+@pytest.mark.skipif(bool(outside_file_missing(CHIP, ECOSYSTEM_ENV)), reason=outside_file_missing(CHIP, ECOSYSTEM_ENV) or "found")
 def test_the_same_case_builds_the_same_board(tmp_path):
     import subprocess
     code = ("import sys, pathlib; sys.path.insert(0, %r); sys.path.insert(0, %r); import escape_lab as L;"

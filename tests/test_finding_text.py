@@ -156,21 +156,15 @@ SAMPLES = [
     (C.SETUP_NATIVE, {"in_use": False, "reason": "version_mismatch", "placemat_version": "0.98.0", "native_version": "0.97.0", "detail": ""},
      "placemat_native 0.97.0 does not match placemat 0.98.0, so the pure Python path runs: results are the same, 5-10x slower on a "
      "large board; rebuild it from this checkout's native/ (uv pip install -e \".[native]\")"),
-    (C.SETUP_PAIR_LAYERS, {"key": "D_P/D_N", "variant": "layer_missing", "layers": ["In4.Cu", "B.Cu"], "missing": ["In4.Cu"],
-                           "board_layers": ["F.Cu", "In1.Cu", "In2.Cu", "B.Cu"]},
-     "route.pair_layers D_P/D_N: names In4.Cu, which this board does not have (it has F.Cu, In1.Cu, In2.Cu, B.Cu); the pair "
-     "routes on the route's own layers"),
-    (C.SETUP_PAIR_LAYERS, {"key": "Fast", "variant": "no_pair", "layers": ["B.Cu"], "missing": [], "board_layers": ["F.Cu", "B.Cu"]},
-     "route.pair_layers Fast: no differential pair on this board has those two nets or that net class; the entry is not used"),
-    (C.SETUP_NET_HALO, {"variant": "trapped", "net": "SW", "halo_mm": 2.0, "ref": "U3", "number": "2", "pad_net": "FB",
+    (C.SETUP_NET_CLEARANCE, {"variant": "trapped", "net": "SW", "clearance_mm": 2.0, "ref": "U3", "number": "2", "pad_net": "FB",
                         "gap_mm": 0.4, "reach_mm": 0.6, "needed_mm": 2.1, "short_mm": 1.5},
-     "FB pad U3.2 is inside SW's 2.00 mm halo; its copper ends 0.60 mm away where a track leaving it needs 2.10 mm, 1.50 mm "
-     "short: draw its escape out past the halo in the module (a longer run= on its board.escape), or give SW a smaller halo"),
-    (C.SETUP_NET_HALO, {"variant": "no_net", "net": "GONE", "halo_mm": 1.0},
-     "route.net_halos GONE: no net of that name on this board; the entry is not used"),
-    (C.SETUP_NET_HALO, {"variant": "open", "net": "SW", "halo_mm": 2.0, "open_items": 1},
-     "SW is open (1 item(s)) and routed with the other nets: the router spaces every net of that pass 2.00 mm from all "
-     "copper, not only from SW; draw SW whole in the module, or route it alone as a `[route] islands` net"),
+     "FB pad U3.2 is inside SW's 2.00 mm clearance; its copper ends 0.60 mm away where a track leaving it needs 2.10 mm, 1.50 mm "
+     "short: draw its escape out past the clearance in the module (a longer run= on its board.escape), or give SW a smaller clearance"),
+    (C.SETUP_DUPLICATE_REFERENCE, {"ref": "TP4", "nets": ["VB"], "footprints": [{"uuid": "a", "at": [5.0, 5.0]},
+                                                                             {"uuid": "b", "at": [15.0, 15.0]}]},
+     "2 footprints share the reference TP4, at (5.00, 5.00) and (15.00, 15.00), on VB: placemat asks and judges each "
+     "connection on its own footprint, but the router may join a connection to either of them; give each a reference of "
+     "its own"),
     (C.ROUTE_DROPPED, {"key": "X","why": Refusal(Code.ROUTE_END, at=[1.0, 2.0]).to_json()},
      "adopted route X dropped: its end at (1.00, 2.00) no longer meets the net's other copper; the router routes it again"),
     (C.ROUTE_WIDTH, {"net": "V", "stage": "islands", "requested_mm": 1.37, "delivered_min_mm": 0.16, "length_under_mm": 16.61,

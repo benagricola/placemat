@@ -28,14 +28,6 @@ def _drc(kind, *nets):
     return {"type": kind, "items": [{"description": "Via [%s] on F.Cu - B.Cu" % n} for n in nets]}
 
 
-def test_violations_by_net_lists_each_nets_kinds():
-    from placemat.kicad.route import _violations_by_net
-    drc = {"violations": [_drc("hole_to_hole", "INA_ALERT", "INA_ALERT"), _drc("clearance", "A", "B"),
-                          _drc("hole_to_hole", "A"), _drc("silk_overlap", "Z")]}
-    assert _violations_by_net(drc) == {"INA_ALERT": ["hole_to_hole"], "A": ["clearance", "hole_to_hole"],
-                                       "B": ["clearance"]}
-
-
 def _report(**kw):
     from pathlib import Path
     from placemat.kicad.route import RouteReport

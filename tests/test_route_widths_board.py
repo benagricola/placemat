@@ -6,7 +6,7 @@ Synthetic geometry: two pads 35 mm apart on the front, joined by tracks; an inne
 from placemat.board_geometry import CopperItem
 from placemat.checks import ipc2221_width_mm
 from placemat.findings import FindingCause as C
-from placemat.kicad.route_widths import KRT_NECKDOWN_LENGTH_MM, KRT_NECKDOWN_TAPER_MM, board_widths, findings_of, judged_on_board, neck_allowance
+from placemat.kicad.route_widths import KRT_NECKDOWN_LENGTH_MM, KRT_NECKDOWN_TAPER_MM, board_widths, findings_of, neck_allowance
 from placemat.values import Box, CopperLayer
 from tests.fixtures import board_geometry, footprint
 
@@ -44,7 +44,7 @@ def test_an_outer_track_under_the_asked_width_is_counted_and_a_short_pad_neck_is
                _track((7, 10), (20, 10), 1.0),
                _track((20, 10), (30, 10), 0.3),             # a mid-route pinch: 10 mm
                _track((30, 10), (40, 10), 1.0))
-    (r,) = board_widths(g, {"V": 1.0}, neck_mm=NECK)
+    (r,) = board_widths(g, {"V": {F: 1.0, IN2: 1.0, B: 1.0}}, "widths", neck_mm=NECK)
     assert (r["net"], r["requested_mm"], r["delivered_min_mm"], r["length_under_mm"], r["length_mm"]) == ("V", 1.0, 0.3, 10.0, 35.0)
     assert r["declared"] and r["necks_mm"] == 2.0
     assert r["layers"] == [{"layer": "F.Cu", "need_mm": 1.0, "by": "asked", "under_mm": 10.0, "min_mm": 0.3}]
@@ -61,10 +61,10 @@ def test_an_island_is_judged_by_its_asked_width_not_the_nets_stated_current():
     g = _board(_track((5, 10), (20, 10), 0.31), _via((20, 10)),
                _track((20, 10), (35, 10), 0.31, IN2), _via((35, 10)),
                _track((35, 10), (40, 10), 0.31), amps=3.0)
-    assert board_widths(g, {"V": 0.3}, neck_mm=NECK) == []
+    assert board_widths(g, {"V": {F: 0.3, IN2: 0.3, B: 0.3}}, "widths", neck_mm=NECK) == []
     pinched = _board(_track((5, 10), (20, 10), 0.31), _track((20, 10), (30, 10), 0.127, IN2),
                      _track((30, 10), (40, 10), 0.31), amps=3.0)
-    (r,) = board_widths(pinched, {"V": 0.3}, neck_mm=NECK)
+    (r,) = board_widths(pinched, {"V": {F: 0.3, IN2: 0.3, B: 0.3}}, "widths", neck_mm=NECK)
     assert r["layers"] == [{"layer": "In2.Cu", "need_mm": 0.3, "by": "asked", "under_mm": 10.0, "min_mm": 0.127}]
     assert r["amps"] is None
     (f,) = findings_of([r], {"V": 3.0})
@@ -76,27 +76,26 @@ def test_only_an_island_given_a_width_is_judged_and_a_thin_decoupling_branch_els
     trunk = _track((5, 10), (40, 10), 1.37)
     branch = _track((20, 10), (20, 20), 0.127)          # to a decoupling capacitor: never carries the stated 3 A
     g = _board(trunk, branch, amps=3.0)
-    assert board_widths(g, {"OTHER": 1.0}, neck_mm=NECK) == []      # V has a Pm.I but is no island
-    assert board_widths(g, {"V": None}, neck_mm=NECK) == []         # an island given no width
-    assert judged_on_board({"V": None, "W": 1.0}) == {"W"}
-    (r,) = board_widths(g, {"V": 1.37}, neck_mm=NECK)               # a width island: the branch counts
+    assert board_widths(g, {"OTHER": {F: 1.0, IN2: 1.0, B: 1.0}}, "widths", neck_mm=NECK) == []      # V has a Pm.I but is no island
+    assert board_widths(g, {"V": None}, "widths", neck_mm=NECK) == []         # an island given no width
+    (r,) = board_widths(g, {"V": {F: 1.37, IN2: 1.37, B: 1.37}}, "widths", neck_mm=NECK)               # a width island: the branch counts
     assert r["length_under_mm"] == 10.0 and r["declared"]
 
 
 def test_the_neck_bound_is_krt_s_and_neck_down_off_counts_every_neck():
     short = _board(_track((5, 10), (7, 10), 0.2), _track((7, 10), (7.5, 10), 0.6),   # neck and taper: 2.5 mm
                    _track((7.5, 10), (40, 10), 1.0))
-    assert board_widths(short, {"V": 1.0}, neck_mm=NECK) == []
-    (off,) = board_widths(short, {"V": 1.0}, neck_mm=0.0)
+    assert board_widths(short, {"V": {F: 1.0, IN2: 1.0, B: 1.0}}, "widths", neck_mm=NECK) == []
+    (off,) = board_widths(short, {"V": {F: 1.0, IN2: 1.0, B: 1.0}}, "widths", neck_mm=0.0)
     assert off["length_under_mm"] == 2.5 and off["necks_mm"] == 0.0
     long = _board(_track((5, 10), (9, 10), 0.2), _track((9, 10), (40, 10), 1.0))      # 4 mm: past 3 mm
-    (r,) = board_widths(long, {"V": 1.0}, neck_mm=NECK)
+    (r,) = board_widths(long, {"V": {F: 1.0, IN2: 1.0, B: 1.0}}, "widths", neck_mm=NECK)
     assert r["length_under_mm"] == 4.0
     both = _board(_track((5, 10), (40, 10), 0.2), )                                     # narrow from pad to pad: no neck
-    assert board_widths(both, {"V": 1.0}, neck_mm=NECK)[0]["length_under_mm"] == 35.0
+    assert board_widths(both, {"V": {F: 1.0, IN2: 1.0, B: 1.0}}, "widths", neck_mm=NECK)[0]["length_under_mm"] == 35.0
     pinch = _board(_track((5, 10), (20, 10), 1.0), _track((20, 10), (21, 10), 0.2),    # a 1 mm pinch away from any pad
                    _track((21, 10), (40, 10), 1.0))
-    assert board_widths(pinch, {"V": 1.0}, neck_mm=NECK)[0]["length_under_mm"] == 1.0
+    assert board_widths(pinch, {"V": {F: 1.0, IN2: 1.0, B: 1.0}}, "widths", neck_mm=NECK)[0]["length_under_mm"] == 1.0
 
 
 def test_neck_allowance_reads_the_router_arguments():

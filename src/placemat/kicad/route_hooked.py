@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Runs one of KiCadRoutingTools' own entry scripts (route.py, route_diff.py) with placemat's progress hooks in place: `route_hooked.py ENTRY
 ARGS...`. The same copper and the same flags; the hooks (route_events.py) only watch. The router is executed from its own source and
-nothing in its checkout is modified. Run by placemat's routing under the router's own interpreter; $KRT_DIR is the checkout (default
-~/work/KRT-upstream). The pair router (route_diff.py) also has its loop over the pairs hooked. If the hooks' anchors are not where they expect, the router runs unhooked and `route_off` says why."""
+nothing in its checkout is modified. Run by placemat's routing under the router's own interpreter; $KRT_DIR is the checkout, which the
+route sets. The pair router (route_diff.py) also has its loop over the pairs hooked. If the hooks' anchors are not where they expect, the router runs unhooked and `route_off` says why."""
 import os
 import sys
 
-router_dir = os.environ.get("KRT_DIR", os.path.expanduser("~/work/KRT-upstream"))
+router_dir = os.environ.get("KRT_DIR")
+if not router_dir:
+    sys.exit("route_hooked: $KRT_DIR is not set; placemat's route sets it to the router checkout")
 py_router = os.path.join(router_dir, "py_router")
 if len(sys.argv) < 2:
     sys.exit("route_hooked: give the router's entry script")

@@ -7,7 +7,134 @@ section for each hand-written pattern a newer form replaces.
 
 ## Unreleased
 
+### New
+
+- **Routing phases.** Routing phases expose `route --phase NAME [--only]`, per-phase reports in the console, watch and studio,
+  and `run --route-rank PHASE[,PHASE...]` for routed explore variants.
+
+- **Routing phases.** `settings <board> --example` writes example routing phases for the board; without a board it writes signals.
+
+- **Routing phases.** `settings <board> --example` ends its example phases with a phase `pours` naming the board's
+  pour nets. Nothing joined a pour net's pads to its pour unless a phase named the net; this phase does. A
+  placemat.toml written by an earlier `--example` has no such phase: add one after the others to join them,
+
+      [[route.phase]]
+      name = "pours"
+      nets = ["GND"]
+
+  naming the board's pour nets.
+
+### Changed
+
+- **Routing phases.** Net clearance comes from the capture's clearance field. Trapped-pad findings are `setup.net_clearance`.
+
+- **Routing phases.** A join's width is measured along the copper that joins its two pads, through any pour fill or
+  pad on the way; a join whose path cannot be measured is `width_unknown` and is not counted clean.
+
+- **Routing phases.** Two footprints may share a reference: the route goes ahead and says so with a
+  `setup.duplicate_reference` warning.
+
+- **Routing phases.** Pair phase widths come from net classes; omit an explicit phase width.
+
+- **Routing phases.** A phase that names a pour net joins its pads to the pour by via drops first: a via in each pad
+  no copper joins to the pour, or beside it with a short track, at the net class's sizes; a pad a cell's via or other
+  copper already joins is left as it is. Pads still apart after that are routed to the pour by a track each group.
+  `route.json`'s phase record gives what the call did as `pour_joins`.
+  Before, the router laid the whole net as tracks, pad to pad, re-routing pads already on the pour. Scripts need no
+  change.
+
+- **Routing phases.** A phase's connections are judged against the DRC errors the phase added: an error its input
+  board already had (a footprint's own pad against its own hole, say) no longer marks every connection of that
+  net as not clean. Scripts need no change.
+
+- **Routing phases.** A `current_paths` phase no longer routes the pour nets it picks up. The pour carries such a
+  net's current, so its connections are asked of the pour: one the pour joins is listed as left to it, one it does
+  not join is open in the phase's closure and named in the route's line. Before, the phase routed the whole pour net as tracks at the widest current width, which could take the board's
+  room from every later phase. A pour net a phase names (`nets`, a class, `connections`) is still routed. Scripts
+  need no change.
+
+- **Routing phases.** On a board with inner copper layers, `settings <board> --example` gives the example current phase
+  `layers` set to the board's outer copper layers. A placemat.toml written by an earlier `--example` keeps its current
+  phase on every layer: add `layers = ["F.Cu", "B.Cu"]` (the board's outer layers) to that phase to match.
+
+- **A route that fails keeps the placed board.** When `run --route` places the board and the route then fails or is
+  refused, the layout folder keeps the placed, unrouted board instead of going back to the last run's, and the run
+  says so; `run.json`'s `failure.layout` is `placed_unrouted`. Run the same command again to route it: the route
+  takes the phases the failed one finished. A failure before the board is written still puts the folder back
+  (`failure.layout` `restored`). Scripts need no change.
+
+- **A route that is stopped keeps the placed board.** A stop (Ctrl-C, SIGTERM, SIGHUP, `--max-time`) during the route
+  of `run --route` keeps the placed, unrouted board in the layout folder instead of going back to the last run's, and
+  the run says so; the run is recorded as `stopped`, with `failure.layout` `placed_unrouted`. Run the same command
+  again to resume the route from the phases it finished. A stop in any other stage still puts the folder back.
+  Scripts need no change.
+
+- **A route needs routing phases.** `placemat route`, `run --route` and explore's `--route-best` route the project's
+  `[[route.phase]]` tables in order and refuse a project with none. Start from the example phases
+  (`placemat settings <board> --example`), or write the one phase that routes what the old fixed stages' main pass did:
+
+      [[route.phase]]
+      name = "signals"
+
+  `[route] islands`, `[route] pair_layers` and `[route] net_halos` are refused, and `placemat route --islands`: an
+  island net becomes a phase with `nets` and `width` (and `layers` for its `@LAYER` list), a pair's layers a phase
+  with `pairs` and `layers`, a halo the clearance field of the net's type in the capture.
+  A pour net (a net with a zone or a filled pour; `run --route`'s plane nets) is left to its pours unless a phase names
+  it, as `[route] islands` named it. Each phase's record (`phases` in `route.json`) names what it was asked, what it
+  left open and how the final board judges it; the report also has `vias`, `track_mm`, `segments`, `drc_new` and
+  `widths_failed`. The route's work folder keeps a phase's files as `p<i>_*`; a route kept from an earlier version
+  routes again.
+
+- **A route needs its router named.** placemat no longer falls back to a router folder of its own: set `[route]
+  router_dir` in placemat.toml or `$KRT_DIR` to the KiCadRoutingTools checkout. With neither, `placemat route` and
+  `run --route` refuse (`router_unset`, naming both); a folder without the router is refused as `router_not_found`.
+  placemat's own tests read files outside the repository from `$KRT_DIR` (the router) and `$MNB_ECOSYSTEM` (the
+  multi-board project some tests read boards and footprints from), and skip, saying which, when they are unset.
+  Scripts need no change.
+
+### Removed
+
+- **Routing phases.** `[route] islands` and `route --islands`: use a phase with `nets`, `width` and `layers`.
+
+      # before                                  # after
+      [route]                                   [[route.phase]]
+      islands = ["VB=0.5@F,B", "GND"]           name = "vb"
+                                                nets = ["VB"]
+                                                width = 0.5
+                                                layers = ["F", "B"]
+
+                                                [[route.phase]]
+                                                name = "gnd"
+                                                nets = ["GND"]
+
+  A net its pour serves is routed alone with the pour handed to the router, as an island was.
+
+- **Routing phases.** `[route] pair_layers`: use a phase with `pairs = true` and `layers`.
+
+- **Routing phases.** `[route] net_halos`: state the net type's `clearance` field in the capture.
+  `setup.net_halo` is now `setup.net_clearance`.
+
+- **Routing phases.** Fixed route stages and their report fields: phase results live in `route.json`'s
+  `phases`; old top-level `pairs`, `islands`, `islands_missing`, `island_layers`,
+  `class_stages`, `pair_layers`, `pair_layers_refused` and `net_halos*` are gone.
+
+- **Routing phases.** Routing no longer selects differential pairs from net classes. Capture
+  `DiffPair` instances or explicit phase pairs select them; classes retain geometry.
+
 ### Fixed
+
+- **Per-net current matching.** Per-net `Pm.I` matches the whole net name or the last path part, as `Pm.KeepOut`
+  does. Module currents now reach `/sheet/VCC` and `CELL.VCC` without capture changes.
+
+- **A route's item ids are the same in every run.** pcbnew gives an item its file names no id (an older KiCad format
+  leaves many out) a random one as it loads, so the route's working copy, and the DRC that names a violation's items
+  by id, differed from run to run. Every board placemat loads to route, clean up or write is now loaded with KiCad's
+  id generator seeded from the file. Scripts need no change.
+
+- **Of two close same-net router vias, the one kept is chosen by the copper on it.** The route's cleanup kept
+  whichever the routed file listed first. It now keeps the via more copper ends on (first copper a merge cannot move: tracks the route was given, and arcs),
+  then the lower x and y, and a net whose merge would part its pads or come within clearance of another net is tried
+  the other way round before both vias are kept. Scripts need no change.
 
 - **The 3D model self-test leaves no folder in the temporary directory.** Each studio start that checked KiCad's model
   export left a `placemat-3d-*` folder behind; thousands built up. It now goes when the check ends.

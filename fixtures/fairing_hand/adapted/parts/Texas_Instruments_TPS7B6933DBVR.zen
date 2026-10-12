@@ -1,0 +1,27 @@
+# Texas_Instruments_TPS7B6933DBVR - component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields). Datasheet: Texas_Instruments-TPS7B6933DBVR_C527569.pdf
+
+IN = io("IN", Net, optional = True)
+NC = io("NC", Net, optional = True)
+GND = io("GND", Net, optional = True)
+OUT = io("OUT", Net, optional = True)
+
+annotations = config(dict, default = {}, optional = True,
+                     help = "Pm.* layout facts (placemat-design): forwarded into the footprint's fields")
+_properties = {"LCSC": "C527569", "MPN": "TPS7B6933DBVR"}
+_properties.update(annotations)
+
+Component(
+    name = "Texas_Instruments_TPS7B6933DBVR",
+    footprint = File("../../parts/Texas_Instruments_TPS7B6933DBVR/TSOT-23-5_L2.9-W1.6-P0.95-LS2.8-BR.kicad_mod"),
+    symbol = Symbol("Texas_Instruments_TPS7B6933DBVR/TPS7B6933DBVR.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "TPS7B6933DBVR", manufacturer = "Texas Instruments"),
+    properties = _properties,
+    pins = {
+        "IN": IN,
+        "NC": NC,
+        "GND": GND,
+        "OUT": OUT,
+    },
+)

@@ -10,15 +10,16 @@ import pytest
 
 pytest.importorskip("pcbnew")
 
-from placemat.kicad.route import ROUTER_DEFAULT
+from tests.conftest import router_missing
 from tests.test_stop_run import ROOT, _only_run, _searched_module
 
-if not (Path(ROUTER_DEFAULT) / ".venv/bin/python").exists():
-    pytest.skip("KiCadRoutingTools not at %s" % ROUTER_DEFAULT, allow_module_level=True)
+if router_missing():
+    pytest.skip(router_missing(), allow_module_level=True)
 
 
 def test_a_real_explore_routes_the_plain_placement_and_its_new_bests_as_it_goes(tmp_path):
     mod, script, src = _searched_module(tmp_path)
+    (mod / "placemat.toml").write_text('[[route.phase]]\nname = "signals"\n')      # the rest phase alone
     done = subprocess.run([sys.executable, "-m", "placemat", "run", str(script), "--no-render", "--keep-going", "--explore", "8",
                            "--jobs", "2", "--route-best", "--accept"], cwd=ROOT, capture_output=True, text=True, timeout=900)
     out = done.stdout + done.stderr

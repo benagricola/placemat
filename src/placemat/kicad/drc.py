@@ -87,6 +87,11 @@ class DrcReport:
     def expected(self) -> dict:
         return {k: v for k, v in self.by_type.items() if self.is_expected(k)}
 
+    def is_real_kind(self, kind: str) -> bool:
+        """A kind in `real_kinds` (never one that is expected): what marks a net shorted or an obligation violated, as
+        step 0's closure did. Other error-severity kinds count in drc_new only."""
+        return not self.is_expected(kind) and kind in self.real_kinds
+
     def is_real(self, kind: str) -> bool:
         """A kind counts in the headline when it is in `real_kinds` whatever its severity, or KiCad reports it as an
         error and it has no line of its own (footprint issues, outstanding); never one that is expected."""
@@ -295,3 +300,62 @@ def run_drc(pcb, out_json, refill_zones: bool | None = None, timeout: int | None
                 report.open_nets[m.group(1)] += 1
                 break
     return report
+
+
+NEAR_MM = 0.05      # test (a)'s match distance (fixtures/reference/route_ref.py NEAR_MM)
+
+
+def real_errors(data: dict, is_real) -> list:
+    """The violations of a kicad-cli DRC report in the `real` bucket (`is_real(kind)`, DrcReport.is_real: the
+    `[drc] real_kinds`) at severity error, not set aside by a keepout's allow list: {"type", "nets", "at_mm",
+    "items"}, nets sorted (each item's "[NET]", as route._violations_by_net reads them), at_mm the least item
+    position, items each item's (description, x, y), sorted. Warnings and the other buckets never count."""
+    out = []
+    for v in data.get("violations", []):
+        if v.get("severity") != "error" or not is_real(v.get("type", "")) or _permitted(v, {}):
+            continue
+        items = v.get("items", [])
+        nets = tuple(sorted({m.group(1) for i in items for m in [_NET_RE.search(i.get("description", ""))] if m}))
+        at = min(((float((i.get("pos") or {}).get("x", 0.0)), float((i.get("pos") or {}).get("y", 0.0))) for i in items),
+                 default=(0.0, 0.0))
+        both = tuple(sorted((i.get("description", ""), float((i.get("pos") or {}).get("x", 0.0)),
+                             float((i.get("pos") or {}).get("y", 0.0))) for i in items))
+        out.append({"type": v.get("type", ""), "nets": nets, "at_mm": at, "items": both})
+    return out
+
+
+def new_errors(after: list, baseline: list, tol_mm: float = NEAR_MM) -> list:
+    """What `after` (real_errors) has that the baseline has not, matched one to one: an error of `after` takes the
+    first baseline error left of the same type whose items are its items (each the same description, its position
+    within `tol_mm` on each axis), and one of them can be matched once. An error with no items of its own read
+    (a record from before items were kept) falls back to type, nets and least position (test (a)'s rule,
+    fixtures/reference/route_ref.py new_violations)."""
+    def same(v, b):
+        if v["type"] != b["type"]:
+            return False
+        vi, bi = v.get("items"), b.get("items")
+        if vi is None or bi is None:
+            return v["nets"] == b["nets"] and abs(b["at_mm"][0] - v["at_mm"][0]) <= tol_mm \
+                and abs(b["at_mm"][1] - v["at_mm"][1]) <= tol_mm
+        return len(vi) == len(bi) and all(a[0] == c[0] and abs(a[1] - c[1]) <= tol_mm and abs(a[2] - c[2]) <= tol_mm
+                                          for a, c in zip(vi, bi))
+    left = list(baseline)
+    out = []
+    for v in after:
+        k = next((i for i, b in enumerate(left) if same(v, b)), None)
+        if k is None:
+            out.append(v)
+        else:
+            del left[k]
+    return out
+
+
+def new_error_kinds(after: list, baseline: list) -> dict:
+    """{net: sorted kinds} of the errors new_errors finds in `after` and not in the baseline (both real_errors)."""
+    out = {}
+    for e in new_errors(after, baseline):
+        for n in e["nets"]:
+            out.setdefault(n, set()).add(e["type"])
+    return {n: sorted(k) for n, k in out.items()}
+
+

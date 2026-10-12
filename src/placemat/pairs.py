@@ -8,8 +8,8 @@ style and differ in polarity.
 
 A board's own net classes name pairs too (`board_pairs`): a class other than
 "Default" with diff_pair_width and diff_pair_gap pairs its two nets whatever
-they are called. The router takes no such pair, so the route step routes it
-under a suffix name (`pair_aliases`).
+they are called. This inference serves placement scoring. Routing phases
+select capture instances or explicit pairs and use suffix aliases (`pair_aliases`).
 """
 from __future__ import annotations
 
@@ -191,21 +191,4 @@ def board_pairs(netclasses: dict) -> dict:
             out[a], out[b] = b, a
         elif len(nets) > 2:
             out.update(pairs_of(nets))
-    return out
-
-
-def board_pair_list(netclasses: dict) -> list:
-    """[(p_net, n_net), ...] from board_pairs(), each pair once: P first
-    when pair_key says which half is positive, else the alphabetically
-    first net (a two-net class with no suffix meaning has no real P/N)."""
-    d = board_pairs(netclasses)
-    seen, out = set(), []
-    for net in sorted(d):
-        if net in seen:
-            continue
-        other = d[net]
-        seen.add(net)
-        seen.add(other)
-        k = pair_key(net)
-        out.append((net, other) if k is None or k[1] else (other, net))
     return out

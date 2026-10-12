@@ -140,9 +140,9 @@ def test_a_stamped_cell_s_silk_text_reads_as_a_region_parts_keep_out_of(tmp_path
 
 
 def test_a_footprint_s_courtyard_margin_is_how_far_kicad_s_courtyard_lies_inside_its_box():
-    from tests.conftest import BREAKOUT_PCB
-    if not BREAKOUT_PCB.exists():
-        pytest.skip("committed Breakout board not found")
+    from tests.conftest import BREAKOUT_PCB, ECOSYSTEM_ENV, outside_file_missing
+    if outside_file_missing(BREAKOUT_PCB, ECOSYSTEM_ENV):
+        pytest.skip(outside_file_missing(BREAKOUT_PCB, ECOSYSTEM_ENV))
     from placemat.kicad.read import read_board
     g = read_board(BREAKOUT_PCB)
     margins = {round(fp.courtyard_margin, 3) for fp in g.footprints}

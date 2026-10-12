@@ -1,0 +1,34 @@
+# Texas_Instruments_LM74700QDBVRQ1 - component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields). Datasheet: Texas_Instruments-LM74700QDBVRQ1_C2941042.pdf
+# The same device and TI DBV package as LM74700QDBVTQ1 on a 3000-piece reel. Its imported
+# footprint has the same six pads drawn a quarter turn round; this uses the DBVTQ1's, so the
+# protection cell keeps its placement.
+
+VCAP = io("VCAP", Net, optional = True)
+GND = io("GND", Net, optional = True)
+EN = io("EN", Net, optional = True)
+CATHODE = io("CATHODE", Net, optional = True)
+GATE = io("GATE", Net, optional = True)
+ANODE = io("ANODE", Net, optional = True)
+
+annotations = config(dict, default = {}, optional = True,
+                     help = "Pm.* layout facts (placemat-design): forwarded into the footprint's fields")
+_properties = {"LCSC": "C2941042", "MPN": "LM74700QDBVRQ1"}
+_properties.update(annotations)
+
+Component(
+    name = "Texas_Instruments_LM74700QDBVRQ1",
+    footprint = File("../../parts/Texas_Instruments_LM74700QDBVTQ1/SOT-23-6_L2.9-W1.6-P0.95-LS2.8-TL.kicad_mod"),
+    symbol = Symbol("Texas_Instruments_LM74700QDBVRQ1/LM74700QDBVRQ1.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "LM74700QDBVRQ1", manufacturer = "Texas Instruments"),
+    properties = _properties,
+    pins = {
+        "VCAP": VCAP,
+        "GND": GND,
+        "EN": EN,
+        "CATHODE": CATHODE,
+        "GATE": GATE,
+        "ANODE": ANODE,
+    },
+)

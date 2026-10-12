@@ -169,9 +169,10 @@ def _copper_graphics(pcb) -> dict:
 def _routed_keeps_footprint_copper(src, tmp_path, strip_tracks):
     import pcbnew
     from pathlib import Path
-    from placemat.kicad.route import ROUTER_DEFAULT, route_board
-    if not (Path(ROUTER_DEFAULT) / ".venv/bin/python").exists():
-        pytest.skip("router not at %s" % ROUTER_DEFAULT)
+    from placemat.kicad.route import route_board
+    from tests.conftest import router_missing
+    if router_missing():
+        pytest.skip(router_missing())
     pcb = _copy(src, tmp_path / "in")
     if strip_tracks:
         brd = pcbnew.LoadBoard(str(pcb))
@@ -180,7 +181,8 @@ def _routed_keeps_footprint_copper(src, tmp_path, strip_tracks):
         brd.Save(str(pcb))
     before = _copper_graphics(pcb)
     assert sum(map(len, before.values())) > 0
-    report = route_board(pcb, tmp_path / "route", quick=True)
+    from tests.phase_helpers import phases
+    report = route_board(pcb, tmp_path / "route", quick=True, phases=phases())
     assert _copper_graphics(report.routed_pcb) == before
     assert not _guards(report.routed_pcb)
 

@@ -465,7 +465,7 @@ def _footprint(board, fp, excess_mm, cell, err_nm: int = CLEAR_ERR_NM) -> Footpr
                      silk=_silk(fp, err_nm), mask=_mask(fp, err_nm), fab=_fab(fp),
                      copper=copper, copper_shapes=copper_shapes,
                      courtyard_margin=courtyard_margin(fp), courtyard_poly=courtyard_poly(fp),
-                     courtyard_drawn=courtyard_drawn(fp))
+                     courtyard_drawn=courtyard_drawn(fp), uuid=fp.m_Uuid.AsString())
 
 
 def _via_size(via) -> float:
@@ -794,7 +794,7 @@ def read_footprint(path, courtyard_excess_mm: float = 0.10) -> tuple:
                      bom_excluded=fp.IsExcludedFromBOM(), board_only=fp.IsBoardOnly(),
                      silk=_silk(fp), mask=_mask(fp), fab=_fab(fp), copper=copper, copper_shapes=copper_shapes,
                      courtyard_margin=courtyard_margin(fp), courtyard_poly=courtyard_poly(fp),
-                     courtyard_drawn=courtyard_drawn(fp))
+                     courtyard_drawn=courtyard_drawn(fp), uuid=fp.m_Uuid.AsString())
     return geom, digest
 
 

@@ -11,7 +11,13 @@ from placemat.kicad.route import RouteReport
 from placemat.kicad.route_widths import findings_of, read_widths, stage_widths
 
 DATA = Path(__file__).parent / "data" / "route_widths"
-ISLANDS = {"VSHUNT": 0.3, "VBIKE": None, "USB_HV": 1.37, "VBUS": 1.37, "GND": None, "V3V3": None}
+DECLARED = {"VSHUNT": 0.3, "VBIKE": None, "USB_HV": 1.37, "VBUS": 1.37, "GND": None, "V3V3": None}
+
+
+def records_of_fixture():
+    """The fixture summaries supplied as named phase calls."""
+    return [r for i in range(6) for r in stage_widths("islands", json.loads((DATA / ("islands%d_summary.json" % i)).read_text()),
+                                                    {n for n, w in DECLARED.items() if w})]
 
 
 def _report(widths):
@@ -20,7 +26,7 @@ def _report(widths):
 
 
 def test_a_real_route_delivered_three_island_nets_under_width():
-    records = read_widths(DATA, ISLANDS)
+    records = records_of_fixture()
     got = {r["net"]: r for r in records}
     assert sorted(got) == ["USB_HV", "VBUS", "VSHUNT"] and all(r["stage"] == "islands" for r in records)
     usb = got["USB_HV"]
@@ -31,7 +37,7 @@ def test_a_real_route_delivered_three_island_nets_under_width():
 
 
 def test_each_is_a_critical_finding_with_the_facts_and_the_sentence():
-    found = findings_of(read_widths(DATA, ISLANDS), {"USB_HV": 3.0})
+    found = findings_of(records_of_fixture(), {"USB_HV": 3.0})
     assert [f.cause for f in found] == [C.ROUTE_WIDTH] * 3 and {f.severity for f in found} == {"critical"}
     usb = next(f for f in found if f.facts["net"] == "USB_HV")
     assert usb.facts["stated_a"] == 3.0 and usb.facts["max_a"] == 0.45 and usb.facts["share"] == 0.9636
@@ -61,20 +67,20 @@ def test_a_stage_that_kept_its_width_or_left_the_net_out_of_its_scope_gives_noth
                              "B": {"requested_mm": 0.3, "length_mm": 5.0, "under_mm": 2.0, "under_share": 0.4, "min_mm": 0.1,
                                    "in_run_scope": False}}}
     assert stage_widths("islands", kept) == [] and stage_widths("main", {}) == []
-    assert read_widths(DATA / "nowhere", {"A": 0.3}) == []
+    assert read_widths([("empty", 0, DATA / "nowhere")], set()) == []
 
 
 def test_the_summary_line_and_the_report_carry_the_shortfall():
     clean = _report([])
     assert "UNDER WIDTH" not in clean.summary() and clean.as_dict()["widths"] == []
-    short = _report(read_widths(DATA, ISLANDS))
+    short = _report(records_of_fixture())
     assert "UNDER WIDTH: USB_HV 16.6 of 17.2 mm under 1.37 (min 0.16); VBUS 53.2 of 107.8 mm under 1.37 (min 0.16)" in short.summary()
     assert short.as_dict()["widths"][0]["net"] == "USB_HV"
     assert len(short.findings({"USB_HV": 3.0})) == 3
 
 
 def test_the_route_summary_file_and_the_watch_line_carry_it(tmp_path):
-    widths = read_widths(DATA, ISLANDS)
+    widths = records_of_fixture()
     route_progress.write_record(tmp_path, {"pcb": "x.kicad_pcb", "run": "r", "script": "s.py"}, [], {"closure": 0.843, "widths": widths})
     doc = json.loads((tmp_path / "route_summary.json").read_text())
     assert [r["net"] for r in doc["under_width"]] == ["USB_HV", "VBUS", "VSHUNT"] and doc["closure"] == 0.843
@@ -89,7 +95,7 @@ def test_the_route_command_prints_the_findings_and_json_carries_them(tmp_path, m
     import placemat.kicad.route_widths as widths_mod
     pcb = tmp_path / "layout.kicad_pcb"
     pcb.write_text("")
-    report = _report(read_widths(DATA, ISLANDS))
+    report = _report(records_of_fixture())
     report.open_nets = {}
     monkeypatch.setattr(route_mod, "route_board", lambda *a, **kw: report)
     monkeypatch.setattr(read_mod, "read_board", lambda p: "geometry")

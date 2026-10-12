@@ -15,8 +15,10 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import json
+import os
 import pathlib
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -27,6 +29,9 @@ if __package__ in (None, ""):   # run as a script: the repository root, for `fix
 from fixtures.reference import fetch, lock, prepare   # noqa: E402
 
 HERE = pathlib.Path(__file__).resolve().parent
+REPO = HERE.parents[1]
+LOCAL = {"obstructed-route": REPO / "fixtures/obstructed_route"}
+LOCAL_PROTOCOL = {"obstructed-route": {"KICAD_NET_RESCUE": "0"}}
 RESULTS = HERE / "results.json"
 COMPONENTS = ("placemat", "krt", "pcb")
 WIDTHS = ("class", "human")
@@ -45,7 +50,7 @@ class AResult:
     closure_clean: float
     open: int
     open_nets: list[str]
-    new_violations: list[prepare.Violation]
+    new_violations: list[prepare.Violation] | None   # None when the route did not run: unknown, not none
     vias: int
     track_mm: float
     human_vias: int
@@ -55,6 +60,24 @@ class AResult:
     versions: dict   # placemat, krt, pcb
     failure: str = ""   # "" when the route ran; else the type of the exception that stopped it
     detail: str = ""    # what the exception said
+    open_pour: int = 0    # open connections on the nets the routed board serves by a pour; open_other is the rest
+    open_other: int = 0
+
+
+@dataclasses.dataclass(frozen=True)
+class FResult:
+    fixture: str
+    phases: list
+    widths_failed: int
+    drc_new: int | None
+    vias: int
+    track_mm: float
+    passed: bool
+    seconds: float
+    versions: dict
+    failure: str = ""
+    detail: str = ""
+    protocol: dict = dataclasses.field(default_factory=dict)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -62,10 +85,12 @@ class Comparison:
     status: str   # new, same, better, worse or not comparable
     differ: list[str]   # with "not comparable": the components whose versions differ
     value: str = ""     # with "not comparable": what the values alone say (same, better or worse), versions ignored
+    worse: list[str] = dataclasses.field(default_factory=list)   # the values that made it worse, as routing_values names them
+    split_unrecorded: bool = False   # the recorded entry has no open split: its total was compared with the new total
 
 
 def lower(c: Comparison) -> bool:
-    """Whether a result is below the recorded one: worse, or not comparable and worse on the values alone."""
+    """A result that is worse, or not comparable but worse on its values: --update holds it back."""
     return c.status == "worse" or (c.status == "not comparable" and c.value == "worse")
 
 
@@ -78,15 +103,32 @@ def new_violations(after: list[prepare.Violation], baseline: list[prepare.Violat
     return [v for v in after if not known(v)]
 
 
-def judge(route_json: dict, new: list[prepare.Violation], template: AResult) -> AResult:
+def pour_nets(pcb: pathlib.Path) -> set[str]:
+    """The nets the routed board serves by a pour: each with a copper zone of the board's own (kicad.route.plane_nets_of)."""
+    from placemat.kicad.route import plane_nets_of
+    return plane_nets_of(pcb)
+
+
+def open_split(open_nets: dict, open_after: int, pours: set[str]) -> tuple[int, int]:
+    """(open on pour nets, open on the other nets) from route.json's per-net open counts; the other nets take
+    whatever `open_after` has beyond the pour nets'."""
+    pour = sum(n for net, n in open_nets.items() if net in pours)
+    return pour, open_after - pour
+
+
+def judge(route_json: dict, new: list[prepare.Violation], template: AResult, pours: set[str] = frozenset()) -> AResult:
     """The result of a route: `template` (board, widths, the human's copper, versions) with what route.json says, and `new`.
-    vias and track_mm are the routed board's, which the caller measures and puts in the report."""
+    vias and track_mm are the routed board's, which the caller measures and puts in the report. `pours`: the nets the
+    routed board serves by a pour (kicad.route.plane_nets_of), which split the open count."""
     closure = route_json.get("closure_clean", template.closure_clean)
+    opened = route_json.get("open_after", 0)
+    pour, other = open_split(route_json.get("open_nets") or {}, opened, set(pours))
     return dataclasses.replace(
-        template, closure_clean=closure, open=route_json.get("open_after", 0),
+        template, closure_clean=closure, open=opened, open_pour=pour, open_other=other,
         open_nets=sorted(route_json.get("open_nets", ())), new_violations=list(new),
         vias=route_json.get("vias", template.vias), track_mm=route_json.get("track_mm", template.track_mm),
-        passed=closure == CLEAN and not new, seconds=route_json.get("seconds", template.seconds))
+        passed=closure == CLEAN and not new,
+        seconds=route_json.get("seconds", template.seconds))
 
 
 def comparable(old: dict, new: dict, changing: set[str]) -> list[str]:
@@ -94,30 +136,55 @@ def comparable(old: dict, new: dict, changing: set[str]) -> list[str]:
     return [c for c in COMPONENTS if c not in changing and old.get(c) != new.get(c)]
 
 
-def by_value(old: dict, new: AResult) -> str:
-    """same, better or worse: a result's values against the recorded one's, whatever the versions. A failure where the
-    recorded entry had none is worse."""
-    if new.failure and not old.get("failure"):
-        return "worse"
-    gained = len(new.new_violations) - len(old.get("new_violations", ()))
-    if (old["passed"] and not new.passed) or new.closure_clean < old["closure_clean"]:
-        return "worse"
-    if new.closure_clean == old["closure_clean"] and gained > 0:
-        return "worse"
-    if (new.passed and not old["passed"]) or new.closure_clean > old["closure_clean"] or (old.get("failure") and not new.failure):
-        return "better"
-    return "same"
+def routing_values(old: dict, new, *, counts: bool = True) -> Comparison:
+    """same, better or worse for a routed result against the recorded entry, whatever the versions (test a and b). Worse
+    if the route failed where the recorded one did not, closure_clean fell, or (with `counts`) open connections on
+    non-pour nets, open connections on pour nets or new DRC errors rose; better only if none is worse and one improved.
+    `worse` names the values. A recorded entry with no open split compares its total open count with the new total.
+    A recorded failure has no values to compare: a new run that did not fail is better."""
+    if new.failure:
+        return Comparison("same", []) if old.get("failure") else Comparison("worse", [], worse=["failed"])
+    if old.get("failure"):
+        return Comparison("better", [])
+    worse, better = [], []
+
+    def judged(name, before, after):   # lower is better for every value but closure_clean
+        if after != before:
+            good = (after > before) if name == "closure_clean" else (after < before)
+            (better if good else worse).append(name + (" rose" if after > before else " fell"))
+
+    judged("closure_clean", old["closure_clean"], new.closure_clean)
+    split = old.get("open_pour") is not None
+    if counts:
+        if split:
+            judged("open on non-pour nets", old["open_other"], new.open_other)
+            judged("open on pour nets", old["open_pour"], new.open_pour)
+        else:
+            judged("open", old["open"], new.open)
+        if new.new_violations is not None:
+            judged("new DRC", len(old.get("new_violations") or ()), len(new.new_violations))
+    verdict = "worse" if worse else "better" if better else "same"
+    return Comparison(verdict, [], worse=worse, split_unrecorded=counts and not split)
+
+
+def by_value(old: dict, new: AResult) -> Comparison:
+    return routing_values(old, new)
 
 
 def compare(old: dict | None, new: AResult, changing: set[str]) -> Comparison:
     """A result against the recorded one (its dict): new, same, better, worse, or not comparable."""
     if old is None:
         return Comparison("new", [])
-    value = by_value(old, new)
+    return with_versions(old, new, changing, by_value(old, new))
+
+
+def with_versions(old: dict, new, changing: set[str], values: Comparison) -> Comparison:
+    """`values` (a verdict on the values alone) as the comparison: not comparable, with the verdict beside it, when a
+    component not in `changing` differs between the two runs' versions."""
     differ = comparable(old.get("versions", {}), new.versions, changing)
     if differ:
-        return Comparison("not comparable", differ, value)
-    return Comparison(value, [])
+        return dataclasses.replace(values, status="not comparable", differ=differ, value=values.status)
+    return values
 
 
 def ratchet(results: list, comparisons: list[Comparison], accept_worse: bool) -> tuple[list, list]:
@@ -137,7 +204,7 @@ def _violation_key(v) -> tuple:
 def asdict(result) -> dict:
     """A result as results.json holds it, its new violations sorted so a rerun does not reorder them."""
     out = dataclasses.asdict(result)
-    if "new_violations" in out:
+    if out.get("new_violations"):
         out["new_violations"] = sorted(out["new_violations"], key=_violation_key)
     return out
 
@@ -149,11 +216,98 @@ def load_results(path: pathlib.Path = RESULTS) -> dict:
 
 def save_results(path: pathlib.Path, results: list[AResult]) -> None:
     """Rewrite the "a" entries of the boards `results` are of, keeping the other boards and the other keys."""
+    if not results:
+        return   # no accepted measurement: preserve the existing baseline bytes
     data = load_results(path)
     a = data.setdefault("a", {})
     for r in results:
         a.setdefault(r.board, {})[r.widths] = asdict(r)
     pathlib.Path(path).write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
+
+
+def save_local(path: pathlib.Path, results: list[FResult]) -> None:
+    """Keep local fixture evidence alongside the board and module results."""
+    data = load_results(path)
+    fixtures = data.setdefault("fixtures", {})
+    for result in results:
+        fixtures[result.fixture] = asdict(result)
+    pathlib.Path(path).write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
+
+
+def _blockers(evidence) -> list[str]:
+    names = []
+    for blocker in (evidence or {}).get("blocked_by") or ():
+        name = blocker.get("ref") or "%s copper" % blocker.get("net", "unidentified")
+        if name not in names:
+            names.append(name)
+    return names
+
+
+def _local_open(opened: dict) -> dict:
+    evidence = opened.get("evidence") or {}
+    return dict(net=opened["net"], **{"from": opened["from"], "to": opened["to"]},
+                outcome=opened.get("outcome"), diagnosis=evidence.get("diagnosis"), blockers=_blockers(evidence),
+                **{key: opened[key] for key in ("widths", "under", "violated", "width_unknown") if key in opened})
+
+
+def run_local(name: str, work: pathlib.Path, versions: dict | None = None) -> FResult:
+    """Route a local board unchanged, retaining phase closure and router failure evidence."""
+    src, work = LOCAL[name], pathlib.Path(work)
+    versions = dict(versions if versions is not None else current_versions())
+    versions.setdefault("krt", "unknown")
+    protocol = dict(LOCAL_PROTOCOL.get(name, {}))
+    env = dict(os.environ, **protocol)
+    try:
+        work.mkdir(parents=True, exist_ok=True)
+        for filename in ("layout.kicad_pcb", "layout.kicad_pro", "placemat.toml"):
+            shutil.copy(src / filename, work / filename)
+        versions["krt"] = _krt_version(work / "layout.kicad_pcb")
+        report = _route(work / "layout.kicad_pcb", work / "route", (src / "placemat.toml").read_text(), env=env)
+        phases = [{"name": phase["name"], "asked": phase["asked"], "joined": phase["joined"],
+                   "closure_clean": phase["closure_clean"],
+                   "final_closure_clean": phase.get("final_closure_clean"),
+                   "open": [_local_open(opened) for opened in phase.get("open") or ()],
+                   **({"final_asked": phase["final_asked"]} if "final_asked" in phase else {}),
+                   **({"final_joined": phase["final_joined"]} if "final_joined" in phase else {}),
+                   **({"final_open": [_local_open(opened) for opened in phase["final_open"]]}
+                      if "final_open" in phase else {})}
+                  for phase in report.get("phases") or ()]
+    except Exception as error:   # like a failed reference board, keep the failure for inspection
+        return _local_record(FResult(name, [], 0, None, 0, 0.0, False, 0.0, versions, type(error).__name__, str(error), protocol), work)
+    return _local_record(FResult(name, phases, report.get("widths_failed", 0), report.get("drc_new"), report.get("vias", 0),
+                                report.get("track_mm", 0.0), True, report.get("seconds", 0.0), versions, protocol=protocol), work)
+
+
+def _local_record(result: FResult, work: pathlib.Path) -> FResult:
+    """Retain this invocation's provenance even when the shared baseline is not updated."""
+    (work / "local_result.json").write_text(json.dumps(asdict(result), indent=2) + "\n")
+    return result
+
+
+def compare_local(old: dict | None, new: FResult, changing: set[str]) -> Comparison:
+    """A fixture records observed behavior; comparisons say same or changed, never better or worse."""
+    if old is None:
+        return Comparison("new", [])
+    keys = ("phases", "widths_failed", "drc_new", "passed", "failure", "protocol")
+    value = "same" if all(old.get(key) == getattr(new, key) for key in keys) else "changed"
+    differ = comparable(old.get("versions", {}), new.versions, changing)
+    return Comparison("not comparable", differ, value) if differ else Comparison(value, [])
+
+
+def local_line(result: FResult, comparison: Comparison) -> str:
+    def entry_line(phase, entry, stage):
+        status = ("DRC" if entry.get("violated") else "width unproven" if entry.get("width_unknown") else
+                  "under width" if entry.get("under") else entry["outcome"] or "open")
+        return "%s %s %s %s" % (phase["name"], stage, status, "/".join(entry["blockers"]) or entry["net"])
+    opened = [entry_line(phase, entry, "final" if "final_open" in phase else "")
+              for phase in result.phases for entry in phase.get("final_open", phase["open"])]
+    initial = [entry_line(phase, entry, "initial") for phase in result.phases if "final_open" in phase
+               for entry in phase["open"]]
+    return "%-22s %s widths failed %d new DRC %s  %s  %s%s" % (
+        result.fixture, "ran" if result.passed else "FAIL", result.widths_failed,
+        "-" if result.drc_new is None else result.drc_new,
+        "; ".join(opened + initial) or "nothing open", said(comparison),
+        "  FAILED %s: %s" % (result.failure, result.detail[:200]) if result.failure else "")
 
 
 def _git(root: str, *args: str) -> str:
@@ -168,34 +322,122 @@ def _git_head(root: str) -> str:
 
 
 def _krt_version(board_pcb: pathlib.Path) -> str:
-    """The commit of the router the route of this board resolves: [route] router_dir of the board's folder, else $KRT_DIR, else the built-in."""
+    """The commit of the router the route of this board resolves: [route] router_dir of the board's folder, else $KRT_DIR (route.RouterMissing with neither)."""
     from placemat.kicad.route import router_dir
     from placemat.settings import load
     return _git_head(router_dir(load(pathlib.Path(board_pcb).parent)))
 
 
+def pcb_version() -> str:
+    """Commit of the checkout containing the resolved executable, else its version."""
+    binary = shutil.which("pcb")
+    if binary is None:
+        return "unknown"
+    executable = pathlib.Path(binary).resolve()
+    for parent in executable.parents:
+        if (parent / ".git").exists() and _git(str(parent), "rev-parse", "HEAD"):
+            return _git_head(str(parent))
+    proc = subprocess.run([binary, "--version"], capture_output=True, text=True, timeout=GIT_TIMEOUT_S)
+    return proc.stdout.strip() or "unknown"
+
+
 def current_versions() -> dict:
     """The placemat checkout's commit and zener's version; "krt" is the router a route used (run_a)."""
     import placemat
-    pcb = subprocess.run(["pcb", "--version"], capture_output=True, text=True, timeout=GIT_TIMEOUT_S).stdout.strip()
-    return {"placemat": _git_head(str(pathlib.Path(placemat.__file__).resolve().parent)), "pcb": pcb or "unknown"}
+    return {"placemat": _git_head(str(pathlib.Path(placemat.__file__).resolve().parent)), "pcb": pcb_version()}
 
 
-def _route(pcb: pathlib.Path, work: pathlib.Path, islands: tuple, toml: str | None) -> dict:
-    """`placemat route pcb --full --islands ...` into `work`, with `toml` as placemat.toml beside the board; route.json as a dict."""
+def _kill_group(proc) -> None:
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+
+
+def run_owned(cmd, *, timeout, env=None) -> subprocess.CompletedProcess:
+    """`cmd` in a session of its own, its output captured as text. Its process group (the router it starts with it) is
+    killed when the call returns or raises. subprocess.TimeoutExpired after `timeout` seconds; an exception carries
+    the output so far as `output` and `stderr`."""
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                            start_new_session=True, env=env)
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+    except BaseException as error:
+        _kill_group(proc)
+        error.output, error.stderr = proc.communicate()
+        raise
+    finally:
+        _kill_group(proc)
+    return subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
+
+
+def stop_on_term() -> None:
+    """SIGTERM raises SystemExit, so a stopped runner unwinds through run_owned and kills its child group."""
+    signal.signal(signal.SIGTERM, lambda signum, frame: sys.exit(128 + signum))
+
+
+def _route(pcb: pathlib.Path, work: pathlib.Path, toml: str | None, *, env=None) -> dict:
+    """`placemat route pcb --full` into `work`, with `toml` as placemat.toml beside the board; route.json as a dict.
+
+    `placemat route` exits 1 when the input board already has DRC errors (cli.py cmd_route: `0 if report.valid else 1`),
+    and a reference board often has them once stripped. Exit 1 with a fresh route.json that says `valid: false` and has
+    no `error` is therefore a completed route; run_a judges it on the errors it adds to the baseline, as step 0 did.
+    Any other exit, a missing or malformed report, or a report with `error` raises. stdout, stderr and the process facts
+    are kept in `work`."""
+    import time
+    started = time.monotonic()
+    work = pathlib.Path(work)
+    work.mkdir(parents=True, exist_ok=True)
     config = pathlib.Path(pcb).with_name("placemat.toml")
     if toml is None:
         config.unlink(missing_ok=True)
     else:
         config.write_text(toml)
     cmd = [sys.executable, "-m", "placemat", "route", str(pcb), "--full", "--no-resume", "--out", str(work)]
-    if islands:
-        cmd += ["--islands", *islands]
-    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=ROUTE_TIMEOUT_S)
-    out = pathlib.Path(work) / "route.json"
+    out = work / "route.json"
+    out.unlink(missing_ok=True)     # only this invocation's report can give its result
+    facts = {"argv": cmd, "cwd": str(pathlib.Path.cwd()), "timeout_s": ROUTE_TIMEOUT_S}
+
+    def log(stdout, stderr):
+        def text(value):
+            return value.decode(errors="replace") if isinstance(value, bytes) else value or ""
+        (work / "stdout.log").write_text(text(stdout))
+        (work / "stderr.log").write_text(text(stderr))
+        facts["elapsed_s"] = time.monotonic() - started
+        (work / "process.json").write_text(json.dumps(facts, indent=2) + "\n")
+
+    try:
+        proc = run_owned(cmd, timeout=ROUTE_TIMEOUT_S, env=env)
+    except BaseException as error:
+        facts["exception"] = type(error).__name__
+        log(getattr(error, "output", None), getattr(error, "stderr", None))
+        if isinstance(error, subprocess.TimeoutExpired):
+            raise RuntimeError("placemat route timed out after %s seconds" % ROUTE_TIMEOUT_S) from None
+        raise
+    facts["returncode"] = proc.returncode
+    log(proc.stdout, proc.stderr)
+    said = (proc.stderr or proc.stdout or "")[-500:]
+    if proc.returncode not in (0, 1):
+        raise RuntimeError("placemat route exited %d: %s" % (proc.returncode, said))
     if not out.exists():
-        raise RuntimeError("placemat route wrote no route.json (rc %d): %s" % (proc.returncode, (proc.stderr or proc.stdout)[-500:]))
-    return json.loads(out.read_text())
+        raise RuntimeError("placemat route wrote no route.json (rc %d): %s" % (proc.returncode, said))
+    report = json.loads(out.read_text())
+    if not isinstance(report, dict):
+        raise ValueError("placemat route wrote a route.json that is not an object")
+    if report.get("error"):
+        raise RuntimeError("placemat route failed: %s" % report["error"])
+    if proc.returncode == 1 and report.get("valid") is not False:
+        raise RuntimeError("placemat route exited 1 with a valid report: %s" % said)
+    return report
+
+
+def phases_for(board: fetch.Board, pcb: pathlib.Path) -> str:
+    """The manifest's phases, then the example phases the runner adds for the board (cli.board_example_phases, what
+    `placemat settings <board> --example` writes).
+    The prepared board has no capture beside it, so its example phases take no pairs or interfaces."""
+    from placemat.cli import board_example_phases
+    from placemat.route_phase import phases_toml
+    return phases_toml(list(board.phases) + board_example_phases(pcb))
 
 
 def run_a(board: fetch.Board, work: pathlib.Path, *, track_mm: float | None = None,
@@ -204,48 +446,56 @@ def run_a(board: fetch.Board, work: pathlib.Path, *, track_mm: float | None = No
     for the "human" run."""
     work = pathlib.Path(work)
     widths = "class" if track_mm is None else "human"
-    toml = None if track_mm is None else '[route]\nrouter_args = ["--track-width", "%s"]\n' % track_mm
+    toml = ("" if track_mm is None else '[route]\nrouter_args = ["--track-width", "%s"]\n\n' % track_mm) + phases_for(board, work / prepare.TEST)
     out = work / ("route-" + widths)
-    report = _route(work / prepare.TEST, out, board.islands, toml)
+    report = _route(work / prepare.TEST, out, toml)
     _, routed = prepare.measure(pathlib.Path(report["routed_pcb"]))
     _, human = prepare.measure(work / prepare.REF)
     after = prepare.violations(out / "drc_after.json")
     new = new_violations(after, prepare.violations(work / prepare.BASELINE))
     versions = dict(versions if versions is not None else current_versions(), krt=_krt_version(work / prepare.TEST))
     template = AResult(board.name, widths, 0.0, 0, [], [], 0, 0.0, human.vias, human.track_mm, False, 0.0, versions)
-    return judge(dict(report, vias=routed.vias, track_mm=routed.track_mm), new, template)
+    measured = dict(report, vias=routed.vias, track_mm=routed.track_mm)
+    return judge(measured, new, template, pour_nets(pathlib.Path(report["routed_pcb"])))
 
 
 def failed(board: fetch.Board, widths: str, error: Exception, versions: dict, human: prepare.HumanCopper,
            krt_from: pathlib.Path) -> AResult:
-    """The result of a run that raised `error`: the exception's type as the failure, its message as the detail. "krt" is
-    the router a route of `krt_from` resolves, where that can be read."""
+    """The result of a run that raised `error`: the exception's type as the failure, its message as the detail, new DRC
+    unknown (None). "krt" is the router a route of `krt_from` resolves, where that can be read."""
     try:
         krt = _krt_version(krt_from)
     except Exception:   # the failure is the result; an unreadable router version leaves it "unknown"
         krt = "unknown"
-    return AResult(board.name, widths, 0.0, 0, [], [], 0, 0.0, human.vias, human.track_mm, False, 0.0,
+    return AResult(board.name, widths, 0.0, 0, [], None, 0, 0.0, human.vias, human.track_mm, False, 0.0,
                    dict(versions, krt=krt), type(error).__name__, str(error))
 
 
 def said(c: Comparison) -> str:
-    """A comparison as the console lines give it."""
+    """A comparison as the console lines give it: the values that made it worse, and that the recorded entry has no split."""
+    verdict = c.value if c.status == "not comparable" else c.status
+    if c.worse:
+        verdict += ": " + ", ".join(c.worse)
+    if c.split_unrecorded:
+        verdict += "; split not recorded"
     if c.status == "not comparable":
-        return "not comparable: %s differ, values %s" % (", ".join(c.differ), c.value)
-    return c.status
+        return "not comparable: %s differ, values %s" % (", ".join(c.differ), verdict)
+    return verdict
 
 
 def line(r: AResult, c: Comparison) -> str:
     """The console line of a result."""
-    return "%-22s %-5s %s closure_clean %.1f%% open %d new DRC %d vias %d/%d track %.0f/%.0f mm %.0fs  %s%s" % (
-        r.board, r.widths, "pass" if r.passed else "FAIL", 100 * r.closure_clean, r.open, len(r.new_violations),
-        r.vias, r.human_vias, r.track_mm, r.human_track_mm, r.seconds, said(c),
-        "  FAILED %s: %s" % (r.failure, r.detail[:200]) if r.failure else "")
+    if r.failure:
+        return "%-22s %-5s FAIL new DRC unknown  %s  FAILED %s: %s" % (
+            r.board, r.widths, said(c), r.failure, r.detail[:200])
+    return "%-22s %-5s %s closure_clean %.1f%% open non-pour %d pour %d new DRC %d vias %d/%d track %.0f/%.0f mm %.0fs  %s" % (
+        r.board, r.widths, "pass" if r.passed else "FAIL", 100 * r.closure_clean, r.open_other, r.open_pour,
+        len(r.new_violations), r.vias, r.human_vias, r.track_mm, r.human_track_mm, r.seconds, said(c))
 
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("names", nargs="*", help="boards (default: every test (a) board)")
+    ap.add_argument("names", nargs="*", help="boards or local fixtures (default: all)")
     ap.add_argument("--update", action="store_true", help="write the results into results.json")
     ap.add_argument("--accept-worse", action="store_true", help="with --update: also write results that are worse than the recorded ones")
     ap.add_argument("--changing", nargs="+", choices=COMPONENTS, default=["placemat"],
@@ -254,10 +504,13 @@ def main(argv=None) -> int:
     ap.add_argument("--results", default=str(RESULTS))
     args = ap.parse_args(argv)
     boards = [b for b in fetch.load_manifest() if "a" in b.tests and (not args.names or b.name in args.names)]
-    if args.names and len(boards) != len(args.names):
-        ap.error("no test (a) board among: %s" % ", ".join(sorted(set(args.names) - {b.name for b in boards})))
-    recorded = load_results(pathlib.Path(args.results)).get("a", {})
-    versions = current_versions()
+    local_names = [name for name in LOCAL if not args.names or name in args.names]
+    unknown = set(args.names) - {b.name for b in boards} - set(local_names)
+    if unknown:
+        available = sorted({b.name for b in fetch.load_manifest() if "a" in b.tests} | set(LOCAL))
+        ap.error("unknown board or fixture: %s; available: %s" % (", ".join(sorted(unknown)), ", ".join(available)))
+    recorded_data = load_results(pathlib.Path(args.results))
+    recorded, recorded_fixtures = recorded_data.get("a", {}), recorded_data.get("fixtures", {})
     root = pathlib.Path(args.work) if args.work else pathlib.Path(tempfile.mkdtemp(prefix="placemat-reference-"))
     results, comparisons, held = [], [], []
 
@@ -268,7 +521,14 @@ def main(argv=None) -> int:
 
     try:
         with lock.realboard():
+            versions = current_versions()
             worse = _run_boards(boards, root, recorded, versions, set(args.changing), results, comparisons, save)
+            for name in local_names:
+                result = run_local(name, root / name, versions)
+                print(local_line(result, compare_local(recorded_fixtures.get(name), result, set(args.changing))), flush=True)
+                worse = worse or not result.passed
+                if args.update:
+                    save_local(pathlib.Path(args.results), [result])
     finally:
         if not args.work:   # a --work folder is the caller's, to inspect
             shutil.rmtree(root, ignore_errors=True)
@@ -307,4 +567,5 @@ def _run_boards(boards, root, recorded, versions, changing, results, comparisons
 
 
 if __name__ == "__main__":
+    stop_on_term()
     sys.exit(main())

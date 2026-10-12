@@ -59,6 +59,7 @@ def parser() -> argparse.ArgumentParser:
     run.add_argument("--accept", action="store_true",
                      help="with --explore: write the best variant's decisions to the lock and use them (with --route-best, "
                           "the best route closure's)")
+    run.add_argument("--route-rank", metavar="PHASE[,PHASE...]", help="rank routed variants by named phases in order")
     run.add_argument("--route-best", action="store_true", default=None,
                      help="with --explore: quick-route the plain placement and each new best as the search finds it, "
                           "in a routing worker that takes one of the jobs, report each closure as it comes, and with "
@@ -74,22 +75,20 @@ def parser() -> argparse.ArgumentParser:
                           "its time) or refuse, saying what changed; without it a saved explore that is this one is "
                           "continued anyway")
     run.add_argument("--no-resume", action="store_true",
-                     help="start over: drop a saved explore (with --explore) and route every stage again (with --route)")
+                     help="start over: drop a saved explore (with --explore) and route every phase again (with --route)")
 
     rt = sub.add_parser("route", help="route a copy of a placed board with KiCadRoutingTools and score closure")
     rt.add_argument("pcb", help="a layout.kicad_pcb, or a layout script (its board)")
     rt.add_argument("--exclude", nargs="*", default=[], help="nets to leave unrouted (planes, pours)")
-    rt.add_argument("--islands", nargs="*", default=[], metavar="NET[=WIDTH][@LAYER,...]",
-                    help="nets with pours whose pads the pours do not reach: routed first and alone, at the "
-                         "netclass width or WIDTH mm, their tracks on the LAYERs given (F, In1, B, ...) or on the "
-                         "route's own (adds to [route] islands)")
+    rt.add_argument("--phase", metavar="NAME", help="route up to this phase, reusing matching earlier results")
+    rt.add_argument("--only", action="store_true", help="with --phase: route just that phase against existing copper")
     rt.add_argument("--layers", nargs="*", help="copper layers to route on (default: all)")
     rt.add_argument("--full", action="store_true", help="the router's full run, not one round")
     rt.add_argument("--iterations", type=int, help="cap the router's search per net (default: the router's own)")
     rt.add_argument("--out", help="work directory (default: <board dir>/.placemat/route)")
     rt.add_argument("--no-resume", action="store_true",
-                    help="route every stage again; by default the stages (pairs, islands, main) an earlier route of "
-                         "the same inputs finished in the work directory are taken, not routed again")
+                    help="route every phase again; by default the phases an earlier route of the same inputs "
+                         "finished in the work directory are taken, not routed again")
     rt.add_argument("--json", action="store_true")
     keep = rt.add_mutually_exclusive_group()
     keep.add_argument("--adopt", nargs="+", metavar="NET",
@@ -427,7 +426,18 @@ def cmd_settings(args) -> int:
     from .settings import load, Settings, split_key
     if getattr(args, "example", False) or getattr(args, "markdown", False):
         from .settings import docs_table, example_toml
-        console.data((example_toml() if args.example else docs_table() + "\n").rstrip("\n"))
+        phases_block = None
+        if args.example:
+            from .route_phase import phases_toml
+            from .project import find_board
+            p = Path(args.where)
+            try:
+                pcb = p if p.suffix == ".kicad_pcb" else find_board(p).pcb
+            except (ValueError, FileNotFoundError):
+                pcb = None
+            if pcb is not None and pcb.is_file():
+                phases_block = phases_toml(board_example_phases(pcb))
+        console.data((example_toml(phases_block) if args.example else docs_table() + "\n").rstrip("\n"))
         return 0
     from .project import find_board
     p = Path(args.where)
@@ -447,7 +457,7 @@ def cmd_settings(args) -> int:
 def _explore_options(args):
     """The ExploreOptions --explore and its flags ask for, or None."""
     if getattr(args, "explore", None) is None:
-        if any(getattr(args, k, None) for k in ("focus", "focus_after", "focus_box", "accept", "resume")) or \
+        if any(getattr(args, k, None) for k in ("focus", "focus_after", "focus_box", "accept", "resume", "route_rank")) or \
                 getattr(args, "route_best", None) is not None or getattr(args, "rank_remapped", None) is not None:
             raise SystemExit("--focus, --focus-after, --focus-box, --accept, --route-best, --rank-remapped and --resume go with "
                              "--explore SECONDS")
@@ -463,9 +473,18 @@ def _explore_options(args):
         box = Box(min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1))
     if args.resume and args.no_resume:
         raise SystemExit("--resume and --no-resume say opposite things")
+    rank = ()
+    if getattr(args, "route_rank", None):
+        from .project import find_board
+        from .settings import load
+        src = find_board(args.script)
+        cfg = load(src.board_dir, script=args.script)
+        if not (args.route_best if args.route_best is not None else cfg.explore_route_best):
+            raise SystemExit("--route-rank requires --route-best")
+        rank = _route_rank(args.route_rank, [p["name"] for p in cfg.route_phase])
     return ExploreOptions(args.explore, tuple(args.focus), args.focus_after, box, args.jobs, args.accept,
                           "yes" if args.resume else "no" if args.no_resume else "auto",
-                          getattr(args, "route_best", None))
+                          getattr(args, "route_best", None), rank)
 
 
 def cmd_lock(args) -> int:
@@ -703,6 +722,9 @@ def cmd_drc(args) -> int:
 def cmd_route(args) -> int:
     from .kicad.route import route_board
     from .project import find_board
+    if args.only and not args.phase:
+        console.say("route", "--only routes the phase --phase names: give --phase NAME", level="fail")
+        return 2
     _net_names(args.exclude, "--exclude")
     p = Path(args.pcb)
     if getattr(args, "partial", False) and not (args.adopt or args.adopt_all):
@@ -723,24 +745,32 @@ def cmd_route(args) -> int:
     cfg = load(src.board_dir if src is not None else pcb.parent, script=_script_of(p))       # the board's own [route] settings
     from .kicad.route import plane_nets_of
     planes = plane_nets_of(pcb)             # served by their pours, as run --route leaves them
+    from .kicad.route import RouteRefused, RouterMissing, refused_text, router_missing_text
     with bind(cfg):
-        from .settings import active, parse_island_layers, parse_islands
-        try:
-            flag, flag_layers = parse_islands(args.islands), parse_island_layers(args.islands)
-        except ValueError as e:
-            console.say("route", "--islands: %s" % e, level="fail")
-            return 2
-        islands = parse_islands(active().route_islands)
-        islands.update({n: w for n, w in flag.items() if w is not None or n not in islands})   # a bare NET keeps its width
-        island_layers = dict(parse_island_layers(active().route_islands), **flag_layers)      # and its layers
         from . import channel
+        from .route_phase import PhaseError
         channel.reporter(p)                 # the route's own socket: readers follow it net by net
         said = (lambda fs: None) if args.json else (lambda fs: [console.finding(f, "route") for f in fs])
         try:
-            report = route_board(pcb, work, exclude_nets=set(args.exclude) | planes, layers=args.layers,
-                                 quick=not args.full, iterations=args.iterations, islands=islands, island_layers=island_layers,
+            report = route_board(pcb, work, exclude_nets=set(args.exclude), pour_nets=planes, layers=args.layers,
+                                 quick=not args.full, iterations=args.iterations,
                                  resume=not args.no_resume, board_info={"script": str(p)} if src is not None else {},
-                                 on_setup=said)
+                                 on_setup=said, upto=args.phase, only=args.only)
+        except (RouterMissing, RouteRefused) as e:
+            channel.error("route_refused", **e.record())
+            if args.json:
+                console.data(json.dumps(e.record(), indent=2))
+            else:
+                console.say("route", router_missing_text(e.code, e.facts) if isinstance(e, RouterMissing) else str(e),
+                            level="fail")
+            return 2
+        except PhaseError as e:
+            channel.error("route_phase", code=e.code, facts=e.facts)
+            if args.json:
+                console.data(json.dumps({"code": e.code, "facts": e.facts}, indent=2))
+            else:
+                console.say("route", str(e), level="fail")
+            return 2
         except Exception as e:
             channel.exception(e)
             raise
@@ -754,14 +784,17 @@ def cmd_route(args) -> int:
         console.data(json.dumps(dict(report.as_dict(), missing_rules=missing, finding_details=[f.detail() for f in short]), indent=2))
     else:
         console.say("route", report.summary())
+        from .kicad.route import phase_lines
+        for line in phase_lines(report.phases, report.phases_without_copper, report.pour_routed_by):
+            console.say("route", line)
         if report.resumed:
             console.say("route", "took %s from an earlier route of the same inputs (--no-resume routes again)" %
                         ", ".join(report.resumed))
         for breach in report.keepout_breaches:
             console.say("route", breach)
-        from .findings import FindingCause
+        from .findings import FindingKind
         for f in short:
-            if f.cause is not FindingCause.SETUP_NET_HALO:        # said before the route started
+            if f.cause.kind is not FindingKind.SETUP:                  # said before the route started
                 console.finding(f, "route")
         for net, n in sorted(report.open_nets.items(), key=lambda kv: -kv[1])[:15]:
             console.say("route", "%-20s %d open" % (net, n))
@@ -1765,6 +1798,9 @@ STOPPABLE = ("run", "preview", "route")
 
 def main(argv=None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == "route" and any(a == "--islands" or a.startswith("--islands=") for a in argv[1:]):
+        console.say("route", "route --islands is retired; use a phase with nets and width in [[route.phase]]", level="fail")
+        return 2
     args = parser().parse_args(argv)
     if args.format == "json":
         args.json = True
@@ -1820,6 +1856,38 @@ def _dispatch(args) -> int:
             "settings": cmd_settings, "parts": cmd_parts, "nets": cmd_nets, "facts": cmd_facts,
             "datasheet": cmd_datasheet, "occupancy": cmd_occupancy, "preview": cmd_preview,
             "studio": cmd_studio, "watch": cmd_watch, "apply": cmd_apply}[args.command](args)
+
+
+def board_example_phases(pcb) -> list:
+    """The example phases `settings --example` writes for a board (spec "No phases"): its differential pairs and its
+    interface types when the capture exports them, its net classes above the Default's clearance, current paths when
+    any part states a current (on the first and last copper layers of its stack when it has inner ones), the rest,
+    then its pour nets (route.plane_nets_of) joined to their pours."""
+    from .capture_nets import capture_beside
+    from .checks import carriers_of
+    from .kicad.read import read_board
+    from .kicad.route import plane_nets_of
+    from .route_phase import example_phases
+    g = read_board(str(pcb))
+    cap = capture_beside(pcb)
+    interfaces = "interfaces" in cap.exports if cap else False
+    default = [nc.clearance for nc in g.netclasses.values() if nc.name == "Default"]
+    base = min(default) if default else g.default_clearance
+    return example_phases(pairs=bool(interfaces and cap.pairs),
+                          interface_types=sorted({i.type for i in cap.instances.values() if i.type != "DiffPair"})
+                          if interfaces else [],
+                          wide_classes=sorted({nc.name for nc in g.netclasses.values() if nc.clearance > base + 1e-9}),
+                          currents=any(len(on) >= 2 for on in carriers_of(g).values()),
+                          outer_layers=[g.layers[0].value, g.layers[-1].value] if len(g.layers) > 2 else (),
+                          pour_nets=sorted(plane_nets_of(pcb)))
+
+
+def _route_rank(text: str, names) -> tuple:
+    wanted = tuple(x.strip() for x in text.split(",") if x.strip())
+    bad = [w for w in wanted if w not in names]
+    if bad:
+        raise SystemExit("--route-rank: no phase %s; the phases are %s" % (", ".join(bad), ", ".join(names)))
+    return wanted
 
 
 if __name__ == "__main__":

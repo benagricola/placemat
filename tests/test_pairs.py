@@ -95,12 +95,3 @@ def test_a_class_with_no_diff_pair_values_makes_no_pairs():
 def test_no_pair_class_at_all_makes_no_pairs():
     from placemat.pairs import board_pairs
     assert board_pairs({}) == {}
-
-
-def test_board_pair_list_gives_each_pair_once_p_first():
-    from placemat.board_geometry import NetClass
-    from placemat.pairs import board_pair_list
-    classes = {n: NetClass("Fast", 0.2, 0.15, 0.45, 0.2, 0.1, 0.1) for n in ("CLK_P", "CLK_N")}
-    assert board_pair_list(classes) == [("CLK_P", "CLK_N")]
-    classes2 = {n: NetClass("Tank", 0.2, 0.15, 0.45, 0.2, 0.1, 0.1) for n in ("LY", "LX")}
-    assert board_pair_list(classes2) == [("LX", "LY")]   # no suffix meaning: alphabetically first

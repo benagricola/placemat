@@ -1,0 +1,3 @@
+# The family's modules route every open connection at the net-class widths.
+[[route.phase]]
+name = "signals"

@@ -18,6 +18,14 @@ file. An item cites its source as "a board's session, <date>".
 
 ## Next, in order
 
+- **PCB fork capture build revision in linked worktrees** (routing-phases completion review, 2026-10-07):
+  `pcb-layout/build.rs` watches `.git/HEAD` as though `.git` were a directory. A linked worktree has a `.git` file,
+  so changing its branch/ref can leave an old Git revision embedded in a newly used capture tool. Resolve the actual
+  HEAD and branch ref with `git rev-parse --git-path` and emit `rerun-if-changed` for those paths. Add a linked-worktree
+  build regression. Completion used a controlled clean-source rebuild triggered by unchanged `build.rs` bytes with a
+  fresh mtime, then verified the executable hash and actual generated capture revision/interface records; the permanent
+  build-script fix remains separate work.
+
 - **Rust dead code** (cargo's warnings): `judge::reference`,
   `ShapeGrid::first_conflict_shifted_excluding` and an unused
   `point_segment_distance` import in giveway.rs.
@@ -32,6 +40,16 @@ file. An item cites its source as "a board's session, <date>".
   gaps are right as they are: KiCad compares those without it.
 
 ## Open
+
+- **Swapping the gates of a multi-gate part** (reference skill gaps, 2026-10-07):
+  the pin map study moves individual nets or consecutive blocks, but cannot restrict
+  a block to interchangeable gate pin sets. A new form: after consolidation.
+- **Facts read from a board's own files still need the user** (reference skill gaps,
+  2026-10-07): `facts --confirm` asks the user even when all values came from board
+  project files. Whether a script author may confirm these is the user's call.
+- **A cell with no layout of its own is placed as generated, and nothing says so**
+  (reference skill gaps, 2026-10-07): a finding naming that rigid generated cell
+  would help the agent understand its arrangement before placement.
 
 - **A board of stamped cells only costs about 2x with arrangements on**
   (module-arrangements build notes, 1.11 s off, 2.27 s on): each arrangement

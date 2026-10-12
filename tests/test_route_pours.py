@@ -118,9 +118,10 @@ def _other_net_tracks_inside(pcb, net, layer, box_poly):
 def test_a_router_run_leaves_the_pour_to_its_net(breakout_pcb, tmp_path):
     import pcbnew
     from pathlib import Path
-    from placemat.kicad.route import ROUTER_DEFAULT, route_board
-    if not (Path(ROUTER_DEFAULT) / ".venv/bin/python").exists():
-        pytest.skip("KiCadRoutingTools not at %s" % ROUTER_DEFAULT)
+    from placemat.kicad.route import route_board
+    from tests.conftest import router_missing
+    if router_missing():
+        pytest.skip(router_missing())
     pcb = _four_layer(breakout_pcb, tmp_path / "in", [("GND", ["In2.Cu"], (10, 10, 70, 70))])
     brd = pcbnew.LoadBoard(str(pcb))
     for t in list(brd.GetTracks()):
@@ -128,7 +129,8 @@ def test_a_router_run_leaves_the_pour_to_its_net(breakout_pcb, tmp_path):
     brd.Save(str(pcb))
     pour = next(z for z in brd.Zones() if not z.GetIsRuleArea() and z.IsOnLayer(brd.GetLayerID("In2.Cu")))
     outline = pcbnew.SHAPE_POLY_SET(pour.Outline())
-    report = route_board(pcb, tmp_path / "route", exclude_nets={"V48P", "GND"}, layers=LAYERS, quick=True)
+    from tests.phase_helpers import phases
+    report = route_board(pcb, tmp_path / "route", pour_nets={"V48P", "GND"}, layers=LAYERS, quick=True, phases=phases())
     assert report.pours_kept == ["GND on In2.Cu"]
     assert _other_net_tracks_inside(report.routed_pcb, "GND", "In2.Cu", outline) == 0
     assert not any(POUR_GUARD in str(b) for b in report.keepout_breaches)

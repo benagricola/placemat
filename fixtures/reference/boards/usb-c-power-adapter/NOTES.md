@@ -147,20 +147,33 @@ parts:
 
 ## Skill gaps
 
+
 1. **A fixed part whose courtyard covers another fixed part's NPTH on the other face cannot be placed (placemat).**
    Resolved. J1 (on the back) has two NPTH locating pegs; J2 (on the front, above it) has its courtyard over them, as
    on the human board, whose project sets `npth_inside_courtyard` to warning. placemat stopped the run: "Firm
    placements collide ... J1 (edge): J2 courtyard sits over a npth (J1)". Tried: J1 by `OnEdge(..., overhang=)` and
    J2 by `Location`, both at the human origins. The user decided that a firm courtyard over a hole follows the board's
    severity (placemat 04d3a2aa); `placemat.toml` carries the human board's severities, and the run places both.
+   Went to: placemat 04d3a2aa (courtyard over a hole follows the board's severity).
+
 2. **Imported sheets become rigid cells (placemat, circuit-capture).** As for pic_programmer: both sheets came out of
    `pcb import` as modules, which placemat places as rigid cells with the generator's arrangement. Neither skill says
    so. Fixed in the capture by flattening.
+   Went to: placemat capture.md "Cells for placement" and SKILL.md cells rule (placemat, step 1, skill
+   gaps); circuit-capture SKILL.md "Modules for placement" (circuit-capture 1475634); BACKLOG.md "A cell
+   with no layout of its own is placed as generated, and nothing says so".
+
 3. **An imported class carries pair figures (placemat capture.md, circuit-capture).** As for pic_programmer: the USB
    class came with `diff_pair_*`. It has seven nets with no pair suffix, so placemat would not have paired them, but
    neither skill warns that an imported class must lose them. Removed.
+   Went to: placemat capture.md "Net classes" (placemat, step 1, skill gaps); circuit-capture SKILL.md "Net
+   classes and interfaces" (circuit-capture 1475634).
+
 4. **Imported captures fail `pcb layout` on part numbers.** As for pic_programmer: 30 parts whose wrappers have no
    `part=`. Used the script's `# placemat generate: -S bom.unspecified` line.
+   Went to: placemat api.md "Modules" (placemat, step 1, skill gaps); circuit-capture SKILL.md "Writing the
+   capture", step 5 (circuit-capture 1475634).
+
 5. **A high-current net's class against a board that carries its current in pours (circuit-capture).**
    circuit-capture: "A high-current net has its own class with the width it needs". At 10 C rise on 1 oz outer copper
    (IPC-2221), 4.5 A and 6.25 A need tracks about 2.4 mm and 3.8 mm wide, which a 22 mm board routes nowhere; the human
@@ -168,14 +181,26 @@ parts:
    classes (and `[route] islands`), not from `Pm.I`, so without a class the router draws these nets at 0.125 mm.
    Neither skill says how a capture states a current that pours, not tracks, are to carry. Left: `Pm.I` on the
    parts, no class; the current-path check judges what is drawn.
+   Went to: placemat capture.md "How the checks find their nets" and api.md "Routing phases" (placemat, step
+   1, skill gaps); circuit-capture SKILL.md "Net classes and interfaces" (circuit-capture 1475634).
+
 6. **"Mark the switch and the inductor" leaves the switch node unfound (capture.md).** A switch node is a net "whose
    every pad belongs to a `Pm.Aggressor` part", but capture.md says to mark the switch and the inductor. Here the
    bootstrap capacitors (C23, C24) and a ripple injection resistor (R15, not fitted) also have a pad on the node, so
    marking only the switch and the inductor finds no switch node. Marked them too.
+   Went to: placemat capture.md "How the checks find their nets" and "Annotating a capture", every part on
+   the switch node (placemat, step 1, skill gaps).
+
 7. **Which end of a run `along=` counts from (api.md).** "On a run, `along` is length from the run's start"; the start
    is wherever the outline's path enters the run, so the south tongue's run is measured from its east corner. Found
    by placing J4 and measuring.
+   Went to: placemat api.md "A run", the outline path's first end (placemat, step 1, skill gaps).
+
 8. **Indicators on an open board (SKILL.md).** As for pic_programmer: no rule for LEDs with no enclosure window. Left
    searched.
+   Went to: placemat SKILL.md furniture rule (placemat, step 1, skill gaps).
+
 9. **Facts need the user.** As for pic_programmer: every fact here is read from the human board's files, but only the
    user can confirm them. Left unconfirmed (a `facts` finding on every run).
+   Went to: BACKLOG.md "Facts read from a board's own files still need the user"; confirmation remains the
+   user's call.

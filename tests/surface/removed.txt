@@ -1,0 +1,15 @@
+# Removed forms: no reference doc but migration.md may name these (one literal per line).
+
+--islands
+[route] islands
+route.islands
+[route] pair_layers
+route.pair_layers
+pair_layers =
+[route] net_halos
+route.net_halos
+net_halos =
+setup.net_halo
+setup.pair_layers
+class stage
+board_pair_list

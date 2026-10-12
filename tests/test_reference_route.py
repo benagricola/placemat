@@ -85,23 +85,29 @@ def test_the_console_line_names_the_components_that_differ():
 
 def test_run_a_judges_the_route_json_against_the_baseline(tmp_path, monkeypatch):
     board = route_ref.fetch.Board(name="x", repo="github:o/r", commit="0" * 40, files={}, board="x.kicad_pcb", licence="MIT",
-                                  tests=("a",), islands=("VCC",), fixed=(), human_track_mm=0.2, kicad5=False)
+                                  tests=("a",), phases=({"name": "vcc", "nets": ["VCC"]},), fixed=(), human_track_mm=0.2, kicad5=False)
     seen = {}
+    monkeypatch.setattr(route_ref, "pour_nets", lambda pcb: set())
 
-    def route(pcb, work, islands, toml):
-        seen.update(pcb=pcb, islands=islands, toml=toml)
+    def route(pcb, work, toml):
+        seen.update(pcb=pcb, toml=toml)
         return dict(closure_clean=1.0, open_after=0, open_nets={}, seconds=2.0, routed_pcb=str(tmp_path / "routed.kicad_pcb"))
 
     def violations(path):
         return [V("clearance", ("A", "B"), (1.0, 1.0))] if path.name == prepare.BASELINE else [
             V("clearance", ("A", "B"), (1.0, 1.0)), V("short", ("A", "C"), (5.0, 5.0))]
 
+    import placemat.cli
+    from placemat.route_phase import example_phases
+    monkeypatch.setattr(placemat.cli, "board_example_phases", lambda pcb: example_phases(
+        pairs=False, interface_types=[], wide_classes=[], currents=False))
     monkeypatch.setattr(route_ref, "_route", route)
     monkeypatch.setattr(route_ref, "_krt_version", lambda pcb: "krt1")
     monkeypatch.setattr(prepare, "measure", lambda pcb: (2, prepare.HumanCopper(4, 50.0)))
     monkeypatch.setattr(prepare, "violations", violations)
     r = route_ref.run_a(board, tmp_path, track_mm=0.2, versions={"placemat": "p", "pcb": "z"})
-    assert seen["islands"] == ("VCC",) and "--track-width" in seen["toml"]
+    assert 'name = "vcc"' in seen["toml"] and "--track-width" in seen["toml"]
+    assert seen["toml"].index('name = "vcc"') < seen["toml"].index('name = "signals"')
     assert r.widths == "human" and not r.passed and r.new_violations == [V("short", ("A", "C"), (5.0, 5.0))]
     assert (r.vias, r.track_mm, r.versions) == (4, 50.0, {"placemat": "p", "pcb": "z", "krt": "krt1"})
 
@@ -110,6 +116,7 @@ def _main_with_work_root_seen(tmp_path, monkeypatch, *extra):
     import contextlib
     import tempfile
     seen = []
+    monkeypatch.setattr(route_ref, "LOCAL", {})
     monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
     monkeypatch.setattr(route_ref.fetch, "load_manifest", lambda: [])
     monkeypatch.setattr(route_ref.lock, "realboard", contextlib.nullcontext)
@@ -136,6 +143,7 @@ def test_route_update_holds_back_a_worse_entry_unless_accepted(tmp_path, monkeyp
     path = tmp_path / "results.json"
 
     def main(status, *extra):
+        monkeypatch.setattr(route_ref, "LOCAL", {})
         path.write_text(json.dumps({"a": {"x": {"class": {"old": 1}}}}))
         monkeypatch.setattr(route_ref.fetch, "load_manifest", lambda: [])
         monkeypatch.setattr(route_ref.lock, "realboard", contextlib.nullcontext)
@@ -161,6 +169,7 @@ def test_changing_takes_several_components():
 
 
 def test_the_command_line_takes_several_changing_components(tmp_path, monkeypatch):
+    monkeypatch.setattr(route_ref, "LOCAL", {})
     import contextlib
     seen = []
     monkeypatch.setattr(route_ref.fetch, "load_manifest", lambda: [])
@@ -201,11 +210,12 @@ def test_saved_violations_are_sorted(tmp_path):
 
 
 BOARDS = [route_ref.fetch.Board(name=n, repo="github:o/r", commit="0" * 40, files={}, board="x.kicad_pcb", licence="MIT",
-                                tests=("a",), islands=(), fixed=(), human_track_mm=t, kicad5=False)
+                                tests=("a",), phases=(), fixed=(), human_track_mm=t, kicad5=False)
           for n, t in (("bad", 0.2), ("good", None))]
 
 
 def _boards_run(tmp_path, monkeypatch, prepare_fails, *extra):
+    monkeypatch.setattr(route_ref, "LOCAL", {})
     import contextlib
     path = tmp_path / "results.json"
     path.write_text(json.dumps({"a": {"bad": {"class": route_ref.asdict(_result(board="bad"))}}}))
@@ -259,3 +269,101 @@ def test_a_route_that_raises_fails_its_own_width_only(tmp_path, monkeypatch):
     route_ref._run_boards(BOARDS[:1], tmp_path, {}, VERSIONS, {"placemat"}, results, comparisons, lambda: None)
     assert [(r.widths, r.failure) for r in results] == [("class", ""), ("human", "RuntimeError")]
     assert (results[1].human_vias, results[1].human_track_mm) == (1, 2.0)
+
+
+def test_manifest_named_pairs_and_buses_are_written_before_the_example_phases(tmp_path, monkeypatch):
+    import dataclasses
+    import tomllib
+    import placemat.cli
+    from placemat.route_phase import example_phases, parse_phases
+    # the board's example phases are placemat's own (cli.board_example_phases), not a copy of its calculation
+    monkeypatch.setattr(placemat.cli, "board_example_phases", lambda pcb: example_phases(
+        pairs=False, interface_types=[], wide_classes=["RF"], currents=False))
+    board = dataclasses.replace(route_ref.fetch.load_manifest()[0], phases=(
+        {"name": "usb", "pairs": [["USB_D+", "USB_D-"]]},
+        {"name": "i2c", "buses": [["SDA", "SCL"]]}))
+    phases = parse_phases(tomllib.loads(route_ref.phases_for(board, tmp_path / "board.kicad_pcb"))["route"]["phase"])
+    assert [p.name for p in phases] == ["usb", "i2c", "wide-clearance", "signals"]
+    assert phases[0].pairs == (("USB_D+", "USB_D-"),)
+    assert phases[1].buses == (("SDA", "SCL"),)
+
+
+def test_pcb_version_follows_executable_symlink_and_marks_checkout_dirty(tmp_path, monkeypatch):
+    import os
+    import subprocess
+    repo = tmp_path / 'pcb'
+    binary = repo / 'target' / 'release' / 'pcbc'
+    binary.parent.mkdir(parents=True)
+    binary.write_text('#!/bin/sh\necho pcbc 0.4.52\n')
+    binary.chmod(0o755)
+    subprocess.run(['git', 'init', '-q', str(repo)], check=True)
+    tracked = repo / 'source'
+    tracked.write_text('source')
+    subprocess.run(['git', '-C', str(repo), 'add', 'source'], check=True)
+    subprocess.run(['git', '-C', str(repo), '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'source'], check=True)
+    links = tmp_path / 'bin'
+    links.mkdir()
+    (links / 'pcb').symlink_to(binary)
+    monkeypatch.setenv('PATH', str(links) + os.pathsep + os.environ['PATH'])
+    head = subprocess.run(['git', '-C', str(repo), 'rev-parse', 'HEAD'], capture_output=True, text=True, check=True).stdout.strip()
+    assert route_ref.pcb_version() == head
+    tracked.write_text('changed')
+    assert route_ref.pcb_version() == head + '-dirty'
+    (links / 'pcb').unlink()
+    (links / 'pcb').write_text('#!/bin/sh\necho pcbc 0.4.52\n')
+    (links / 'pcb').chmod(0o755)
+    assert route_ref.pcb_version() == 'pcbc 0.4.52'
+    monkeypatch.setenv('PATH', str(tmp_path / 'absent'))
+    assert route_ref.pcb_version() == 'unknown'
+
+
+def _recorded(**over):
+    return json.loads(json.dumps(route_ref.asdict(_result(**over))))
+
+
+def _verdict(old, **over):
+    c = route_ref.compare(old, _result(**over), {"placemat"})
+    return c.status, c.worse
+
+
+def test_a_failed_route_is_worse():
+    assert _verdict(_recorded(), failure="RuntimeError", closure_clean=0.0, passed=False, new_violations=None) == ("worse", ["failed"])
+
+
+def test_a_fall_in_closure_is_worse_and_named():
+    assert _verdict(_recorded(), closure_clean=0.9, passed=False) == ("worse", ["closure_clean fell"])
+
+
+def test_more_open_on_non_pour_nets_is_worse_even_when_closure_rose():
+    old = _recorded(closure_clean=0.8, open=2, open_other=2, passed=False)
+    assert _verdict(old, closure_clean=0.9, open=3, open_other=3, passed=False) == ("worse", ["open on non-pour nets rose"])
+
+
+def test_more_open_on_pour_nets_is_worse():
+    old = _recorded(closure_clean=0.8, open=2, open_pour=1, open_other=1, passed=False)
+    assert _verdict(old, closure_clean=0.8, open=3, open_pour=2, open_other=1, passed=False) == ("worse", ["open on pour nets rose"])
+
+
+def test_more_new_drc_is_worse_even_when_closure_rose():
+    old = _recorded(closure_clean=0.9, passed=False)
+    assert _verdict(old, closure_clean=1.0, new_violations=[V("short", ("A", "C"), (5.0, 5.0))], passed=False) == ("worse", ["new DRC rose"])
+
+
+def test_fewer_open_with_nothing_worse_is_better():
+    old = _recorded(closure_clean=0.9, open=2, open_other=2, passed=False)
+    assert _verdict(old, closure_clean=0.9, open=1, open_other=1, passed=False) == ("better", [])
+    assert _verdict(old, closure_clean=0.9, open=2, open_other=2, passed=False) == ("same", [])
+
+
+def test_an_entry_without_the_split_compares_its_total_and_says_so():
+    old = _recorded(open=2, closure_clean=0.9, passed=False)
+    del old["open_pour"], old["open_other"]
+    c = route_ref.compare(old, _result(open=3, open_other=3, closure_clean=0.9, passed=False), {"placemat"})
+    assert (c.status, c.worse, c.split_unrecorded) == ("worse", ["open rose"], True)
+    assert "split not recorded" in route_ref.said(c) and "open rose" in route_ref.said(c)
+    assert route_ref.compare(old, _result(open=2, open_pour=1, open_other=1, closure_clean=0.9, passed=False), {"placemat"}).status == "same"
+
+
+def test_judge_splits_the_open_count_by_pour_nets():
+    r = route_ref.judge(dict(open_after=3, open_nets={"GND": 2, "A": 1}), [], _result(), {"GND"})
+    assert (r.open, r.open_pour, r.open_other) == (3, 2, 1)

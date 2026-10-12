@@ -1,0 +1,213 @@
+apply
+apply --dry-run
+apply --format
+apply --json
+apply --output
+apply --script
+apply --search
+apply --undo
+apply --yes
+check
+check --ambient
+check --format
+check --json
+check --keep-out
+check --limit
+check --output
+check --rise
+datasheet
+datasheet --dpi
+datasheet --format
+datasheet --json
+datasheet --no-ocr
+datasheet --out
+datasheet --output
+datasheet --pad
+datasheet --pads
+datasheet --pitch
+datasheet --png
+datasheet --read
+datasheet --show
+datasheet --span
+datasheet --tol
+drc
+drc --format
+drc --json
+drc --output
+faces
+faces --format
+faces --output
+facts
+facts --confirm
+facts --format
+facts --json
+facts --output
+freeze
+freeze --all
+freeze --fixed
+freeze --format
+freeze --output
+impact
+impact --board
+impact --format
+impact --output
+layer
+layer --format
+layer --json
+layer --out
+layer --output
+lock
+lock --accept-seed
+lock --current
+lock --format
+lock --output
+lock --partial
+lock --release
+lock --release-all
+measure
+measure --copper
+measure --envelope
+measure --format
+measure --json
+measure --keepouts
+measure --labels
+measure --models
+measure --near
+measure --outline
+measure --output
+measure --pads
+nets
+nets --format
+nets --inst
+nets --json
+nets --net
+nets --output
+nets --sort
+occupancy
+occupancy --at
+occupancy --box
+occupancy --corridor
+occupancy --drill
+occupancy --format
+occupancy --ignore-kept
+occupancy --in-pad
+occupancy --json
+occupancy --layer
+occupancy --margin
+occupancy --net
+occupancy --output
+occupancy --radius
+occupancy --size
+occupancy --step
+occupancy --via-near
+occupancy --width
+parts
+parts --field
+parts --format
+parts --fragments
+parts --json
+parts --output
+preview
+preview --accept
+preview --around
+preview --detach
+preview --explore
+preview --face
+preview --focus
+preview --focus-after
+preview --focus-box
+preview --format
+preview --jobs
+preview --margin
+preview --max-time
+preview --no-copper
+preview --no-heat
+preview --no-links
+preview --no-resume
+preview --no-tags
+preview --out
+preview --output
+preview --resume
+preview --step-limit
+preview --step-warn
+preview --svg
+preview --zoom
+route
+route --adopt
+route --adopt-all
+route --detach
+route --exclude
+route --format
+route --full
+route --iterations
+route --json
+route --layers
+route --no-lock
+route --no-resume
+route --out
+route --output
+route --partial
+routes
+routes --format
+routes --output
+routes --release
+routes --release-all
+run
+run --accept
+run --detach
+run --explore
+run --focus
+run --focus-after
+run --focus-box
+run --format
+run --fresh
+run --jobs
+run --json
+run --keep-going
+run --label
+run --max-time
+run --no-drc
+run --no-render
+run --no-resume
+run --no-reuse
+run --output
+run --quiet
+run --rank-remapped
+run --resume
+run --route
+run --route-best
+run --route-exclude
+run --route-full
+run --step-limit
+run --step-warn
+run --verbose
+settings
+settings --example
+settings --format
+settings --json
+settings --markdown
+settings --output
+show
+show --format
+show --out
+show --output
+studio
+studio --at
+studio --format
+studio --from
+studio --host
+studio --item
+studio --no-open
+studio --output
+studio --pad
+studio --port
+studio --script
+watch
+watch --format
+watch --json
+watch --output
+watch --summary
+
+route --phase
+route --only
+run --route-rank

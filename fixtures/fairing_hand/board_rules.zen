@@ -1,0 +1,104 @@
+# The design rules every board and module fragment here is laid out with, so
+# a fragment is packed by the rules the core will judge it by. Six layers,
+# JLCPCB's JLC06161H-3313 impedance stackup (https://jlcpcb.com/impedance),
+# 1 oz copper on every layer (Ben, 2026-09-30):
+#   F.Cu   signal and ground fill    0.035
+#          3313 prepreg              0.0994  (Er 4.1)
+#   In1.Cu ground                    0.035
+#          core                      0.55    (Er 4.6)
+#   In2.Cu signal and local zones    0.035
+#          2116 prepreg              0.1088  (Er 4.16)
+#   In3.Cu 3V3                       0.035
+#          core                      0.55
+#   In4.Cu ground                    0.035
+#          3313 prepreg              0.0994
+#   B.Cu   signal and ground fill    0.035
+# JLCPCB lists this stackup with 0.5 oz inner copper; the dielectrics are
+# JLCPCB's as listed there. Pinned beyond the stackup:
+# - the silk spacing: 0.2 mm between any two pieces of silk (Ben, 2026-09-23),
+#   where the stdlib has 0.1;
+# - the via annular ring: 0.05 mm, JLCPCB's minimum
+#   (../../docs/decisions/layout/fab-profile-jlc-vias-2026-10-01.md), which the
+#   RT1715's 0.25/0.15 mm via in its centre ball takes; KiCad's default is 0.1;
+# - the net classes: the stdlib's Default, and a 90 ohm differential class for
+#   the USB data pair at the stdlib 6-layer class's width and gap, with the
+#   class clearance at the pair's gap. The stdlib class's 0.2 mm clearance
+#   around the ESP32-S3's 0.4 mm-pitch USB pins walls in the GPIO beside them;
+#   and a class for the USB-C CC lines, which carry VCONN (5 V, 0.6 A): TI asks
+#   for at least 10 mil (TPS25751 ZHCSTM4A 9.4.2.2.2.1);
+# - a 50 ohm class for the two antenna feeds (GNSS and BLE) and the GNSS
+#   antenna's launch, the stdlib
+#   6-layer class's width and clearance (grounded coplanar on F.Cu over In1,
+#   0.0994 mm of 3313 prepreg; BASE_6L_NETCLASSES "50Ohm SE"): the clearance
+#   is the coplanar gap to the ground fill beside the line.
+load("@stdlib/board_config.zen", "BoardConfig", "Constraints", "Copper", "CopperLayer", "DEFAULT_NETCLASS", "DesignRules", "DielectricLayer",
+     "FR4_CORE", "Material", "NetClass", "Silkscreen", "Stackup")
+load("@stdlib/units.zen", "Impedance")
+
+LAYERS = 6
+# The Default class at 5 mil track and space: JLCPCB's 6-layer process runs
+# to 0.09 mm, and at the stdlib's 0.16 the core's router left 11 connections
+# open where 0.127 left 6 (routes rt13base and rt13, 2026-10-04).
+CORE_DEFAULT_CLASS = NetClass(
+    name = "Default",
+    clearance = 0.127,
+    track_width = 0.127,
+    via_diameter = DEFAULT_NETCLASS.via_diameter,
+    via_drill = DEFAULT_NETCLASS.via_drill,
+    diff_pair_width = DEFAULT_NETCLASS.diff_pair_width,
+    diff_pair_gap = DEFAULT_NETCLASS.diff_pair_gap,
+)
+USB_PAIR_CLASS = NetClass(
+    name = "90Ohm Diff",
+    clearance = 0.1524,
+    track_width = 0.1359,
+    diff_pair_width = 0.1359,
+    diff_pair_gap = 0.1524,
+    color = "#00C200FF",
+    differential_pair_impedance = Impedance(90),
+    nets = ["USB_D_P", "USB_D_N"],
+)
+CC_CLASS = NetClass(
+    name = "VCONN",
+    clearance = CORE_DEFAULT_CLASS.clearance,
+    track_width = 0.254,
+    via_diameter = CORE_DEFAULT_CLASS.via_diameter,
+    via_drill = CORE_DEFAULT_CLASS.via_drill,
+    nets = ["USB_CC1", "USB_CC2"],
+)
+RF_50_CLASS = NetClass(
+    name = "50Ohm SE",
+    clearance = 0.2,
+    track_width = 0.1461,
+    color = "#0000C2FF",
+    single_ended_impedance = Impedance(50),
+    nets = ["*ANT_FEED", "*ANT_TRACE", "RF_50", "*ANT24_FEED"],
+)
+STACKUP = Stackup(
+    materials = [
+        FR4_CORE,
+        Material(name = "3313", relative_permittivity = 4.1, loss_tangent = 0.025),
+        Material(name = "2116", relative_permittivity = 4.16, loss_tangent = 0.025),
+    ],
+    thickness = 1.6,
+    symmetric = True,
+    layers = [
+        CopperLayer(thickness = 0.035, role = "mixed"),     # F.Cu
+        DielectricLayer(thickness = 0.0994, material = "3313", form = "prepreg"),
+        CopperLayer(thickness = 0.035, role = "ground"),    # In1.Cu
+        DielectricLayer(thickness = 0.55, material = "FR4-Core", form = "core"),
+        CopperLayer(thickness = 0.035, role = "mixed"),     # In2.Cu: signals and the buck-boost's AGND island
+        DielectricLayer(thickness = 0.1088, material = "2116", form = "prepreg"),
+        CopperLayer(thickness = 0.035, role = "power"),     # In3.Cu, 3V3
+        DielectricLayer(thickness = 0.55, material = "FR4-Core", form = "core"),
+        CopperLayer(thickness = 0.035, role = "ground"),    # In4.Cu
+        DielectricLayer(thickness = 0.0994, material = "3313", form = "prepreg"),
+        CopperLayer(thickness = 0.035, role = "mixed"),     # B.Cu
+    ],
+)
+CONFIG = BoardConfig(stackup = STACKUP, design_rules = DesignRules(
+    constraints = Constraints(copper = Copper(minimum_annular_width = 0.05),
+                              silkscreen = Silkscreen(minimum_item_clearance = 0.2)),
+    netclasses = [CORE_DEFAULT_CLASS, USB_PAIR_CLASS, CC_CLASS, RF_50_CLASS],
+))
+

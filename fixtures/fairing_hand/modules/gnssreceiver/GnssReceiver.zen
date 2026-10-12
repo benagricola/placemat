@@ -1,0 +1,93 @@
+# GnssReceiver: the GNSS receiver with its supply filter and the parts at its
+# supply pins, the group the core stands on its back face. Retained Main connectivity, source lines
+# recorded in ../../retained-circuits.json (sheet Gnss). Component values
+# remain subject to the core electrical review.
+#
+# Layout facts (placemat-design Pm.*), worked in
+# ../../../../docs/decisions/schematics/signal-layout-facts-2026-09-27.md:
+#  1. ANT_FEED (the RF_IN input) is Pm.Sensitive on the GNSS chip. u-blox MAX-M10S Integration Manual UBX-20053088-R05
+#     section 4.4 "Layout" (p80): keep the RF line short and at least 5 mm
+#     from other electronic components, solid GND plane underneath, no
+#     signal lines crossing beneath the module.
+#  2. Every capacitor at a GNSS supply pin (VCC/V_IO/V_BCKP) is
+#     Pm.Role=bypass. The ferrite bead's stdlib generic does not accept
+#     annotations.
+
+# The receiver is a build choice on one position: the u-blox MAX-M10S, or the Quectel
+# L76K (USD 2.77 against 10.50 at 500; GPS, BeiDou, GLONASS and QZSS but no Galileo,
+# 5 dB less tracking sensitivity, 5 Hz maximum, 8 uA backup against 32 uA).
+# ../../../../docs/decisions/schematics/gnss-environment-cost-down-2026-09-28.md.
+# Both are LCC-18 10.1 x 9.7 on one shared land (identical copper), so one routing serves both.
+receiver = config("receiver", str, default = "MAX-M10S", allowed = ["MAX-M10S", "L76K"])
+
+C = Module("@stdlib/generics/Capacitor.zen")
+FB = Module("@stdlib/generics/FerriteBead.zen")
+R = Module("@stdlib/generics/Resistor.zen")
+GNSS = Module("../../adapted/parts/U_BLOX_MAX_M10S_00B.zen" if receiver == "MAX-M10S"
+              else "../../adapted/parts/Quectel_L76KB_A58.zen")
+
+gnd = io("GND", Net)
+gnss_pps = io("GNSS_PPS", Net)
+gnss_rx = io("GNSS_RX", Net)
+gnss_tx = io("GNSS_TX", Net)
+v3v3 = io("V3V3", Net)
+ant_feed = io("ANT_FEED", Net)
+# VCC_RF (pin 14) is the module's filtered RF supply output; its capacitor
+# is Gnss.zen's, on the core's front (see there).
+gnss_vcc_rf = io("GNSS_VCC_RF", Net)
+# The supply behind the bead and V_IO are ports so the nets keep the names
+# Gnss.zen gives them (gnss.GNSS_VCC, gnss.GNSS_VIO), which power-flags.json
+# and the core name.
+gnss_vcc = io("GNSS_VCC", Net)
+gnss_vio = io("GNSS_VIO", Net)
+
+# BLM18EG601SN1D (C20345), the general-use grade of the BLM18EG601SZ1D, which
+# JLC does not stock: ../../../../docs/decisions/schematics/gnss-supply-bead-2026-09-30.md.
+FB(name = "fb_gnss", value = "600ohm", package = "0603", frequency = "100MHz",
+   current = "500mA", dcr = "0.35ohm", mpn = "BLM18EG601SN1D", manufacturer = "Murata Electronics",
+   P1 = v3v3, P2 = gnss_vcc)
+# No separate backup source: V_BCKP follows VCC, so power removal loses
+# backup state. The L76K needs V_BCKP up no later than VCC (L76K Hardware
+# Design 3.4), which this meets.
+if receiver == "MAX-M10S":
+    # VIO_SEL must float for 3.3 V IO. SAFEBOOT_N must float; it is
+    # internally linked to TIMEPULSE, not an ordinary spare GPIO.
+    GNSS(name = "gnss", VCC = gnss_vcc, V_IO = gnss_vio, V_BCKP = gnss_vcc, GND = gnd,
+         RF_IN = ant_feed, VCC_RF = gnss_vcc_rf,
+         TXD = gnss_tx, RXD = gnss_rx, TIMEPULSE = gnss_pps,
+         EXTINT = NotConnected(), RESET_N = NotConnected(), LNA_EN = NotConnected(),
+         VIO_SEL = NotConnected(), SDA = NotConnected(), SCL = NotConnected(),
+         SAFEBOOT_N = NotConnected(),
+         annotations = {"Pm.Sensitive": "ANT_FEED"})
+else:
+    # L76K Hardware Design table 4: RESERVED (7, 15-17), WAKEUP, ANTON and
+    # 1PPS float when unused; RESET_N is pulled up inside and takes no
+    # external pull-up (4.2.1); SET floats for GPS + BeiDou. Pin 7 (RESERVED)
+    # sits on GNSS_VIO, which floats here because r_gnss_vio is not fitted.
+    GNSS(name = "gnss", VCC = gnss_vcc, V_BCKP = gnss_vcc, GND = gnd,
+         RF_IN = ant_feed, VDD_RF = gnss_vcc_rf,
+         TXD = gnss_tx, RXD = gnss_rx, P_1PPS = gnss_pps,
+         WAKE_UP = NotConnected(), RESET_N = NotConnected(), ANTON = NotConnected(),
+         RESERVED_7 = gnss_vio, RESERVED_15 = NotConnected(), RESERVED_16 = NotConnected(),
+         RESERVED_17 = NotConnected(), SET = NotConnected(),
+         annotations = {"Pm.Sensitive": "ANT_FEED"})
+C(name = "c_gnss_bulk", value = "10uF", package = "0603", voltage = "10V", mpn = "CL10A106MA8NRNC", manufacturer = "Samsung Electro-Mechanics", P1 = gnss_vcc, P2 = gnd,
+  annotations = {"LCSC": "C96446", "Pm.Role": "bypass"})
+C(name = "c_gnss_hf", value = "100nF", package = "0402", mpn = "CL05B104KB54PNC", manufacturer = "Samsung Electro-Mechanics", P1 = gnss_vcc, P2 = gnd,
+  annotations = {"LCSC": "C307331", "Pm.Role": "bypass"})
+# Pad 7 is V_IO on the MAX (3.3 V, tied to VCC) and RESERVED on the L76K
+# (must float). Both builds share one land and one routing, so pad 7 sits on
+# GNSS_VIO in both and this link joins it to GNSS_VCC only in the MAX build.
+R(name = "r_gnss_vio", mpn = "ERJ-2GE0R00X", manufacturer = "Panasonic Industry", value = "0ohm", package = "0402", P1 = gnss_vcc, P2 = gnss_vio,
+  dnp = receiver != "MAX-M10S")
+if receiver == "L76K":
+    # Quectel's VCC network is 10 uF, 100 nF and 33 pF, the smallest nearest
+    # the pin (L76K Hardware Design 3.2.1).
+    C(name = "c_gnss_33p", value = "33pF", package = "0402", voltage = "50V", dielectric = "C0G", P1 = gnss_vcc, P2 = gnd,
+      annotations = {"Pm.Role": "bypass"})
+
+load("../../board_rules.zen", "CONFIG", "LAYERS")
+stamp_layout = config("stamp_layout", bool, default = True)
+if stamp_layout:
+    Board(name = "GnssReceiver", layout_path = "layout", layers = LAYERS, config = CONFIG)
+Project(name = "GnssReceiver", path = "kicad", schematic = True, layout = False)

@@ -1,7 +1,7 @@
-"""The widths a route delivered against the widths it asked for, from the router's per-stage summaries.
+"""The widths a route delivered against the widths it asked for, from the router's per-call summaries.
 
 The router measures the copper it ships, not what a pass requested (KRT py_router/routing_common.py `power_width_report`, written as
-JSON_SUMMARY `power_widths` by py_router/route.py when the run has `--power-nets-widths`, which placemat gives an island net that has a
+JSON_SUMMARY `power_widths` by py_router/route.py when the run has `--power-nets-widths`, which placemat gives a phase call that asks for a
 width). A wide route that is blocked is retried at the default track width, the "neck-down" (single_ended_routing.py, a log line only),
 and nothing in the route's outcome says so but these summary fields:
 
@@ -10,7 +10,7 @@ and nothing in the route's outcome says so but these summary fields:
   `length_mm` (the length under), `site` (fab_tiers.py `replace_power_track_rows`);
 - `power_trace_ampacity[]`: `net`, `bottleneck_width_mm`, `bottleneck_layer`, `max_current_a` (IPC-2152) (route.py).
 
-`power_widths` and `power_trace_ampacity` exist only in a stage that was given power nets; `design_rules.narrowed` is in every stage's
+`power_widths` and `power_trace_ampacity` exist only in a call that was given power nets; `design_rules.narrowed` is in every call's
 summary, and holds a net-class or pair narrowing only where the router's own escalation recorded one. The pair router writes no summary.
 
 `power_widths` is written only by a run with its final reconciliation on (route.py, the `# ---- POWER WIDTHS (#1033)` block, gated
@@ -62,17 +62,9 @@ def stage_widths(stage: str, summary: dict, declared=()) -> list:
     return out
 
 
-def read_widths(work, islands: dict, classes: int = 0) -> list:
-    """Every stage's records for the route in `work`: each island net's own pass (islandsN_summary.json, N the net's place in the
-    sorted names), each of the `classes` class stages (classesN_summary.json), then the main pass (router_summary.json)."""
-    work = Path(work)
-    declared = {n for n, w in islands.items() if w}
-    out = []
-    for i, _ in enumerate(sorted(islands)):
-        out += stage_widths("islands", _read(work / ("islands%d_summary.json" % i)), declared)
-    for i in range(classes):
-        out += stage_widths("classes", _read(work / ("classes%d_summary.json" % i)), declared)
-    return out + stage_widths("main", _read(work / "router_summary.json"), declared)
+def read_widths(summaries: list, judged: set) -> list:
+    """Summary shortfalls for nets not covered by the board judgement."""
+    return [r for phase, _, path in summaries for r in stage_widths(phase, _read(path)) if r["net"] not in judged]
 
 
 # The router's pad neck-down (KRT docs/power-nets.md "Neck-Down for Failed Power Routes"): a power route that does not fit at its
@@ -152,34 +144,28 @@ def _neck_lengths(tracks, under, pads, vias, neck_mm: float) -> set:
     return out
 
 
-def board_widths(geometry, islands: dict, rise_c: float | None = None, copper_oz: float | None = None,
-                 neck_mm: float = KRT_NECKDOWN_LENGTH_MM + KRT_NECKDOWN_TAPER_MM) -> list:
-    """The island nets' routed copper judged on the board: a record for each net of `islands` ({net: width asked or None}) given
-    a width and with any track narrower than it needs, each
-    {net, stage, requested_mm, delivered_min_mm, length_under_mm, length_mm, share, declared, max_a, bottleneck_mm,
-    bottleneck_layer, amps, necks_mm, neck_limit_mm, layers}.
+def board_widths(geometry, asks: dict, stage: str, rise_c: float | None = None, copper_oz: float | None = None,
+                 neck_mm: float = KRT_NECKDOWN_LENGTH_MM + KRT_NECKDOWN_TAPER_MM, only=None, by="asked") -> list:
+    """A phase's tracks below its per-layer asked widths, restricted to `only` when supplied.
 
-    A track needs the width the island was asked, on every layer: the script chose it for what the island carries, which may
-    be a tap of a net whose full current flows elsewhere. Current is `check current-path`'s to judge, from carrier to carrier
-    (IPC-2221, the inner constant on an inner layer); an island net given no width, and a net that is no island, are left to
-    it too. `max_a` is the current its narrowest copper carries at `rise_c`. Under-width copper within `neck_mm` of a pad along under-width copper is the router's pad neck-down
-    (`neck_allowance`) and is not counted, its length given as `necks_mm`. `layers` is the shortfall per layer, each
-    {layer, need_mm, by ("asked" or "current"), under_mm, min_mm}; `max_a` is what the copper with the least capacity carries
-    (IPC-2221), `bottleneck_mm` its width."""
+    Each record names the phase and the layer's shortfall. Pad neck copper within the router's allowance
+    is reported separately. Current capacity uses IPC-2221 and the board's layer copper thickness.
+    """
     from ..checks import COPPER_OZ, TRACK_RISE_C, _layer_k, _layer_oz, ipc2221_current_a
     rise_c = TRACK_RISE_C if rise_c is None else rise_c
     copper_oz = COPPER_OZ if copper_oz is None else copper_oz
     copper_mm = getattr(geometry, "copper_mm", None) or {}
     out = []
-    for net in sorted(islands):
-        asked = islands[net] or None
+    for net in sorted(asks):
+        asked = asks[net] or None
         if not asked:
             continue
-        tracks = [c for c in geometry.copper if c.net == net and c.kind == "track" and len(c.anchors) == 2 and c.layers]
+        tracks = [c for c in (geometry.copper if only is None else only)
+                  if c.net == net and c.kind == "track" and len(c.anchors) == 2 and c.layers
+                  and next(iter(c.layers)) in asked]
         if not tracks:
             continue
-        need = {next(iter(t.layers)): asked for t in tracks}
-        by = {layer: "asked" for layer in need}
+        need = asked
         under = [i for i, t in enumerate(tracks) if t.width_mm < need[next(iter(t.layers))] - _UNDER_MM]
         pads = [(c.outlines, c.layers) for c in geometry.copper if c.net == net and c.kind == "pad"]
         vias = [(c.anchors[0], c.layers) for c in geometry.copper if c.net == net and c.kind == "via" and c.anchors]
@@ -190,7 +176,7 @@ def board_widths(geometry, islands: dict, rise_c: float | None = None, copper_oz
         per = {}
         for t in counted:
             layer = next(iter(t.layers))
-            row = per.setdefault(layer, {"layer": layer.value, "need_mm": round(need[layer], 4), "by": by[layer],
+            row = per.setdefault(layer, {"layer": layer.value, "need_mm": round(need[layer], 4), "by": by,
                                          "under_mm": 0.0, "min_mm": t.width_mm})
             row["under_mm"] += t.length_mm
             row["min_mm"] = min(row["min_mm"], t.width_mm)
@@ -201,7 +187,7 @@ def board_widths(geometry, islands: dict, rise_c: float | None = None, copper_oz
         worst = min(counted, key=capacity)
         length = sum(t.length_mm for t in tracks)
         under_mm = sum(t.length_mm for t in counted)
-        out.append({"net": net, "stage": "islands", "requested_mm": asked, "delivered_min_mm": round(min(t.width_mm for t in counted), 4),
+        out.append({"net": net, "stage": stage, "requested_mm": max(asked.values()), "delivered_min_mm": round(min(t.width_mm for t in counted), 4),
                     "length_under_mm": round(under_mm, 2), "length_mm": round(length, 2),
                     "share": round(under_mm / length, 4) if length else None, "declared": bool(asked),
                     "max_a": round(capacity(worst), 2), "bottleneck_mm": round(worst.width_mm, 4),
@@ -210,11 +196,6 @@ def board_widths(geometry, islands: dict, rise_c: float | None = None, copper_oz
                     "layers": [dict(r, under_mm=round(r["under_mm"], 2), min_mm=round(r["min_mm"], 4))
                                for _, r in sorted(per.items(), key=lambda kv: kv[0].value)]})
     return out
-
-
-def judged_on_board(islands: dict) -> set:
-    """The island nets `board_widths` judges: the ones given a width."""
-    return {n for n, w in islands.items() if w}
 
 
 def findings_of(records: list, stated: dict | None = None) -> list:
@@ -230,7 +211,7 @@ def findings_of(records: list, stated: dict | None = None) -> list:
         short = amps is not None and r["max_a"] is not None and r["max_a"] < amps
         facts = {k: r[k] for k in ("net", "stage", "requested_mm", "delivered_min_mm", "length_under_mm", "length_mm", "share",
                                    "declared", "max_a", "bottleneck_mm")}
-        facts.update({k: r[k] for k in ("bottleneck_layer", "necks_mm", "neck_limit_mm", "layers") if k in r})
+        facts.update({k: r[k] for k in ("bottleneck_layer", "necks_mm", "neck_limit_mm", "layers", "from", "to", "source") if k in r})
         facts["stated_a"] = amps
         out.append(Finding(C.ROUTE_WIDTH, facts, "critical" if r["declared"] or short else "warning"))
     return out
@@ -244,6 +225,11 @@ def stated_currents(geometry) -> dict:
 
 def brief(r: dict) -> str:
     """One record as the route's summary line has it."""
+    if r.get("source") == "router":
+        need = ", ".join("%s %g" % (row["layer"], round(row["need_mm"], 2)) for row in r["layers"])
+        return "%s %s.%s-%s.%s under %s (router min %g)" % (r["net"], r["from"]["ref"], r["from"]["pad"], r["to"]["ref"],
+                                                           r["to"]["pad"], need, r["delivered_min_mm"])
+
     length = "" if r["length_mm"] is None else " of %.1f" % r["length_mm"]
     if r.get("layers"):
         need = ", ".join("%s %g" % (row["layer"], round(row["need_mm"], 2)) for row in r["layers"])

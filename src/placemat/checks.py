@@ -277,7 +277,8 @@ def _facts_of(fp: Footprint) -> Facts:
             currents = {}
             for item in re.split(r"[\s,]+", get("i").strip()):
                 net, _, amps = item.partition(":")
-                currents[net.lower()] = _quantity(amps)
+                name, current = net.lower(), _quantity(amps)
+                currents[name] = max(currents.get(name, current), current)
         else:
             current_a = _quantity(get("i"))
     return Facts(ref=fp.ref, loop=get("loop"),
@@ -996,9 +997,15 @@ class _Fill:
             self.levels = self._native.levels
             self._native_polys: dict = {}          # id(polys) -> polys, keeping it alive so id() cannot be reused
             self._paths = {}                       # (id(entry), id(exit_)) -> the path `width` found, for neck_length
+            self._parts = {}                       # level -> {cell: the part it is in}, for part
+            self._cover = {}                       # level -> {cell: whether a disc that deep covers it}, for _covered
+            self._runs = {}                        # (cell or copper before, cell or copper after, level) -> _run_width
             return
         self._native = None
         self._paths = {}
+        self._parts = {}
+        self._cover = {}
+        self._runs = {}
         box = Box.of_points(poly)
         self.s = step
         self.x0, self.y0 = box.left - step, box.top - step
@@ -1105,16 +1112,41 @@ class _Fill:
         limit = (far / s) ** 2
         return {c for c in cells if copper_sq[c] <= limit + 1e-9}
 
-    def _reach(self, start: set, goal: set, tau: float):
+    def touching_disc(self, point, r: float, tau: float) -> set:
+        """`touching` for a disc of radius `r` at `point` (a via, or a track's round end): the cells at least `tau`
+        deep whose disc of radius `radius(tau)` reaches it, within half a step. Read from the cell centres in a
+        window round the disc, with no raster of the copper."""
+        s, nx, ny, sq = self.s, self.nx, self.ny, self.sq
+        far = self.radius(tau) + r + s / 2.0
+        px, py = point
+        q0 = max(0, int((px - far - self.x0) / s))
+        r0 = max(0, int((py - far - self.y0) / s))
+        q1 = min(nx, int(math.ceil((px + far - self.x0) / s)) + 1)
+        r1 = min(ny, int(math.ceil((py + far - self.y0) / s)) + 1)
+        far2 = far * far + 1e-9
+        out = set()
+        for row in range(r0, r1):
+            dy = self.y0 + (row + 0.5) * s - py
+            for q in range(q0, q1):
+                c = row * nx + q
+                if sq[c] >= tau:
+                    dx = self.x0 + (q + 0.5) * s - px
+                    if dx * dx + dy * dy <= far2:
+                        out.add(c)
+        return out
+
+    def _reach(self, start: set, goal: set, tau: float, box=None):
         """A path of fill cells from `start` to `goal`, 8-connected, every
         cell on it in either set or at least `tau` (squared cells) from the
         fill's edge: (the goal cell it reached, or None, and each cell
         reached's parent). Breadth first, so it stops as soon as it
-        arrives."""
-        if self._native is not None:
+        arrives. `box`: (first row, last row, first column, last column),
+        the cells it may visit; None, the whole fill (native when built)."""
+        if self._native is not None and box is None:
             hit, parent = self._native.reach(list(start), list(goal), tau)
             return hit, parent
-        nx, ny, inside, sq = self.nx, self.ny, self.inside, self.sq
+        nx, ny, sq = self.nx, self.ny, self.sq
+        r0, r1, q0, q1 = box if box is not None else (0, ny - 1, 0, nx - 1)
         parent = {c: None for c in start}
         todo = deque(start)
         while todo:
@@ -1123,15 +1155,16 @@ class _Fill:
                 return c, parent
             r, q = divmod(c, nx)
             for rr in (r - 1, r, r + 1):
-                if not 0 <= rr < ny:
+                if not r0 <= rr <= r1:
                     continue
                 for qq in (q - 1, q, q + 1):
-                    if not 0 <= qq < nx:
+                    if not q0 <= qq <= q1:
                         continue
                     n = rr * nx + qq
-                    if n in parent or not inside[n]:
+                    if n in parent:
                         continue
-                    if sq[n] >= tau or n in goal:
+                    # a cell at least tau > 0 deep is inside the fill: sq is 0 outside it
+                    if sq[n] >= tau or (n in goal and sq[n] > 0):
                         parent[n] = c
                         todo.append(n)
         return None, parent
@@ -1158,14 +1191,12 @@ class _Fill:
         # the widest level at which a path still joins them: a narrower disc passes wherever a
         # wider one does, so the levels that join them are the lower ones
         levels = self.levels
-        lo, hi, found = 0, len(levels) - 1, None
-        while lo <= hi:
-            mid = (lo + hi) // 2
-            got = attempt(levels[mid])
-            if got[0] is None:
-                hi = mid - 1
-            else:
-                found, lo = (levels[mid],) + got, mid + 1
+        def joined(t):
+            got = attempt(t)
+            return got if got[0] is not None else None
+        top = _highest(levels, joined)
+        found = None if top is None else (top[0],) + top[1]
+        lo = top[2] + 1 if top is not None else 0
         if found is None:
             # no path of cells at all: the fill narrows below one cell. Name where the
             # cells reached from the entry stop nearest the exit.
@@ -1205,39 +1236,207 @@ class _Fill:
         """The width of the widest disc in the fill that reaches `polys` (as
         `touching` reads it): no route entering or leaving the fill by that
         copper is wider than this. None when no cell of the fill reaches it."""
-        levels = self.levels
-        lo, hi, found = 0, len(levels) - 1, None
-        while lo <= hi:
-            mid = (lo + hi) // 2
-            if self.touching(polys, levels[mid]):
-                found, lo = levels[mid], mid + 1
-            else:
-                hi = mid - 1
-        return None if found is None else 2.0 * self.radius(found)
+        top = _highest(self.levels, lambda t: self.touching(polys, t) or None)
+        return None if top is None else 2.0 * self.radius(top[0])
+
+    def level(self, width: float) -> float:
+        """The level (squared cells from the fill's edge) whose disc is `width` wide: `radius` inverted."""
+        return (width / (2.0 * self.s) + 0.5) ** 2
+
+    def part(self, c: int, tau: float):
+        """The part of the fill at least `tau` deep that cell `c` (itself that deep) is in: the cells `_reach` joins
+        to it at that level, named by the cell the part was first reached from."""
+        parts = self._parts.setdefault(tau, {})
+        if c not in parts:
+            for d in self._reach({c}, set(), tau)[1]:
+                parts[d] = c
+        return parts[c]
+
+    def _step(self, a: int, b: int) -> float:
+        (r0, q0), (r1, q1) = divmod(a, self.nx), divmod(b, self.nx)
+        return self.s * (math.sqrt(2.0) if (r0 != r1 and q0 != q1) else 1.0)
+
+    def split(self, path: list, need: float, entry=None, exit_=None, measure=True, whole=None) -> list:
+        """The narrow runs of a path of cells through the fill from the copper `entry` to the copper `exit_`: each
+        stretch of it outside the parts of the fill at least `need` wide (the cells `level(need)` deep, joined into
+        parts by `part`), except a stretch that leaves a part and comes back to the same one. Each run is
+        {"from_mm", "to_mm" (along the path from its first cell: from the last wide cell before it to the first after,
+        or the path's end)}, and with `measure` also (`_run`) "width_mm" (the widest disc that crosses it), "at" and
+        "narrow_mm" (where the path runs through fill narrower than `need`). `whole`: `width`'s (width, point) for a
+        run that is the whole path."""
+        tau = self.level(need)
+        sq = self.sq
+        comp = [self.part(c, tau) if sq[c] >= tau else None for c in path]
+        along = [0.0]
+        for a, b in zip(path, path[1:]):
+            along.append(along[-1] + self._step(a, b))
+        runs, k, n = [], 0, len(path)
+        while k < n:
+            if comp[k] is not None:
+                k += 1
+                continue
+            j = k
+            while j + 1 < n and comp[j + 1] is None:
+                j += 1
+            left = comp[k - 1] if k > 0 else None
+            right = comp[j + 1] if j + 1 < n else None
+            if left is None or left != right:
+                lo, hi = along[max(k - 1, 0)], along[min(j + 1, n - 1)]
+                run = {"from_mm": lo, "to_mm": hi}
+                if measure:
+                    width, at, narrow = self._run(path, k, j, tau, entry, exit_, whole)
+                    run.update(narrow_mm=min(narrow, hi - lo), width_mm=width, at=at)
+                runs.append(run)
+            k = j + 1
+        return runs
+
+    def _covered(self, c: int, tau: float) -> bool:
+        """Whether cell `c` lies inside a disc of radius `radius(tau)` centred on a cell at least `tau` deep: the fill
+        is that wide there, though `c` itself is nearer its edge."""
+        memo = self._cover.setdefault(tau, {})
+        if c in memo:
+            return memo[c]
+        s, nx, ny, sq = self.s, self.nx, self.ny, self.sq
+        reach = int(math.ceil(self.radius(tau) / s))
+        r, q = divmod(c, nx)
+        lim = (self.radius(tau) / s) ** 2 + 1e-9
+        hit = False
+        for rr in range(max(0, r - reach), min(ny, r + reach + 1)):
+            row, dr = rr * nx, (rr - r) ** 2
+            if dr > lim:
+                continue
+            span = int(math.sqrt(lim - dr))
+            if any(sq[row + qq] >= tau for qq in range(max(0, q - span), min(nx, q + span + 1))):
+                hit = True
+                break
+        memo[c] = hit
+        return hit
+
+    def _run(self, path: list, k: int, j: int, tau: float, entry, exit_, whole=None) -> tuple:
+        """One narrow run of `split`, cells k..j of `path`: (width, point, length). The point and the length are read
+        from the path itself: its stretch through fill narrower than `tau` (its cells below `tau` that no disc of that
+        level covers, `_covered`; the path's edge-hugging elsewhere lies inside such discs), and that stretch's middle.
+        The width is `_run_width`'s, or `whole`'s for a run that is the whole path (`width`'s own bottleneck)."""
+        n, sq = len(path), self.sq
+        span = range(max(k - 1, 0), min(j + 1, n - 1) + 1)
+        thin = [i for i in span if sq[path[i]] < tau and not self._covered(path[i], tau)]
+        if thin:
+            first, last = thin[0], thin[-1]
+            length = sum(self._step(path[i], path[i + 1]) for i in range(max(first - 1, 0), min(last + 1, n - 1)))
+            at = self.centre(path[(first + last) // 2])
+        else:
+            length, at = 0.0, self.centre(path[(k + j) // 2])
+        if whole is not None and k == 0 and j == n - 1:
+            return whole[0], whole[1], length
+        # the width depends only on the two sides (a cell, or the copper itself: polygons are tuples, kept by value)
+        # and the level; the search over the whole fill makes it the same whatever path or window found the run
+        key = (path[k - 1] if k > 0 else ("entry", entry), path[j + 1] if j + 1 < n else ("exit", exit_), tau)
+        if key not in self._runs:
+            self._runs[key] = self._run_width(path, k, j, tau, entry, exit_)
+        return self._runs[key], at, length
+
+    def _run_width(self, path: list, k: int, j: int, tau: float, entry, exit_) -> float:
+        """The width of the widest disc that travels from the cell before run k..j of `path` (or, for a run at the
+        start, the copper `entry`) to the cell after it (or `exit_`), anywhere in the fill: the highest level below
+        `tau` at which `_reach` joins them (`_highest`). It is searched first within the box of those cells grown by
+        sqrt(tau) + 2 cells, then confirmed by one search of the whole fill at the next level up; a way round that
+        leaves the box and is wider (a bypass about a hole) is then searched for over the whole fill."""
+        n, sq, nx, ny = len(path), self.sq, self.nx, self.ny
+        cells = path[max(k - 1, 0):min(j + 1, n - 1) + 1]
+        grow = int(math.sqrt(tau)) + 2
+        rows, cols = [c // nx for c in cells], [c % nx for c in cells]
+        r0, r1 = max(0, min(rows) - grow), min(ny - 1, max(rows) + grow)
+        q0, q1 = max(0, min(cols) - grow), min(nx - 1, max(cols) + grow)
+
+        def inside(c):
+            r, q = divmod(c, nx)
+            return r0 <= r <= r1 and q0 <= q <= q1
+
+        def ends(t):
+            a = {path[k - 1]} if k > 0 else ({c for c in self.touching(entry, t) if inside(c)} if entry is not None
+                                              else {path[0]})
+            b = {path[j + 1]} if j + 1 < n else ({c for c in self.touching(exit_, t) if inside(c)}
+                                                  if exit_ is not None else {path[-1]})
+            return a, b
+
+        def joins(t):
+            start, goal = ends(t)
+            if not start or not goal:
+                return None
+            hit, _ = self._reach(start, goal, t, box=(r0, r1, q0, q1))
+            return None if hit is None else True
+        def joins_anywhere(t):
+            a = {path[k - 1]} if k > 0 else (self.touching(entry, t) if entry is not None else {path[0]})
+            b = {path[j + 1]} if j + 1 < n else (self.touching(exit_, t) if exit_ is not None else {path[-1]})
+            hit, _ = self._reach(a, b, t) if a and b else (None, {})
+            return None if hit is None else True
+        floor = min(sq[path[i]] for i in range(k, j + 1))
+        levels = [t for t in self.levels if floor <= t < tau]
+        top = _highest(levels, joins)
+        i = top[2] if top is not None else -1
+        # a join in the window is a join; a failure there may only mean the way round leaves it. One search of the
+        # whole fill at the next level up says whether a wider way exists; only then is the rest searched unbounded
+        if i + 1 < len(levels) and joins_anywhere(levels[i + 1]):
+            wider = _highest(levels[i + 1:], joins_anywhere)
+            top = wider if wider is not None else top
+        return 2.0 * self.radius(top[0] if top is not None else floor)
+
+    def path_length(self, start: set, goal: set, tau: float) -> float | None:
+        """The length of a path of cells at least `tau` deep from a cell of `start` to one of `goal` (`_reach`,
+        breadth first); None when there is none."""
+        if not start or not goal:
+            return None
+        hit, parent = self._reach(start, goal, tau)
+        if hit is None:
+            return None
+        total, c = 0.0, hit
+        while parent[c] is not None:
+            total += self._step(parent[c], c)
+            c = parent[c]
+        return total
+
+    def narrow_runs(self, entry, exit_, need: float) -> dict | None:
+        """The widest path through the fill from `entry` to `exit_` (`width`) and where it is narrower than `need`:
+        {"width_mm", "at" (its narrowest point), "length_mm" (the path's length), "runs" (`split`)}. A fill no path of
+        cells crosses (narrower than a step) is one run of no length at its width. None when the two touch."""
+        got = self.width(entry, exit_)
+        if got is None:
+            return None
+        narrowest, at, _ = got
+        kept = self._paths.get((id(entry), id(exit_)))
+        if kept is None or kept[0] is not entry or kept[1] is not exit_:
+            return {"width_mm": narrowest, "at": at, "length_mm": 0.0,
+                    "runs": [{"from_mm": 0.0, "to_mm": 0.0, "narrow_mm": 0.0, "width_mm": narrowest, "at": at}]}
+        path = kept[2]
+        length = sum(self._step(a, b) for a, b in zip(path, path[1:]))
+        return {"width_mm": narrowest, "at": at, "length_mm": length,
+                "runs": self.split(path, need, entry, exit_, whole=(narrowest, at))}
 
     def neck_length(self, entry, exit_, need: float) -> float | None:
         """How far the route `width` found between `entry` and `exit_` runs
-        through fill narrower than `need`: along its path of cells, from the
-        last cell the entry copper reaches through fill at least `need` wide
-        to the first the exit copper reaches that way (an end the path starts
-        or stops short of is the path's own end). Read within a step or two
-        of the true length. None when `width` found no path of cells (the
-        fill is narrower than a step), or has not been asked this pair."""
+        through fill narrower than `need`: the length of its narrow runs
+        (`split`). Read within a step or two of the true length. None when
+        `width` found no path of cells (the fill is narrower than a step), or
+        has not been asked this pair."""
         got = self._paths.get((id(entry), id(exit_)))
         if got is None or got[0] is not entry or got[1] is not exit_:
             return None
-        path = got[2]
-        tau = (need / (2.0 * self.s) + 0.5) ** 2
-        from_entry = self._reach(self.touching(entry, tau), set(), tau)[1]
-        from_exit = self._reach(self.touching(exit_, tau), set(), tau)[1]
-        last = max((k for k, c in enumerate(path) if c in from_entry), default=-1)
-        first = min((k for k, c in enumerate(path) if c in from_exit and k > last), default=len(path))
-        lo, hi = max(last, 0), min(first, len(path) - 1)
-        total = 0.0
-        for k in range(lo, hi):
-            (r0, q0), (r1, q1) = divmod(path[k], self.nx), divmod(path[k + 1], self.nx)
-            total += self.s * (math.sqrt(2.0) if (r0 != r1 and q0 != q1) else 1.0)
-        return total
+        return sum(r["to_mm"] - r["from_mm"] for r in self.split(got[2], need, measure=False))
+
+
+def _highest(levels, ok):
+    """The highest of `levels` (ascending) at which `ok(level)` gives a result, by binary search: `ok` holds at every
+    level below one where it holds (a narrower disc passes wherever a wider one does). (level, its result, its index),
+    or None when it holds at none."""
+    lo, hi, found = 0, len(levels) - 1, None
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        got = ok(levels[mid])
+        if got is None:
+            hi = mid - 1
+        else:
+            found, lo = (levels[mid], got, mid), mid + 1
+    return found
 
 
 def _crossing_key(z: int, a: int, b: int) -> tuple:
@@ -1681,16 +1880,34 @@ def _judged_parallel(nodes, path: list, par, amps: float, start: str, to: str, n
 
 def carriers_of(geometry: BoardGeometry) -> dict[str, dict[str, float]]:
     """The parts that carry current on each net, {net: {ref: amps}}, from their
-    `Pm.I` facts."""
-    f = facts(geometry)
+    `Pm.I` facts (carrier_footprints, footprints that share a reference
+    taken together at the larger current)."""
+    out: dict[str, dict] = {}
+    for net, on in carrier_footprints(geometry).items():
+        for i, amps in on.items():
+            ref = geometry.footprints[i].ref
+            out.setdefault(net, {})[ref] = max(out.get(net, {}).get(ref, 0.0), amps)
+    return out
+
+
+def carrier_footprints(geometry: BoardGeometry) -> dict[str, dict[int, float]]:
+    """The footprints that carry current on each net, {net: {index in
+    geometry.footprints: amps}}, each from its own `Pm.I` facts: two
+    footprints that share a reference are two carriers."""
     carriers: dict[str, dict] = {}
-    for fp in geometry.footprints:
-        fact = f[fp.ref]
+    for i, fp in enumerate(geometry.footprints):
+        fact = _facts_of(fp)
         for p in fp.pads:
-            amps = fact.current_a if fact.currents is None else fact.currents.get(p.net.lower())
+            if fact.currents is None:
+                amps = fact.current_a
+            else:
+                matching = [(len(name), a) for name, a in fact.currents.items() if _net_named(name, p.net)]
+                # The exact name is longest, then the most qualified suffix. Equal specificity
+                # uses the conservative current, so field ordering cannot reduce required width.
+                amps = max(matching)[1] if matching else None
             if amps is not None and amps > 0:          # a net given no current, or 0, is not one it carries
                 on = carriers.setdefault(p.net, {})
-                on[fp.ref] = max(on.get(fp.ref, 0.0), amps)
+                on[i] = max(on.get(i, 0.0), amps)
     return carriers
 
 

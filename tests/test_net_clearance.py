@@ -1,0 +1,300 @@
+"""A net's capture clearance keeps other nets' new copper that far from its own. placemat writes the router's
+per-net clearance map itself (the router's own class map, each clearance net at the larger of its class clearance and its
+clearance) and hands it to every router pass. Before the route, a pad of another net inside a clearance whose own copper ends
+inside it too is a `setup.net_clearance` finding: the router cannot lead it out."""
+import json
+import shutil
+from pathlib import Path
+
+import pytest
+
+from placemat.board_geometry import CopperItem
+from placemat.findings import Finding, FindingCause as C
+from placemat.kicad import net_clearance
+from placemat.settings import Settings, SettingsError, bind, load
+from placemat.values import Box, CopperLayer
+from tests.conftest import ROUTER, needs_kicad, needs_router
+from tests.fixtures import board_geometry, footprint, rect, track
+
+
+
+# ---------------------------------------------------------------- the setting
+
+
+
+
+
+@pytest.mark.parametrize("args", [['--net-clearances', 'x.json'], ['--net-clearances=x.json']])
+def test_the_router_args_may_not_set_the_clearance_map(tmp_path, args):
+    for key in ("router_args", "pair_router_args"):
+        (tmp_path / "placemat.toml").write_text('[route]\n%s = %s\n' % (key, json.dumps(args)))
+        with pytest.raises(SettingsError, match="--net-clearances is set by placemat itself"):
+            load(tmp_path)
+
+
+
+
+def test_a_clearance_net_with_open_connections_routes_in_its_own_class_stage():
+    """The router spaces every net of a call at the largest clearance among them: a clearance net is not routed with the
+    rest but in the class stage of its clearance (kicad/route.py clearance_groups)."""
+    from placemat.kicad.route import clearance_groups
+    assert clearance_groups(net_clearance.merged({"VIN": 0.3}, {"SW": 2.0}), 0.15, {"SW", "VIN", "FB"}) == [(2.0, ["SW"]), (0.3, ["VIN"])]
+
+
+# ---------------------------------------------------------------- the clearance map
+
+def test_the_map_is_the_class_map_with_each_clearance_net_at_the_larger_of_the_two():
+    classes = {"SW": 0.5, "PWR": 0.3, "SIG": 0.2}
+    got = net_clearance.merged(classes, {"SW": 0.4, "SIG": 1.0, "VSW": 2.0})
+    assert got == {"SW": 0.5, "PWR": 0.3, "SIG": 1.0, "VSW": 2.0}
+
+
+def test_a_clearance_ceiling_caps_the_classes_as_the_router_would_and_not_the_clearances():
+    classes = {"SW": 0.5, "PWR": 0.3}
+    assert net_clearance.merged(classes, {"SW": 2.0}, ceiling=0.25) == {"SW": 2.0, "PWR": 0.25}
+    assert net_clearance.ceiling(["--clearance-ceiling", "0.25"], {}) == 0.25
+    assert net_clearance.ceiling(["--clearance-ceiling=0.3"], {}) == 0.3
+    assert net_clearance.ceiling(["--clearance", "0.2"], {}) is None
+    assert net_clearance.ceiling(["--clearance", "0.2"], {"KICAD_CLEARANCE_LEGACY_CEILING": "1"}) == 0.2
+    assert net_clearance.ceiling([], {}) is None
+
+
+def test_clearance_ceiling_aliases_follow_exact_priority_and_last_value():
+    assert net_clearance.ceiling(["--clearance-ceil", "0.25"], {}) == 0.25
+    assert net_clearance.ceiling(["--clearance-ceil=0.3"], {}) == 0.3
+    assert net_clearance.ceiling(["--clearance-ceiling", "0.4", "--clearance-c", "0.25"], {}) == 0.25
+    assert net_clearance.ceiling(["--clearance", "0.2"], {}) is None
+    assert net_clearance.ceiling(["--clear", "0.2"], {"KICAD_CLEARANCE_LEGACY_CEILING": "1"}) is None
+    assert net_clearance.ceiling(["--routing-clearance-margin", "0.2"], {}) is None
+
+
+def _project(path: Path, classes, assignments=None, patterns=None):
+    ns = {"classes": classes, "netclass_assignments": assignments or {}}
+    if patterns:
+        ns["netclass_patterns"] = [{"netclass": c, "pattern": p} for p, c in patterns]
+    path.with_suffix(".kicad_pro").write_text(json.dumps({"meta": {"filename": path.name, "version": 3}, "net_settings": ns}))
+
+
+@needs_router
+def test_the_class_map_is_the_routers_own(tmp_path):
+    """Built by the router's own function (its explicit assignments and pattern globs, the strictest non-Default class
+    per net, Default-only nets left out), in the router's own interpreter."""
+    pcb = tmp_path / "board.kicad_pcb"
+    pcb.write_text("(kicad_pcb (version 20241229))\n")
+    _project(pcb, [{"name": "Default", "clearance": 0.15}, {"name": "Power", "clearance": 0.3},
+                   {"name": "Wide", "clearance": 0.5}, {"name": "Equal", "clearance": 0.15}],
+             assignments={"VIN": ["Power"], "SW": ["Power"]}, patterns=[("SW*", "Wide"), ("EQ", "Equal")])
+    got = net_clearance.class_clearances(ROUTER / ".venv/bin/python", ROUTER, pcb, ["VIN", "SW", "SIG", "EQ"])
+    assert got == {"VIN": 0.3, "SW": 0.5, "EQ": 0.15}
+
+
+@needs_router
+def test_the_map_file_is_written_where_placemat_puts_it_and_the_router_reads_it(tmp_path):
+    pcb = tmp_path / "board.kicad_pcb"
+    pcb.write_text("(kicad_pcb (version 20241229))\n")
+    _project(pcb, [{"name": "Default", "clearance": 0.15}, {"name": "Power", "clearance": 0.3}],
+             assignments={"VIN": ["Power"], "SW": ["Power"]})
+    work = tmp_path / "work"
+    work.mkdir()
+    path = net_clearance.write_map(ROUTER / ".venv/bin/python", ROUTER, pcb, ["VIN", "SW", "SIG"], {"SW": 2.0},
+                               work / net_clearance.MAP_NAME)
+    assert path == (work / "net_clearances.json").resolve() and path.is_absolute()
+    assert json.loads(path.read_text()) == {"VIN": 0.3, "SW": 2.0}
+
+
+# ---------------------------------------------------------------- the router commands carry it
+
+def test_every_router_command_carries_the_map_when_given_one():
+    from placemat.kicad.route import pair_command, router_command
+    with bind(Settings(route_router_args=("--via-cost", "50"), route_pair_router_args=("--max-turn-angle", "90"))):
+        main = router_command("py", "route.py", "in", "out", set(), ["F.Cu"], "s.json", clearances=Path("/w/net_clearances.json"))
+        pair = pair_command("py", "route_diff.py", "in", "out", ["A"], ["F.Cu"], clearances=Path("/w/pairs_net_clearances.json"))
+        plain = router_command("py", "route.py", "in", "out", set(), ["F.Cu"], "s.json")
+    assert main[main.index("--net-clearances") + 1] == "/w/net_clearances.json"
+    assert pair[pair.index("--net-clearances") + 1] == "/w/pairs_net_clearances.json"
+    assert main[-4:-2] == ["--via-cost", "50"] and pair[-2:] == ["--max-turn-angle", "90"]
+    assert "--net-clearances" not in plain
+
+
+def _two_part_board(tmp_path) -> Path:
+    """Two parts: U1 with SW, FB and VIN pads, J1 with FB and VIN; SW also drawn as a short track."""
+    def part(ref, x, y, pads):
+        body = "".join('\t\t(pad "%d" smd rect (at %g 0) (size 0.6 0.6) (layers "F.Cu" "F.Mask") (net "%s"))\n'
+                       % (i + 1, at, net) for i, (net, at) in enumerate(pads))
+        return ('\t(footprint "t:p" (layer "F.Cu") (at %g %g)\n\t\t(property "Reference" "%s" (at 0 -2 0) '
+                '(layer "F.SilkS"))\n%s\t)\n' % (x, y, ref, body))
+    nets = ("SW", "FB", "VIN")
+    pcb = tmp_path / "board" / "layout.kicad_pcb"
+    pcb.parent.mkdir()
+    pcb.write_text('(kicad_pcb\n\t(version 20241229)\n\t(generator "test")\n\t(general (thickness 1.6))\n'
+                   '\t(layers\n\t\t(0 "F.Cu" signal)\n\t\t(2 "B.Cu" signal)\n\t\t(25 "Edge.Cuts" user)\n'
+                   '\t\t(1 "F.Mask" user)\n\t\t(5 "F.SilkS" user)\n\t)\n'
+                   + "".join('\t(net %d "%s")\n' % (i + 1, n) for i, n in enumerate(nets))
+                   + part("U1", 110, 110, [("SW", -1.0), ("FB", 0.0), ("VIN", 3.0)])
+                   + part("J1", 125, 110, [("FB", 0.0), ("VIN", 1.0)])
+                   + '\t(segment (start 109 110) (end 109 106) (width 0.4) (layer "F.Cu") (net 1))\n'
+                   + '\t(gr_rect (start 100 100) (end 135 120) (stroke (width 0.1) (type solid)) (fill no) (layer "Edge.Cuts"))\n)\n')
+    _project(pcb, [{"name": "Default", "clearance": 0.15, "track_width": 0.2}])
+    return pcb
+
+
+
+
+@needs_kicad
+def test_the_pair_stage_carries_a_map_of_its_renamed_nets(tmp_path, monkeypatch):
+    """The pair router routes a copy whose pair nets are renamed: its map is built on that copy, under those names."""
+    import types
+    import placemat.kicad.route as route_mod
+    from tests.pair_helpers import _board, _router
+    calls, asked = [], []
+
+    def stand_in(cmd, stdout=None, **kw):
+        calls.append(list(cmd))
+        i = cmd.index("--nets")
+        shutil.copy(cmd[i - 2], cmd[i - 1])
+        return types.SimpleNamespace(returncode=0)
+    monkeypatch.setattr(route_mod.subprocess, "run", stand_in)
+
+    def classes(rpy, router_dir, pcb, names, env=None):
+        asked.append((Path(pcb).name, sorted(names)))
+        return {n: 0.2 for n in names if n.endswith(("_P", "_N"))}
+    monkeypatch.setattr(net_clearance, "class_clearances", classes)
+    pcb = _board(tmp_path)
+    work = tmp_path / "work"
+    work.mkdir()
+    route_mod.route_pairs("py", _router(tmp_path), pcb, work, [("A_P", "A_N"), ("B_P", "B_N")], ["F.Cu", "B.Cu"],
+                          Settings(), None, None, 60, {}, clearances={"SIG": 1.5, "A_P": 1.0},
+                          extra_args=("--clearance-ceiling", "0.1"))
+    from placemat.pairs import pair_aliases
+    renamed = {}
+    for base, p, n in pair_aliases([("A_P", "A_N"), ("B_P", "B_N")], ("A_P", "A_N", "B_P", "B_N", "SIG")):
+        renamed.update({p: base + "_P", n: base + "_N"})
+    assert asked == [("pairs_in.kicad_pcb", sorted(list(renamed.values()) + ["SIG"]))]
+    path = Path(calls[0][calls[0].index("--net-clearances") + 1])
+    assert path == work.resolve() / "pairs_net_clearances.json"
+    got = json.loads(path.read_text())
+    assert got[renamed["A_P"]] == 1.0 and got["SIG"] == 1.5 and got[renamed["B_P"]] == 0.1 and "A_P" not in got
+
+
+# ---------------------------------------------------------------- the trapped-terminal check
+
+def _pads_geometry(*copper, fb_through=False):
+    """SW pad (1x1 mm) at (10, 10); FB pad (1x1 mm) at (11.5, 10): 0.5 mm apart, edge to edge."""
+    u1 = footprint("U1", 10.75, 10.0, w=2.7, h=1.0, nets=("SW", "FB"))
+    sw, fb = u1.pads
+    assert (sw.box.center.x, fb.box.center.x) == pytest.approx((10.0, 11.5), abs=1e-9)
+    return board_geometry([u1], copper=copper)
+
+
+def _via(net, x, y, d=0.6):
+    outline = rect(x, y, d, d)
+    return CopperItem("via", net, frozenset([CopperLayer.F, CopperLayer.B]), (outline,), Box.of_points(outline), None, d,
+                      0.3, anchors=((x, y),))
+
+
+def _poly(net, x0, y0, x1, y1):
+    outline = ((x0, y0), (x1, y0), (x1, y1), (x0, y1))
+    return CopperItem("poly", net, frozenset([CopperLayer.F]), (outline,), Box.of_points(outline))
+
+
+def test_a_pad_with_no_copper_inside_the_clearance_is_trapped():
+    got = net_clearance.trapped(_pads_geometry(), {"SW": 2.0})
+    assert len(got) == 1
+    r = got[0]
+    assert (r["variant"], r["net"], r["clearance_mm"], r["ref"], r["number"], r["pad_net"]) == ("trapped", "SW", 2.0, "U1", "2", "FB")
+    # its own centre, 1 mm off the SW pad; a 0.2 mm class track needs its centre 2.1 mm off
+    assert r["reach_mm"] == pytest.approx(1.0) and r["needed_mm"] == pytest.approx(2.1) and r["short_mm"] == pytest.approx(1.1)
+    f = net_clearance.findings(got)[0]
+    assert str(f) == ("FB pad U1.2 is inside SW's 2.00 mm clearance; its copper ends 1.00 mm away where a track leaving it needs "
+                      "2.10 mm, 1.10 mm short: draw its escape out past the clearance in the module (a longer run= on its "
+                      "board.escape), or give SW a smaller clearance")
+
+
+def test_a_pad_whose_escape_ends_inside_the_clearance_is_trapped_by_what_the_escape_falls_short():
+    got = net_clearance.trapped(_pads_geometry(track("FB", 11.5, 10.0, 12.1, 10.0, w=0.3)), {"SW": 2.0})
+    assert len(got) == 1
+    assert got[0]["reach_mm"] == pytest.approx(1.6) and got[0]["short_mm"] == pytest.approx(0.5)
+
+
+def test_an_escape_ending_past_the_clearance_but_not_half_a_track_past_it_is_still_trapped():
+    """A track leaving the end keeps its edge, not its centre, the clearance from the switch net: the end needs the clearance plus
+    half the class track width (0.2 mm here)."""
+    got = net_clearance.trapped(_pads_geometry(track("FB", 11.5, 10.0, 12.55, 10.0, w=0.3)), {"SW": 2.0})
+    assert len(got) == 1
+    assert got[0]["reach_mm"] == pytest.approx(2.05) and got[0]["needed_mm"] == pytest.approx(2.1)
+    assert got[0]["short_mm"] == pytest.approx(0.05)
+    assert net_clearance.trapped(_pads_geometry(track("FB", 11.5, 10.0, 12.65, 10.0, w=0.3)), {"SW": 2.0}) == []
+
+
+def test_a_pad_whose_escape_ends_past_the_clearance_is_not_trapped():
+    escape = (track("FB", 11.5, 10.0, 12.0, 10.0, w=0.3), track("FB", 12.0, 10.0, 12.0, 13.0, w=0.3))
+    assert net_clearance.trapped(_pads_geometry(*escape), {"SW": 2.0}) == []
+
+
+def test_a_pad_with_a_via_past_the_clearance_on_its_copper_is_not_trapped():
+    """A drawn copper shape leads from the pad out of the clearance; it is not an end itself, the via on it is."""
+    shape = _poly("FB", 11.2, 9.8, 14.0, 10.2)
+    assert len(net_clearance.trapped(_pads_geometry(shape), {"SW": 2.0})) == 1
+    assert net_clearance.trapped(_pads_geometry(shape, _via("FB", 13.5, 10.0)), {"SW": 2.0}) == []
+
+
+def test_the_clearance_is_judged_from_the_clearance_nets_drawn_copper_too():
+    """FB's escape ends 2.5 mm from the SW pad, but 1.0 mm from a SW track drawn beside it."""
+    escape = track("FB", 11.5, 10.0, 13.0, 10.0, w=0.3)
+    beside = track("SW", 10.0, 11.0, 14.0, 11.0, w=0.4)          # its edge at y 10.8
+    got = net_clearance.trapped(_pads_geometry(escape, beside), {"SW": 2.0})
+    assert len(got) == 1 and got[0]["reach_mm"] == pytest.approx(0.8) and got[0]["short_mm"] == pytest.approx(1.3)
+
+
+def test_a_pad_outside_the_clearance_or_on_another_layer_or_of_a_net_not_judged_is_left_alone():
+    g = _pads_geometry()
+    assert net_clearance.trapped(g, {"SW": 0.4}) == []                  # FB is 0.5 mm off
+    assert net_clearance.trapped(g, {"SW": 2.0}, judged={"OTHER"}) == []
+    # a SW item only on B.Cu does not reach an F.Cu pad
+    far = board_geometry([footprint("U1", 30.0, 30.0, w=2.7, h=1.0, nets=("X", "FB"))],
+                         copper=(track("SW", 31.5, 31.0, 34.0, 31.0, w=0.4, layer=CopperLayer.B),))
+    assert net_clearance.trapped(far, {"SW": 2.0}) == []
+
+
+# ---------------------------------------------------------------- a real route
+
+def test_the_route_command_says_a_trapped_pad_before_the_route_once_and_json_carries_it(tmp_path, monkeypatch, capsys):
+    from placemat import cli
+    import placemat.kicad.route as route_mod
+    from placemat.kicad.route import RouteReport
+    pcb = tmp_path / "layout.kicad_pcb"
+    pcb.write_text("")
+    facts = {"variant": "trapped", "net": "SW", "clearance_mm": 2.0, "ref": "U1", "number": "2", "pad_net": "FB", "gap_mm": 0.5,
+             "reach_mm": 0.6, "needed_mm": 2.1, "short_mm": 1.5}
+
+    def stand_in(*a, on_setup=None, **kw):
+        report = RouteReport(True, 1.0, 1.0, 1, 0, {}, [], [], ["F.Cu"], 1.0, "v", {}, Path("r.kicad_pcb"), Path("r.log"), Path("."))
+        report.net_clearances, report.net_clearance_trapped, report.net_clearance_facts = {"SW": 2.0}, [facts], [facts]
+        on_setup(report.setup_findings())
+        return report
+    monkeypatch.setattr(route_mod, "route_board", stand_in)
+    assert cli.main(["route", str(pcb)]) == 0
+    out = capsys.readouterr().out
+    line = "FB pad U1.2 is inside SW's 2.00 mm clearance; its copper ends 0.60 mm away where a track leaving it needs 2.10 mm, 1.50 mm short"
+    assert out.count(line) == 1 and out.index(line) < out.index("route full")
+    assert cli.main(["route", str(pcb), "--json"]) == 0
+    doc = json.loads(capsys.readouterr().out)
+    assert [d["cause"] for d in doc["finding_details"]] == ["setup.net_clearance"]
+    assert doc["finding_details"][0]["facts"]["short_mm"] == 1.5 and doc["net_clearance_trapped"] == [facts]
+
+
+def test_class_map_timeout_kills_and_reaps_its_child(monkeypatch):
+    import subprocess
+    calls = []
+    class Child:
+        def communicate(self, *args, **kwargs):
+            calls.append(("communicate", args, kwargs))
+            if kwargs.get("timeout"):
+                raise subprocess.TimeoutExpired("class-map", 120)
+            return "", ""
+        def kill(self):
+            calls.append(("kill", (), {}))
+    monkeypatch.setattr(net_clearance.subprocess, "Popen", lambda *a, **kw: Child())
+    with pytest.raises(RuntimeError, match="timed out"):
+        net_clearance.class_clearances("python", "/router", "board.kicad_pcb", ["V"])
+    assert [c[0] for c in calls] == ["communicate", "kill", "communicate"]

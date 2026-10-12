@@ -5,7 +5,7 @@ from fixtures.reference import fetch, place_ref, prepare, route_ref
 
 VERSIONS = {"placemat": "0", "krt": "0", "pcb": "0"}
 BOARD = fetch.Board(name="x", repo="github:o/r", commit="c", files={}, board="x.kicad_pcb", licence="MIT", tests=("a", "b"),
-                    islands=(), fixed=("J1",), human_track_mm=None, kicad5=False)
+                    phases=(), fixed=("J1",), human_track_mm=None, kicad5=False)
 PREPARED = prepare.Prepared(None, None, [], 2, prepare.HumanCopper(4, 20.0))
 
 
@@ -51,6 +51,7 @@ def test_a_refused_run_is_a_failed_result_with_its_failure_kind(tmp_path, monkey
     folder = _folder(tmp_path, 'board.place(Part("J1"), at=Location(1, 2), why="mechanical: connector")\n')
     refused = {"status": "failed", "failure": {"kind": "placement", "message": "Firm placements collide"}, "metrics": {}}
     monkeypatch.setattr(place_ref, "placemat_run", lambda *a, **k: (refused, 3.0))
+    monkeypatch.setattr(place_ref, "krt_version", lambda folder: "k")
     r = place_ref.run_b(BOARD, folder, tmp_path / "work", prepared=PREPARED, versions=VERSIONS, a_closure_clean=1.0)
     assert (r.failure, r.closure_clean, r.seconds) == ("placement", 0.0, 3.0)
     assert "Firm placements collide" in r.detail
@@ -59,12 +60,14 @@ def test_a_refused_run_is_a_failed_result_with_its_failure_kind(tmp_path, monkey
 def test_a_run_with_no_record_is_a_failed_result(tmp_path, monkeypatch):
     folder = _folder(tmp_path, 'board.place(Part("J1"), at=Location(1, 2), why="mechanical: connector")\n')
     monkeypatch.setattr(place_ref, "placemat_run", lambda *a, **k: (None, 1.0))
+    monkeypatch.setattr(place_ref, "krt_version", lambda folder: "k")
     r = place_ref.run_b(BOARD, folder, tmp_path / "work", prepared=PREPARED, versions=VERSIONS, a_closure_clean=None)
     assert (r.failure, r.a_closure_clean) == ("no run record", None)
 
 
 def test_a_routed_run_is_read_from_its_record_and_routed_board(tmp_path, monkeypatch):
     folder = _folder(tmp_path, 'board.place(Part("J1"), at=Location(1, 2), why="mechanical: connector")\n')
+    monkeypatch.setattr(route_ref, "pour_nets", lambda pcb: set())
     from placemat.kicad.route import RouteReport
     drc = {"violations": [{"type": "shorting_items", "severity": "error",
                            "items": [{"description": "Track [A] on F.Cu", "pos": {"x": 1, "y": 2}}]}]}
@@ -296,7 +299,7 @@ def test_a_lower_module_of_another_version_is_held_back():
     assert place_ref.compare_module(old, lower, {"placemat", "krt"}).status == "worse"
 
 
-def _prepared_or_raise(board, src, work):
+def _prepared_or_raise(board, src, work, *, regenerated=False):
     if board.name == "bad":
         raise RuntimeError("DRC failed")
     return PREPARED
@@ -334,3 +337,49 @@ def test_a_module_that_raises_is_a_failed_result_and_the_others_run(tmp_path, mo
 def dataclasses_replace(obj, **over):
     import dataclasses
     return dataclasses.replace(obj, **over)
+
+
+def test_test_b_prepares_the_regenerated_reference(tmp_path, monkeypatch):
+    folder = _folder(tmp_path, 'board.place(Part("J1"), at=Location(1, 2), why="mechanical: connector")\n')
+    seen = []
+    monkeypatch.setattr(place_ref.prepare, 'prepare', lambda board, src, work, *, regenerated=False: seen.append(regenerated) or PREPARED)
+    monkeypatch.setattr(place_ref.fetch, 'fetch', lambda board: tmp_path)
+    monkeypatch.setattr(place_ref, 'placemat_run', lambda *args, **kw: (None, 1.0))
+    monkeypatch.setattr(place_ref, 'krt_version', lambda folder: 'k')
+    place_ref.run_b(BOARD, folder, tmp_path / 'work', versions=VERSIONS)
+    monkeypatch.setattr(place_ref, 'run_b', lambda *args, **kw: _b())
+    place_ref._run_boards([BOARD], tmp_path / 'root', {}, VERSIONS, {'placemat'}, [], [], lambda: None)
+    assert seen == [True, True]
+
+
+def _bv(old, **over):
+    c = place_ref.compare_b(place_ref.asdict(old), _b(**over), {"placemat"})
+    return c.status, c.worse
+
+
+def test_b_is_worse_for_each_of_failure_closure_open_and_drc():
+    base = _b(closure_clean=0.9, open=2, open_pour=1, open_other=1, new_violations=[])
+    drc = [prepare.Violation("short", ("A", "C"), (5.0, 5.0))]
+    assert _bv(base, closure_clean=0.0, failure="lint") == ("worse", ["failed"])
+    assert _bv(base, closure_clean=0.8, open=2, open_pour=1, open_other=1) == ("worse", ["closure_clean fell"])
+    assert _bv(base, closure_clean=0.95, open=3, open_pour=1, open_other=2) == ("worse", ["open on non-pour nets rose"])
+    assert _bv(base, closure_clean=0.95, open=3, open_pour=2, open_other=1) == ("worse", ["open on pour nets rose"])
+    assert _bv(base, closure_clean=0.95, open=2, open_pour=1, open_other=1, new_violations=drc) == ("worse", ["new DRC rose"])
+
+
+def test_b_is_better_only_when_nothing_is_worse():
+    base = _b(closure_clean=0.9, open=2, open_pour=1, open_other=1)
+    assert _bv(base, closure_clean=0.95, open=2, open_pour=1, open_other=1) == ("better", [])
+    assert _bv(base, closure_clean=0.9, open=2, open_pour=1, open_other=1) == ("same", [])
+
+
+def test_b_entry_without_the_split_compares_totals_and_says_so():
+    old = place_ref.asdict(_b(closure_clean=0.9, open=2))
+    del old["open_pour"], old["open_other"]
+    c = place_ref.compare_b(old, _b(closure_clean=0.9, open=3, open_other=3), {"placemat"})
+    assert (c.status, c.worse, c.split_unrecorded) == ("worse", ["open rose"], True)
+    assert "split not recorded" in route_ref.said(c)
+
+
+def test_a_module_is_compared_on_closure_and_area_only():
+    assert place_ref.compare_module(place_ref.asdict(_m()), _m(area_mm2=101.0), {"placemat"}).worse == ["area_mm2 rose"]
