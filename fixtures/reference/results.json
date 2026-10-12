@@ -572,12 +572,14 @@
     "pic_programmer": {
       "a_closure_clean": 1.0,
       "board": "pic_programmer",
-      "closure_clean": 1.0,
+      "closure_clean": 0.9884,
       "detail": "",
       "failure": "",
       "inputs_digest": "612bc3cfa6fa41cb",
       "new_violations": [],
-      "open": 0,
+      "open": 1,
+      "open_other": 1,
+      "open_pour": 0,
       "placement": {
         "airwire_mm": 1497.032,
         "area_mm2": 19571.64,
@@ -589,14 +591,14 @@
       "ref_track_mm": 1745.7030331706978,
       "ref_vias": 6,
       "run_score": 1827.032,
-      "seconds": 57.8,
-      "track_mm": 1816.8682075327358,
+      "seconds": 102.1,
+      "track_mm": 1879.4439130644298,
       "versions": {
-        "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
-        "pcb": "pcbc 0.4.52",
-        "placemat": "a3e7b36e27eeabf822a9377719e909f025ff1d5c"
+        "krt": "96e0422fc240ab7e97dd40a98c793ff8fb0a4196",
+        "pcb": "318b4b0d19ce55bc032c70941a2559b9b7728404",
+        "placemat": "ee4a3b5f5bc3cc1117319fa088578e6487bcb75d"
       },
-      "vias": 46
+      "vias": 58
     },
     "usb-c-power-adapter": {
       "a_closure_clean": 1.0,
@@ -668,23 +670,25 @@
         }
       ],
       "open": 12,
+      "open_other": 9,
+      "open_pour": 3,
       "placement": {
         "airwire_mm": 791.506,
         "area_mm2": 1226.32,
         "crossings": 232,
-        "findings": 38,
+        "findings": 37,
         "placed": 122,
         "run_score": 3493.506
       },
       "ref_track_mm": 437.6509716398021,
       "ref_vias": 229,
       "run_score": 3493.506,
-      "seconds": 446.9,
+      "seconds": 195.8,
       "track_mm": 1050.1749428361684,
       "versions": {
-        "krt": "b602f7fe154178cdc988643f9c74d4d7309f0bd0",
+        "krt": "96e0422fc240ab7e97dd40a98c793ff8fb0a4196",
         "pcb": "318b4b0d19ce55bc032c70941a2559b9b7728404",
-        "placemat": "b0d3bcb2a591a23227d7c9e6a552ed0437ee56df"
+        "placemat": "ee4a3b5f5bc3cc1117319fa088578e6487bcb75d"
       },
       "vias": 165
     }
