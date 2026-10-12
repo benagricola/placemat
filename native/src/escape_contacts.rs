@@ -396,6 +396,21 @@ impl PreparedContacts {
         Some(out)
     }
 
+    /// The moving contact shapes on `net` for `turn`: the only candidate shapes a contact walk on that net reads.
+    pub(crate) fn moving_on_net(&self, candidate: &PreparedCandidate, turn: usize, net: &str) -> Vec<usize> {
+        match &self.turn_indexes {
+            Some(indexes) => indexes[turn].by_net.get(net).cloned().unwrap_or_default(),
+            None => candidate
+                .turn(turn)
+                .shapes
+                .iter()
+                .enumerate()
+                .filter(|(_, shape)| shape.net == net)
+                .map(|(i, _)| self.rest.len() + i)
+                .collect(),
+        }
+    }
+
     /// Whether shape `index`'s owner is one of the footprints.
     fn in_footprint(&self, turn: usize, index: usize, owner: &str) -> bool {
         if index < self.rest.len() {

@@ -143,8 +143,8 @@ pub struct PreparedSurface {
     field_lanes: HashMap<(usize, usize), Arc<FieldLanes>>,
     pad_facts: HashMap<(usize, usize, usize), PadFacts>,
     // Per (field, pad): a rest pad's contacts on the lifted board, its copper chain, and the boxes of its contact
-    // shapes and chain. A candidate whose geometry overlaps none of those boxes touches none of those shapes, so its
-    // contacts are the same.
+    // shapes and chain members. A candidate whose shapes on the pad's net overlap none of those boxes touches none of
+    // those shapes, so its contacts are the same.
     contact_cache: HashMap<(usize, usize), (ContactFacts, Vec<usize>, Vec<Bounds>)>,
     // Per (field, pad, turn): a rest pad's search on the lifted board.
     lifted: HashMap<(usize, usize, usize), surface::LiftedPad>,
@@ -872,7 +872,7 @@ impl PreparedSurface {
                     let gathered = if self.pad_facts.get(&key).is_some_and(|f| f.valid) {
                         None
                     } else {
-                        let judged = self.judge_pad(py, candidate, delta, turn, fi, pi, lanes, index, true, &physical, profile)?;
+                        let judged = self.judge_pad(py, candidate, delta, turn, fi, pi, lanes, index, true, profile)?;
                         Some(judged.facts.unwrap())
                     };
                     let facts = gathered.as_ref().or_else(|| self.pad_facts.get(&key)).unwrap();
@@ -897,7 +897,7 @@ impl PreparedSurface {
                     }
                     judged
                 } else {
-                    self.judge_pad(py, candidate, delta, turn, fi, pi, lanes, index, false, &physical, profile)?
+                    self.judge_pad(py, candidate, delta, turn, fi, pi, lanes, index, false, profile)?
                 };
                 if judged.way == 1 {
                     vias += 1;
@@ -1003,7 +1003,7 @@ impl PreparedSurface {
     /// those facts.
     #[allow(clippy::too_many_arguments)]
     fn judge_pad(&mut self, py: Python<'_>, candidate: &PreparedCandidate, delta: &mut NativeDelta, turn: usize,
-                 fi: usize, pi: usize, lanes: &FieldLanes, index: &RestIndex, gather: bool, physical: &[Bounds],
+                 fi: usize, pi: usize, lanes: &FieldLanes, index: &RestIndex, gather: bool,
                  profile: &mut Option<Profile>) -> PyResult<Judged> {
         let (owner, number, net_name, unconnected) = {
             let pad = &self.fields[fi].pads[pi];
@@ -1011,7 +1011,11 @@ impl PreparedSurface {
         };
         let (mine, b) = &lanes.mines[pi];
         let rest = self.fields[fi].cached.is_some();
-        let reaches = |boxes: &[Bounds]| boxes.iter().any(|b| physical.iter().any(|p| overlaps(*b, *p)));
+        // A contact walk reads only shapes on the pad's net, and a shape it adds must overlap the box of the pad or
+        // of a chain member: the candidate's shapes on that net clear of every such box leave the walk unchanged.
+        let on_net: Vec<Bounds> = self.contacts.moving_on_net(candidate, turn, &net_name).iter()
+            .map(|&i| self.contacts.shape(candidate, turn, i).bounds).collect();
+        let reaches = |boxes: &[Bounds]| boxes.iter().any(|b| on_net.iter().any(|p| overlaps(*b, *p)));
         let kept = if rest {
             self.contact_cache.get(&(fi, pi)).filter(|(_, _, boxes)| !reaches(boxes))
                 .map(|(facts, own, _)| (facts.clone(), own.clone()))

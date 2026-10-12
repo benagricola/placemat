@@ -957,6 +957,30 @@ pub fn surface_path_out(
     .toward)
 }
 
+/// The four grid steps in the order a depth-first walk should take them to reach a way out facing `toward` soonest:
+/// pushed in this order, the most aligned is taken first. Without a direction, the walk's own order. The order only
+/// changes which way out is found first, never whether one is.
+fn steps4(toward: Option<Point>) -> [(i64, i64); 4] {
+    let mut steps = [(1i64, 0i64), (-1, 0), (0, 1), (0, -1)];
+    if let Some(d) = toward {
+        steps.sort_by(|a, b| {
+            (a.0 as f64 * d.0 + a.1 as f64 * d.1).total_cmp(&(b.0 as f64 * d.0 + b.1 as f64 * d.1))
+        });
+    }
+    steps
+}
+
+/// The eight lattice steps, ordered as `steps4` orders the four.
+fn steps8(toward: Option<Point>) -> [(i64, i64); 8] {
+    let mut steps = [(-1i64, -1i64), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)];
+    if let Some(d) = toward {
+        steps.sort_by(|a, b| {
+            (a.0 as f64 * d.0 + a.1 as f64 * d.1).total_cmp(&(b.0 as f64 * d.0 + b.1 as f64 * d.1))
+        });
+    }
+    steps
+}
+
 /// What one exhaustive search found: a way out facing `toward` (any way out when there is no direction, or a via
 /// spot when vias exit), a way out in any direction, and the centre of the start shapes' box that faces are judged
 /// from.
@@ -988,6 +1012,7 @@ fn path_search(
     mut exits: Option<&mut Vec<Point>>,
 ) -> PyResult<Found> {
     py.check_signals()?;
+    let (order4, order8) = (steps4(toward), steps8(toward));
     let mut any = false;
     let width = window.2 - window.0;
     let height = window.3 - window.1;
@@ -1071,7 +1096,7 @@ fn path_search(
         if via_free(p) {
             return Ok(found);
         }
-        for k in [(i + 1, j), (i - 1, j), (i, j + 1), (i, j - 1)] {
+        for k in order4.map(|(di, dj)| (i + di, j + dj)) {
             if 0 <= k.0 && k.0 < nx && 0 <= k.1 && k.1 < ny {
                 let at = &mut state[slot(k.0, k.1)];
                 if *at & 1 != 0 {
@@ -1134,8 +1159,8 @@ fn path_search(
             if via_free(p) {
                 return Ok(found);
             }
-            for di in -1..=1 {
-                for dj in -1..=1 {
+            for (di, dj) in order8 {
+                {
                     let k = (i + di, j + dj);
                     if (di == 0 && dj == 0) || k.0 < i0 || k.0 > i1 || k.1 < j0 || k.1 > j1 {
                         continue;
@@ -1330,6 +1355,7 @@ pub(crate) fn lift_search(py: Python<'_>, path: &Path) -> PyResult<LiftedSearch>
 impl LiftedSearch {
     /// `path_search`'s answer (without via exits) on the lifted board with `added` shapes on it too.
     fn found(&self, py: Python<'_>, added: &[Shape], toward: Option<Point>) -> PyResult<Found> {
+        let (order4, order8) = (steps4(toward), steps8(toward));
         let walls = Added::new(added.iter().filter(|s| s.2 & self.layers != 0).collect(), self.track, self.epsilon);
         let found = Found { toward: true, any: true, mid: self.mid };
         let mut any = false;
@@ -1353,7 +1379,7 @@ impl LiftedSearch {
                 }
                 any = true;
             }
-            for k in [(i + 1, j), (i - 1, j), (i, j + 1), (i, j - 1)] {
+            for k in order4.map(|(di, dj)| (i + di, j + dj)) {
                 if 0 <= k.0 && k.0 < nx && 0 <= k.1 && k.1 < ny {
                     let s = slot(k.0, k.1);
                     if bit(&self.reach, s) && !bit(&seen, s) && !walls.near(centre(k.0, k.1)) {
@@ -1384,8 +1410,8 @@ impl LiftedSearch {
                     }
                     any = true;
                 }
-                for di in -1..=1 {
-                    for dj in -1..=1 {
+                for (di, dj) in order8 {
+                    {
                         let k = (i + di, j + dj);
                         let Some(s) = lattice.slot(k.0, k.1).filter(|_| di != 0 || dj != 0) else { continue };
                         if !bit(&seen, s) {
