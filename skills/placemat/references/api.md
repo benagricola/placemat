@@ -1860,7 +1860,9 @@ keepout's `allow=` are not carried.
 A stamped cell brings its clearance rules (`board.rule`) the same
 way: the fragment carries each as a note (a User.Comments text
 `placemat rule clearance=0.1 between=A,B why=...`, written when a fragment is
-run), and the parent judges and writes them held to the cell
+run; a fragment is a module that declares its frame, `draw=False`: one that
+declares rules and no frame is told `setup.rule_frame`, and its rules do not
+travel), and the parent judges and writes them held to the cell
 (`A.memberOf(<cell>) && B.memberOf(<cell>)`) over the nets as pcb named them
 in the cell. They stand before the parent's own `board.rule`s, so where both
 match a pair the parent's decides; a cell's `within=` a cell of its own
@@ -5198,6 +5200,7 @@ does not give it and None where it is not in the builder's vocabulary (a coordin
 | `escape_walled`, `escape_closed` | a `board.fanout(part, sides=[...])` on the side the pad's way out points at; a `board.escape(...)` keeping the pin's lane clear |
 | `escape_lane`, `escape_crossed`, `pair_crossed` | none |
 | `setup.centre_flag_default` | the keyword removed |
+| `setup.rule_frame` | the module's frame declared (`board.rect(..., draw=False)` or its disc or outline), so its rules ride with its cells |
 | `setup.frame_reach` | the fit frame's declared width or height made the size that holds the item (not where the item reaches the origin side) |
 | `setup.web` | the board's `web=` lowered to the web it has |
 | `setup.step_budget` | a higher `budget=` for the item (searched) |

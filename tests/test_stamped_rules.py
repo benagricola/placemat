@@ -280,3 +280,28 @@ def test_kicad_judges_the_cell_by_the_last_declared_of_two_overlapping_rules(tmp
     plan = _write_parent(pcb)
     assert [r.min_mm for r in plan.rules] == [0.3, 0.10]
     assert _clearance_violations(pcb) == []
+
+
+def _rule_frame_findings(frame, rules):
+    from placemat.findings import FindingCause
+    g = dataclasses.replace(board_geometry([footprint("R1", 10, 10, nets=("A", "B"))]), outline=())   # generated bare
+    b = Board(g, edge_margin=0.0, keep_going=True)
+    if frame is not None:
+        b.rect(20, 20, draw=frame)
+    for _ in range(rules):
+        b.rule(clearance=0.2, between=(Net("A"), Net("B")), why="declared here")
+    return [f for f in b.resolve().findings if f.cause is FindingCause.SETUP_RULE_FRAME]
+
+
+def test_rules_declared_with_no_frame_are_named_as_not_travelling():
+    """A module's rules ride with its cells only when it declares a frame: a script that declares rules and no frame
+    or outline is told so, once per rule."""
+    (f,) = _rule_frame_findings(None, 1)
+    assert f.facts["rule"] == "declared here"
+    assert "frame" in str(f)
+
+
+def test_a_framed_script_or_one_without_rules_is_not_told():
+    assert _rule_frame_findings(False, 1) == []         # a module's frame: the rules are written as notes
+    assert _rule_frame_findings(True, 1) == []          # a drawn outline: a whole board, its rules in its .kicad_dru
+    assert _rule_frame_findings(None, 0) == []

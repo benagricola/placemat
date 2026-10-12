@@ -1016,6 +1016,7 @@ class Board:
         from .rules import stamped_rules
         stamped, self._stamped_rule_notes = stamped_rules(geometry)
         self._rules: list = list(stamped)
+        self._declared_rules: list = []     # the rules the script declared itself (`rule`), not those its cells brought
         self._acceptances: list = []        # checks.Acceptance of each board.accept: read by the checks step alone, in no digest
         self._free_nets: set = set()
         self._outline: Box | None = geometry.outline_box
@@ -4767,6 +4768,7 @@ class Board:
                     between=(self.geometry.require_net(between[0]), self.geometry.require_net(between[1])) if between else None,
                     on=self.geometry.require_net(on) if on is not None else None)
         self._rules.append(rule)
+        self._declared_rules.append(rule)
         return rule
 
     def accept(self, check: str, subject: str, *, at_least: float | None = None,
@@ -7876,6 +7878,10 @@ class Board:
         if native_status().warns:           # the pure Python path is the reference, and 5-10x slower: never silent
             plan.findings.append(self._finding(C.SETUP_NATIVE, native_status().facts(), "warning"))
         plan.findings.extend(self._finding(C.SETUP_RULE_NOTE, facts, "notice") for facts in self._stamped_rule_notes)
+        if self._draw_outline and not self._judges_edge():   # no frame and no outline: rules are not written as notes
+            from .rules import rule_note
+            plan.findings.extend(self._finding(C.SETUP_RULE_FRAME, {"rule": r.why or rule_note(r)}, "notice")
+                                 for r in self._declared_rules if r.kind == "clearance" and r.of is None)
         limit = self.arrangement_limit()
         if limit is not None:
             plan.findings.append(self._finding(C.ARRANGEMENT_LIMIT, limit, "warning"))

@@ -7,6 +7,12 @@ section for each hand-written pattern a newer form replaces.
 
 ## Unreleased
 
+### New
+
+- **`setup.rule_frame`.** A script that declares clearance rules (`board.rule`) and no frame or outline is told, once
+  per rule, that its rules do not travel with its stamped cells: a module's rules ride as notes only when it declares
+  its frame (`draw=False`). A module that declares rules declares its frame; a whole board needs no change.
+
 ### Fixed
 
 - **`Polar((lo, hi), bearing)` stays within its band.** A part given a band and a bearing was slid along the whole spoke,
