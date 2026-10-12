@@ -164,3 +164,37 @@ def test_grid_changes_across_the_box_floor_match_a_rebuilt_grid_and_the_display(
                        box, 2, 0.4, box=2.5)
         assert rebuilt.worst() == pytest.approx(display.worst, abs=0.00005)
     assert {w for w, _ in widths} == {True, False}
+
+
+def test_the_native_cells_keep_the_python_grids_sums_bit_for_bit():
+    """RudyGrid's cells kept natively (rudy.rs) give the demand, steps, worst and candidate changes the Python cells
+    give, bit for bit, through adds, moves, removals and change questions in any order."""
+    import random
+    from placemat import congestion
+    from placemat.values import Box, Location
+    if congestion._native_cells() is None:
+        pytest.skip("native module not built")
+    rng = random.Random(3)
+    board = Box(0.0, 0.0, 30.0, 20.0)
+    native = congestion.RudyGrid(board, 2, 0.4, 0.5, box=1.0)
+    plain = congestion.RudyGrid(board, 2, 0.4, 0.5, box=1.0)
+    plain._native, plain.cells = None, [{} for _ in plain._demand]
+
+    def points():
+        return [Location(rng.uniform(-2, 32), rng.uniform(-2, 22)) for _ in range(rng.choice([1, 2, 3, 5]))]
+    nets = ["N%d" % i for i in range(12)]
+    for _ in range(400):
+        net = rng.choice(nets)
+        roll = rng.random()
+        if roll < 0.55:
+            p = points()
+            native.add_net(net, p)
+            plain.add_net(net, p)
+        elif roll < 0.7:
+            native.remove_net(net)
+            plain.remove_net(net)
+        else:
+            ask = {rng.choice(nets): points() for _ in range(rng.choice([1, 2, 3]))}
+            assert native.change(ask) == plain.change(ask)
+        assert native.demand == plain.demand
+        assert native.steps() == plain.steps() and native.worst() == plain.worst()

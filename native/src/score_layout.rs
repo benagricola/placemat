@@ -9,14 +9,14 @@ pub type Link = (f64, f64, bool, f64, f64, bool, f64, Option<f64>);
 // CPython math.fsum's non-overlapping partials and final half-even fix.
 // Grid demands are finite, nonnegative numbers; no overflow is admitted.
 #[derive(Default)]
-struct Sum {
+pub(crate) struct Sum {
     partials: Vec<f64>,
 }
 impl Sum {
-    fn clear(&mut self) {
+    pub(crate) fn clear(&mut self) {
         self.partials.clear();
     }
-    fn add(&mut self, mut x: f64) {
+    pub(crate) fn add(&mut self, mut x: f64) {
         let mut keep = 0;
         for index in 0..self.partials.len() {
             let mut y = self.partials[index];
@@ -36,7 +36,7 @@ impl Sum {
             self.partials.push(x);
         }
     }
-    fn total(&self) -> f64 {
+    pub(crate) fn total(&self) -> f64 {
         let mut n = self.partials.len();
         if n == 0 {
             return 0.0;

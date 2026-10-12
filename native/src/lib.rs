@@ -23,6 +23,7 @@ mod pinmap_geom;
 mod pockets;
 mod profile;
 mod ratsnest;
+mod rudy;
 mod shapes;
 mod ties;
 
@@ -1654,6 +1655,7 @@ fn placemat_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<escape_contacts::PreparedContacts>()?;
     m.add_class::<prepared_surface::PreparedSurface>()?;
     m.add_class::<prepared_surface::EscapeMemo>()?;
+    m.add_class::<rudy::RudyCells>()?;
     m.add_class::<prepared_scoring::NativeDeltaScoring>()?;
     m.add_class::<NativeCleanupScoring>()?;
     m.add_function(wrap_pyfunction!(sweep, m)?)?;

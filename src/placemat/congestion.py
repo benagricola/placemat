@@ -111,6 +111,12 @@ def _spans(lo: float, hi: float, origin: float, cell: float, n: int):
             yield k, o
 
 
+def _native_cells():
+    from . import geometry
+    native = geometry._native
+    return getattr(native, 'RudyCells', None) if native is not None else None
+
+
 class RudyGrid:
     """Per-net RUDY demand, with signed candidate changes on scratch cells.
 
@@ -124,11 +130,16 @@ class RudyGrid:
         self.nx = max(1, math.ceil(board.width / cell))
         self.ny = max(1, math.ceil(board.height / cell))
         self.capacity = layers * cell * cell / pitch
-        self.demand = [0.0] * (self.nx * self.ny)
-        self.nets = {}
         self.boxes = {}                                     # net -> its pads' box (x0, x1, y0, y1), two pads or more
-        self.cells = [{} for _ in self.demand]
-        self.counts = {0: len(self.demand)}
+        # The cells' demand by net and the step counts, kept natively when it is built (rudy.rs, the same sums bit
+        # for bit), else here.
+        native = _native_cells()
+        self._native = None if native is None else native(board.left, board.top, cell, self.nx, self.ny, self.box,
+                                                          self.capacity, self.step)
+        self._demand = [0.0] * (self.nx * self.ny)
+        self.nets = {}
+        self.cells = [{} for _ in self._demand] if self._native is None else None
+        self.counts = {0: len(self._demand)}
 
     def _step(self, value):
         return int(max(0.0, value) / self.capacity / self.step + 1e-9) if self.step else 0
@@ -151,7 +162,7 @@ class RudyGrid:
 
     def _apply(self, net, contribution, remove=False):
         for index, amount in contribution.items():
-            old = self._step(self.demand[index])
+            old = self._step(self._demand[index])
             self.counts[old] -= 1
             if not self.counts[old]:
                 del self.counts[old]
@@ -159,15 +170,23 @@ class RudyGrid:
                 self.cells[index].pop(net, None)
             else:
                 self.cells[index][net] = amount
-            self.demand[index] = math.fsum(self.cells[index].values())
-            new = self._step(self.demand[index])
+            self._demand[index] = math.fsum(self.cells[index].values())
+            new = self._step(self._demand[index])
             self.counts[new] = self.counts.get(new, 0) + 1
 
     def add_net(self, net, points):
         if len(points) >= 2 and self.boxes.get(net) == _box_of(points):
             return                      # the same box: the same demand, bit for bit
-        self.remove_net(net)
+        if self._native is not None:
+            raw = _box_of(points) if len(points) >= 2 else None
+            self.boxes.pop(net, None)
+            self._native.replace_box(net, raw)
+            self.nets[net] = True
+            if raw is not None:
+                self.boxes[net] = raw
+            return
         contribution = self._contribution(points)
+        self.remove_net(net)
         self.nets[net] = contribution
         if len(points) >= 2:
             self.boxes[net] = _box_of(points)
@@ -175,18 +194,39 @@ class RudyGrid:
 
     def remove_net(self, net):
         self.boxes.pop(net, None)
+        if self._native is not None:
+            if self.nets.pop(net, None) is not None:
+                self._native.replace(net, [])
+            return
         contribution = self.nets.pop(net, None)
         if contribution is not None:
             self._apply(net, contribution, remove=True)
 
     def worst(self):
-        return max(self.demand, default=0.0) / self.capacity
+        if self._native is not None:
+            return self._native.worst()
+        return max(self._demand, default=0.0) / self.capacity
 
     def steps(self):
+        if self._native is not None:
+            return self._native.steps()
         return max(self.counts, default=0)
+
+    @property
+    def demand(self) -> list:
+        """Each cell's demand, by `j * nx + i`."""
+        return self._native.demand() if self._native is not None else self._demand
 
     def change(self, replacements):
         """Signed worst-step change for {net: points}; never mutate this grid."""
+        if self._native is not None:
+            boxes = []
+            for net, points in replacements.items():
+                raw = _box_of(points) if len(points) >= 2 else None
+                if raw is not None and self.boxes.get(net) == raw:
+                    continue            # its box as it was: its demand is the same, bit for bit
+                boxes.append((net, raw))
+            return self._native.change_boxes(boxes) if boxes else 0
         contributions = {}
         for net, points in replacements.items():
             raw = _box_of(points) if len(points) >= 2 else None
@@ -199,7 +239,7 @@ class RudyGrid:
             touched.update(contribution)
         counts = dict(self.counts)
         for index in touched:
-            old = self._step(self.demand[index])
+            old = self._step(self._demand[index])
             counts[old] -= 1
             if not counts[old]:
                 del counts[old]
