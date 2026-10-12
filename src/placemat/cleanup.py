@@ -16,7 +16,13 @@ the larger's, and is kept only when the pair's cost falls. No move or swap
 leaves a limited link over its limit and longer than it was, nor a block's
 satellite further from its pin than its limit. A move may turn a part to any
 rotation it is given in `turns`; the face does not change. Deterministic:
-sorted order, no randomness."""
+sorted order, no randomness.
+
+With `one_score` (the one-score search, `place.search_wire` "mst", D26) the
+moves and swaps are the same, but each is judged by the run score's change, as
+the search computes it (score_search.MSTScorer, score_delta.Delta, exact escape
+grades), and walled by the one score's check: one is taken only when that change
+is below zero and it walls no pad beyond what the board walls before it."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -52,12 +58,14 @@ def _pad_gap(occ, a, b) -> float:
 
 
 def cleanup(occ, movable: dict, pins: dict, links, clearance, passes: int, radius: float, step: float,
-            turns: dict | None = None, limits: dict | None = None, settings=None) -> CleanupResult:
+            turns: dict | None = None, limits: dict | None = None, settings=None, one_score=None) -> CleanupResult:
     """`movable` maps a step key to its footprint, committed where it stands;
     `pins` maps each net that pulls to its placed (refdes, pad number) pins;
     `turns` maps a key to the rotations its move may take, else it keeps its
     own; `limits` maps a satellite's key to (its pin, its own pad, mm): how
-    far its pad may stand from its pin, edge to edge."""
+    far its pad may stand from its pin, edge to edge. `one_score(footprint)`,
+    when given, is the one-score search's scorer for that footprint, lifted
+    (score_search.MSTScorer): the moves and swaps are judged by it."""
     turns = turns or {}
     limits = limits or {}
     s = settings if settings is not None else occ.settings
@@ -119,6 +127,8 @@ def cleanup(occ, movable: dict, pins: dict, links, clearance, passes: int, radiu
         return walled, crossing * added + s.score_escape_crossed * crossed + s.score_escape_closed * closed
 
     def limits_ok(ks, override):
+        """Whether no limited link of `ks` ends over its limit and longer than it was. `limits_ok.of(k)`: whether `k`
+        has a limit to keep (a limited link, or a satellite's)."""
         for k in ks:
             for l in links_of[k]:
                 if l.limit_mm is None:
@@ -127,6 +137,8 @@ def cleanup(occ, movable: dict, pins: dict, links, clearance, passes: int, radiu
                 if after > l.limit_mm + 1e-9 and after > link_len(l, {}) + 1e-9:
                     return False
         return True
+
+    limits_ok.of = lambda k: k in limits or any(l.limit_mm is not None for l in links_of[k])
 
     def satellite_ok(k, pl):
         """A satellite's pad no further than its limit from its pin."""
@@ -255,6 +267,18 @@ def cleanup(occ, movable: dict, pins: dict, links, clearance, passes: int, radiu
                 continue
             cur = placement[k]
             occ.lift([ref_of[k]])
+            if one_score is not None:
+                chosen = _one_score_move(occ, movable[k], k, cur, one_score, hints_for(k, cur, nets), radius, step,
+                                         turns.get(k, (cur.rotation,)), clearance, limits_ok, satellite_ok)
+                if chosen is not None:
+                    first = result.moves.get(k, (cur, None, chosen[1], None))
+                    occ.commit(movable[k], chosen[0])
+                    placement[k] = chosen[0]
+                    result.moves[k] = (first[0], chosen[0], first[2], chosen[2])
+                    changed = True
+                else:
+                    occ.unlift([ref_of[k]])
+                continue
             walled, more = terms(k, cur)
             now = (walled, cost([k], nets, {}) + more)
 
@@ -277,7 +301,7 @@ def cleanup(occ, movable: dict, pins: dict, links, clearance, passes: int, radiu
         # ---------------------------------------------------------------- swaps
         if _swaps(occ, movable, keys, placement, ref_of, nets_of, links_of, cost, terms, limits_ok, satellite_ok,
                   turns, s.cleanup_swap_radius, step, clearance, s.cleanup_swap_neighbours, result, rn, crossing,
-                  PartScore):
+                  PartScore, one_score):
             changed = True
         if not changed:
             break
@@ -287,7 +311,7 @@ def cleanup(occ, movable: dict, pins: dict, links, clearance, passes: int, radiu
 
 def _swaps(occ, movable, keys, placement, ref_of, nets_of, links_of, cost, terms, limits_ok, satellite_ok,
            turns, radius, step, clearance, neighbours: int, result, rn=None, crossing: float = 0.0,
-           part_score=None) -> bool:
+           part_score=None, one_score=None) -> bool:
     """Offer each part a swap with its nearest movable neighbours, and with
     every part identical to it: lift both, search the larger round the
     smaller's old spot, then the smaller round the larger's; keep it when
@@ -339,14 +363,16 @@ def _swaps(occ, movable, keys, placement, ref_of, nets_of, links_of, cost, terms
         if rough({a: ca, b: cb}) >= rough({}) - _EPS:
             continue
         occ.lift([ref_of[a], ref_of[b]])
-        now = _pair(cost([a, b], nets, {}), terms(a, pa), terms(b, pb))
+        if one_score is None:
+            now = _pair(cost([a, b], nets, {}), terms(a, pa), terms(b, pb))
         big, small = (a, b) if size[a].area >= size[b].area else (b, a)
         spot = {a: pa, b: pb}
 
         def search(k, around):
             target = occ.body_box(movable[around], spot[around]).center
 
-            score = part_score(k, nets_of[k], math.inf)
+            score = part_score(k, nets_of[k], math.inf) if one_score is None else \
+                _limited(one_score(movable[k]), k, limits_ok, satellite_ok)
             best = None
             for rot in turns.get(k, (spot[k].rotation,)):
                 c = occ.shifted_body_box(movable[k], Placement(Location(0.0, 0.0), rot, spot[k].face)).center
@@ -369,9 +395,14 @@ def _swaps(occ, movable, keys, placement, ref_of, nets_of, links_of, cost, terms
             continue
         occ.commit(movable[small], second[1])
         moved = {big: first[1], small: second[1]}
-        occ.lift([ref_of[a], ref_of[b]])
-        after = _pair(cost([a, b], nets, {}), terms(a, moved[a]), terms(b, moved[b]))
-        if _below(after, now, _EPS) and limits_ok([a, b], {}) and satellite_ok(a, None) and satellite_ok(b, None):
+        if one_score is not None:
+            taken = _one_score_swap(occ, movable, ref_of, a, b, spot, moved, one_score)
+            occ.lift([ref_of[a], ref_of[b]])
+        else:
+            occ.lift([ref_of[a], ref_of[b]])
+            after = _pair(cost([a, b], nets, {}), terms(a, moved[a]), terms(b, moved[b]))
+            taken = _below(after, now, _EPS)
+        if taken and limits_ok([a, b], {}) and satellite_ok(a, None) and satellite_ok(b, None):
             occ.commit(movable[a], moved[a])
             occ.commit(movable[b], moved[b])
             placement[a], placement[b] = moved[a], moved[b]
@@ -398,3 +429,90 @@ def _centred(occ, fp, centre, rotation, face) -> Placement:
     """The placement that puts the part's body centre on `centre`."""
     c = occ.shifted_body_box(fp, Placement(Location(0.0, 0.0), rotation, face)).center
     return Placement(Location(round(centre.x - c.x, 4), round(centre.y - c.y, 4)), rotation, face)
+
+
+def _limited(scorer, k, limits_ok, satellite_ok):
+    """The one-score search's scorer for part `k`, or, when `k` has a limited link or is a satellite (`limits_ok.of`),
+    one that ranks a candidate over its limit below every other (in Python: the native sweep does not know the
+    limits)."""
+    return _Limits(scorer, k, limits_ok, satellite_ok) if limits_ok.of(k) else scorer
+
+
+class _Limits:
+    """An MSTScorer whose candidates over a link's limit, or a satellite's, stand past every walled count."""
+    OVER = UNWEIGHED - 2
+
+    def __init__(self, scorer, k, limits_ok, satellite_ok):
+        self.scorer, self.k, self.limits_ok, self.satellite_ok = scorer, k, limits_ok, satellite_ok
+        self.spots, self.best = scorer.spots, scorer.best
+
+    @property
+    def walled_base(self):
+        return self.scorer.walled_base
+
+    def _ok(self, pl):
+        return self.limits_ok([self.k], {self.k: pl}) and self.satellite_ok(self.k, pl)
+
+    def native(self, rots, face):
+        return None
+
+    def scan(self, pl):
+        walled, cost = self.scorer.scan(pl)
+        return walled, cost + (0.0 if self._ok(pl) else _OVER)
+
+    def partial(self, pl, python=False):
+        return self.scan(pl)[1]
+
+    def full(self, pl, python=False):
+        walled, cost = self.scorer.full(pl, python=True)
+        return (walled, cost) if self._ok(pl) else (self.OVER, cost + _OVER)
+
+    def __call__(self, pl):
+        return self.full(pl)
+
+
+def _one_score_move(occ, fp, k, cur, one_score, hints, radius, step, rotations, clearance, limits_ok, satellite_ok):
+    """(where part `k`, lifted, goes, the change at `cur`, the change there) when a move lowers the run score, as the
+    one-score search computes the change, and walls no pad beyond what the board walls with it at `cur`; else None."""
+    from .score_search import ScoreDomainError
+    scorer = one_score(fp)
+    try:
+        now = scorer(cur)
+        best = None
+        for h in hints:
+            r = scan(occ, fp, h, radius, step, rotations, clearance, score=_limited(scorer, k, limits_ok, satellite_ok))
+            if r.chosen is not None and (best is None or _below((r.walled, r.score), best[0], 1e-9)):
+                best = ((r.walled, r.score), r.chosen)
+    except ScoreDomainError:
+        return None
+    if best is None or best[0][0] > now[0] or not best[0][1] < now[1] - _EPS:
+        return None
+    if not (limits_ok([k], {k: best[1]}) and satellite_ok(k, best[1])):
+        return None
+    return best[1], now[1], best[0][1]
+
+
+def _one_score_swap(occ, movable, ref_of, a, b, spot, moved, one_score) -> bool:
+    """Whether swapping parts `a` and `b` (both committed at `moved` now) from `spot` lowers the run score, as the
+    one-score search computes the change, and walls no pad beyond what the board walls with both at `spot`. The change
+    is taken in two lifts, each the search's own: `a` from its spot to its new one with `b` at its spot, then `b` from
+    its spot to its new one with `a` at its new one. Leaves both committed at `moved`."""
+    from .score_search import ScoreDomainError
+    try:
+        occ.lift([ref_of[b]])
+        occ.commit(movable[b], spot[b])
+        occ.lift([ref_of[a]])
+        first = one_score(movable[a])
+        before, a_moved = first(spot[a]), first(moved[a])
+        occ.commit(movable[a], moved[a])
+        occ.lift([ref_of[b]])
+        second = one_score(movable[b])
+        b_still, after = second(spot[b]), second(moved[b])
+        occ.commit(movable[b], moved[b])
+    except ScoreDomainError:
+        for k in (a, b):
+            if ref_of[k] in occ.pending:
+                occ.commit(movable[k], moved[k])
+        return False
+    change = (a_moved[1] - before[1]) + (after[1] - b_still[1])
+    return after[0] <= before[0] and change < -_EPS

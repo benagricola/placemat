@@ -8787,10 +8787,14 @@ class Board:
         intents = {i.key: i for i in self._placements()}
         limits = {k: lim for k, (_, lim) in self._cleanup_limits(plan).items() if k in movable}
         every = (0.0, 90.0, 180.0, 270.0)
+        # The one-score search's cleanup judges each move and swap by the run score's change (D26); the pull
+        # estimate's keeps its own objective.
+        one_score = (lambda fp: self._scorer(fp, occ, [], prune=True, plan=plan)) \
+            if s.place_search_wire == 'mst' else None
         r = cleanup(occ, movable, pins, list(self._links), self.clearance, s.cleanup_passes,
                     s.cleanup_search_radius, s.cleanup_search_step,
                     turns={k: self._turns(intents[k]) if k in intents else every for k in movable},
-                    limits=limits, settings=s)
+                    limits=limits, settings=s, one_score=one_score)
         swapped = {}
         for a, b in r.swaps:
             swapped.setdefault(a, []).append(b)
