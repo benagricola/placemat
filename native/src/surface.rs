@@ -1159,3 +1159,335 @@ fn path_search(
     }
     Ok(Found { toward: false, any, mid })
 }
+
+/// The cells (and lattice points) of one pad's exact surface search that a track can reach on the lifted board: what
+/// `path_search` reaches with the rest of the board's shapes alone. A candidate only adds shapes, and an added shape
+/// only blocks, so the candidate's search reaches exactly the points reachable through these sets whose cells the
+/// candidate's own shapes leave clear. `found` walks that, testing only the candidate's shapes.
+pub(crate) struct LiftedSearch {
+    window: Bounds,
+    nx: i64,
+    ny: i64,
+    cw: f64,
+    ch: f64,
+    mid: Point,
+    cell: f64,
+    track: f64,
+    epsilon: f64,
+    layers: u32,
+    seeds: Vec<(i64, i64)>,
+    reach: Vec<u64>,
+    lattices: Vec<Lattice>,
+}
+
+struct Lattice {
+    anchor: Point,
+    i0: i64,
+    i1: i64,
+    j0: i64,
+    j1: i64,
+    reach: Vec<u64>,
+}
+
+impl Lattice {
+    fn slot(&self, i: i64, j: i64) -> Option<usize> {
+        (self.i0 <= i && i <= self.i1 && self.j0 <= j && j <= self.j1)
+            .then(|| ((i - self.i0) * (self.j1 - self.j0 + 1) + (j - self.j0)) as usize)
+    }
+}
+
+fn bit(v: &[u64], i: usize) -> bool {
+    v[i / 64] >> (i % 64) & 1 != 0
+}
+
+fn set(v: &mut [u64], i: usize) {
+    v[i / 64] |= 1 << (i % 64);
+}
+
+/// The candidate's shapes one pad's search tests: `shape_near` over each, behind a box that holds them all grown by
+/// their reach.
+pub(crate) struct Added<'a> {
+    shapes: Vec<&'a Shape>,
+    radius: f64,
+    epsilon: f64,
+    hull: Bounds,
+}
+
+impl<'a> Added<'a> {
+    fn new(shapes: Vec<&'a Shape>, radius: f64, epsilon: f64) -> Self {
+        let hull = union(shapes.iter().map(|(_, b, _, _, delta)| {
+            let r = (radius + delta - epsilon).max(0.0);
+            (b.0 - r, b.1 - r, b.2 + r, b.3 + r)
+        }));
+        Self { shapes, radius, epsilon, hull }
+    }
+
+    fn near(&self, p: Point) -> bool {
+        !(p.0 < self.hull.0 || p.0 > self.hull.2 || p.1 < self.hull.1 || p.1 > self.hull.3)
+            && self.shapes.iter().any(|s| shape_near(s, p, self.radius, self.epsilon))
+    }
+}
+
+/// The lifted search of a signal or quiet pad from `surface_judge`'s path with the rest of the board's shapes only.
+pub(crate) fn lift_search(py: Python<'_>, path: &Path) -> PyResult<LiftedSearch> {
+    let (start, foes, layers, window, track, via, _, bans, cell, epsilon, via_exit) = path;
+    let (nx, ny) = validate_search(start, foes, *layers, *window, *track, *via, None, bans, *cell, *epsilon)?;
+    if *via_exit {
+        return Err(PyValueError::new_err("a lifted surface search takes no via exits"));
+    }
+    let (window, cell, track, epsilon, layers) = (*window, *cell, *track, *epsilon, *layers);
+    let (cw, ch) = ((window.2 - window.0) / nx as f64, (window.3 - window.1) / ny as f64);
+    let centre = |i: i64, j: i64| (window.0 + (i as f64 + 0.5) * cw, window.1 + (j as f64 + 0.5) * ch);
+    let walls = ShapeIndex::new(foes.iter().filter(|s| s.2 & layers != 0).collect(), track, epsilon, window, cell);
+    let top = union(start.iter().map(|s| s.1));
+    let mid = ((top.0 + top.2) / 2.0, (top.1 + top.3) / 2.0);
+    let slot = |i: i64, j: i64| (i * ny + j) as usize;
+    let mut reach = vec![0u64; ((nx * ny) as usize).div_ceil(64)];
+    let mut judged = vec![0u8; (nx * ny) as usize];
+    let mut seeds = Vec::new();
+    for i in (((top.0 - window.0) / cw) as i64).max(0)..((((top.2 - window.0) / cw) as i64) + 1).min(nx) {
+        for j in (((top.1 - window.1) / ch) as i64).max(0)..((((top.3 - window.1) / ch) as i64) + 1).min(ny) {
+            if on_start(start, centre(i, j)) {
+                seeds.push((i, j));
+                set(&mut reach, slot(i, j));
+            }
+        }
+    }
+    let mut todo = seeds.clone();
+    let mut visits = 0usize;
+    while let Some((i, j)) = todo.pop() {
+        visits += 1;
+        if visits % 1024 == 0 {
+            py.check_signals()?;
+        }
+        for k in [(i + 1, j), (i - 1, j), (i, j + 1), (i, j - 1)] {
+            if 0 <= k.0 && k.0 < nx && 0 <= k.1 && k.1 < ny {
+                let s = slot(k.0, k.1);
+                if bit(&reach, s) {
+                    continue;
+                }
+                if judged[s] == 0 {
+                    judged[s] = if walls.near(centre(k.0, k.1)) { 2 } else { 1 };
+                }
+                if judged[s] == 1 {
+                    set(&mut reach, s);
+                    todo.push(k);
+                }
+            }
+        }
+    }
+    let mut anchors = Vec::new();
+    for s in start.iter() {
+        let points = if s.3.is_empty() { vec![((s.1 .0 + s.1 .2) / 2.0, (s.1 .1 + s.1 .3) / 2.0)] } else { s.3.clone() };
+        for p in points {
+            if !anchors.contains(&p) {
+                anchors.push(p);
+            }
+        }
+    }
+    let mut lattices = Vec::new();
+    for anchor in anchors {
+        let mut lattice = Lattice {
+            anchor,
+            i0: ((window.0 - anchor.0) / cell).floor() as i64 - 2,
+            i1: ((window.2 - anchor.0) / cell).ceil() as i64 + 2,
+            j0: ((window.1 - anchor.1) / cell).floor() as i64 - 2,
+            j1: ((window.3 - anchor.1) / cell).ceil() as i64 + 2,
+            reach: Vec::new(),
+        };
+        let size = ((lattice.i1 - lattice.i0 + 1) * (lattice.j1 - lattice.j0 + 1)) as usize;
+        lattice.reach = vec![0u64; size.div_ceil(64)];
+        let mut seen = vec![false; size];
+        let origin = lattice.slot(0, 0).unwrap();
+        seen[origin] = true;
+        set(&mut lattice.reach, origin);
+        let mut todo = vec![(0i64, 0i64)];
+        while let Some((i, j)) = todo.pop() {
+            visits += 1;
+            if visits % 1024 == 0 {
+                py.check_signals()?;
+            }
+            for di in -1..=1 {
+                for dj in -1..=1 {
+                    let k = (i + di, j + dj);
+                    let Some(s) = lattice.slot(k.0, k.1).filter(|_| di != 0 || dj != 0) else { continue };
+                    if !seen[s] {
+                        seen[s] = true;
+                        let q = (anchor.0 + k.0 as f64 * cell, anchor.1 + k.1 as f64 * cell);
+                        if window.0 <= q.0 && q.0 <= window.2 && window.1 <= q.1 && q.1 <= window.3 && !walls.near(q) {
+                            set(&mut lattice.reach, s);
+                            todo.push(k);
+                        }
+                    }
+                }
+            }
+        }
+        lattices.push(lattice);
+    }
+    Ok(LiftedSearch { window, nx, ny, cw, ch, mid, cell, track, epsilon, layers, seeds, reach, lattices })
+}
+
+impl LiftedSearch {
+    /// `path_search`'s answer (without via exits) on the lifted board with `added` shapes on it too.
+    fn found(&self, py: Python<'_>, added: &[Shape], toward: Option<Point>) -> PyResult<Found> {
+        let walls = Added::new(added.iter().filter(|s| s.2 & self.layers != 0).collect(), self.track, self.epsilon);
+        let found = Found { toward: true, any: true, mid: self.mid };
+        let mut any = false;
+        let (nx, ny, window, cw, ch) = (self.nx, self.ny, self.window, self.cw, self.ch);
+        let centre = |i: i64, j: i64| (window.0 + (i as f64 + 0.5) * cw, window.1 + (j as f64 + 0.5) * ch);
+        let slot = |i: i64, j: i64| (i * ny + j) as usize;
+        let mut seen = vec![0u64; self.reach.len()];
+        for &(i, j) in &self.seeds {
+            set(&mut seen, slot(i, j));
+        }
+        let mut todo = self.seeds.clone();
+        let mut visits = 0usize;
+        while let Some((i, j)) = todo.pop() {
+            visits += 1;
+            if visits % 1024 == 0 {
+                py.check_signals()?;
+            }
+            if i == 0 || i == nx - 1 || j == 0 || j == ny - 1 {
+                if facing(centre(i, j), self.mid, toward) {
+                    return Ok(found);
+                }
+                any = true;
+            }
+            for k in [(i + 1, j), (i - 1, j), (i, j + 1), (i, j - 1)] {
+                if 0 <= k.0 && k.0 < nx && 0 <= k.1 && k.1 < ny {
+                    let s = slot(k.0, k.1);
+                    if bit(&self.reach, s) && !bit(&seen, s) && !walls.near(centre(k.0, k.1)) {
+                        set(&mut seen, s);
+                        todo.push(k);
+                    }
+                }
+            }
+        }
+        for lattice in &self.lattices {
+            let anchor = lattice.anchor;
+            let mut seen = vec![0u64; lattice.reach.len()];
+            set(&mut seen, lattice.slot(0, 0).unwrap());
+            let mut todo = vec![(0i64, 0i64)];
+            while let Some((i, j)) = todo.pop() {
+                visits += 1;
+                if visits % 1024 == 0 {
+                    py.check_signals()?;
+                }
+                let p = (anchor.0 + i as f64 * self.cell, anchor.1 + j as f64 * self.cell);
+                if p.0 - window.0 <= self.cell
+                    || window.2 - p.0 <= self.cell
+                    || p.1 - window.1 <= self.cell
+                    || window.3 - p.1 <= self.cell
+                {
+                    if facing(p, self.mid, toward) {
+                        return Ok(found);
+                    }
+                    any = true;
+                }
+                for di in -1..=1 {
+                    for dj in -1..=1 {
+                        let k = (i + di, j + dj);
+                        let Some(s) = lattice.slot(k.0, k.1).filter(|_| di != 0 || dj != 0) else { continue };
+                        if !bit(&seen, s) {
+                            set(&mut seen, s);
+                            let q = (anchor.0 + k.0 as f64 * self.cell, anchor.1 + k.1 as f64 * self.cell);
+                            if bit(&lattice.reach, s) && !walls.near(q) {
+                                todo.push(k);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Ok(Found { toward: false, any, mid: self.mid })
+    }
+}
+
+/// One pad's judgement inputs on the lifted board: its lanes, spots, the rest of the board's foes and bans, which
+/// lanes those leave open, which spots they leave free, and the lifted search. `judge` adds a candidate's shapes.
+pub(crate) struct LiftedPad {
+    lanes: Vec<Lane>,
+    spots: Vec<Spot>,
+    open: Vec<usize>,
+    free: Vec<usize>,
+    centre: Point,
+    search: LiftedSearch,
+}
+
+pub(crate) fn lift_pad(
+    py: Python<'_>,
+    lanes: Vec<Lane>,
+    spots: Vec<Spot>,
+    foes: Vec<Foe>,
+    bans: Vec<Shape>,
+    centre: Point,
+    path: Path,
+) -> PyResult<LiftedPad> {
+    py.check_signals()?;
+    judge_inputs(&lanes, &spots, &foes, &bans, None, centre, &path)?;
+    let open = (0..lanes.len())
+        .filter(|&i| open_lanes(std::slice::from_ref(&lanes[i]), &foes).len() == 1)
+        .collect();
+    let free = (0..spots.len())
+        .filter(|&i| spot_free(std::slice::from_ref(&spots[i]), &foes, &bans))
+        .collect();
+    let search = lift_search(py, &path)?;
+    Ok(LiftedPad { lanes, spots, open, free, centre, search })
+}
+
+impl LiftedPad {
+    /// `surface_judge`'s verdict with the candidate's foes, bans and path shapes added to the lifted board's.
+    pub(crate) fn judge(
+        &self,
+        py: Python<'_>,
+        foes: &[Foe],
+        bans: &[Shape],
+        walls: &[Shape],
+        path_bans: &[Shape],
+        aim: Option<Point>,
+        quiet: bool,
+    ) -> PyResult<u8> {
+        py.check_signals()?;
+        if aim.is_some_and(|p| !valid_point(p))
+            || !foes.iter().all(|f| validate_shape(&f.0) && f.1.is_finite() && f.1 >= 0.0 && f.2.is_finite())
+            || !bans.iter().chain(walls).chain(path_bans).all(validate_shape)
+        {
+            return Err(PyValueError::new_err("invalid surface escape classification snapshot"));
+        }
+        let open: Vec<&Lane> = self
+            .open
+            .iter()
+            .map(|&i| &self.lanes[i])
+            .filter(|l| open_lanes(std::slice::from_ref(*l), foes).len() == 1)
+            .collect();
+        let search = |toward| self.search.found(py, walls, toward);
+        let mut any = None;
+        if !quiet {
+            let d = aim.ok_or_else(|| PyValueError::new_err("signal surface escape lacks target direction"))?;
+            if open_toward(open.iter().map(|l| l.0.last().unwrap().1), self.centre, d, self.search.cell) {
+                return Ok(0);
+            }
+            let found = search(toward(d))?;
+            if found.toward {
+                return Ok(0);
+            }
+            any = Some(found.any);
+        }
+        let spot = self
+            .free
+            .iter()
+            .any(|&i| spot_free(std::slice::from_ref(&self.spots[i]), foes, bans));
+        if spot {
+            return Ok(if quiet { 4 } else { 1 });
+        }
+        if !open.is_empty()
+            || match any {
+                Some(any) => any,
+                None => search(None)?.toward,
+            }
+        {
+            return Ok(if quiet { 4 } else { 2 });
+        }
+        Ok(3)
+    }
+}

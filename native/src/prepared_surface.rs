@@ -146,6 +146,8 @@ pub struct PreparedSurface {
     // shapes and chain. A candidate whose geometry overlaps none of those boxes touches none of those shapes, so its
     // contacts are the same.
     contact_cache: HashMap<(usize, usize), (ContactFacts, Vec<usize>, Vec<Bounds>)>,
+    // Per (field, pad, turn): a rest pad's search on the lifted board.
+    lifted: HashMap<(usize, usize, usize), surface::LiftedPad>,
 }
 
 // The rest shapes by the Python blocker grid's 2 mm buckets (`near`): a shape is in every bucket its box's
@@ -217,6 +219,14 @@ fn valid_role(kind: &str, layers: u32, role: u8) -> bool {
         && (role & (CONTACT | PATH) == 0 || kind == "npth" || layers != 0)
 }
 
+// Which shapes a judgement's inputs are built from: the rest of the board's, the candidate's, or both.
+#[derive(Clone, Copy, PartialEq)]
+enum Part {
+    All,
+    Rest,
+    Moving,
+}
+
 impl PreparedSurface {
     fn role(&self, turn: usize, index: usize) -> u8 {
         if index < self.rest_roles.len() {
@@ -245,6 +255,50 @@ impl PreparedSurface {
             })
             .collect()
     }
+    /// The foes and via bans of a pad's lanes and spots within its blocker `region`.
+    #[allow(clippy::too_many_arguments)]
+    fn blockers(&self, candidate: &PreparedCandidate, turn: usize, field: &Field, pad: &Pad, net: &Net,
+                region: Bounds, index: &RestIndex, part: Part) -> (Vec<surface::Foe>, Vec<Shape>) {
+        let track = net.track_width / 2.0 + net.clearance;
+        let mut foes = Vec::new();
+        let mut bans = Vec::new();
+        let rest = self.rest_roles.len();
+        let near_rest = if part == Part::Moving { Vec::new() } else { index.near(region, &index.bans) };
+        let moving = if part == Part::Rest { rest..rest } else { rest..self.contacts.shape_count(candidate, turn) };
+        for i in near_rest.into_iter().chain(moving) {
+            let s = self.contacts.shape(candidate, turn, i);
+            let role = self.role(turn, i);
+            if role & CONTACT != 0 && near(s.bounds, region) {
+                let reach = if s.kind == "npth" {
+                    Some((
+                        track + self.settings.hole_clearance - net.clearance,
+                        self.settings.hole_clearance,
+                    ))
+                } else if matches!(s.kind, "pad" | "through" | "copper")
+                    && s.net != pad.net
+                    && !(s.owner == field.owner && s.pad == pad.number)
+                {
+                    Some((track, net.pairs[i]))
+                } else {
+                    None
+                };
+                if let Some((lane, clr)) = reach {
+                    foes.push((
+                        record(&s, 0.0),
+                        (lane - self.settings.epsilon).max(0.0)
+                            + self.settings.cell,
+                        clr - self.settings.epsilon,
+                        s.kind == "npth",
+                    ));
+                }
+            }
+            if role & BAN != 0 && !s.net.split('\u{1f}').any(|n| n == pad.net) {
+                bans.push(record(&s, 0.0));
+            }
+        }
+        (foes, bans)
+    }
+
     fn path(
         &self,
         candidate: &PreparedCandidate,
@@ -259,6 +313,7 @@ impl PreparedSurface {
         supplemental: bool,
         via_exit: bool,
         index: &RestIndex,
+        part: Part,
     ) -> Search {
         let starts: Vec<_> = mine
             .iter()
@@ -279,9 +334,9 @@ impl PreparedSurface {
         let mut copper = Vec::new();
         let mut holes = Vec::new();
         let rest = self.rest_roles.len();
-        let shapes = index.near(reach, &[]).into_iter()
-            .chain(rest..self.contacts.shape_count(candidate, turn));
-        for i in shapes {
+        let near_rest = if part == Part::Moving { Vec::new() } else { index.near(reach, &[]) };
+        let moving = if part == Part::Rest { rest..rest } else { rest..self.contacts.shape_count(candidate, turn) };
+        for i in near_rest.into_iter().chain(moving) {
             let s = self.contacts.shape(candidate, turn, i);
             let role = self.role(turn, i);
             if role & HOLE != 0 && overlaps(s.bounds, reach) {
@@ -534,6 +589,7 @@ impl PreparedSurface {
             field_lanes: HashMap::new(),
             pad_facts: HashMap::new(),
             contact_cache: HashMap::new(),
+            lifted: HashMap::new(),
         })
     }
 
@@ -587,6 +643,7 @@ impl PreparedSurface {
         self.field_lanes.clear();
         self.pad_facts.clear();
         self.contact_cache.clear();
+        self.lifted.clear();
         for (index, pads) in prepared { self.fields[index].cached = Some(pads); }
         Ok(())
     }
@@ -1024,42 +1081,33 @@ impl PreparedSurface {
                 );
                 let region = inflate(region, net.foe_reach);
                 guard.push(inflate(region, self.settings.cell));
-                let track = net.track_width / 2.0 + net.clearance;
-                let mut foes = Vec::new();
-                let mut bans = Vec::new();
-                let shapes = index.near(region, &index.bans).into_iter()
-                    .chain(self.rest_roles.len()..self.contacts.shape_count(candidate, turn));
-                for i in shapes {
-                    let s = self.contacts.shape(candidate, turn, i);
-                    let role = self.role(turn, i);
-                    if role & CONTACT != 0 && near(s.bounds, region) {
-                        let reach = if s.kind == "npth" {
-                            Some((
-                                track + self.settings.hole_clearance - net.clearance,
-                                self.settings.hole_clearance,
-                            ))
-                        } else if matches!(s.kind, "pad" | "through" | "copper")
-                            && s.net != pad.net
-                            && !(s.owner == field.owner && s.pad == pad.number)
-                        {
-                            Some((track, net.pairs[i]))
-                        } else {
-                            None
-                        };
-                        if let Some((lane, clr)) = reach {
-                            foes.push((
-                                record(&s, 0.0),
-                                (lane - self.settings.epsilon).max(0.0)
-                                    + self.settings.cell,
-                                clr - self.settings.epsilon,
-                                s.kind == "npth",
-                            ));
-                        }
+                if rest && !gather {
+                    // A rest pad's own geometry and the rest of the board are fixed for the visit: their search is
+                    // made once, and each candidate adds only its own shapes to it.
+                    let key = (fi, pi, turn);
+                    if !self.lifted.contains_key(&key) {
+                        let (foes, bans) = self.blockers(candidate, turn, field, pad, net, region, index, Part::Rest);
+                        let search = self.path(candidate, turn, field, pad, mine, &[], net, self.settings.reach, None,
+                                               false, false, index, Part::Rest);
+                        let lifted = profiled!(profile, judge, surface::lift_pad(
+                            py, pad_lanes.clone(), pad_spots.clone(), foes, bans, centre, search.path,
+                        ))?;
+                        self.lifted.insert(key, lifted);
                     }
-                    if role & BAN != 0 && !s.net.split('\u{1f}').any(|n| n == pad.net) {
-                        bans.push(record(&s, 0.0));
+                    let field = &self.fields[fi];
+                    let pad = &field.pads[pi];
+                    let (foes, bans) = self.blockers(candidate, turn, field, pad, net, region, index, Part::Moving);
+                    if let (Some(timing), Some(started)) = (profile.as_mut(), blockers_started) {
+                        timing.blockers += started.elapsed().as_secs_f64() * 1e6;
                     }
-                }
+                    let search = profiled!(profile, path_setup, self.path(candidate, turn, field, pad, mine, &[], net,
+                        self.settings.reach, aim, false, false, index, Part::Moving));
+                    guard.push(search.reach);
+                    way = profiled!(profile, judge, self.lifted[&key].judge(
+                        py, &foes, &bans, &search.path.1, &search.path.7, aim, net.quiet,
+                    ))?;
+                } else {
+                let (foes, bans) = self.blockers(candidate, turn, field, pad, net, region, index, Part::All);
                 if let (Some(timing), Some(started)) = (profile.as_mut(), blockers_started) {
                     timing.blockers += started.elapsed().as_secs_f64() * 1e6;
                 }
@@ -1076,6 +1124,7 @@ impl PreparedSurface {
                     false,
                     false,
                     index,
+                    Part::All,
                 ));
                 guard.push(search.reach);
                 if gather {
@@ -1087,6 +1136,7 @@ impl PreparedSurface {
                     way = profiled!(profile, judge, surface::surface_judge(
                         py, pad_lanes, pad_spots, foes, bans, aim, centre, net.quiet, search.path,
                     ))?;
+                }
                 }
             }
         }
@@ -1116,6 +1166,7 @@ impl PreparedSurface {
                 true,
                 self.settings.lane_via_exit,
                 index,
+                Part::All,
             );
             guard.push(search.reach);
             let path = search.path;
