@@ -203,3 +203,37 @@ def test_give_way_resolved_only_when_the_walk_reaches_it(monkeypatch, native):
     assert resolved['walk'][0] < resolved['draw'][0], resolved
     assert resolved['walk'][1:] == resolved['draw'][1:]
     # Reached, a deferred candidate is resolved and priced: test_score_search's give-way scan (radius 0) has only it.
+
+
+def test_when_every_candidate_walls_a_pad_the_walk_scores_all_and_takes_the_least_walled(monkeypatch):
+    """The case behind walled findings on two bench modules (fairing/SlotControl physical, fairing/UsbConverter
+    solve): no legal candidate of the scan walls fewer pads than the one taken, so a scan that scores every candidate
+    in full takes the same one. The walk runs out of candidates and takes the least walled, as the pull estimate does;
+    leaving the part unplaced would rank lower."""
+    board, item, plan = triangle(False)
+    occ = plan.occupancy
+    hint = occ._geometry(item).reference
+    occ.lift({item.ref})
+    first = (hint.location.x, hint.location.y)
+
+    class Scorer:
+        spots, walled_base, best = 2, 0, [math.inf]
+        asked = []
+
+        def scan(self, p):
+            return placer.PARTIAL, math.hypot(p.location.x - first[0], p.location.y - first[1]) + p.rotation
+
+        def full(self, p, python=False):
+            self.asked.append(p)
+            far = (p.location.x, p.location.y) != first
+            return 1 + far, self.scan(p)[1]       # every candidate walls a pad; the hint walls one, the rest two
+
+        def __call__(self, p):
+            raise AssertionError('a scan asks scan and full only')
+
+    scorer = Scorer()
+    monkeypatch.setattr(placer, 'NATIVE_SWEEP', False)
+    result = placer.scan(occ, item, hint, 0.5, 0.25, rotations=(0, 90), clearance=board.geometry.default_clearance,
+                         score=scorer)
+    assert len(scorer.asked) == result.tried - sum(result.rejected.values())
+    assert result.walled == 1 and (result.chosen.location.x, result.chosen.location.y) == first
