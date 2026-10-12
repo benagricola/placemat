@@ -3,7 +3,8 @@
 # are kept in this folder's .placemat/.
 #
 # Routing: the example phases. The capture's currents (Pm.I on the input path, the 7805 and the LT1373
-# switch path) are judged by the current-path check; no interface or pair calls for a phase of its own.
+# switch path) are judged by the current-path check; no interface or pair calls for a phase of its own. The last
+# example phase, pours, joins the GND plane's pads to it.
 
 # Routing: the example phases (`placemat settings --example`).
 [[route.phase]]
@@ -13,3 +14,8 @@ width = "current"
 
 [[route.phase]]
 name = "signals"
+
+# the nets the board serves by a pour, each pad joined to its pour: a via in or beside the pad, then a track for what is still apart; edit or remove it
+[[route.phase]]
+name = "pours"
+nets = ["GND"]

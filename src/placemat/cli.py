@@ -1861,11 +1861,12 @@ def _dispatch(args) -> int:
 def board_example_phases(pcb) -> list:
     """The example phases `settings --example` writes for a board (spec "No phases"): its differential pairs and its
     interface types when the capture exports them, its net classes above the Default's clearance, current paths when
-    any part states a current (on the first and last copper layers of its stack when it has inner ones), then the
-    rest."""
+    any part states a current (on the first and last copper layers of its stack when it has inner ones), the rest,
+    then its pour nets (route.plane_nets_of) joined to their pours."""
     from .capture_nets import capture_beside
     from .checks import carriers_of
     from .kicad.read import read_board
+    from .kicad.route import plane_nets_of
     from .route_phase import example_phases
     g = read_board(str(pcb))
     cap = capture_beside(pcb)
@@ -1877,7 +1878,8 @@ def board_example_phases(pcb) -> list:
                           if interfaces else [],
                           wide_classes=sorted({nc.name for nc in g.netclasses.values() if nc.clearance > base + 1e-9}),
                           currents=any(len(on) >= 2 for on in carriers_of(g).values()),
-                          outer_layers=[g.layers[0].value, g.layers[-1].value] if len(g.layers) > 2 else ())
+                          outer_layers=[g.layers[0].value, g.layers[-1].value] if len(g.layers) > 2 else (),
+                          pour_nets=sorted(plane_nets_of(pcb)))
 
 
 def _route_rank(text: str, names) -> tuple:

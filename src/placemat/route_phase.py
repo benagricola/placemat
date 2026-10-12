@@ -218,11 +218,13 @@ def phases_of(cfg) -> tuple:
     return parse_phases(cfg.route_phase)
 
 
-def example_phases(*, pairs: bool, interface_types: list, wide_classes: list, currents: bool, outer_layers=()) -> list:
+def example_phases(*, pairs: bool, interface_types: list, wide_classes: list, currents: bool, outer_layers=(),
+                   pour_nets=()) -> list:
     """The example phases `settings --example` writes for a board with these facts. `outer_layers`: the board's outer
     copper layers when it also has inner ones; the example current phase then routes on them only (the user's decision
     of 2026-10-11: an inner layer's current width is far wider than an outer one's, and a track there takes every via
-    site under it)."""
+    site under it). `pour_nets`: the nets the board serves by a pour; a last phase `pours` names them, so their pads
+    are joined to their pours after every other phase (D31, the user's decision of 2026-10-12)."""
     out = []
     if pairs:
         out.append({"name": "diff-pairs", "pairs": True})
@@ -235,6 +237,8 @@ def example_phases(*, pairs: bool, interface_types: list, wide_classes: list, cu
         out.append(dict({"name": "current", "current_paths": True, "width": "current"},
                         **({"layers": list(outer_layers)} if outer_layers else {})))
     out.append({"name": "signals"})
+    if pour_nets:
+        out.append({"name": "pours", "nets": sorted(pour_nets)})
     return out
 
 
@@ -243,7 +247,9 @@ _NOTES = {"diff-pairs": "the capture's DiffPair instances, routed as pairs",
           "wide-clearance": "the net classes whose clearance is above the Default's",
           "current": "each pair of parts that carry current (Pm.I), at the width the lesser current needs, on the "
                      "outer layers of a board with inner ones; a pour net's current is left to its pour",
-          "signals": "every connection still open, at the net classes' widths"}
+          "signals": "every connection still open, at the net classes' widths",
+          "pours": "the nets the board serves by a pour, each pad joined to its pour: a via in or beside the pad, "
+                   "then a track for what is still apart; edit or remove it"}
 
 
 def phases_toml(phases: list, notes: dict | None = None) -> str:

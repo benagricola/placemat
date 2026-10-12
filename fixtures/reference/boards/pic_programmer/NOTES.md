@@ -127,6 +127,7 @@ as on the human board). Beyond the fixed parts:
   (`layout.py` `_report_undeclared`).
 
 `placemat.toml` keeps every setting at its default; the example phases need no phase of their own for this board.
+The last example phase, `pours`, joins the GND plane's pads to it (via drops, then tracks).
 
 ## Skill gaps
 

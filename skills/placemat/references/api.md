@@ -5690,7 +5690,8 @@ cannot be measured has `width_unknown` and does not count as clean.
 A pair phase takes its width from the net class; an explicit phase width is refused.
 
 `settings <board> --example` writes example phases for capture pairs, interfaces, wide-clearance classes,
-current paths and remaining signals. Without a board it writes the signals phase. On a board with inner copper layers
+current paths and remaining signals, then a last phase `pours` naming the board's pour nets, which joins their pads to
+their pours (via drops, then tracks for what is left); edit or remove it. Without a board it writes the signals phase. On a board with inner copper layers
 the example current phase has `layers` set to the first and last copper layers of the board's stack, its outer layers:
 an inner layer needs a much wider track for the same current, and a wide inner track takes every via site under it.
 A phase you write yourself keeps the `layers` you give it.

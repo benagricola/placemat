@@ -99,3 +99,32 @@ def test_a_two_layer_boards_current_phase_names_no_layers(tmp_path):
 def phases_text(pcb):
     from placemat.route_phase import phases_toml
     return "[route]\n" + phases_toml(board_example_phases(pcb))
+
+
+def test_the_example_phases_end_with_the_pour_nets_joined_to_their_pours():
+    """D31 (the user, 2026-10-12): a last phase `pours` names the board's pour nets, after the rest phase."""
+    from placemat.route_phase import example_phases, phases_toml
+    got = example_phases(pairs=False, interface_types=[], wide_classes=[], currents=False, pour_nets=["VCC", "GND"])
+    assert got == [{"name": "signals"}, {"name": "pours", "nets": ["GND", "VCC"]}]
+    text = phases_toml(got)
+    assert "# the nets the board serves by a pour" in text and "edit or remove it" in text
+    assert example_phases(pairs=False, interface_types=[], wide_classes=[], currents=False)[-1] == {"name": "signals"}
+
+
+@needs_kicad
+def test_a_board_with_a_pour_gets_a_last_pours_phase_naming_its_pour_nets(tmp_path):
+    import pcbnew
+    pcb = board_with_power_and_rf(tmp_path)
+    brd = pcbnew.LoadBoard(str(pcb))
+    z = pcbnew.ZONE(brd)
+    z.SetLayer(pcbnew.B_Cu)
+    z.SetNetCode(brd.GetNetcodeFromNetname("VIN"))
+    o = z.Outline()
+    o.NewOutline()
+    for x, y in ((101, 101), (134, 101), (134, 119), (101, 119)):
+        o.Append(pcbnew.FromMM(x), pcbnew.FromMM(y))
+    brd.Add(z)
+    brd.Save(str(pcb))
+    phases = board_example_phases(pcb)
+    assert [p["name"] for p in phases][-2:] == ["signals", "pours"]
+    assert phases[-1] == {"name": "pours", "nets": ["VIN"]}

@@ -14,6 +14,16 @@ section for each hand-written pattern a newer form replaces.
 
 - **Routing phases.** `settings <board> --example` writes example routing phases for the board; without a board it writes signals.
 
+- **Routing phases.** `settings <board> --example` ends its example phases with a phase `pours` naming the board's
+  pour nets. Nothing joined a pour net's pads to its pour unless a phase named the net; this phase does. A
+  placemat.toml written by an earlier `--example` has no such phase: add one after the others to join them,
+
+      [[route.phase]]
+      name = "pours"
+      nets = ["GND"]
+
+  naming the board's pour nets.
+
 ### Changed
 
 - **Routing phases.** Net clearance comes from the capture's clearance field. Trapped-pad findings are `setup.net_clearance`.
