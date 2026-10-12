@@ -87,6 +87,11 @@ class DrcReport:
     def expected(self) -> dict:
         return {k: v for k, v in self.by_type.items() if self.is_expected(k)}
 
+    def is_real_kind(self, kind: str) -> bool:
+        """A kind in `real_kinds` (never one that is expected): what marks a net shorted or an obligation violated, as
+        step 0's closure did. Other error-severity kinds count in drc_new only."""
+        return not self.is_expected(kind) and kind in self.real_kinds
+
     def is_real(self, kind: str) -> bool:
         """A kind counts in the headline when it is in `real_kinds` whatever its severity, or KiCad reports it as an
         error and it has no line of its own (footprint issues, outstanding); never one that is expected."""

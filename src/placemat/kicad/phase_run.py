@@ -279,8 +279,8 @@ def obligations_of(selections, input_open, skip) -> list:
 def judge_obligations(pcb_path, obligations, drc_json, neck_mm=0.0, is_real=None, baseline_json=None) -> list:
     """Each obligation on a board, in order: {"joined", "violated", "under"}. joined: KiCad's connectivity joins the two
     ends' pads (joined_pairs); an obligation with an end that is no pad is joined when its net has no open connection
-    in `drc_json`. violated: its net is in a real error of `drc_json` (drc.real_errors: the `real` bucket at severity
-    error, as drc_new counts them; `is_real` is the board's DrcReport.is_real, None: the bound `[drc] real_kinds`) that
+    in `drc_json`. violated: its net is in an error of a real kind in `drc_json` (drc.real_errors at severity error;
+    `is_real` is the board's DrcReport.is_real_kind, None: the bound `[drc] real_kinds`; ruling S24) that
     the DRC at `baseline_json` (the phase's input board's) does not have (drc.new_errors, ruling S15): an error the
     board had before the phase does not mark its nets. With no `baseline_json`, every real error counts.
     under: for a joined obligation with widths, the narrowest copper per layer on its joining path (joining_spans:
@@ -1206,7 +1206,7 @@ def judge_phase(ctx, index, phase, sel, routed: Routed, obligations) -> tuple:
                 pass
     neck = phase_neck(ctx.cfg, phase)
     record = phase_record(phase, index, sel, obligations,
-                          judge_obligations(judged, obligations, drc_json, neck, drc.is_real,
+                          judge_obligations(judged, obligations, drc_json, neck, drc.is_real_kind,
                                             phase_input_drc(ctx.work, index)),
                           routed.seconds + time.time() - t0, routed.ncalls, routed.pairs, routed.connections,
                           routed.bus_groups, net_evidence, routed.pour_joins)

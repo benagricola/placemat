@@ -4063,7 +4063,7 @@ last phase's board is `router_out.kicad_pcb`, and `routed.kicad_pcb` is made fro
   the copper is split into tracks does not change it.
 - `open`: each obligation not clean, with `outcome` (its task record's `status`; null for a whole-net call),
   `evidence` (the router's own record of why, as it gave it; null when it gave none), `violated: true` when joined
-  but its net has a real DRC error the phase's input board did not have, `under` (`{layer: mm}`) when joined
+  but its net has a DRC error of a `[drc] real_kinds` kind the phase's input board did not have, `under` (`{layer: mm}`) when joined
   narrower than asked, and `width_unknown: true` when joined but no copper path between its pads could be measured (copper joined only partway along a curved
   track, which is measured end to end at its own length, or a net the router gave no width for, below).
 - `pour_joins`: one record per pour net the phase joined to its pour: `net`; `pads` (its pads inside the board's
@@ -4131,7 +4131,9 @@ phase record's `connections` (the router's records), its `open` entries and a `r
 such an end, the router's record taking it from the task it answers.
 
 **Nets with DRC violations.** The route's summary line ends `with DRC violations: NET (hole_to_hole)` for each net
-with a real DRC violation in the routed copy; the closure counts such a net as unrouted ("clean"). `route.json` and
+with a new DRC error of a `[drc] real_kinds` kind in the routed copy (one the unrouted board did not have; other
+error kinds, such as a solder-mask bridge or a starved thermal, count in `drc_new` only); the closure counts such a
+net as unrouted ("clean"). `route.json` and
 the route record list the nets under `shorted` and the kinds of each under `violations`, `{net: [kind, ...]}`.
 
 **Keeping routed copper.** `placemat route <script> --adopt NET ...` routes

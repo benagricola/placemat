@@ -1239,7 +1239,7 @@ def recheck_final_phases(report, asked, run_list, width_receipt, pcb_out, drc_pa
     for i, (rec, obs, phase) in enumerate(zip(report.phases, asked, run_list)):
         rec["width_policy"] = [p for p in width_receipt['policies'] if p['name'] == phase.name]
         rec["final_asked"] = len(obs)
-        got = judge_obligations(pcb_out, obs, drc_path, phase_neck(cfg, phase), after.is_real,
+        got = judge_obligations(pcb_out, obs, drc_path, phase_neck(cfg, phase), after.is_real_kind,
                                 phase_input_drc(Path(drc_path).parent, i) if drc_path is not None else None)
         report.final_judged.append(got)
         connections = rec.get("connections") or []
@@ -1473,10 +1473,10 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
             shutil.copy(work / ("in" + ext), work / ("router_out" + ext))
     cleanup, after = finalize_copper(board, pcb_out, pcb_in, work / "in.kicad_pcb", work / "drc_after.json")
     open1 = {n: v for n, v in after.open_nets.items() if n not in counted}
-    # ruling S15, at the route level: a net counts as shorted only by a real error the unrouted board did not have
+    # ruling S15, at the route level: a net counts as shorted only by an error of a real kind the unrouted board did not have (S24)
     from .drc import new_error_kinds, real_errors
-    violated = new_error_kinds(real_errors(json.loads((work / "drc_after.json").read_text()), after.is_real),
-                               real_errors(json.loads((work / "drc_before.json").read_text()), after.is_real))
+    violated = new_error_kinds(real_errors(json.loads((work / "drc_after.json").read_text()), after.is_real_kind),
+                               real_errors(json.loads((work / "drc_before.json").read_text()), after.is_real_kind))
     sc = score(open0, open1, {n for n in violated if n not in counted})
     breaches = [b for b in router_breaches(pcb_in, pcb_out) if not own_pour_breach(b, chosen_pours)]
     log = work / "route.json"

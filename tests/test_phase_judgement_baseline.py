@@ -75,3 +75,16 @@ def test_the_route_names_each_net_with_the_kinds_of_its_new_errors():
     after = real_errors({"violations": [_error(1.0), _error(2.0), thermal]}, lambda _: True)
     base = real_errors({"violations": [_error(1.0)]}, lambda _: True)
     assert new_error_kinds(after, base) == {"GND": ["hole_clearance"], "GNDREF": ["starved_thermal"]}
+
+
+def test_only_a_real_kind_marks_an_obligation_violated(tmp_path, monkeypatch):
+    """Ruling S24: a new error-severity mask bridge counts in drc_new, not against the net's obligations."""
+    from placemat.kicad.drc import DrcReport
+    bridge = {"type": "solder_mask_bridge", "severity": "error",
+              "items": [{"description": "Pad 1 [GND] of J1", "pos": {"x": 1.0, "y": 5.0}}]}
+    report = DrcReport(path=tmp_path / "drc.json", severities={"solder_mask_bridge": "error"})
+    assert report.is_real("solder_mask_bridge") and not report.is_real_kind("solder_mask_bridge")
+    monkeypatch.setattr(phase_run, "joined_pairs", lambda *_: [True])
+    (got,) = phase_run.judge_obligations("board.kicad_pcb", [OB], _drc(tmp_path / "after.json", bridge),
+                                         is_real=report.is_real_kind, baseline_json=_drc(tmp_path / "before.json"))
+    assert got["violated"] is False
