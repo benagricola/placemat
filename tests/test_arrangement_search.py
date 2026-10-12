@@ -5,10 +5,18 @@ import pytest
 from placemat import arrangement_note as N
 from placemat.arranged_geometry import attach
 from placemat.layout import Board
-from placemat.settings import Settings
+from placemat.settings import Settings as _Settings
 from placemat.values import Cell, Location, Near, Part
 from tests.arrangement_support import OBSTACLE, east_doc, stamped_geometry, with_arrangement
 from tests.fixtures import unturned_findings
+
+
+def Settings():
+    """These tests pin the pull estimate (`place.search_wire` "clique"): their unscored cases ("nothing to score") and
+    margins were written for it, and the one-score search scores every candidate. Task 16 removes the pull estimate and
+    revisits them."""
+    return dataclasses.replace(_Settings(), place_search_wire="clique")
+
 
 NEAR = dict(radius=8.0, step=0.5)
 

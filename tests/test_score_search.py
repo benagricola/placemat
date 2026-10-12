@@ -1,4 +1,5 @@
-"""The temporary MST search ranks complete signed objectives exhaustively."""
+"""The one-score search ranks complete signed objectives: every candidate on the terms but the escape grades, the best
+few in full."""
 from dataclasses import replace
 import math
 
@@ -160,7 +161,7 @@ def test_actual_scan_spreads_dense_net_on_common_congestion_objective(monkeypatc
     assert negative, 'spreading must exercise a negative signed congestion term'
 
 
-def test_mst_measurement_flag_scores_linkless_area_while_clique_default_remains_nearest():
+def test_mst_default_scores_linkless_area_while_the_pull_estimate_stays_nearest():
     from tests.test_score_measures import _two_part_board
     plans = {}
     for mode in ('clique', 'mst'):
@@ -172,7 +173,7 @@ def test_mst_measurement_flag_scores_linkless_area_while_clique_default_remains_
         board.place(Part('c1'), at=Near(Location(20, 20)), radius=1.0, rotations=(0,))
         plan = board.resolve()
         plans[mode] = plan.placement('c1'), score.whole(board, plan.occupancy, plan)
-    assert Settings().place_search_wire == 'clique'
+    assert Settings().place_search_wire == 'mst'
     assert plans['clique'][0].location == Location(20, 20)
     assert plans['mst'][1]['airwire'] == plans['clique'][1]['airwire'] == 0.0
     assert plans['mst'][1]['area'] < plans['clique'][1]['area']
@@ -560,14 +561,16 @@ def test_actual_area_prices_trade_fitted_size_for_wire_length():
 
 @pytest.mark.parametrize('crossing', [False, True])
 def test_pruned_native_scan_keeps_the_exhaustive_seeds_and_winner(monkeypatch, crossing):
-    """R13: the native sweep prunes on proved bounds only past the `place.refine_spots`-th best weighed cost, so a
-    scan's coarse seeds, and so its winner and standing, are the exhaustive scan's."""
+    """R13: the native sweep prunes partial costs on proved bounds only past the `place.escape_spots`-th best, and the
+    scan's walk weighs a pruned candidate it reaches, so its seeds, and so its winner and standing, are the
+    unpruned scan's."""
     if not hasattr(geometry._native, 'NativeDeltaScoring'):
         pytest.skip('complete native sweep scorer unavailable')
     monkeypatch.setattr(placer, 'NATIVE_SWEEP', True)
     runs = {}
     for prune in (False, True):
         board, item, plan = triangle(crossing)
+        board.settings = replace(board.settings, place_escape_spots=2)
         occ = plan.occupancy
         hint = occ._geometry(item).reference
         occ.lift({item.ref})
@@ -577,4 +580,5 @@ def test_pruned_native_scan_keeps_the_exhaustive_seeds_and_winner(monkeypatch, c
         native = scoring.native((0, 90), Face.FRONT)
         runs[prune] = (result.chosen, result.walled, result.score, native.pruned)
     assert runs[True][:3] == runs[False][:3]
-    assert runs[False][3] == 0 and runs[True][3] > 0, runs
+    # Crossing: the congestion bound (one step, -10) is wider than the partial costs' spread, so none is pruned.
+    assert runs[False][3] == 0 and (runs[True][3] > 0 or crossing), runs

@@ -153,6 +153,9 @@ def test_first_after_setup_precedes_warm_corpus_without_extra_cold_calls(monkeyp
                 def evaluate(self, *args):
                     events.append(('call', name))
                     return value.evaluate(*args)
+
+                def __getattr__(self, attribute):       # the best-few path's partial and full scores
+                    return getattr(value, attribute)
             return Proxy()
         monkeypatch.setattr(cls, 'native', native)
     instrument_native(Scorer, 'old')

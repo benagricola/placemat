@@ -864,7 +864,7 @@ impl NativeDelta {
 /// The pads walled off by a candidate the scorer did not weigh (pruned, or past a
 /// limit): more than any count, so it ranks below every candidate weighed in
 /// full, as `placer.UNWEIGHED`.
-const UNWEIGHED: i64 = i64::MAX;
+pub(crate) const UNWEIGHED: i64 = i64::MAX;
 
 /// A searched item's cost, as `Board._scorer` weighs a candidate: the wire
 /// (each target's weight times its distance, the item's pads moved as

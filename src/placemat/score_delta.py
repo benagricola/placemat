@@ -176,9 +176,11 @@ class Delta:
         return Change(terms, sum(terms.values()), walled_change,
                       self._escape_base.get('escape_walled', 0) + walled_change)
 
-    def relative(self, placement):
+    def relative(self, placement, *, escapes=True):
         """(the signed terms, the signed change of walled pads) of a candidate: `__call__`'s, without the rest board's
-        absolute walled count, which only judging every rest pad gives. Two candidates compare on these alone."""
+        absolute walled count, which only judging every rest pad gives. Two candidates compare on these alone.
+        `escapes` off leaves out the escape grades (`escape_closed`, `escape_via`) and the walled check: the terms
+        stop at `escape_crossed`, a crossing count, and the walled change is 0 (not asked)."""
         self._check_snapshot()
         cfg = self.board.settings
         if self.grid is not None and self.grid.board != (self.occ.congestion_frame() or Box(0, 0, 0, 0)):
@@ -222,6 +224,11 @@ class Delta:
             pads = self.occ.__dict__['_congestion_pads']
             replacements = {net: list(pads.get(net, {}).values()) + points for net, points in new.items()}
             terms['congestion'] = cfg.score_congestion * self.grid.change(replacements)
+        if not escapes:
+            depth = self._escape_delta.base.depth
+            terms['escape_crossed'] = cfg.score_escape_crossed * (
+                view.ratsnest().crossed_pairs(depth) - self._escape_delta._base_crossed())
+            return terms, 0
         escaped, walled_change = self._escape_change(view, geometries, copper)
         terms.update(escaped)
         return terms, walled_change

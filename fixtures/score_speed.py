@@ -1,8 +1,10 @@
-"""Complete candidate/setup timings, without adopting the new search.
+"""Candidate/setup timings of the one-score search ("mst") and the pull estimate ("clique").
 
 Run sequentially under the reference-board lock. JSON lines distinguish score
 calls from legality and setup. Resolve comparisons use fresh boards under the temporary measurement flag.
-The clique default remains unchanged.
+Per candidate: the full score (`delta_score_us`), the partial score (`partial_score_us`, every term but the escape
+grades), and the one-score search's path over the candidates as one scan (`best_few_us`: partial scores for all, the
+full score for the best `place.escape_spots`).
 """
 from __future__ import annotations
 
@@ -40,6 +42,24 @@ def timed(call, rows, repeats):
             call(row)
         samples.append((time.perf_counter_ns() - start) / len(rows))
     return statistics.median(samples) / 1000
+
+
+def best_few(partial, walled, rows, spots, repeats):
+    """Median time per candidate of the one-score search's path over `rows` as one scan (D25): every candidate's
+    partial cost, then the full score of the best by it until `spots` wall no pad (`walled(row)`: the pads a full
+    score walls beyond the lifted board's); and how many were scored in full."""
+    samples, graded = [], 0
+    for _ in range(repeats):
+        start = time.perf_counter_ns()
+        costs = [partial(row) for row in rows]
+        graded = taken = 0
+        for index in sorted(range(len(rows)), key=costs.__getitem__):
+            if taken >= spots:
+                break
+            graded += 1
+            taken += walled(rows[index]) == 0
+        samples.append((time.perf_counter_ns() - start) / len(rows))
+    return statistics.median(samples) / 1000, graded
 
 
 def identity(paths):
@@ -237,6 +257,23 @@ def measure(board, plan, step, *, count, repeats):
             return (time.perf_counter_ns() - start) / 1000
         old_first_us, delta_first_us = first(old_call), first(new_call)
         old_us, delta_us = timed(old_call, legal, repeats), timed(new_call, legal, repeats)
+        # The one-score search's path (D25): partial costs for all, the escape grades for the best few.
+        if full is not None:
+            def partial_call(row):
+                return full.partial_cost(row[0].location.x, row[0].location.y, row[1])
+
+            def walled_call(row):
+                return full.full(row[0].location.x, row[0].location.y, row[1])[1]
+        else:
+            def partial_call(row):
+                return common.scan(row[0])[1]
+
+            def walled_call(row):
+                return common(row[0])[0]
+        partial_us = timed(partial_call, legal, repeats)
+        base = common.walled_base
+        best_few_us, graded = best_few(partial_call, lambda row: max(0, walled_call(row) - base), legal,
+                                       board.settings.place_escape_spots, repeats)
         kernel = delta.native(rotations, original.face)
         six_us = timed(lambda row: kernel.terms(row[0].location.x, row[0].location.y, row[1]), legal, repeats) \
             if kernel is not None else None
@@ -245,6 +282,7 @@ def measure(board, plan, step, *, count, repeats):
                 'attempted': count, 'legal': len(legal), 'lift_us': lift_us,
                 'old_setup_us': old_setup_us, 'delta_setup_us': setup_us,
                 'old_score_us': old_us, 'delta_score_us': delta_us,
+                'partial_score_us': partial_us, 'best_few_us': best_few_us, 'best_few_graded': graded,
                 'old_first_evaluation_us': old_first_us, 'delta_first_evaluation_us': delta_first_us,
                 'first_evaluation_scope': 'first scoring call after preparation; shared libraries and process may already be warm',
                 'warm_evaluation_scope': 'eight warm-up calls then median complete corpus pass',
@@ -283,7 +321,8 @@ def resolve_measure(board):
     originals = [(Occupancy, 'commit', Occupancy.commit), (NativeSweeper, 'run', NativeSweeper.run),
                  (type(board), '_scorer', type(board)._scorer),
                  (Scorer, 'native', Scorer.native), (MSTScorer, 'native', MSTScorer.native),
-                 (Scorer, '__call__', Scorer.__call__), (MSTScorer, '__call__', MSTScorer.__call__)]
+                 (Scorer, '__call__', Scorer.__call__), (MSTScorer, '__call__', MSTScorer.__call__),
+                 (MSTScorer, 'scan', MSTScorer.scan), (MSTScorer, 'full', MSTScorer.full)]
     def commit(self, *args, **kwargs):
         start = time.perf_counter_ns()
         try:
@@ -345,8 +384,19 @@ def resolve_measure(board):
                 counts[kind] = counts.get(kind, 0) + 1
                 times[kind] = times.get(kind, 0) + (time.perf_counter_ns() - start) / 1000
         return call
+    def named_wrapper(kind, original):
+        def call(self, *args, **kwargs):
+            start = time.perf_counter_ns()
+            try:
+                return original(self, *args, **kwargs)
+            finally:
+                counts, times = stats['python_score_calls'], stats['python_score_us']
+                counts[kind] = counts.get(kind, 0) + 1
+                times[kind] = times.get(kind, 0) + (time.perf_counter_ns() - start) / 1000
+        return call
     replacements = [commit, run, scorer, native_wrapper(Scorer.native), native_wrapper(MSTScorer.native),
-                    python_wrapper(Scorer.__call__), python_wrapper(MSTScorer.__call__)]
+                    python_wrapper(Scorer.__call__), python_wrapper(MSTScorer.__call__),
+                    named_wrapper('MSTScorer.scan', MSTScorer.scan), named_wrapper('MSTScorer.full', MSTScorer.full)]
     start = time.perf_counter()
     try:
         for (cls, name, _), replacement in zip(originals, replacements):
@@ -362,6 +412,11 @@ def resolve_measure(board):
     native_common = stats['native_passes_by_scorer'].get('NativeDeltaScoring', {}).get('legal', 0)
     stats['common_python_evaluation_share'] = python_common / (python_common + native_common) \
         if python_common + native_common else None
+    # The one-score search's escape grades: candidates scored in full (the walk's `full`, which calls the scorer itself
+    # in Python) against every candidate scored (native passes' legal ones, Python partial scores).
+    full_calls = stats['python_score_calls'].get('MSTScorer.full', 0)
+    scanned = native_common + stats['python_score_calls'].get('MSTScorer.scan', 0)
+    stats['escape_graded_share'] = full_calls / scanned if scanned else None
     stats['evaluation_share_scope'] = 'common objective evaluation calls; repeated giveway candidates count again; clique pruning is not inferred from legal counts'
     stats['throughput_scope'] = 'native pass only; legality_only excludes later Python scoring; giveway phases can repeat candidates'
     return plan, stats
@@ -470,6 +525,11 @@ def main(argv=None):
                 print(json.dumps({'type': 'median', 'kind': kind, 'measurement_board_search': mode, 'items': len(found),
                                   'old_score_us': statistics.median(r['old_score_us'] for r in found),
                                   'delta_score_us': statistics.median(r['delta_score_us'] for r in found),
+                                  'partial_score_us': statistics.median(r['partial_score_us'] for r in found),
+                                  'best_few_us': statistics.median(r['best_few_us'] for r in found),
+                                  'six_term_us': statistics.median(r['six_term_us'] for r in found
+                                                                   if r['six_term_us'] is not None)
+                                  if any(r['six_term_us'] is not None for r in found) else None,
                                   'fallbacks': dict(Counter(r['fallback_reason'] for r in found if r['fallback_reason'])),
                                   'split': split_medians(found)}), flush=True)
     return 0

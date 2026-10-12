@@ -1384,7 +1384,10 @@ is left unplaced instead. An unplaced item pulls nothing and blocks
 nothing, and the finding says what stopped it. A scored scan over a wide
 radius is coarse first (`place.coarse_stride` apart) and fine only round its
 best spots (the best `place.refine_spots` by score, and, where riders
-constrain the spot, the best that they take), so a wide `radius=` costs little. A part the script places
+constrain the spot, the best that they take), so a wide `radius=` costs little. The search scores each
+candidate on the run score's terms but the escape grades (`escape_via`, `escape_closed`) and the walled check; the
+best `place.escape_spots` by that which wall no pad are scored in full and ranked by the full score, and the
+refinement's seeds and the spot taken come from them (an explore's draw scores every candidate in full). A part the script places
 later is not an obstacle where the generator left it, only once it is
 placed. The step note says which of these happened.
 
@@ -5434,6 +5437,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `place.coarse_stride` | `4` | count | how many steps apart a scored scan's first pass walks |
 | `place.coarse_min_radius_steps` | `12.0` | steps | a scored scan does a coarse pass first when its radius is at least this many steps; below it one fine pass is cheaper |
 | `place.refine_spots` | `3` | count | how many of the best coarse spots get a fine pass: this many by score, and, where the part's riders refuse some spots, this many of those they take |
+| `place.escape_spots` | `8` | count | how many candidates of a scan the one-score search gives the escape grades and the walled check: the best this many by every other term that wall no pad, going down that order past each that does; the rest rank below them |
 | `place.block_gap_step` | `0.05` | mm | how finely a block's tightest gap is searched |
 | `place.block_gap_reach` | `2.0` | mm | how far a satellite may stand off its pin |
 | `place.copper_room` | `true` | bool | whether placement keeps room for the copper the script declares: a track or via declared between parts is planned provisionally, and a part standing Beside another moves out of its way. False places as before |
@@ -5477,7 +5481,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `place.approach_reach` | `8.0` | mm | how far along a pad's airwire toward its nearest target the `escape.pinched` check looks for a gap between two other parts' copper that the pad's track does not fit through |
 | `place.approach_detour` | `2.0` | mm | how far to either side of that airwire a track may go round such a gap, on the pad's layer and crossing no other net's airwire, and still count as a way: a pinch with a way round within it is no `escape.pinched` finding |
 | `place.turn_gain_mm` | `2.0` | mm | the least reduction of the common run score for another legal turn at the same body centre to produce a `turn.better` finding |
-| `place.search_wire` | `"clique"` | choice | temporary measured search comparison: clique keeps the existing scorer; mst evaluates the complete common objective exhaustively. One of: clique, mst. |
+| `place.search_wire` | `"mst"` | choice | temporary measured search comparison: mst is the one-score search (the run score's terms, the escape grades on the best `place.escape_spots`); clique is the pull estimate. One of: clique, mst. |
 | `place.turn_gain_share` | `0.05` | share | the least share of the item's wire and declared-link contribution the common run-score gain must reach for a `turn.better` finding |
 | `place.turn_held_words` | `["turn", "turned", "turns", "rotation", "rotated", "rotate", "facing", "faces", "degrees"]` | list | words that, in the `why=` of an item whose turn the script fixes, say the turn was chosen: a better turn is then a `turn.better` notice with `held_by` "why" and no edit |
 | `place.split_min_group` | `2` | count | the least members a group needs to count as one, in a cell's `split` finding |

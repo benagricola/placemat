@@ -9,6 +9,7 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass, field
 import functools
+import heapq
 import math
 
 from . import geometry as _geometry_module
@@ -234,6 +235,10 @@ UNSCORED = (0, 0.0)
 # The pads walled off by a candidate a scorer did not weigh (pruned, or past a limit): more than any count, so it ranks
 # below every candidate weighed in full, as a pruned cost ranked above any real one. The native scorers' i64::MAX.
 UNWEIGHED = 2 ** 63 - 1
+# The standing of a candidate the one-score search scored on every term but the escape grades and the walled check
+# (score_search.MSTScorer.scan): below every count of pads walled, above a pruned one. The native scorer's
+# i64::MAX - 1.
+PARTIAL = UNWEIGHED - 1
 # Whether a candidate the sweeper judged legal less its carried vias (and, for the net ties, in Python) is judged again
 # before they give way: it need not be, and the answers are the same (tests/test_scan_order.py).
 JUDGE_ONCE = True
@@ -251,6 +256,16 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
     lowest cost of a candidate that walls none. Rotations are tried in numeric order regardless of how
     they were passed. A scored scan over a wide radius is coarse first,
     then fine around its best spots.
+
+    A scorer with `scan` and `full` (score_search.MSTScorer, the one-score
+    search, D25) is asked `scan` of each candidate: every term but the escape
+    grades and the walled check. Each time the scan reads its best (the
+    refinement's seeds, the choice) it walks the candidates in that partial
+    order, asking `full` of each, until `place.escape_spots` of them wall no
+    pad beyond the lifted board's (`walled_base`) or the candidates run out;
+    it ranks those by the full score, and the
+    rest below them. With `pick` every candidate is asked `full` instead, as
+    the draw reads them all.
 
     `accept(placement)`, when given, is asked of a candidate the item's own
     test passed (the items riding the one scanned, layout.py): None counts
@@ -279,6 +294,12 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
     seen: set = set()
     native = occ.native_sweeper(item, hint.face, rots, others, clearance) if NATIVE_SWEEP else None
     scoring = score.native(rots, hint.face) if native is not None and hasattr(score, "native") else None
+    # The one-score search scores each candidate on every term but the escape grades (`scan`), and the best few in
+    # full (`ranked`); an explore's draw reads every candidate, so it scores them all in full.
+    weigh = score.scan if score is not None and pick is None and hasattr(score, "scan") else score
+    partial = weigh is not score
+    if scoring is not None and hasattr(scoring, "escapes"):
+        scoring.escapes = not partial
     if scoring is not None and hasattr(scoring, "begin_scan"):
         scoring.begin_scan()            # a pruning scorer prunes by this scan's own best candidates
     # Carried vias that may give way (giveway.py): a pass judges the item as it is first; the
@@ -315,6 +336,51 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
                     break
         return out
 
+    python_scored: dict = {}            # (x, y, rotation) -> what a give way adds, for a candidate scored in Python
+    weighed: dict = {}                  # (x, y, rotation) -> (walled, cost) in full, for a candidate the walk took
+    unpruned: dict = {}                 # (x, y, rotation) -> the partial cost of a pruned candidate the walk reached
+
+    def where(cand) -> tuple:
+        return cand.location.x, cand.location.y, cand.rotation
+
+    def in_full(entry) -> tuple:
+        """(walled, cost) of a candidate scored in full, with what its give way adds; once per candidate."""
+        key = where(entry[3])
+        if key not in weighed:
+            python = key in python_scored
+            walled, cost = score.full(entry[3], python=python)
+            weighed[key] = (walled, cost + python_scored.get(key, 0.0))
+        return weighed[key]
+
+    def ranked(entries, n: int | None, counts: bool = False) -> list:
+        """The first `n` (all, for None) of `entries` by score; `counts`: only those `accept` counts. With the
+        one-score search, the candidates in their partial order are scored in full until `place.escape_spots` that
+        wall no pad beyond the lifted board's are (those `accept` refuses are passed over), or they run out: a pruned
+        one reached is given its partial cost and goes back in that order. Those scored in full rank by it, and only
+        they are given: every other ranks below them."""
+        if not partial:
+            out = sorted(entries, key=lambda k: k[:3])
+            return counted(out, n) if counts else (out if n is None else out[:n])
+        heap = [((unpruned.get(where(e[3]), e[0][1]), e[1], e[2]), k, e) for k, e in enumerate(entries)]
+        heapq.heapify(heap)
+        taken = 0
+        while heap and taken < score.spots:
+            _, k, e = heapq.heappop(heap)
+            cand = e[3]
+            if e[0][0] == UNWEIGHED and where(cand) not in unpruned:
+                unpruned[where(cand)] = score.partial(cand)
+                heapq.heappush(heap, ((unpruned[where(cand)], e[1], e[2]), k, e))
+                continue
+            if counts and refused(cand):
+                continue
+            if in_full(e)[0] <= score.walled_base:       # walls no pad the lifted board does not
+                taken += 1
+        out = sorted(((weighed[where(e[3])],) + tuple(e[1:]) for e in entries if where(e[3]) in weighed),
+                     key=lambda k: k[:3])
+        if counts:
+            out = [e for e in out if not refused(e[3])]
+        return out if n is None else out[:n]
+
     def blocker_key(b) -> tuple:
         return (b.kind, b.owner, "/".join(sorted(f.value for f in b.faces)))
 
@@ -341,7 +407,8 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
 
     least = giveway.least_cost(occ.settings, getattr(occ, "fab_via_tiers", None))
     best = score.best if score and hasattr(score, "best") else None
-    bounded = best is not None and pick is None and accept is None     # a spot that cannot be the best is not asked
+    # a spot that cannot be the best is not asked; a partial cost bounds nothing of the full one
+    bounded = best is not None and pick is None and accept is None and not partial
     n_bound = [0]                       # how many such spots: they had room, and are neither legal nor refused
 
     def gave_way(cand, legal: list, judged: bool = False):
@@ -367,7 +434,7 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
         sc, before = UNSCORED, None
         if score:
             before = best[0] if best is not None else None
-            sc = score(cand)
+            sc = weigh(cand)
             if best is not None:
                 best[0] = before
             # `before` is the lowest cost of a spot that walls nothing: this one cannot beat it walling a pad, nor at
@@ -385,6 +452,8 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
         if not (inline and refused(cand)):
             if best is not None:
                 best[0] = min(before, sc[1] + res.cost) if not sc[0] else before
+            if partial:
+                python_scored[where(cand)] = res.cost
             d = math.hypot(cand.location.x - hint.location.x, cand.location.y - hint.location.y)
             legal.append(((sc[0], sc[1] + res.cost), d, tie(cand), cand))
         return None
@@ -427,7 +496,9 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
                     if inline and refused(cand):
                         continue
                     d = math.hypot(x - hint.location.x, y - hint.location.y)
-                    legal.append((score(cand) if score else UNSCORED, d, tie(cand), cand))
+                    if partial:
+                        python_scored[where(cand)] = 0.0
+                    legal.append((weigh(cand) if score else UNSCORED, d, tie(cand), cand))
                     if stop_at_first:
                         for c, h, bl in held:
                             tally(h[0], h[1], [blocker_key(b) for b in bl])
@@ -507,7 +578,9 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
             if inline and refused(cand):
                 continue
             d = math.hypot(x - hint.location.x, y - hint.location.y)
-            legal.append((((sc[1], sc[0]) if scored else score(cand)) if score else UNSCORED, d, tie(cand), cand))
+            if partial and not scored:
+                python_scored[where(cand)] = 0.0
+            legal.append((((sc[1], sc[0]) if scored else weigh(cand)) if score else UNSCORED, d, tie(cand), cand))
             if stop_at_first:
                 break
         if gw is None or (stop_at_first and legal):
@@ -642,9 +715,9 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
             # The best coarse spots by score seed the refinement, and so do the best `accept` takes: a coarse spot
             # that `accept` (the riders) refuses can have a neighbour a fine step away that it takes, and a score
             # better than any spot near the ones it does take.
-            seeds = [cand for _, _, _, cand in legal[:cfg.place_refine_spots]]
+            seeds = [cand for _, _, _, cand in ranked(legal, cfg.place_refine_spots)]
             if accept is not None:
-                seeds += [cand for _, _, _, cand in counted(legal, cfg.place_refine_spots)
+                seeds += [cand for _, _, _, cand in ranked(legal, cfg.place_refine_spots, True)
                           if not any(cand is seed for seed in seeds)]
             for k, cand in enumerate(seeds):
                 if spent():
@@ -656,7 +729,9 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
                 # "within radius of the hint" is what a script gets.
                 legal += sweep(lattice(cand.location, coarse, step, (hint.location.x, hint.location.y, radius)), False)
     if accept is not None and not inline:
-        legal = counted(sorted(legal, key=lambda k: k[:3]), 1 if pick is None else None)
+        legal = ranked(legal, 1 if pick is None else None, True)
+    elif partial and legal:
+        legal = ranked(legal, 1)
     cut = budget.measurement() if budget is not None and budget.cut else None
     if not legal:
         return ScanResult(None, hint, tried, rejected, reasons, blockers, cut=cut, bound=n_bound[0])

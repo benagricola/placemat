@@ -836,7 +836,8 @@ impl PreparedSurface {
         Ok(((wire, cross, link, over, area, congestion), crossed, vias, away, walled, ways, identities))
     }
 
-    fn check(&self, candidate: &PreparedCandidate, delta: &NativeDelta) -> PyResult<()> {
+    /// That the candidate and the delta are the ones this surface was prepared with, at the same revision.
+    pub(crate) fn check(&self, candidate: &PreparedCandidate, delta: &NativeDelta) -> PyResult<()> {
         if !Arc::ptr_eq(&self.identity, &candidate.identity) {
             return Err(PyValueError::new_err(
                 "prepared surface candidate identity changed",
@@ -855,24 +856,6 @@ impl PreparedSurface {
     /// The escape search depth, for the signed escaped-crossing change.
     pub(crate) fn depth(&self) -> f64 {
         self.settings.depth
-    }
-
-    /// `evaluate`'s first checks and the candidate's geometry: the snapshot identities, the placed shapes and their
-    /// validation. A staged caller runs it first, so a candidate it prunes is refused as `evaluate` refuses it.
-    pub(crate) fn place_candidate(&self, py: Python<'_>, candidate: &mut PreparedCandidate,
-        delta: &NativeDelta, x: f64, y: f64, turn: usize) -> PyResult<()> {
-        self.check(candidate, delta)?;
-        candidate.evaluate(py, (x, y), turn)?;
-        self.contacts.validate_candidate(py, candidate, turn)
-    }
-
-    /// (vias, away, walled) of a candidate `place_candidate` has placed and whose wire and crossings `delta` has
-    /// just solved (`wire_cross` at the same x, y and turn): the escape judgements of `evaluate`, without its wire,
-    /// crossings or layout terms.
-    pub(crate) fn escape_counts(&mut self, py: Python<'_>, candidate: &mut PreparedCandidate,
-        delta: &mut NativeDelta, turn: usize) -> PyResult<(usize, usize, usize)> {
-        let (vias, away, walled, _, _) = self.fields(py, candidate, delta, turn, false, &mut None)?;
-        Ok((vias, away, walled))
     }
 
     #[allow(clippy::type_complexity)]
