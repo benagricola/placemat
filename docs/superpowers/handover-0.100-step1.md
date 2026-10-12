@@ -3,8 +3,9 @@
 For the session that continues step 1. It updates docs/superpowers/handover-0.100.md, which still holds for the lanes,
 the shared machine, the release line and the merge rules; read that first, then this, then the plan.
 
-State as of 2026-10-11. Step 0 (the reference set) is merged on main (175358af) and released with 0.99.35. Step 1 is
-not merged, pushed or released.
+State as of 2026-10-12. Step 0 (the reference set) is merged on main (175358af) and released with 0.99.35. Step 1 is
+not merged, pushed or released. 0.100.0 is steps 1 and 2 together (the user, 2026-10-12): step 1's merge releases
+nothing on its own; step 2's Task 17 starts when it merges.
 
 ## What happened on 2026-10-08 to 2026-10-11
 
@@ -33,6 +34,33 @@ when the router has no such script, `width_policy_failed` for a timeout, a non-z
 Also fixed (b079eaf5): the plan, spec and test for `run --route-rank` are back to Task 20's design, which the code
 follows; the retired-setting refusal no longer reads "set set"; migration.md has the `[route] islands` example.
 
+## What happened on 2026-10-12
+
+- Rulings S13-S23 and decisions D29-D31 are in the plan and the ledger. In short:
+  - there are no default phases: `placemat settings --example` writes example phases, ending with a `pours` phase;
+  - a pour net named in a phase is joined by the router's via drops (repair_planes.py), then tracked by tasks for the
+    pad groups still apart (kicad/pour_join.py), all judged in KiCad's view;
+  - an obligation is violated only by a DRC error its phase's input board did not have (S15).
+- KRT fork:
+  - the pocket-wall rip rule (rounds 1-4);
+  - `fp` on `--connections` ends;
+  - plane repair for a caller that tracks;
+  - the via hole floor (S18);
+  - the `apart` task field (S22, S23);
+  - diff-pair GND return vias kept clear of the pair (b19e9a51).
+  Authors were rewritten to Ben Agricola, so older KRT hashes in this file are stale.
+- Main (0.99.36) is merged in (29d49e40). The worktree's _version.py must be main's copy, or the native module is
+  not used and routing runs about 4x slower (the first gate run was measured that way).
+- Reference runners: a board is worse when closure_clean falls, open connections (pour and non-pour, reported apart)
+  rise, or new DRC rises (378733a4).
+- The user's gate decisions:
+  - pour-net opens now counted are accepted into the baseline, since the old baseline never joined or counted pour
+    nets;
+  - the esp-rust-board USB short is fixed in the fork's return vias;
+  - pic_programmer (b) VCC_PIC and usb-c (b), blocked by earlier-phase copper, are recorded as known.
+  Rip-and-reroute is built after the merge and before 0.100.0: a later call may rip earlier-phase copper that blocks
+  it, rerouting those connections in the same call at their own phase's settings.
+
 ## Read, in order
 
 1. ~/.claude/CLAUDE.md, this repo's CLAUDE.md, CHARTER.md and the memory index (loaded for you).
@@ -58,8 +86,8 @@ result worse than the recorded baseline, goes to the user before work on it star
 | Repo | Worktree | Branch | Pushed |
 |---|---|---|---|
 | placemat | /home/ben/work/placemat/.claude/worktrees/routing-phases | step1-routing-phases (main merged in at 9b4f8be4) | no (local) |
-| KRT fork | /home/ben/work/KRT-phases | placemat/connections | `fork` |
-| KRT fork base | /home/ben/work/KRT-base-10b | placemat/upstream-2026-10b | `fork` |
+| KRT fork | /home/ben/work/KRT-phases | placemat/connections (b19e9a51) | `fork` |
+| KRT fork base | /home/ben/work/KRT-base-10b | placemat/upstream-2026-10b (075c9166) | `fork` |
 | Zener fork | /home/ben/work/pcb-phases | feat/nets-layout-json (318b4b0d) | `origin` (benagricola/pcb) |
 
 - Run placemat in the worktree as `PYTHONPATH=<worktree>/src /home/ben/work/placemat/.venv/bin/python`. Tests need
@@ -67,8 +95,11 @@ result worse than the recorded baseline, goes to the user before work on it star
   src/placemat/_version.py is a copy of main's.
 - ~/work/KRT-upstream and ~/work/pcb are live for every session; they move to the fork commits only in Task 26.
   Other sessions own the other KRT-* worktrees: never write there.
-- Real-board runs one at a time under the real-board lock named in the ledger folder's constraints.md (the reference
-  runners take it themselves: do not wrap them in it again). Stop and ask below 20 GB free disk.
+- Real-board runs go straight away on a lock of your own: set REALBOARD_LOCK to a path in your scratchpad
+  (fixtures/reference/lock.py reads it); never flock the shared lock. Use -j2 at most, and give the load average with
+  every timing. Stop and ask below 20 GB free disk.
+- Tests (the user, 2026-10-12): no whole-suite runs, not even the fast suite, and not KRT's run_all.py, until the
+  merge gate. Run only the named test files covering a change. The full suite runs once, at Task 26.
 
 ## Done
 
@@ -97,38 +128,26 @@ the join: fix rounds A and 2, 71b47e65 and e53e49fd):
 
 ## Reference results so far
 
-None of step 1's measurements is in fixtures/reference/results.json, which still holds step 0's baseline (plus the
-obstructed-route row). The continuation's runs are in /home/ben/work/placemat-review-scratch-20261007/, taken at
-several placemat and KRT commits, none of them the current head. continuation-review-gates.md has the tables. Worse
-than step 0:
-- test (b) pic_programmer: one connection lost (/pic_sockets/VCC_PIC, C6.1 to JP1.2): its tap via site is taken by
-  DATA-RB7 copper routed earlier.
-- test (b) usb-c-power-adapter: open connections 8 to 39. The `current` phase, ahead of `signals`, joins 67 of 70
-  current-path connections (25 before) and leaves signals stranded.
-- test (a) esp-rust-board, both widths: a short and clearance faults between the USB pair and GND.
-- test (a) watchy, both widths: worse than the recorded step 0, from the KRT rebase (the rerun of step 0 on the
-  rebased router gives the same numbers).
+The baselines were re-recorded on 2026-10-12 (rerecord-report.md and gate2-report.md in the ledger folder):
+- test (a) on main with the base router (b0d3bcb2);
+- test (b) and the modules at the step's head, with the 11 hand-placed modules new;
+- test (a) at the step's head.
+The causes of the worse lines are in gate-diagnosis.md. The run after the fixes and the user's decisions is
+gate2-report.md.
 
 ## Next, in order
 
-1. The user's decisions of 2026-10-11:
-   - The splitflap pocket rule (rip the nets that wall in a boxed pin first; research splitflap-pin10/): find why
-     esp-rust-board gets worse with the rule always on, before choosing when it applies. An investigation was
-     dispatched on 2026-10-11.
-   - Pour and pad-interior joins: done (fix rounds A and 2). A join's width is measured along its copper, through
-     fills and pads, each narrow stretch where it lies.
-   - The current-first default phase stays; fix why usb-c-power-adapter's signals are stranded after it.
-2. route_ref: `placemat route` exits 1 when the input board already had DRC faults, and the runner now raises
-   RouteFailure on that, so 7 of the 8 human boards in test (a) read closure 0. Measure such a board as step 0 did
-   (read route.json and count new DRC against the unrouted board), or ask the user to exclude them.
-3. Task 5a: re-record test (a) on the rebased router (`route_ref.py --changing krt --update` with KRT_DIR at the base
-   without the step's commits). The user accepted esp-rust-board's one extra starved_thermal from upstream 8013c817
-   into that baseline; record its cause in the manifest notes.
-4. Tasks 5b and 5c: test (b) against the regenerated boards, and baselines for the 11 hand-placed modules
-   (fairing_hand/*); all of these write results.json.
-5. Task 26: run all three runners with `--update` at the final placemat and KRT heads; a line that prints `worse` or
-   `held back` goes to the user with the numbers. Then the full suite, vulture and the native dead-code build at that
-   head, merge, and release 0.100.0 (the user cuts 1.0, never you). The D28 real-board check is also open.
+1. gate2: write the accepted lines and take any line still worse to the user.
+2. Task 26: the full suite (`pytest --full -n 2`) once, then fix rounds; vulture and the native dead-code build;
+   merge into main; tell the consolidation session and the step 2 session. No release: 0.100.0 waits for step 2.
+3. After the merge, on a branch of its own: rip-and-reroute of earlier-phase copper (the user, 2026-10-12), and the
+   router-call cost (each call re-reads the whole board 5-12 times, 3.8 s per read on usb-c).
+4. Parked lows, in the ledger:
+   - usb-c N1-N3;
+   - the fix round A nits and fix round B minors;
+   - pour reviews P3-P6;
+   - lora-v3's run-to-run variance;
+   - spimux's starved_thermal re-matched as new after a refill.
 
 ## Decisions the user made (all recorded in the plan or the ledger)
 
@@ -158,11 +177,11 @@ than step 0:
 
 ## Working notes
 
-- Run touched test files with `--full` before handing back: slow tests hid regressions before.
+- Run the touched test files with `--full` before handing back: slow tests hid regressions before.
 - Agents in a shared worktree commit only their own paths; tasks that write results.json or edit kicad/route.py run one
   at a time.
 - The one-score session (step 2) consumes step 1's RouteReport fields; tell it if a field name changes. Step 2's
   `final_authority` and `final_check_worker` belong to the parked work and should not be merged without the user.
 - The consolidation session releases 0.99.x from main and knows the close-via fix ships with step 1.
-- The last whole-suite pass (`pytest --full -n 2`) was at b593226e, before the continuation's last commits and the
-  2026-10-11 cleanup; it does not stand for the current head.
+- The last whole-suite pass (`pytest --full -n 2`) was at b593226e and does not stand for the current head. Task 26
+  runs it once.
