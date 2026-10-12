@@ -19,6 +19,9 @@ FAKE = textwrap.dedent('''
     a = sys.argv[1:]
     with open(os.environ["FAKE_ROUTER_LOG"], "a") as f:
         f.write(json.dumps(a) + "\\n")
+    if os.environ.get("FAKE_ROUTER_ENV_LOG"):
+        with open(os.environ["FAKE_ROUTER_ENV_LOG"], "a") as f:
+            f.write(os.environ.get("KICAD_PLANE_FINALIZE", "-") + "\\n")
     fail = os.environ.get("FAKE_ROUTER_FAIL")
     if fail and fail in a:
         sys.exit(3)
@@ -696,12 +699,15 @@ def _drops(call):
 
 
 @needs_kicad
-def test_a_phase_naming_a_pour_net_drops_vias_first_then_routes_only_the_pads_still_apart(rig):
+def test_a_phase_naming_a_pour_net_drops_vias_first_then_routes_only_the_pads_still_apart(rig, monkeypatch, tmp_path):
     """D31: the plane repair runs first on the pour net; the pour (over J1's VIN pad only) still misses U1's, so one
     connection task routes U1.3 to J1.2, the pad the pour reaches. Nothing routes VIN as a whole net."""
     _vin_pour(rig.pcb, 125.6, 127)
+    monkeypatch.setenv("FAKE_ROUTER_ENV_LOG", str(tmp_path / "env"))
     report = rig.route({"name": "pours", "nets": ["VIN"]}, pour_nets={"VIN"})
     calls = rig.calls()
+    # the task call runs with the router's own plane finalize off: the tasks are its only tracking
+    assert (tmp_path / "env").read_text().split()[-1] == "0"
     assert _drops(calls[0]) and calls[0][calls[0].index("--nets") + 1] == "VIN"
     assert calls[0][calls[0].index("--escalation") + 1] == "off"
     # only the pad apart from the pour may be tapped; J1.2 is on it and is left alone

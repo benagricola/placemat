@@ -15,6 +15,7 @@ track for each group still apart.
 picks the tasks (pure), `new_vias` names the vias a call added, and `join_pour` runs the whole of it for one net."""
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass
 import json
 import math
@@ -218,7 +219,12 @@ def join_pour(ctx, board: Path, out: Path, net: str, width, layers, stem: str, p
     after = pad_groups(dropped, net) if dropped != inp else before
     pending = tasks_to_pour(after, net, widths)
     task_common = dict(common, extra_args=tuple(common.get("extra_args") or ()) + ("--no-own-pad-lift",))
-    run = route_tasks(ctx, pending, dropped, stem, layers, task_common, phase) if pending else TaskRun(Path(dropped))
+    # the router's in-run plane finalize (KRT route.py, KICAD_PLANE_FINALIZE) would tap, rip and reconnect the pour
+    # net on its own inside a task call; the tasks are the only tracking join_pour asks of it
+    tasks_ctx = copy.copy(ctx)
+    tasks_ctx.env = dict(ctx.env or {}, KICAD_PLANE_FINALIZE="0")
+    run = route_tasks(tasks_ctx, pending, dropped, stem, layers, task_common, phase) if pending \
+        else TaskRun(Path(dropped))
     shutil.copy(run.board, out)
     _copy_project(inp, out)
     pours_back(str(out), board)
