@@ -4,18 +4,20 @@
       "class": {
         "board": "chainlinkDriver",
         "closure_clean": 1.0,
-        "human_track_mm": 2629.8833862193937,
+        "detail": "",
+        "failure": "",
+        "human_track_mm": 2629.8833862193933,
         "human_vias": 111,
         "new_violations": [],
         "open": 0,
         "open_nets": [],
         "passed": true,
-        "seconds": 14.7,
-        "track_mm": 2319.049807796466,
+        "seconds": 20.6,
+        "track_mm": 2319.135003858159,
         "versions": {
-          "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
+          "krt": "075c9166e6c3ff24dd3a7b1deaca71e5bdc26cc9",
           "pcb": "pcbc 0.4.52",
-          "placemat": "a3e7b36e27eeabf822a9377719e909f025ff1d5c"
+          "placemat": "608f64fe6c35019165660c2030669249ae41ef59"
         },
         "vias": 118,
         "widths": "class"
@@ -23,18 +25,20 @@
       "human": {
         "board": "chainlinkDriver",
         "closure_clean": 1.0,
-        "human_track_mm": 2629.8833862193937,
+        "detail": "",
+        "failure": "",
+        "human_track_mm": 2629.8833862193933,
         "human_vias": 111,
         "new_violations": [],
         "open": 0,
         "open_nets": [],
         "passed": true,
-        "seconds": 12.9,
-        "track_mm": 2277.6145692403,
+        "seconds": 18.8,
+        "track_mm": 2285.566041102877,
         "versions": {
-          "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
+          "krt": "075c9166e6c3ff24dd3a7b1deaca71e5bdc26cc9",
           "pcb": "pcbc 0.4.52",
-          "placemat": "a3e7b36e27eeabf822a9377719e909f025ff1d5c"
+          "placemat": "608f64fe6c35019165660c2030669249ae41ef59"
         },
         "vias": 107,
         "widths": "human"
@@ -74,6 +78,8 @@
       "human": {
         "board": "esp-rust-board",
         "closure_clean": 1.0,
+        "detail": "",
+        "failure": "",
         "human_track_mm": 878.6372571665057,
         "human_vias": 216,
         "new_violations": [
@@ -91,12 +97,12 @@
         "open": 0,
         "open_nets": [],
         "passed": false,
-        "seconds": 10.1,
-        "track_mm": 671.7076321795605,
+        "seconds": 22.1,
+        "track_mm": 670.613219016998,
         "versions": {
-          "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
+          "krt": "075c9166e6c3ff24dd3a7b1deaca71e5bdc26cc9",
           "pcb": "pcbc 0.4.52",
-          "placemat": "a3e7b36e27eeabf822a9377719e909f025ff1d5c"
+          "placemat": "608f64fe6c35019165660c2030669249ae41ef59"
         },
         "vias": 56,
         "widths": "human"
@@ -106,6 +112,8 @@
       "class": {
         "board": "ir-irradiance-probe",
         "closure_clean": 0.8861,
+        "detail": "",
+        "failure": "",
         "human_track_mm": 395.518257241467,
         "human_vias": 196,
         "new_violations": [
@@ -135,19 +143,21 @@
         "open": 0,
         "open_nets": [],
         "passed": false,
-        "seconds": 19.9,
-        "track_mm": 322.3453192375622,
+        "seconds": 50.1,
+        "track_mm": 325.3453192375623,
         "versions": {
-          "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
+          "krt": "075c9166e6c3ff24dd3a7b1deaca71e5bdc26cc9",
           "pcb": "pcbc 0.4.52",
-          "placemat": "a3e7b36e27eeabf822a9377719e909f025ff1d5c"
+          "placemat": "608f64fe6c35019165660c2030669249ae41ef59"
         },
-        "vias": 17,
+        "vias": 18,
         "widths": "class"
       },
       "human": {
         "board": "ir-irradiance-probe",
         "closure_clean": 0.962,
+        "detail": "",
+        "failure": "",
         "human_track_mm": 395.518257241467,
         "human_vias": 196,
         "new_violations": [
@@ -166,14 +176,14 @@
         "open": 0,
         "open_nets": [],
         "passed": false,
-        "seconds": 19.8,
-        "track_mm": 320.37664498999254,
+        "seconds": 47.9,
+        "track_mm": 323.3766449899926,
         "versions": {
-          "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
+          "krt": "075c9166e6c3ff24dd3a7b1deaca71e5bdc26cc9",
           "pcb": "pcbc 0.4.52",
-          "placemat": "a3e7b36e27eeabf822a9377719e909f025ff1d5c"
+          "placemat": "608f64fe6c35019165660c2030669249ae41ef59"
         },
-        "vias": 16,
+        "vias": 17,
         "widths": "human"
       }
     },
@@ -181,6 +191,8 @@
       "class": {
         "board": "lora-v3",
         "closure_clean": 1.0,
+        "detail": "",
+        "failure": "",
         "human_track_mm": 1257.8193135423633,
         "human_vias": 150,
         "new_violations": [
@@ -218,19 +230,21 @@
         "open": 0,
         "open_nets": [],
         "passed": false,
-        "seconds": 58.4,
-        "track_mm": 1410.5242344898763,
+        "seconds": 56.7,
+        "track_mm": 1446.501055129092,
         "versions": {
-          "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
+          "krt": "075c9166e6c3ff24dd3a7b1deaca71e5bdc26cc9",
           "pcb": "pcbc 0.4.52",
-          "placemat": "a3e7b36e27eeabf822a9377719e909f025ff1d5c"
+          "placemat": "608f64fe6c35019165660c2030669249ae41ef59"
         },
-        "vias": 116,
+        "vias": 113,
         "widths": "class"
       },
       "human": {
         "board": "lora-v3",
         "closure_clean": 1.0,
+        "detail": "",
+        "failure": "",
         "human_track_mm": 1257.8193135423633,
         "human_vias": 150,
         "new_violations": [
@@ -268,14 +282,14 @@
         "open": 0,
         "open_nets": [],
         "passed": false,
-        "seconds": 57.6,
-        "track_mm": 1410.5242344898763,
+        "seconds": 55.6,
+        "track_mm": 1446.501055129092,
         "versions": {
-          "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
+          "krt": "075c9166e6c3ff24dd3a7b1deaca71e5bdc26cc9",
           "pcb": "pcbc 0.4.52",
-          "placemat": "a3e7b36e27eeabf822a9377719e909f025ff1d5c"
+          "placemat": "608f64fe6c35019165660c2030669249ae41ef59"
         },
-        "vias": 116,
+        "vias": 113,
         "widths": "human"
       }
     },
@@ -283,13 +297,15 @@
       "class": {
         "board": "pic_programmer",
         "closure_clean": 1.0,
+        "detail": "",
+        "failure": "",
         "human_track_mm": 1745.7030331706978,
         "human_vias": 6,
         "new_violations": [
           {
             "at_mm": [
-              100.12,
-              69.872422
+              99.06,
+              70.26
             ],
             "nets": [
               "GND"
@@ -298,8 +314,8 @@
           },
           {
             "at_mm": [
-              99.06,
-              70.26
+              100.12,
+              69.872422
             ],
             "nets": [
               "GND"
@@ -310,32 +326,24 @@
         "open": 0,
         "open_nets": [],
         "passed": false,
-        "seconds": 19.7,
-        "track_mm": 1685.994580440353,
+        "seconds": 26.6,
+        "track_mm": 1687.4931085777773,
         "versions": {
-          "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
+          "krt": "075c9166e6c3ff24dd3a7b1deaca71e5bdc26cc9",
           "pcb": "pcbc 0.4.52",
-          "placemat": "a3e7b36e27eeabf822a9377719e909f025ff1d5c"
+          "placemat": "608f64fe6c35019165660c2030669249ae41ef59"
         },
-        "vias": 47,
+        "vias": 48,
         "widths": "class"
       },
       "human": {
         "board": "pic_programmer",
-        "closure_clean": 0.8721,
+        "closure_clean": 1.0,
+        "detail": "",
+        "failure": "",
         "human_track_mm": 1745.7030331706978,
         "human_vias": 6,
         "new_violations": [
-          {
-            "at_mm": [
-              100.12,
-              69.872422
-            ],
-            "nets": [
-              "GND"
-            ],
-            "type": "track_width"
-          },
           {
             "at_mm": [
               99.06,
@@ -348,27 +356,26 @@
           },
           {
             "at_mm": [
-              119.17,
-              64.77
+              100.12,
+              69.872422
             ],
             "nets": [
-              "GND",
-              "VCC"
+              "GND"
             ],
-            "type": "clearance"
+            "type": "track_width"
           }
         ],
         "open": 0,
         "open_nets": [],
         "passed": false,
-        "seconds": 19.5,
-        "track_mm": 1737.8217015790403,
+        "seconds": 25.7,
+        "track_mm": 1722.9538300240215,
         "versions": {
-          "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
+          "krt": "075c9166e6c3ff24dd3a7b1deaca71e5bdc26cc9",
           "pcb": "pcbc 0.4.52",
-          "placemat": "a3e7b36e27eeabf822a9377719e909f025ff1d5c"
+          "placemat": "608f64fe6c35019165660c2030669249ae41ef59"
         },
-        "vias": 48,
+        "vias": 47,
         "widths": "human"
       }
     },
@@ -376,6 +383,8 @@
       "class": {
         "board": "spimux",
         "closure_clean": 0.8649,
+        "detail": "",
+        "failure": "",
         "human_track_mm": 864.5488065348824,
         "human_vias": 43,
         "new_violations": [
@@ -399,12 +408,12 @@
           "/~{SPI_FLASH_CS_L}"
         ],
         "passed": false,
-        "seconds": 9.6,
-        "track_mm": 603.2095870610773,
+        "seconds": 16.0,
+        "track_mm": 603.4439016361281,
         "versions": {
-          "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
+          "krt": "075c9166e6c3ff24dd3a7b1deaca71e5bdc26cc9",
           "pcb": "pcbc 0.4.52",
-          "placemat": "a3e7b36e27eeabf822a9377719e909f025ff1d5c"
+          "placemat": "608f64fe6c35019165660c2030669249ae41ef59"
         },
         "vias": 43,
         "widths": "class"
@@ -412,6 +421,8 @@
       "human": {
         "board": "spimux",
         "closure_clean": 0.8649,
+        "detail": "",
+        "failure": "",
         "human_track_mm": 864.5488065348824,
         "human_vias": 43,
         "new_violations": [
@@ -435,12 +446,12 @@
           "/~{SPI_FLASH_CS_L}"
         ],
         "passed": false,
-        "seconds": 9.7,
-        "track_mm": 603.2095870610774,
+        "seconds": 14.6,
+        "track_mm": 603.4439016361281,
         "versions": {
-          "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
+          "krt": "075c9166e6c3ff24dd3a7b1deaca71e5bdc26cc9",
           "pcb": "pcbc 0.4.52",
-          "placemat": "a3e7b36e27eeabf822a9377719e909f025ff1d5c"
+          "placemat": "608f64fe6c35019165660c2030669249ae41ef59"
         },
         "vias": 43,
         "widths": "human"
@@ -450,39 +461,43 @@
       "class": {
         "board": "usb-c-power-adapter",
         "closure_clean": 1.0,
+        "detail": "",
+        "failure": "",
         "human_track_mm": 437.6509716398021,
         "human_vias": 229,
         "new_violations": [],
         "open": 0,
         "open_nets": [],
         "passed": true,
-        "seconds": 18.1,
-        "track_mm": 206.25164524614348,
+        "seconds": 24.1,
+        "track_mm": 201.01982881479427,
         "versions": {
-          "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
+          "krt": "075c9166e6c3ff24dd3a7b1deaca71e5bdc26cc9",
           "pcb": "pcbc 0.4.52",
-          "placemat": "a3e7b36e27eeabf822a9377719e909f025ff1d5c"
+          "placemat": "608f64fe6c35019165660c2030669249ae41ef59"
         },
-        "vias": 21,
+        "vias": 23,
         "widths": "class"
       },
       "human": {
         "board": "usb-c-power-adapter",
         "closure_clean": 1.0,
+        "detail": "",
+        "failure": "",
         "human_track_mm": 437.6509716398021,
         "human_vias": 229,
         "new_violations": [],
         "open": 0,
         "open_nets": [],
         "passed": true,
-        "seconds": 26.2,
-        "track_mm": 201.13688013619796,
+        "seconds": 61.7,
+        "track_mm": 200.26328271147358,
         "versions": {
-          "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
+          "krt": "075c9166e6c3ff24dd3a7b1deaca71e5bdc26cc9",
           "pcb": "pcbc 0.4.52",
-          "placemat": "a3e7b36e27eeabf822a9377719e909f025ff1d5c"
+          "placemat": "608f64fe6c35019165660c2030669249ae41ef59"
         },
-        "vias": 31,
+        "vias": 27,
         "widths": "human"
       }
     },
