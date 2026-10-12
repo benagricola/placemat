@@ -477,7 +477,8 @@ def _one_score_move(occ, fp, k, cur, one_score, hints, radius, step, rotations, 
     from .score_search import ScoreDomainError
     scorer = one_score(fp)
     try:
-        now = scorer(cur)
+        # the scans' own turns, so the part's spot is scored on the surface they prepare, natively
+        now = _in_full(scorer, [cur], tuple(sorted({r % 360 for r in rotations})))[0]
         best = None
         for h in hints:
             r = scan(occ, fp, h, radius, step, rotations, clearance, score=_limited(scorer, k, limits_ok, satellite_ok))
@@ -503,11 +504,11 @@ def _one_score_swap(occ, movable, ref_of, a, b, spot, moved, one_score) -> bool:
         occ.commit(movable[b], spot[b])
         occ.lift([ref_of[a]])
         first = one_score(movable[a])
-        before, a_moved = first(spot[a]), first(moved[a])
+        before, a_moved = _in_full(first, [spot[a], moved[a]])
         occ.commit(movable[a], moved[a])
         occ.lift([ref_of[b]])
         second = one_score(movable[b])
-        b_still, after = second(spot[b]), second(moved[b])
+        b_still, after = _in_full(second, [spot[b], moved[b]])
         occ.commit(movable[b], moved[b])
     except ScoreDomainError:
         for k in (a, b):
@@ -516,3 +517,14 @@ def _one_score_swap(occ, movable, ref_of, a, b, spot, moved, one_score) -> bool:
         return False
     change = (a_moved[1] - before[1]) + (after[1] - b_still[1])
     return after[0] <= before[0] and change < -_EPS
+
+
+def _in_full(scorer, placements, rotations=None):
+    """(walled, cost) of each of `placements` (one face) scored in full by the one-score scorer: natively, on the
+    surface it prepares for `rotations` (else the placements' own turns) when that holds their turns, else in Python
+    (the same value to the bit)."""
+    face = placements[0].face
+    rots = rotations if rotations is not None else tuple(sorted({p.rotation for p in placements}))
+    if all(p.face == face and p.rotation in rots for p in placements):
+        scorer.native(rots, face)
+    return [scorer.full(p) for p in placements]

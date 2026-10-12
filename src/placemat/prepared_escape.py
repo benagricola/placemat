@@ -241,7 +241,8 @@ def prepare(delta, rotations, face, *, rest_cache=False):
             return None, 'complete native rest-field cache unavailable'
         baseline = delta._escape_delta
         from .escapes import Way
-        regular = {key for key, way in baseline.ways.items() if way is Way.WALLED}
+        ways = baseline.ways                # built once: the property makes a new dict each time it is read
+        regular = {key for key, way in ways.items() if way is Way.WALLED}
         declared = {key for key in baseline.nets if baseline._base_walls(key)[0]}
         handoffs = {key for key in baseline.nets if baseline._base_walls(key)[1]}
         numbers = {None: 4, Way.SURFACE: 0, Way.VIA: 1, Way.AWAY: 2, Way.WALLED: 3}
@@ -258,7 +259,7 @@ def prepare(delta, rotations, face, *, rest_cache=False):
                 # region already includes every lane/spot and own-copper chain
                 # with maximal class/rule/hole/via reach and one search cell.
                 region = baseline._wall_regions[key]
-                cached.append((number, net, unconnected, numbers[baseline.ways.get(key)],
+                cached.append((number, net, unconnected, numbers[ways.get(key)],
                                (region.left, region.top, region.right, region.bottom),
                                key in regular or key in declared, key in handoffs))
             records.append((ref, cached))

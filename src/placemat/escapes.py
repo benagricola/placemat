@@ -1573,6 +1573,29 @@ def path_out(occ, ref: str, number: str, depth: float | None = None, toward=None
     walls = [s.box.inflate(track) for s in foes if s.layers & layers] + [h.box.inflate(track + delta[id(h)]) for h in holes]
     vias = [s.box.inflate(via) for s in foes] + [s.box.inflate(via + delta[id(s)]) for s in holes + bans]
     cell = occ.settings.place_escape_cell
+    # The search below reads only these boxes, the window, the pad, the cell and `toward`: the same inputs give the same
+    # answer, so a lifted board's judgement (every Delta's) does not search a pad's unchanged surroundings again.
+    key = (_box_key(win), _box_key(pad), cell, None if toward is None else tuple(toward), tuple(sorted(map(_box_key, walls))),
+           tuple(sorted(map(_box_key, vias))))
+    hit = _BOX_PATHS.get(key)
+    if hit is None:
+        if len(_BOX_PATHS) >= _BOX_PATHS_MAX:
+            _BOX_PATHS.clear()
+        hit = _BOX_PATHS[key] = _path_out_boxes(win, pad, cell, toward, walls, vias)
+    return hit
+
+
+# The box search's answers by its inputs (`path_out`, exact off), and how many are kept before they are dropped.
+_BOX_PATHS: dict = {}
+_BOX_PATHS_MAX = 200_000
+
+
+def _box_key(b) -> tuple:
+    return b.left, b.top, b.right, b.bottom
+
+
+def _path_out_boxes(win, pad, cell, toward, walls, vias) -> bool:
+    """`path_out`'s search with the obstacles taken as their boxes: `walls` block a track's cell, `vias` a via's."""
     nx = max(1, int(math.ceil(win.width / cell)))
     ny = max(1, int(math.ceil(win.height / cell)))
     cw, ch = win.width / nx, win.height / ny
