@@ -27,6 +27,7 @@ from enum import Enum
 import copy
 import math
 import re
+import weakref
 
 from .geometry import point_in_polygon, point_segment_distance, polys_overlap, segments_intersect
 from .occupancy import ALLOW_SEP
@@ -497,12 +498,19 @@ class _Grid:
                 bucket.remove(item)
 
     def near(self, box):
-        seen = set()
-        for c in _cells(box):
-            for item in self.cells.get(c, ()):
-                if id(item) not in seen:
-                    seen.add(id(item))
-                    yield item
+        """The items in the cells `box` covers, each once, in the order of their cells and then of each cell's list."""
+        get = self.cells.get
+        x0, x1 = math.floor(box.left / _CELL), math.floor(box.right / _CELL)
+        y0, y1 = math.floor(box.top / _CELL), math.floor(box.bottom / _CELL)
+        buckets = [b for b in (get((cx, cy)) for cx in range(x0, x1 + 1) for cy in range(y0, y1 + 1)) if b]
+        if not buckets:
+            return []
+        if len(buckets) == 1:
+            b = buckets[0]
+            if len(set(map(id, b))) == len(b):
+                return list(b)
+        # The first of each identity keeps its place; a later one rewrites the same object.
+        return list({id(x): x for b in buckets for x in b}.values())
 
 
 class Escapes:
@@ -1368,6 +1376,11 @@ class EscapeDelta:
         # snapshot through the live occupancy's Escapes object.
         self.base = Escapes(occ, mirror=False, depth=occ.settings.score_escape_depth, corridors=False)
         self.base.native_paths = self.native = native
+        # Pair clearances come from the rules and the geometry: every lifted board of the occupancy shares them.
+        pairs = _PAIRS.get(occ)
+        if pairs is None or pairs[0] is not occ.rules or pairs[1] is not occ.geometry:
+            pairs = _PAIRS[occ] = (occ.rules, occ.geometry, {})
+        self.base._pairs, self.base._pairs_of = pairs[2], (occ.rules, occ.geometry)
         self.regions, self.nets = {}, {}
         # What earlier lifted boards of this occupancy judged, still true of this one (`_BaselineMemo`).
         self._memo = _baseline_memo(occ, native) if BASELINE_MEMO else None
@@ -1420,10 +1433,23 @@ class EscapeDelta:
             if entry is not None and 'way' in entry and (not entry.get('stale') or entry.get('aim') == aim):
                 self._ways[key] = entry['way']
             else:
-                if self._judging is None:
-                    self._judging = self.base._bans(), search_near(self.occ)
-                verdict = self.base._verdict(*key, *self._judging, native=self.native)
-                self._ways[key] = None if verdict is None else verdict[0]
+                # An earlier board's verdict for this pad, judged with the same shapes on its region and the same
+                # target (`_BaselineMemo.earlier`), while the memo stands at this board.
+                here = self._memo is not None and self._memo.generation == self._generation
+                if here:
+                    target = (aim if entry is not None else self._aim_of(key)) \
+                        if self.nets[key] not in self.occ.quiet_nets else None
+                    members = self._memo.members(self.regions[key])
+                    found = self._memo.earlier(key, members, target)
+                if here and found is not None:
+                    self._ways[key] = found[0]
+                else:
+                    if self._judging is None:
+                        self._judging = self.base._bans(), search_near(self.occ)
+                    verdict = self.base._verdict(*key, *self._judging, native=self.native)
+                    self._ways[key] = None if verdict is None else verdict[0]
+                    if here:
+                        self._memo.keep(key, members, target, self._ways[key])
                 if entry is not None and (not entry.get('stale') or self._memo.generation == self._generation):
                     entry.update(way=self._ways[key], aim=aim, stale=False)
         return self._ways[key]
@@ -1539,6 +1565,7 @@ class EscapeDelta:
 # measurement switch, as placer.NATIVE_SWEEP is; never a setting).
 BASELINE_MEMO = True
 _BASELINES = None
+_PAIRS = weakref.WeakKeyDictionary()     # occupancy -> (its rules, its geometry, `Escapes._pairs` under them)
 
 
 class _BaselineMemo:
@@ -1551,7 +1578,12 @@ class _BaselineMemo:
     rejudges its way by). A changed shape within its wall region but clear of its region drops only its wall flags.
     A changed shape on its net alone drops its wall flags too, and leaves its region and, for a quiet net's pad (judged
     for walled only, with no target), its way; a signal pad's way then holds while its target (`Escapes._aim`, the only
-    thing its judgement reads from the rest of its net) is the same, which the next judgement checks (`stale`)."""
+    thing its judgement reads from the rest of its net) is the same, which the next judgement checks (`stale`).
+
+    A pad's way is also kept beyond its entry (`earlier`): with the shapes on its region and its target, its last
+    `VERSIONS` verdicts. A later board with equal shapes there (compared as values: a part put back stands in new
+    shapes) and the same target takes it, the boards between them however they differed."""
+    VERSIONS = 4
 
     def __init__(self):
         self.key = None
@@ -1559,6 +1591,8 @@ class _BaselineMemo:
         self.shapes = {}        # id -> shape, of the last board synced
         self.lanes = {}         # ref -> (its shapes, the cached `_lanes_of` value)
         self.pads = {}          # (ref, number) -> {'net', 'region', 'wall', and 'way' / 'walls' once judged}
+        self.ways = {}          # (ref, number) -> [(the shapes on its region, sorted by `_value_key`, target, way)]
+        self._cells = None      # the last board's shapes by `_cells` cell, as {id: shape}, made when first asked
 
     def sync(self, occ, native) -> None:
         key = (occ.settings, occ.geometry, occ.rules, frozenset(occ.quiet_nets), occ.board_box,
@@ -1566,14 +1600,23 @@ class _BaselineMemo:
         current = {id(sh): sh for r, g in occ.items.items() if r not in occ.pending for sh in g.shapes}
         current.update((id(sh), sh) for sh in occ.copper)
         if self.key is None or any(a is not b for a, b in zip(key[:3], self.key[:3])) or key[3:] != self.key[3:]:
-            self.key, self.shapes, self.lanes, self.pads = key, current, {}, {}
+            self.key, self.shapes, self.lanes, self.pads, self.ways, self._cells = key, current, {}, {}, {}, None
+            self.generation += 1
             return
-        changed = [sh for i, sh in current.items() if i not in self.shapes]
-        changed += [sh for i, sh in self.shapes.items() if i not in current]
+        added = [sh for i, sh in current.items() if i not in self.shapes]
+        gone = [sh for i, sh in self.shapes.items() if i not in current]
+        changed = added + gone
         self.shapes = current
         if not changed:
             return
         self.generation += 1
+        if self._cells is not None:
+            for sh in gone:
+                for c in _cells(sh.box):
+                    self._cells[c].pop(id(sh), None)
+            for sh in added:
+                for c in _cells(sh.box):
+                    self._cells.setdefault(c, {})[id(sh)] = sh
         nets = {sh.net for sh in changed if sh.net}
         boxes = [sh.box for sh in changed]
         quiet = occ.quiet_nets
@@ -1589,6 +1632,34 @@ class _BaselineMemo:
             kept[k] = e
         self.pads = kept
 
+    def members(self, region) -> list:
+        """The last board's shapes whose boxes overlap `region` (as `sync` tests a changed shape against it), sorted
+        by `_value_key`."""
+        if self._cells is None:
+            self._cells = {}
+            for sh in self.shapes.values():
+                for c in _cells(sh.box):
+                    self._cells.setdefault(c, {})[id(sh)] = sh
+        found = {}
+        for c in _cells(region):
+            bucket = self._cells.get(c)
+            if bucket:
+                found.update(bucket)
+        return sorted((sh for sh in found.values() if region.overlaps(sh.box)), key=_value_key)
+
+    def earlier(self, key, members, target):
+        """(way,) of an earlier verdict for the pad made with equal shapes on its region and this target, or None."""
+        for held, aim, way in self.ways.get(key, ()):
+            if aim == target and len(held) == len(members) and all(a is b or a == b for a, b in zip(held, members)):
+                return (way,)
+        return None
+
+    def keep(self, key, members, target, way) -> None:
+        versions = self.ways.setdefault(key, [])
+        versions.append((members, target, way))
+        if len(versions) > self.VERSIONS:
+            del versions[0]
+
     def lanes_into(self, esc, ref) -> None:
         hit = self.lanes.get(ref)
         shapes = esc.occ.items[ref].shapes
@@ -1601,6 +1672,12 @@ class _BaselineMemo:
     def add(self, key, net, region, wall) -> dict:
         entry = self.pads[key] = {'net': net, 'region': region, 'wall': wall}
         return entry
+
+
+def _value_key(sh) -> tuple:
+    """An order for shapes by value, so two boards' equal shapes on a region line up."""
+    b = sh.box
+    return sh.owner, sh.kind, sh.net, sh.label, b.left, b.top, b.right, b.bottom
 
 
 def _baseline_memo(occ, native):
@@ -1790,10 +1867,23 @@ def _path_out_native(occ, start_shapes, foes, layers, win, track, via, toward, b
         [shape(s) for s in bans], occ.settings.place_escape_cell, occ.geometry.drc_epsilon, via_exit)
 
 
+# A shape's surface record parts (polygon, box, layer bits, ends) by its identity, the shape held with them so its id
+# stays its own while the entry lives. A shape is frozen, so its record never changes. Cleared past _SURFACE_MAX.
+_SURFACE = {}
+_SURFACE_MAX = 200_000
+
+
 def _surface_shape(s, delta=0.0):
-    b = s.box
-    return (list(map(tuple, s.poly)), (b.left, b.top, b.right, b.bottom), _layer_bits(s.layers),
-            list(map(tuple, s.ends or ())), delta)
+    hit = _SURFACE.get(id(s))
+    if hit is None or hit[0] is not s:
+        b = s.box
+        hit = (s, (list(map(tuple, s.poly)), (b.left, b.top, b.right, b.bottom), _layer_bits(s.layers),
+                   list(map(tuple, s.ends or ())), 0.0))
+        if len(_SURFACE) >= _SURFACE_MAX:
+            _SURFACE.clear()
+        _SURFACE[id(s)] = hit
+    record = hit[1]
+    return record if delta == 0.0 and math.copysign(1.0, delta) > 0 else (*record[:4], delta)
 
 
 def _path_out_exact(occ, start_shapes, foes, layers, win: Box, track: float, via: float, toward, bans=(), delta=None, via_exit: bool = True) -> bool:
