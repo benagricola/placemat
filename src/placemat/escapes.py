@@ -1369,10 +1369,19 @@ class EscapeDelta:
         self.base = Escapes(occ, mirror=False, depth=occ.settings.score_escape_depth, corridors=False)
         self.base.native_paths = self.native = native
         self.regions, self.nets = {}, {}
+        # What earlier lifted boards of this occupancy judged, still true of this one (`_BaselineMemo`).
+        self._memo = _baseline_memo(occ, native) if BASELINE_MEMO else None
+        self._generation = self._memo.generation if self._memo is not None else None
+        known = self._memo.pads if self._memo is not None else {}
+        self._known = {}
         for ref in sorted(occ.items):
             if ref in occ.pending or not occ.geometry.has_footprint(ref):
                 continue
+            if self._memo is not None:
+                self._memo.lanes_into(self.base, ref)
             lanes, spots, pads = self.base._lanes_of(ref)
+            if self._memo is not None:
+                self._memo.keep_lanes(self.base, ref)
             for number, (net, _, box) in pads.items():
                 # Netless pads have no escape verdict, but remain physical
                 # blockers in the base and candidate geometry indexes.
@@ -1380,6 +1389,11 @@ class EscapeDelta:
                     continue
                 key = ref, number
                 self.nets[key] = net
+                entry = known.get(key)
+                if entry is not None:
+                    self.regions[key] = entry['region']
+                    self._known[key] = entry
+                    continue
                 chain = self.base._own_copper(ref, number, net)
                 boxes = [box.inflate(max(self.base.depth, occ.settings.score_escape_reach))]
                 boxes += [l.box for l in lanes if l.number == number]
@@ -1390,6 +1404,10 @@ class EscapeDelta:
                 # of the lane subset predicate. This is deliberately broad.
                 self.regions[key] = self.base._reach(Box.union(boxes), net).inflate(occ.settings.place_escape_cell)
         self._wall_regions = {key: region.inflate(self.WALL_MARGIN) for key, region in self.regions.items()}
+        if self._memo is not None:
+            for key, net in self.nets.items():
+                if key not in self._known:
+                    self._known[key] = self._memo.add(key, net, self.regions[key], self._wall_regions[key])
         self._ways, self._walls = {}, {}
         self._judging = None
         self._crossed = None
@@ -1397,15 +1415,33 @@ class EscapeDelta:
 
     def _base_way(self, key):
         if key not in self._ways:
-            if self._judging is None:
-                self._judging = self.base._bans(), search_near(self.occ)
-            verdict = self.base._verdict(*key, *self._judging, native=self.native)
-            self._ways[key] = None if verdict is None else verdict[0]
+            entry = self._known.get(key)
+            aim = self._aim_of(key) if entry is not None and self.nets[key] not in self.occ.quiet_nets else None
+            if entry is not None and 'way' in entry and (not entry.get('stale') or entry.get('aim') == aim):
+                self._ways[key] = entry['way']
+            else:
+                if self._judging is None:
+                    self._judging = self.base._bans(), search_near(self.occ)
+                verdict = self.base._verdict(*key, *self._judging, native=self.native)
+                self._ways[key] = None if verdict is None else verdict[0]
+                if entry is not None and (not entry.get('stale') or self._memo.generation == self._generation):
+                    entry.update(way=self._ways[key], aim=aim, stale=False)
         return self._ways[key]
+
+    def _aim_of(self, key):
+        """The pad's target as `Escapes._verdict` takes it, where the board stands (None when it has none)."""
+        pads = self.base._lanes_of(key[0])[2]
+        return self.base._aim(key[0], key[1], self.nets[key], pads[key[1]][2].center)
 
     def _base_walls(self, key):
         if key not in self._walls:
-            self._walls[key] = _wall_flags(self.base, *key)
+            entry = self._known.get(key)
+            if entry is not None and 'walls' in entry:
+                self._walls[key] = entry['walls']
+            else:
+                self._walls[key] = _wall_flags(self.base, *key)
+                if entry is not None:
+                    entry['walls'] = self._walls[key]
         return self._walls[key]
 
     @property
@@ -1497,6 +1533,87 @@ class EscapeDelta:
         """Return candidate counts and number of rejudged pads, signed by caller."""
         difference, rejudged = self.difference(view, geometries, copper, native=native)
         return {kind: self.counts[kind] + value for kind, value in difference.items()}, rejudged
+
+
+# Whether lifted boards share what they judged of their rest pads (`_BaselineMemo`): False measures without it (a
+# measurement switch, as placer.NATIVE_SWEEP is; never a setting).
+BASELINE_MEMO = True
+_BASELINES = None
+
+
+class _BaselineMemo:
+    """What `EscapeDelta` judges of a lifted board's rest pads, kept from one lifted board of an occupancy to the next:
+    each part's lanes, via spots and pads (`Escapes._lanes_of`, read from its own shapes only), and each pad's region,
+    way and wall flags. Shapes are compared by identity; the memo holds the last board's, so none is reused. A change
+    of settings, geometry, rules, quiet nets, frame or judging mode starts it again.
+
+    A pad's entry is dropped when a shape added or removed since overlaps its region (what `EscapeDelta.difference`
+    rejudges its way by). A changed shape within its wall region but clear of its region drops only its wall flags.
+    A changed shape on its net alone drops its wall flags too, and leaves its region and, for a quiet net's pad (judged
+    for walled only, with no target), its way; a signal pad's way then holds while its target (`Escapes._aim`, the only
+    thing its judgement reads from the rest of its net) is the same, which the next judgement checks (`stale`)."""
+
+    def __init__(self):
+        self.key = None
+        self.generation = 0     # one more for each board synced with a change
+        self.shapes = {}        # id -> shape, of the last board synced
+        self.lanes = {}         # ref -> (its shapes, the cached `_lanes_of` value)
+        self.pads = {}          # (ref, number) -> {'net', 'region', 'wall', and 'way' / 'walls' once judged}
+
+    def sync(self, occ, native) -> None:
+        key = (occ.settings, occ.geometry, occ.rules, frozenset(occ.quiet_nets), occ.board_box,
+               occ.settings.score_escape_depth, bool(native))
+        current = {id(sh): sh for r, g in occ.items.items() if r not in occ.pending for sh in g.shapes}
+        current.update((id(sh), sh) for sh in occ.copper)
+        if self.key is None or any(a is not b for a, b in zip(key[:3], self.key[:3])) or key[3:] != self.key[3:]:
+            self.key, self.shapes, self.lanes, self.pads = key, current, {}, {}
+            return
+        changed = [sh for i, sh in current.items() if i not in self.shapes]
+        changed += [sh for i, sh in self.shapes.items() if i not in current]
+        self.shapes = current
+        if not changed:
+            return
+        self.generation += 1
+        nets = {sh.net for sh in changed if sh.net}
+        boxes = [sh.box for sh in changed]
+        quiet = occ.quiet_nets
+        kept = {}
+        for k, e in self.pads.items():
+            near = [b for b in boxes if e['wall'].overlaps(b)]
+            if any(e['region'].overlaps(b) for b in near):
+                continue
+            if near or e['net'] in nets:
+                e = {n: v for n, v in e.items() if n != 'walls'}
+                if e['net'] in nets and e['net'] not in quiet:
+                    e['stale'] = True
+            kept[k] = e
+        self.pads = kept
+
+    def lanes_into(self, esc, ref) -> None:
+        hit = self.lanes.get(ref)
+        shapes = esc.occ.items[ref].shapes
+        if hit is not None and len(hit[0]) == len(shapes) and all(a is b for a, b in zip(hit[0], shapes)):
+            esc._lane_cache[ref] = hit[1]
+
+    def keep_lanes(self, esc, ref) -> None:
+        self.lanes[ref] = (tuple(esc.occ.items[ref].shapes), esc._lane_cache[ref])
+
+    def add(self, key, net, region, wall) -> dict:
+        entry = self.pads[key] = {'net': net, 'region': region, 'wall': wall}
+        return entry
+
+
+def _baseline_memo(occ, native):
+    """The occupancy's `_BaselineMemo`, synced with its board as it stands."""
+    global _BASELINES
+    import weakref
+    if _BASELINES is None:
+        _BASELINES = weakref.WeakKeyDictionary()
+    memo = _BASELINES.get(occ)
+    if memo is None:
+        memo = _BASELINES[occ] = _BaselineMemo()
+    memo.sync(occ, native)
+    return memo
 
 
 def native_judge() -> bool:
