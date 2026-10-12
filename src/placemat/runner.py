@@ -73,6 +73,9 @@ def run_metrics(plan, n_place: int, n_copper: int, extent_metrics: dict) -> dict
         metrics["footprints"] = len(plan.footprints)
     if plan.cleanup:
         metrics["cleanup"] = dict(plan.cleanup)
+    if getattr(plan, "retry", None):
+        metrics["retry"] = {"tries": len(plan.retry), "kept": sum(1 for r in plan.retry if r["kept"]),
+                            "items": sorted({r["item"] for r in plan.retry if r["kept"] and r["item"] in r["placed"]})}
     if getattr(plan, "rudy", None) is not None:
         r = plan.rudy
         metrics["rudy"] = {"worst": r.worst, "worst_at": [r.worst_at.x, r.worst_at.y], "p99": r.p99,

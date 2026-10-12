@@ -313,6 +313,23 @@ def _cleanup(n):
     return "cleanup: " + "; ".join(said)
 
 
+@renders("retry")
+def _retry(n):
+    lifted = _list(n["lifted"]) if n.get("lifted") else "nothing"
+    if n["kept"]:
+        return "retry %d for %s: lifted %s, placed %s; kept (unplaced %d -> %d, score %.1f -> %.1f)" % (
+            n["seed"] + 1, n["item"], lifted, _list(n["placed"]) or "nothing", n["unplaced_before"], n["unplaced_after"],
+            n["score_before"], n["score_after"])
+    return "retry %d for %s: lifted %s, placed %s; undone (unplaced %d -> %d, score %.1f -> %.1f)" % (
+        n["seed"] + 1, n["item"], lifted, _list(n["placed"]) or "nothing", n["unplaced_before"], n["unplaced_after"],
+        n["score_before"], n["score_after"])
+
+
+@renders("retry_room")
+def _retry_room(n):
+    return "placed by a retry, searched round the room at (%.2f, %.2f) made for it" % tuple(n["at"])
+
+
 @renders("stamped_regions")
 def _stamped_regions(n):
     return "its stamped regions keep parts off %.1f mm2 of board beyond its own parts" % n["area_mm2"]

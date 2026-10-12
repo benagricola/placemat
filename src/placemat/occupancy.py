@@ -429,6 +429,12 @@ def _is_lead(fp, pad) -> bool:
 
 
 
+def _copied(v):
+    """A container copied one level down (what `Occupancy.checkpoint` keeps); anything else as it is."""
+    import copy
+    return copy.copy(v) if isinstance(v, (dict, list, set)) else v
+
+
 def _shift_box(b, dx: float, dy: float):
     return None if b is None else Box(_clean(b.left + dx), _clean(b.top + dy), _clean(b.right + dx), _clean(b.bottom + dy))
 
@@ -1311,6 +1317,53 @@ class Occupancy:
             self._escapes.refresh(refs)
         if self.__dict__.get("_congestion") is not None:
             self._congestion_refresh(refs)
+
+    # What placing, lifting and giving way change: the items' shapes, what is pending, the reservations, the board's
+    # copper, the vias that gave way and what they were taken from, and the cells' areas. The ratsnest, the escapes and
+    # the congestion grid are worked out from these and are brought back by refreshing what changed.
+    _STATE = ("items", "pending", "reservations", "copper", "given_way", "_given_by", "_pristine", "_pristine_copper",
+              "needs", "_cell_rule_areas", "_cell_fill_areas", "fill_areas", "field_decls", "rooms", "_rooms_serial",
+              "rooms_apply", "labels_yield", "board_box")
+
+    def checkpoint(self) -> dict:
+        """The board's state as `rollback` puts it back: each container copied, `_given_by`'s lists too."""
+        out = {}
+        for k in self._STATE:
+            if k in self.__dict__:
+                v = self.__dict__[k]
+                out[k] = {via: list(by) for via, by in v.items()} if k == "_given_by" else _copied(v)
+        return out
+
+    def rollback(self, saved: dict) -> None:
+        """Put the board back as `checkpoint` held it, and refresh the ratsnest, the escapes and the congestion grid for
+        every owner whose shapes, copper or pending state differ from it."""
+        now_items, now_pending = self.items, self.pending
+        now_copper = {}
+        for c in self.copper:
+            now_copper.setdefault(c.owner, []).append(c)
+        was_copper = {}
+        for c in saved.get("copper", ()):
+            was_copper.setdefault(c.owner, []).append(c)
+        changed = {r for r in set(now_items) | set(saved["items"]) if now_items.get(r) is not saved["items"].get(r)}
+        changed |= now_pending ^ saved["pending"]
+        changed |= {o for o in set(now_copper) | set(was_copper)
+                    if len(now_copper.get(o, ())) != len(was_copper.get(o, ()))
+                    or any(a is not b for a, b in zip(now_copper.get(o, ()), was_copper.get(o, ())))}
+        for k in self._STATE:
+            if k in saved:
+                v = saved[k]
+                self.__dict__[k] = {via: list(by) for via, by in v.items()} if k == "_given_by" else _copied(v)
+            else:
+                self.__dict__.pop(k, None)
+        self._score_revision = self.__dict__.get('_score_revision', 0) + 1
+        self._changed()
+        changed.discard("")
+        if self.__dict__.get("_ratsnest") is not None:
+            self._ratsnest_refresh(changed)
+        if self.__dict__.get("_escapes") is not None:
+            self._escapes.refresh(changed)
+        if self.__dict__.get("_congestion") is not None:
+            self._congestion_refresh(changed)
 
     def congestion_frame(self):
         """The fixed scoring domain, separately from the physical board edge."""

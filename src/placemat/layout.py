@@ -712,6 +712,7 @@ class Plan:
     pocketed: list = field(default_factory=list)                  # seeded items whose scan failed and took a pocket
     footprints: list = field(default_factory=list)                # courtyard mode: footprints whose courtyard understates the part
     cleanup: dict = field(default_factory=dict)                   # what the cleanup pass did, when it ran
+    retry: list = field(default_factory=list)                     # each try of the retry for what the search left unplaced (retry.py)
     rudy: object = None                                           # congestion.Rudy of the placed board
     fitted_axes: tuple = (False, False)                           # (x fitted, y fitted): the axes of a fit frame (board.rect(fit=...)) the content sized
     fit_margin: float = 0.0                                       # a fit frame's margin round its content
@@ -7906,6 +7907,7 @@ class Board:
         if self._explore is not None:
             import random as _random
             self._order_rng = _random.Random("%d:order" % self._explore.seed)
+        self._step_found = {}               # step key -> the findings its settle made (`_retry_unplaced` takes them back)
         self._escape_laid = {}              # every escape is laid out again, when its part is placed
         self._escape_kept = {}
         self._escape_waits, self._escape_named, self._settled = None, {}, set()
@@ -8158,6 +8160,7 @@ class Board:
             plan._items[obj.key] = obj.item
             if self._fit and not obj.freedom.decided:
                 occ.board_box = self._outline = self._fit_room(occ, plan, obj)
+            found_from = len(plan.findings)
             if chain["replaying"]:
                 step = self._replay_settle(occ, plan, previous[position], obj)
                 record["steps"].append(dict(previous[position]))     # a copy: this resolve may record its rooms in it
@@ -8195,6 +8198,7 @@ class Board:
                 step.seconds = lap.stamp()
             if partial is not None:
                 partial.append(record["steps"][-1])
+            self._step_found[obj.key] = plan.findings[found_from:]     # what a retry of the item takes back
             step.notes = tuple(why_now) + step.notes
             tier = []
             if not obj.freedom.decided:
@@ -8336,6 +8340,8 @@ class Board:
         # be the most important thing on a board, and it does not wait behind a
         # tier of cells for being a single part. What it needs decides.
         place_ranked(RANK_CELL, RANK_LOOSE)
+        if self.settings.place_search_wire == "mst" and self.settings.place_retry_rounds > 0:
+            self._retry_unplaced(occ, plan, placed, progress)   # D27: room for what the search left unplaced, before cleanup
         if self.settings.cleanup_enabled:
             before = reuse.get("cleanup") if (reuse and chain["replaying"]) else None
             if before is not None and before.get("key") == chain["key"]:
@@ -8717,15 +8723,7 @@ class Board:
         positioned against - no label, and no other declaration whose place
         refers to it."""
         intents = {i.key: i for i in self._placements()}
-        held = self._paired_refs() | {d.ref for d in self._escapes}     # lanes were laid where it stands
-        for i in self._intents:
-            held |= set(getattr(i, "needs", ()) or ())
-        for entry in self._labels:
-            for obj in (entry[1],) + tuple(entry[12] or ()):
-                if isinstance(obj, (PadRef, CellPadRef)):
-                    held.add(self._pad_ref(obj)[0])
-                else:
-                    held |= {fp.ref for fp in members_of(self._item(obj)[0])}
+        held = self._positioned_against()
         # A locked item keeps its spot, and inside an explore variant a focused
         # item keeps the spot it drew: that spot is what a lock records.
         kept = set(self._lock_held) | (set(self._explore.focus) if self._explore is not None else set())
@@ -8741,6 +8739,21 @@ class Board:
             if key in placed and sat.ref not in held and key not in kept:
                 out[key] = sat
         return out
+
+    def _positioned_against(self) -> set:
+        """The refs of the parts something else was positioned against: a pair's, a declared escape's (its lanes were
+        laid where it stands), another declaration's place or push (`needs`), a label's. Moving one after the search
+        would leave what was positioned against it behind."""
+        held = self._paired_refs() | {d.ref for d in self._escapes}
+        for i in self._intents:
+            held |= set(getattr(i, "needs", ()) or ())
+        for entry in self._labels:
+            for obj in (entry[1],) + tuple(entry[12] or ()):
+                if isinstance(obj, (PadRef, CellPadRef)):
+                    held.add(self._pad_ref(obj)[0])
+                else:
+                    held |= {fp.ref for fp in members_of(self._item(obj)[0])}
+        return held
 
     def _cleanup_limits(self, plan: Plan) -> dict:
         """{satellite key: (footprint, (its pin, its own pad, mm))} for every
@@ -8815,6 +8828,53 @@ class Board:
             step.say("cleanup", swapped_with=swapped_with, moved_mm=moved)
         plan.cleanup = {"moves": len(r.moves), "swaps": len(r.swaps), "passes": r.passes,
                         "cost_before": round(r.cost_before, 3), "cost_after": round(r.cost_after, 3)}
+
+    # ------------------------------------------------------------------ retry what the search left unplaced (D27)
+    # Refusals that say an item had no room: something placed, a keep-out or a via in the way. A step left unplaced
+    # for its time, its budget, an arrangement it does not offer or its riders is not tried again.
+    _ROOM_CODES = frozenset(("courtyard_overlap", "courtyard_over", "claimed_courtyard", "drawn_overlap", "drawn_near",
+                             "copper_near", "hole_to_hole", "hole_copper", "lead_under", "npth_cuts", "npth_near",
+                             "reservation", "cannot_give_way", "via_ban"))
+    _RULE_FORMS = frozenset(("time_limit", "budget", "arrangement_missing", "rides", "riders_alone", "turns"))
+
+    def _retry_items(self, occ: Occupancy) -> dict:
+        """{step key: intent} of the items a retry may lift or try again: parts and cells placed by the plain search
+        (`_solvable`: no hint, line, edge, rim or band of their own) that nothing was positioned against
+        (`_positioned_against`), that carry no riders and ride nothing, push nothing and are pushed
+        by nothing, emit or sense nothing, are no end of declared copper that keeps room, and are neither locked nor an
+        explore's focus."""
+        held = self._positioned_against()
+        if occ.rooms_apply:
+            held |= {r for c in self._copper for r in (c.owners or ())}
+        ann = self._annotations
+        if ann:
+            held |= set(ann.sources) | set(ann.sensitives)
+        focus = set(self._explore.focus) if self._explore is not None else set()
+        out = {}
+        for i in self._placements():
+            if not isinstance(i, PlaceIntent) or not self._solvable(i):
+                continue
+            if i.key in self._rider_of or i.key in self._ride_groups or i.key in self._lock or i.key in focus \
+                    or getattr(i, "pushes", ()):
+                continue
+            if {fp.ref for fp in members_of(i.item)} & held:
+                continue
+            out[i.key] = i
+        return out
+
+    def _retry_unplaced(self, occ: Occupancy, plan: Plan, placed: set, progress=None) -> list:
+        """D27: each searched item left unplaced for want of room is tried again, the placed items in the way of a room
+        lifted and placed again after it (retry.py). Each try is a "retry" step of the plan, and its record is in
+        `plan.retry`."""
+        from . import retry
+        host = _RetryHost(self, occ, plan, placed, progress)
+        if not host.items:
+            return []
+        records = retry.retry_unplaced(host, self.settings.place_retry_rounds, self.settings.place_retry_lift)
+        if records:
+            plan.retry = records
+        return records
+
 
     def _settle_in_pocket(self, occ: Occupancy, i: PlaceIntent, plan: Plan, clr) -> Step:
         """Nothing this item connects to is placed and no hint was given: put
@@ -11626,6 +11686,176 @@ def _slot_of(fellows: list, i: "PlaceIntent") -> int:
     """Where `i` stands among the declarations sharing its freedom, found by key: a cell searched in an arrangement is not equal
     to its declaration."""
     return [x.key for x in fellows].index(i.key)
+
+
+class _RetryHost:
+    """The board side of a retry (retry.py's Host), after the searched tier: the items that may be lifted or tried
+    again, their rooms, lifting and placing them as place_one does, the board's standing, and the board put back."""
+
+    def __init__(self, board: "Board", occ: Occupancy, plan: Plan, placed: set, progress=None):
+        self.board, self.occ, self.plan, self.placed, self.progress = board, occ, plan, placed, progress
+        self.items = board._retry_items(occ)
+        self.order = {s.item: n for n, s in enumerate(plan.steps)}
+
+    def _owners(self, key: str) -> set:
+        """A step's item's refs, and a cell's name: what is lifted with it."""
+        item = self.items[key].item
+        refs = {fp.ref for fp in members_of(item)}
+        return refs | {item.name} if isinstance(item, CellGeom) else refs
+
+    def unplaced(self) -> list:
+        """The items it may try again that the search left unplaced for want of room, in the order they were searched."""
+        b = self.board
+        out = []
+        for s in self.plan.steps:
+            if s.item not in self.items or s.placement is not None or not s.unplaced:
+                continue
+            forms = {r.get("form") for r in s.unplaced}
+            if forms & b._RULE_FORMS:
+                continue
+            if any(r.get("code") in b._ROOM_CODES or r.get("form") in ("pocket", "no_pocket") for r in s.unplaced):
+                out.append(s.item)
+        return out
+
+    def rooms(self, key: str, most: int, want: int, skip=frozenset()) -> list:
+        from . import retry
+        b, occ = self.board, self.occ
+        i = self.items[key]
+        movable = {}
+        for k in self.items:
+            step = self.plan.step(k)
+            if k != key and step.placement is not None and not self.items[k].required:     # a required item is never lifted
+                for o in self._owners(k):
+                    movable[o] = k
+        hint = None
+        for f in b._step_found.get(key, ()):
+            if f.cause is C.UNPLACED_SEARCH and f.facts.get("at"):
+                hint = Location(*f.facts["at"])
+        if hint is None:
+            box = occ.board_box
+            hint = box.center if box is not None else Location(0.0, 0.0)
+        step = max(i.step, b.settings.place_pocket_step)
+        return retry.rooms(occ, i.item, b._turns(i), b._faces_of(i), hint, movable, self.order, step, most, want,
+                           clearance=b.clearance, skip=skip)
+
+    def standing(self):
+        from . import retry, score
+        m = score.plan_measures(self.board, self.plan)
+        v = score.Validity.of(m)
+        return retry.Standing(v.unplaced, (v.drc_new or 0, v.widths_failed, v.critical), score.total(m, self.board.settings))
+
+    def save(self):
+        plan = self.plan
+        held = {k: (list(v) if isinstance(v, list) else dict(v) if isinstance(v, dict) else set(v)
+                    if isinstance(v, set) else v) for k, v in plan.__dict__.items()}
+        steps = [(s, dict(s.__dict__)) for s in plan.steps]
+        return self.board._snapshot(), held, steps, self.occ.checkpoint(), set(self.placed)
+
+    def restore(self, saved) -> None:
+        board_state, held, steps, occ_state, placed = saved
+        self.board._restore(board_state)
+        plan = self.plan
+        for k in [k for k in plan.__dict__ if k not in held]:
+            del plan.__dict__[k]
+        for k, v in held.items():
+            now = plan.__dict__.get(k)
+            if isinstance(v, list) and isinstance(now, list):
+                now[:] = v
+            elif isinstance(v, dict) and isinstance(now, dict) or isinstance(v, set) and isinstance(now, set):
+                now.clear()
+                now.update(v)
+            else:
+                plan.__dict__[k] = v
+        for s, d in steps:
+            s.__dict__.clear()
+            s.__dict__.update(d)
+        self.occ.rollback(occ_state)
+        self.placed.clear()
+        self.placed.update(placed)
+
+    def lift(self, keys) -> None:
+        """The items off the board: pending again, their cells' rule areas no longer reserved, no turn recorded."""
+        occ, plan = self.occ, self.plan
+        for key in keys:
+            item = self.items[key].item
+            owners = self._owners(key)
+            occ.lift(owners)
+            if isinstance(item, CellGeom):
+                tag = "cell:%s" % item.name
+                occ.reservations = [r for r in occ.reservations if r.source != tag]
+                occ.fill_areas = {k: v for k, v in occ.fill_areas.items() if k != item.name}
+                self.board._cell_placements.pop(key, None)
+            self.placed.difference_update(owners)
+            plan.turns.pop(key, None)
+
+    def place(self, key: str, at: Placement | None = None) -> bool:
+        """The item searched again on the board as it stands - by its own search, or with `at` round that spot
+        (`place.radius`) by the same scorer - its step and findings in place of the last ones, and committed as place_one
+        commits it. Whether it was placed."""
+        b, occ, plan, placed = self.board, self.occ, self.plan, self.placed
+        obj = self.items[key]
+        k = next(n for n, s in enumerate(plan.steps) if s.item == key)
+        old = plan.steps[k]
+        gone = {id(f) for f in b._step_found.get(key, ())}
+        if at is not None:
+            score = b._scorer(obj.item, occ, [], prune=True, lanes=b._lane_pricer(occ, plan, obj), plan=plan)
+            result = scan(occ, obj.item, at, b.settings.place_radius, obj.step, tuple(b._turns(obj)), b.clearance,
+                          score=score)
+            if result.chosen is None:
+                return False
+            step = b._step(obj, result.chosen, result.moved_mm,
+                           [step_text.record("retry_room", at=[at.location.x, at.location.y])])
+            b._step_found[key] = []
+            plan.findings[:] = [f for f in plan.findings if id(f) not in gone]
+        else:
+            plan.findings[:] = [f for f in plan.findings if id(f) not in gone]
+            if b._fit:
+                occ.board_box = b._outline = b._fit_room(occ, plan, obj)
+            found_from = len(plan.findings)
+            b._step_t0, b._step_item = time.monotonic(), key
+            try:
+                step, _ = b._recorded_settle(occ, obj, plan, placed)
+            finally:
+                b._step_t0 = None
+            b._step_found[key] = plan.findings[found_from:]
+        for n in old.notes:                 # what its last settle counted: its seeding and its pocket
+            if n.get("kind") == "seeded":
+                for net in n.get("nets") or ():
+                    plan.seeded_by_net[net] -= 1
+                    if not plan.seeded_by_net[net]:
+                        del plan.seeded_by_net[net]
+        if old.pocket is not None and key in plan.pocketed:
+            plan.pocketed.remove(key)
+        step.notes = tuple(n for n in old.notes if n.get("kind") in step_text.TIER) + step.notes
+        if obj.faces_note:
+            step.say(obj.faces_note)
+        step.seconds = old.seconds
+        plan.steps[k] = step
+        if step.placement is None:
+            return False
+        order = plan.turns.get(key, {}).get("order", len(plan.turns))
+        plan.turns[key] = dict(b._turn_of(occ, obj, step.placement, placed), order=order)
+        occ.commit(obj.item, step.placement)
+        b._record_arranged_thinned(occ, plan, obj, step.placement)
+        placed.update(fp.ref for fp in members_of(obj.item))
+        b._labels_give_way(occ, plan, obj.item, step.placement, True)
+        if obj.kind == "cell":
+            b._cell_placements[key] = step.placement
+            taken = b._stamped_region_cost(occ, obj.item)
+            if taken >= 0.05:
+                step.say("stamped_regions", area_mm2=taken)
+        return True
+
+    def record(self, rec: dict) -> None:
+        """A try, as a step of its own in the plan: what it lifted, what it placed, and whether it was kept."""
+        step = Step("retry %s %d" % (rec["item"], rec["seed"]), "retry", None)
+        step.say("retry", item=rec["item"], seed=rec["seed"], lifted=rec["lifted"], placed=rec["placed"],
+                 kept=rec["kept"], at=rec["room"]["at"], unplaced_before=sum(rec["before"]["unplaced"]),
+                 unplaced_after=sum(rec["after"]["unplaced"]), score_before=rec["before"]["score"],
+                 score_after=rec["after"]["score"])
+        self.plan.steps.append(step)
+        if self.progress:
+            self.progress(_fmt(step))
 
 
 @contextlib.contextmanager
