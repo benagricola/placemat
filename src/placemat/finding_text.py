@@ -966,6 +966,13 @@ def _setup_rule_note(f):
     return "rule '%s' from the %s cell is not carried: its cell %s is not on this board" % (f["rule"], f["cell"], f["within"])
 
 
+@renders(C.SETUP_RULE_FRAME, "rule")
+def _setup_rule_frame(f):
+    return ("rule '%s' does not travel with a stamped cell: this script declares no frame, and a module's rules ride "
+            "with its cells only when it declares one (rect, disc or outline with draw=False); a whole board keeps its "
+            "rules in its .kicad_dru" % f["rule"])
+
+
 _VIA_VERBS = {"share": "shared", "move": "moved", "route": "re-routed", "leave": "left its pad", "shorten": "shortened",
               "drop": "dropped"}
 

@@ -1862,7 +1862,9 @@ keepout's `allow=` are not carried.
 A stamped cell brings its clearance rules (`board.rule`) the same
 way: the fragment carries each as a note (a User.Comments text
 `placemat rule clearance=0.1 between=A,B why=...`, written when a fragment is
-run), and the parent judges and writes them held to the cell
+run; a fragment is a module that declares its frame, `draw=False`: one that
+declares rules and no frame is told `setup.rule_frame`, and its rules do not
+travel), and the parent judges and writes them held to the cell
 (`A.memberOf(<cell>) && B.memberOf(<cell>)`) over the nets as pcb named them
 in the cell. They stand before the parent's own `board.rule`s, so where both
 match a pair the parent's decides; a cell's `within=` a cell of its own

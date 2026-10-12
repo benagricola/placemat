@@ -100,13 +100,18 @@ def wait_resolved(b, seconds=300, after=0):
 
 
 def ready_to_place(b):
-    """The new script's first resolve and the board's facts confirmed, so placements can be offered: what the placement test does,
-    done here for the tests after it, which run without it when it is left out as slow (tests/slow_tests.txt)."""
+    """The new script's first resolve and the board's facts decided and confirmed, so placements can be offered: what the facts
+    and placement tests do, done here for the tests after them, which run without them when they are left out as slow
+    (tests/slow_tests.txt)."""
     wait_phase(b)
     if not b.studio.history:
         b.studio.resolve_now()
         wait_resolved(b)
     st, f = b.api.get("/build/facts")
+    if any(r["state"] == "undecided" for r in f["model"]["rows"]):
+        st, out = b.api.post("/build/facts/apply", {"request": FACTS})
+        assert st == 200, out
+        st, f = b.api.get("/build/facts")
     if not f["model"]["confirmed"]:
         st, out = b.api.post("/build/facts/confirm", {"acks": FLAGS})
         assert st == 200, out
@@ -281,8 +286,23 @@ def test_a_click_becomes_an_offer_the_suggestion_endpoints_show_try_and_apply(bu
     assert coordinates_in(built.script.read_text()) == []
 
 
+def esd_placed(b):
+    """usbpd.esd in the middle of the south edge, as the click test places it, for the tests after it when it is left out as
+    slow; the resolve that has it."""
+    rec = ready_to_place(b)
+    if "usbpd.esd" in b.script.read_text():
+        return rec
+    q = {"resolve": rec.id, "subject": ["usbpd.esd"], "target": {"kind": "edge", "edge": "SOUTH"}}
+    st, out = b.api.post("/build/offer", q)
+    assert st == 200, out
+    mid = next(o for o in out["offers"] if o["intent"] == "on_edge_mid")
+    st, done = b.api.post("/suggest/apply", {"resolve": rec.id, "id": mid["id"]})
+    assert st == 200, done
+    return wait_resolved(b, after=rec.id)
+
+
 def test_the_rest_is_searched_in_one_apply_and_one_undo_takes_it_back(built):
-    rec = ready_to_place(built)
+    rec = esd_placed(built)
     st, out = built.api.post("/build/offer", {"resolve": rec.id, "kind": "search", "keys": ["usbpd.tcpc", "usbpd.moisture"]})
     assert st == 200 and out["offers"][0]["count"] == 2
     before = built.script.read_text()
@@ -299,7 +319,7 @@ def test_the_rest_is_searched_in_one_apply_and_one_undo_takes_it_back(built):
 
 
 def test_a_stale_plan_is_refused_when_the_script_was_edited_meanwhile(built):
-    rec = ready_to_place(built)
+    rec = esd_placed(built)
     st, out = built.api.post("/build/offer", {"resolve": rec.id, "subject": ["usbpd.sink"], "target": {"kind": "part", "key": "usbpd.esd", "side": "NORTH"}})
     assert st == 200, out
     sid = out["offers"][0]["id"]

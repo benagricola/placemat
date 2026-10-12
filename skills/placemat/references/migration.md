@@ -136,6 +136,20 @@ section for each hand-written pattern a newer form replaces.
   then the lower x and y, and a net whose merge would part its pads or come within clearance of another net is tried
   the other way round before both vias are kept. Scripts need no change.
 
+## To 0.99.36
+
+### New
+
+- **`setup.rule_frame`.** A script that declares clearance rules (`board.rule`) and no frame or outline is told, once
+  per rule, that its rules do not travel with its stamped cells: a module's rules ride as notes only when it declares
+  its frame (`draw=False`). A module that declares rules declares its frame; a whole board needs no change.
+
+### Fixed
+
+- **`Polar((lo, hi), bearing)` stays within its band.** A part given a band and a bearing was slid along the whole spoke,
+  from the centre (or a disc's bore) to the board's edge, and could land outside the band; a block already kept to it.
+  It now slides only between `lo` and `hi`. A script that relied on the old reach gives the wider band it meant.
+
 ## To 0.99.35
 
 ### New

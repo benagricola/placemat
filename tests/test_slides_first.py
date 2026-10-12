@@ -103,3 +103,20 @@ def test_a_run_and_a_rim_slide_in_one_freedom():
     b.place(Part("s2"), at=OnEdge(b.edge(facing=Edge.NORTH)))
     assert _freedoms(b, "s1") == 1
     assert _freedoms(b, "s2") == 1
+
+
+@pytest.mark.parametrize("disc", [False, True])
+def test_a_spoke_segment_slides_within_its_band(disc):
+    """Polar((lo, hi), bearing) puts the part on the bearing between lo and hi from the centre, as a block's spoke
+    does, not anywhere along the whole spoke."""
+    import math
+    b = _board()
+    if disc:
+        b.disc(diameter=40.0)
+    b.place(Part("big"), at=Location(20, 37))               # clear of the band, which the generator's pose is not
+    b.place(Part("t1"), at=Location(26, 25))
+    b.place(Part("sml"), at=Polar((4.0, 6.0), 135.0))
+    plan = b.resolve()
+    at = plan.occupancy._geometry(plan._items["sml"]).reference.location
+    r = math.hypot(at.x - b.centre.x, at.y - b.centre.y)
+    assert 4.0 - 1e-6 <= r <= 6.0 + 1e-6

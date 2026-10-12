@@ -105,6 +105,7 @@ class FindingCause(str, Enum):
     SETUP_CENTRE_FLAG_DEFAULT = (FindingKind.SETUP, "setup.centre_flag_default")
     SETUP_LAYER_LOST = (FindingKind.SETUP, "setup.layer_lost")
     SETUP_RULE_NOTE = (FindingKind.SETUP, "setup.rule_note")
+    SETUP_RULE_FRAME = (FindingKind.SETUP, "setup.rule_frame")
     SETUP_LOOKAHEAD = (FindingKind.SETUP, "setup.lookahead")
     SETUP_STEP_BUDGET = (FindingKind.SETUP, "setup.step_budget")
     SETUP_PCBNEW = (FindingKind.SETUP, "setup.pcbnew")

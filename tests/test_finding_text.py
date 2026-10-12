@@ -141,6 +141,10 @@ SAMPLES = [
      "accept keep-out A: no verdict by that check and subject on this board"),
     (C.SETUP_RULE_NOTE, {"variant": "net", "rule": "r", "cell": "k", "net": "N"},
      "rule 'r' from the k cell is not carried: its net N is not on this board"),
+    (C.SETUP_RULE_FRAME, {"rule": "r"},
+     "rule 'r' does not travel with a stamped cell: this script declares no frame, and a module's rules ride with its "
+     "cells only when it declares one (rect, disc or outline with draw=False); a whole board keeps its rules in its "
+     ".kicad_dru"),
     (C.SETUP_LOOKAHEAD, {"item": "u1", "other": "u2", "own": "R1", "short_mm": 0.5, "asked_mm": 2.0},
      "u1: no spot was left for u2 at its limit distance from R1, so the look-ahead was dropped and R1 is placed without it; the "
      "best spot for R1 left u2 0.50 mm short of 2.0 mm"),

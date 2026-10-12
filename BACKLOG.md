@@ -316,6 +316,10 @@ file. An item cites its source as "a board's session, <date>".
 
 ## Done
 
+- **A spoke's band, module rules without a frame** (0.99.36): `Polar((lo, hi), bearing)` slides a part only
+  within its band; a script that declares clearance rules and no frame is told they do not travel with its
+  cells (`setup.rule_frame`), and the skill says every module declares its frame.
+
 - **Shapes at the outline, overhang, holes under firm parts, teardrops, empty routes** (0.99.35):
   a decided part is judged at the rim, a hole and a cutout by its shapes;
   `overhang=` on a firm place; a firm courtyard over a hole follows the DRC
