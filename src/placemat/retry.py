@@ -3,8 +3,8 @@
 The search places items one at a time, so an item placed early can stand in the room a later one needs: no term of the
 score knows a later item will need room. After the searched tier, each item left unplaced for want of room is tried
 again: the placed items in the way of one room are lifted, and the item and then they are placed again, each by the
-board's own search. The result is kept only when more is placed than before (on equal counts, when the run score
-falls) and no other count of the validity tier rose; else the board goes back exactly as it was.
+board's own search. The result is kept only when the board ranks above the one before it (`score.rank`: the validity
+tier, unplaced parts by priority first, then the run score); else the board goes back exactly as it was.
 
 The board side is a `Host` (layout.py's `_RetryHost`): what is unplaced, the rooms, lifting, placing, the standing of
 the board, and putting it back. `attempt` is one try with a given set lifted; refine's reconstruct move can call it
@@ -15,12 +15,9 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
+from . import score
 from .placement import Placement
 from .values import Location
-
-# A run score lower by no more than this is the same score: the tie on equal placed counts is broken by a real fall.
-_EPS = 1e-6
-
 
 @dataclass(frozen=True)
 class Room:
@@ -30,34 +27,21 @@ class Room:
     gap_mm: float           # from the item's hint: of rooms whose lifted items cover as much, the nearest ranks first
 
 
-@dataclass(frozen=True)
-class Standing:
-    """What decides whether a try is kept: the validity tier's counts and the run score."""
-    unplaced: tuple         # unplaced parts by priority (high, default, low), as score.Validity counts them
-    rest: tuple             # the validity tier's other counts: (drc_new, widths_failed, critical)
-    score: float
-
-    def to_json(self) -> dict:
-        return {"unplaced": list(self.unplaced), "rest": list(self.rest), "score": round(self.score, 6)}
+def standing_json(st, cfg) -> dict:
+    """What a try's record keeps of a `score.Standing`: the validity tier's counts and the run score."""
+    v = st.validity
+    return {"unplaced": list(v.unplaced), "rest": [v.drc_new or 0, v.widths_failed, v.critical],
+            "score": round(score.total(st.measures, cfg), 6)}
 
 
-def better(after: Standing, before: Standing) -> bool:
-    """Whether a try's board is kept: fewer unplaced, or as many and a lower run score; and no other count of the
-    validity tier higher."""
-    if any(a > b for a, b in zip(after.rest, before.rest)):
-        return False
-    if after.unplaced != before.unplaced:
-        return after.unplaced < before.unplaced
-    return after.score < before.score - _EPS
-
-
-def attempt(host, key: str, lifted, seed: int, at: Placement | None = None, before: Standing | None = None) -> dict:
+def attempt(host, key: str, lifted, seed: int, at: Placement | None = None, before=None) -> dict:
     """One try for the unplaced item `key`: lift `lifted` (step keys), place `key` (searched round `at`, the room's
     spot, when given; else by its own search), then each of `lifted` by its own search in order, or where that finds
-    nothing round the nearest spot no placed item stands in, and keep the board only when it is `better`; else put it
-    back. `before`: the board's standing, when the caller has it. The try's record: the item, the seed, what was
-    lifted, what was placed, whether it was kept, the standing before and after, and (`standing`) the board's
-    standing now."""
+    nothing round the nearest spot no placed item stands in, and keep the board only when it ranks above the board
+    before it (`score.rank`: the validity tier, unplaced parts by priority first, then the run score within its noise
+    band); else put it back. `before`: the board's `score.Standing`, when the caller has it. The try's record: the
+    item, the seed, what was lifted, what was placed, whether it was kept, the standing before and after, and
+    (`standing`) the board's `score.Standing` now."""
     before = before or host.standing()
     saved = host.save()
     host.lift(lifted)
@@ -70,11 +54,12 @@ def attempt(host, key: str, lifted, seed: int, at: Placement | None = None, befo
         if free and host.place(k, free[0].at):
             placed.append(k)
     after = host.standing()
-    kept = better(after, before)
+    kept = score.rank(after, before, host.settings) < 0
     if not kept:
         host.restore(saved)
     return {"item": key, "seed": seed, "lifted": list(lifted), "placed": placed, "kept": kept,
-            "before": before.to_json(), "after": after.to_json(), "standing": after if kept else before}
+            "before": standing_json(before, host.settings), "after": standing_json(after, host.settings),
+            "standing": after if kept else before}
 
 
 def retry_unplaced(host, rounds: int, most: int) -> list:

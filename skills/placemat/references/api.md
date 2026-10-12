@@ -1534,22 +1534,27 @@ unaffected. `placemat measure` prints each part's drawn envelope and the layer
 that sets each side.
 
 **Retrying what is left unplaced.** The search places items one at a time, so an item placed early can stand
-in the room a later one needs. Under the one-score search, once every searched item has had its turn, each one left
-unplaced for want of room (its refusals name something placed, a keep-out or a via; not one left for its time, its
-budget, an arrangement it does not offer or its riders) is tried again, when it is of the plain search too. A room is a spot on a `place.pocket_step`
-lattice where its courtyards and bodies would come within the clearance of no placed item but at most
-`place.retry_lift` parts and cells of the plain search (no `Near`, line, edge, rim or band of their own) that
-nothing else was positioned against and that carry no riders, pushes or exposure annotations and are not locked,
-legal with those lifted; the
-rooms whose items cover the least area come first, then the nearest the item's seed. A spot nothing stands in that
-its own search did not reach is a room with nothing to lift. A try lifts the room's items, searches the item round
-the room (`place.radius`) by the same scorer, and places the lifted ones again by their own searches (failing that,
-round the nearest spot nothing stands in). It is kept only when fewer parts are unplaced (by priority, as the
-validity tier counts them) and no other count of the tier rose, or as many and the run score fell; else the board
-is put back exactly. An item gets at most `place.retry_rounds` tries, a room once; one a kept try left unplaced
-gets its own turn. Each try is a `retry` step of the run, saying what it lifted and placed and whether it was kept,
-and `metrics.retry` counts the tries, the kept ones and the items they placed. `place.retry_rounds = 0` turns it
-off. The pull estimate (`place.search_wire = "clique"`) does not retry.
+in the room a later one needs. Under the one-score search, once every searched item has had its turn, each item of
+the plain search (no `Near`, line, edge, rim or band of its own) left unplaced for want of room is tried again. It
+was left for room when a refusal names something placed, a keep-out or a via, or when no pocket took it although
+its body fits the board at one of its turns; one left for its time, its budget, an arrangement it does not offer or
+its riders is not tried.
+
+A room is a spot on a `place.pocket_step` lattice where the item's courtyards and bodies would come within the
+clearance of no placed item but at most `place.retry_lift` liftable ones, and where it is legal with those lifted.
+Liftable items are parts and cells of the plain search that nothing else was positioned against, with no fanout,
+riders, pushes or exposure annotations, not locked and not required. A spot that needs carried vias to give way is
+passed over. Rooms whose items cover the least area come first, then those nearest the item's seed; a spot nothing
+stands in, which the item's own search did not reach, is a room with nothing to lift.
+
+A try lifts the room's items, searches the item round the room (`place.radius`) by the same scorer, and places the
+lifted ones again by their own searches (failing that, round the nearest spot nothing stands in). It is kept only
+when the board then ranks above the board before it, as boards are ranked (the validity tier, unplaced parts by
+priority first, then the run score within its noise band); else the board is put back exactly. An item gets at most
+`place.retry_rounds` tries, a room once; one a kept try left unplaced gets its own turn. Each try is a `retry` step
+of the run, saying what it lifted and placed and whether it was kept, and `metrics.retry` counts the tries, the kept
+ones and the items they placed. `place.retry_rounds = 0` turns it off. The pull estimate
+(`place.search_wire = "clique"`) does not retry.
 
 **The cleanup pass.** Once every searched item is down, and before the copper
 that joins them is planned, a cleanup pass revisits the plain searched parts:
@@ -5456,7 +5461,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `place.coarse_min_radius_steps` | `12.0` | steps | a scored scan does a coarse pass first when its radius is at least this many steps; below it one fine pass is cheaper |
 | `place.refine_spots` | `3` | count | how many of the best coarse spots get a fine pass: this many by score, and, where the part's riders refuse some spots, this many of those they take |
 | `place.escape_spots` | `8` | count | how many candidates of a scan the one-score search gives the escape grades and the walled check: the best this many by every other term that wall no pad beyond the lifted board's walled pads, going down that order past each that does; the rest rank below them |
-| `place.retry_rounds` | `2` | count | how many times the one-score search tries again for each item it left unplaced for want of room: each try lifts the placed items in the way of one room, places the item and then them again, and is kept only when more is placed (on equal counts, when the run score falls); 0 tries none |
+| `place.retry_rounds` | `2` | count | how many times the one-score search tries again for each item it left unplaced for want of room: each try lifts the placed items in the way of one room, places the item and then them again, and is kept only when the board then ranks above the board before it (fewer parts unplaced by priority, then a lower run score); 0 tries none |
 | `place.retry_lift` | `4` | count | the most placed items one retry lifts to make room for an item left unplaced |
 | `place.block_gap_step` | `0.05` | mm | how finely a block's tightest gap is searched |
 | `place.block_gap_reach` | `2.0` | mm | how far a satellite may stand off its pin |

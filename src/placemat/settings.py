@@ -114,7 +114,7 @@ class Settings:
     place_escape_spots: int = S(8, "count",
         "how many candidates of a scan the one-score search gives the escape grades and the walled check: the best this many by every other term that wall no pad beyond the lifted board's walled pads, going down that order past each that does; the rest rank below them")
     place_retry_rounds: int = S(2, "count",
-        "how many times the one-score search tries again for each item it left unplaced for want of room: each try lifts the placed items in the way of one room, places the item and then them again, and is kept only when more is placed (on equal counts, when the run score falls); 0 tries none")
+        "how many times the one-score search tries again for each item it left unplaced for want of room: each try lifts the placed items in the way of one room, places the item and then them again, and is kept only when the board then ranks above the board before it (fewer parts unplaced by priority, then a lower run score); 0 tries none")
     place_retry_lift: int = S(4, "count",
         "the most placed items one retry lifts to make room for an item left unplaced")
     place_block_gap_step: float = S(0.05, "mm",
@@ -759,7 +759,7 @@ _ABOVE_ZERO = frozenset((
     "route_plane_share", "route_adopt_tolerance", "place_courtyard_polygon_share", "write_keepout_line_width", "write_keepout_text_height",
     "pins_seeds", "pins_anneal_moves", "pins_budget_steps", "pins_reversed_min", "pins_joint_combinations", "pins_probe_budget_steps"))
 _AT_LEAST_ZERO = frozenset((
-    "studio_follow_hold_s", "rank_area_weight", "rank_pins_weight", "place_drops_keep_share", "place_turn_gain_mm", "route_turn_cost", "place_courtyard_touch", "place_silk_margin", "cleanup_passes", "cleanup_swap_neighbours", "preview_model_edge_px", "studio_3d_appear_ms", "studio_3d_spread_ms", "studio_note_age_s", "studio_port", "studio_debounce_ms", "studio_cancel_grace_ms", "copper_chamfer", "best_airwire_noise",
+    "studio_follow_hold_s", "rank_area_weight", "rank_pins_weight", "place_drops_keep_share", "place_turn_gain_mm", "route_turn_cost", "place_courtyard_touch", "place_silk_margin", "cleanup_passes", "place_retry_rounds", "cleanup_swap_neighbours", "preview_model_edge_px", "studio_3d_appear_ms", "studio_3d_spread_ms", "studio_note_age_s", "studio_port", "studio_debounce_ms", "studio_cancel_grace_ms", "copper_chamfer", "best_airwire_noise",
     "run_max_time_s", "run_step_warn_s", "run_step_limit_s", "best_crossing_noise",
     "score_link_over", "score_label", "score_setup", "score_crossing",
     "score_crossing_plane", "score_crossing_pair_net", "score_impedance", "score_escape_crossed", "score_escape_closed", "score_escape_lane", "score_escape_via", "score_congestion",
