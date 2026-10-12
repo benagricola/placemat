@@ -697,31 +697,92 @@
     "usb-c-power-adapter": {
       "a_closure_clean": 1.0,
       "board": "usb-c-power-adapter",
-      "closure_clean": 0.9521,
+      "closure_clean": 0.9529,
       "detail": "",
       "failure": "",
       "inputs_digest": "ae4617d41cf3ab17",
-      "new_violations": [],
-      "open": 8,
+      "new_violations": [
+        {
+          "at_mm": [
+            0.0,
+            0.0
+          ],
+          "nets": [
+            "GND"
+          ],
+          "type": "copper_edge_clearance"
+        },
+        {
+          "at_mm": [
+            0.0,
+            0.0
+          ],
+          "nets": [
+            "GND"
+          ],
+          "type": "copper_edge_clearance"
+        },
+        {
+          "at_mm": [
+            3.197,
+            6.00471
+          ],
+          "nets": [
+            "GND"
+          ],
+          "type": "hole_clearance"
+        },
+        {
+          "at_mm": [
+            3.197,
+            6.00471
+          ],
+          "nets": [
+            "GND"
+          ],
+          "type": "hole_clearance"
+        },
+        {
+          "at_mm": [
+            9.289,
+            4.93071
+          ],
+          "nets": [
+            "GND"
+          ],
+          "type": "hole_clearance"
+        },
+        {
+          "at_mm": [
+            9.289,
+            4.93071
+          ],
+          "nets": [
+            "GND"
+          ],
+          "type": "hole_clearance"
+        }
+      ],
+      "open": 12,
       "placement": {
         "airwire_mm": 791.506,
         "area_mm2": 1226.32,
         "crossings": 232,
-        "findings": 37,
+        "findings": 38,
         "placed": 122,
         "run_score": 3493.506
       },
       "ref_track_mm": 437.6509716398021,
       "ref_vias": 229,
       "run_score": 3493.506,
-      "seconds": 52.2,
-      "track_mm": 882.3474771318921,
+      "seconds": 446.9,
+      "track_mm": 1050.1749428361684,
       "versions": {
-        "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
-        "pcb": "pcbc 0.4.52",
-        "placemat": "a3e7b36e27eeabf822a9377719e909f025ff1d5c"
+        "krt": "b602f7fe154178cdc988643f9c74d4d7309f0bd0",
+        "pcb": "318b4b0d19ce55bc032c70941a2559b9b7728404",
+        "placemat": "b0d3bcb2a591a23227d7c9e6a552ed0437ee56df"
       },
-      "vias": 97
+      "vias": 165
     }
   },
   "fixtures": {
