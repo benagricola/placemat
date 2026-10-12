@@ -60,6 +60,8 @@ class AResult:
     versions: dict   # placemat, krt, pcb
     failure: str = ""   # "" when the route ran; else the type of the exception that stopped it
     detail: str = ""    # what the exception said
+    open_pour: int = 0    # open connections on the nets the routed board serves by a pour; open_other is the rest
+    open_other: int = 0
 
 
 @dataclasses.dataclass(frozen=True)
@@ -83,6 +85,8 @@ class Comparison:
     status: str   # new, same, better, worse or not comparable
     differ: list[str]   # with "not comparable": the components whose versions differ
     value: str = ""     # with "not comparable": what the values alone say (same, better or worse), versions ignored
+    worse: list[str] = dataclasses.field(default_factory=list)   # the values that made it worse, as routing_values names them
+    split_unrecorded: bool = False   # the recorded entry has no open split: its total was compared with the new total
 
 
 def lower(c: Comparison) -> bool:
@@ -99,12 +103,28 @@ def new_violations(after: list[prepare.Violation], baseline: list[prepare.Violat
     return [v for v in after if not known(v)]
 
 
-def judge(route_json: dict, new: list[prepare.Violation], template: AResult) -> AResult:
+def pour_nets(pcb: pathlib.Path) -> set[str]:
+    """The nets the routed board serves by a pour: each with a copper zone of the board's own (kicad.route.plane_nets_of)."""
+    from placemat.kicad.route import plane_nets_of
+    return plane_nets_of(pcb)
+
+
+def open_split(open_nets: dict, open_after: int, pours: set[str]) -> tuple[int, int]:
+    """(open on pour nets, open on the other nets) from route.json's per-net open counts; the other nets take
+    whatever `open_after` has beyond the pour nets'."""
+    pour = sum(n for net, n in open_nets.items() if net in pours)
+    return pour, open_after - pour
+
+
+def judge(route_json: dict, new: list[prepare.Violation], template: AResult, pours: set[str] = frozenset()) -> AResult:
     """The result of a route: `template` (board, widths, the human's copper, versions) with what route.json says, and `new`.
-    vias and track_mm are the routed board's, which the caller measures and puts in the report."""
+    vias and track_mm are the routed board's, which the caller measures and puts in the report. `pours`: the nets the
+    routed board serves by a pour (kicad.route.plane_nets_of), which split the open count."""
     closure = route_json.get("closure_clean", template.closure_clean)
+    opened = route_json.get("open_after", 0)
+    pour, other = open_split(route_json.get("open_nets") or {}, opened, set(pours))
     return dataclasses.replace(
-        template, closure_clean=closure, open=route_json.get("open_after", 0),
+        template, closure_clean=closure, open=opened, open_pour=pour, open_other=other,
         open_nets=sorted(route_json.get("open_nets", ())), new_violations=list(new),
         vias=route_json.get("vias", template.vias), track_mm=route_json.get("track_mm", template.track_mm),
         passed=closure == CLEAN and not new,
@@ -116,30 +136,55 @@ def comparable(old: dict, new: dict, changing: set[str]) -> list[str]:
     return [c for c in COMPONENTS if c not in changing and old.get(c) != new.get(c)]
 
 
-def by_value(old: dict, new: AResult) -> str:
-    """same, better or worse: a result's values against the recorded one's, whatever the versions. A failure where the
-    recorded entry had none is worse."""
-    if new.failure and not old.get("failure"):
-        return "worse"
-    gained = len(new.new_violations or ()) - len(old.get("new_violations") or ())
-    if (old["passed"] and not new.passed) or new.closure_clean < old["closure_clean"]:
-        return "worse"
-    if new.closure_clean == old["closure_clean"] and gained > 0:
-        return "worse"
-    if (new.passed and not old["passed"]) or new.closure_clean > old["closure_clean"] or (old.get("failure") and not new.failure):
-        return "better"
-    return "same"
+def routing_values(old: dict, new, *, counts: bool = True) -> Comparison:
+    """same, better or worse for a routed result against the recorded entry, whatever the versions (test a and b). Worse
+    if the route failed where the recorded one did not, closure_clean fell, or (with `counts`) open connections on
+    non-pour nets, open connections on pour nets or new DRC errors rose; better only if none is worse and one improved.
+    `worse` names the values. A recorded entry with no open split compares its total open count with the new total.
+    A recorded failure has no values to compare: a new run that did not fail is better."""
+    if new.failure:
+        return Comparison("same", []) if old.get("failure") else Comparison("worse", [], worse=["failed"])
+    if old.get("failure"):
+        return Comparison("better", [])
+    worse, better = [], []
+
+    def judged(name, before, after):   # lower is better for every value but closure_clean
+        if after != before:
+            good = (after > before) if name == "closure_clean" else (after < before)
+            (better if good else worse).append(name + (" rose" if after > before else " fell"))
+
+    judged("closure_clean", old["closure_clean"], new.closure_clean)
+    split = old.get("open_pour") is not None
+    if counts:
+        if split:
+            judged("open on non-pour nets", old["open_other"], new.open_other)
+            judged("open on pour nets", old["open_pour"], new.open_pour)
+        else:
+            judged("open", old["open"], new.open)
+        if new.new_violations is not None:
+            judged("new DRC", len(old.get("new_violations") or ()), len(new.new_violations))
+    verdict = "worse" if worse else "better" if better else "same"
+    return Comparison(verdict, [], worse=worse, split_unrecorded=counts and not split)
+
+
+def by_value(old: dict, new: AResult) -> Comparison:
+    return routing_values(old, new)
 
 
 def compare(old: dict | None, new: AResult, changing: set[str]) -> Comparison:
     """A result against the recorded one (its dict): new, same, better, worse, or not comparable."""
     if old is None:
         return Comparison("new", [])
-    value = by_value(old, new)
+    return with_versions(old, new, changing, by_value(old, new))
+
+
+def with_versions(old: dict, new, changing: set[str], values: Comparison) -> Comparison:
+    """`values` (a verdict on the values alone) as the comparison: not comparable, with the verdict beside it, when a
+    component not in `changing` differs between the two runs' versions."""
     differ = comparable(old.get("versions", {}), new.versions, changing)
     if differ:
-        return Comparison("not comparable", differ, value)
-    return Comparison(value, [])
+        return dataclasses.replace(values, status="not comparable", differ=differ, value=values.status)
+    return values
 
 
 def ratchet(results: list, comparisons: list[Comparison], accept_worse: bool) -> tuple[list, list]:
@@ -411,7 +456,7 @@ def run_a(board: fetch.Board, work: pathlib.Path, *, track_mm: float | None = No
     versions = dict(versions if versions is not None else current_versions(), krt=_krt_version(work / prepare.TEST))
     template = AResult(board.name, widths, 0.0, 0, [], [], 0, 0.0, human.vias, human.track_mm, False, 0.0, versions)
     measured = dict(report, vias=routed.vias, track_mm=routed.track_mm)
-    return judge(measured, new, template)
+    return judge(measured, new, template, pour_nets(pathlib.Path(report["routed_pcb"])))
 
 
 def failed(board: fetch.Board, widths: str, error: Exception, versions: dict, human: prepare.HumanCopper,
@@ -427,10 +472,15 @@ def failed(board: fetch.Board, widths: str, error: Exception, versions: dict, hu
 
 
 def said(c: Comparison) -> str:
-    """A comparison as the console lines give it."""
+    """A comparison as the console lines give it: the values that made it worse, and that the recorded entry has no split."""
+    verdict = c.value if c.status == "not comparable" else c.status
+    if c.worse:
+        verdict += ": " + ", ".join(c.worse)
+    if c.split_unrecorded:
+        verdict += "; split not recorded"
     if c.status == "not comparable":
-        return "not comparable: %s differ, values %s" % (", ".join(c.differ), c.value)
-    return c.status
+        return "not comparable: %s differ, values %s" % (", ".join(c.differ), verdict)
+    return verdict
 
 
 def line(r: AResult, c: Comparison) -> str:
@@ -438,9 +488,9 @@ def line(r: AResult, c: Comparison) -> str:
     if r.failure:
         return "%-22s %-5s FAIL new DRC unknown  %s  FAILED %s: %s" % (
             r.board, r.widths, said(c), r.failure, r.detail[:200])
-    return "%-22s %-5s %s closure_clean %.1f%% open %d new DRC %d vias %d/%d track %.0f/%.0f mm %.0fs  %s" % (
-        r.board, r.widths, "pass" if r.passed else "FAIL", 100 * r.closure_clean, r.open, len(r.new_violations),
-        r.vias, r.human_vias, r.track_mm, r.human_track_mm, r.seconds, said(c))
+    return "%-22s %-5s %s closure_clean %.1f%% open non-pour %d pour %d new DRC %d vias %d/%d track %.0f/%.0f mm %.0fs  %s" % (
+        r.board, r.widths, "pass" if r.passed else "FAIL", 100 * r.closure_clean, r.open_other, r.open_pour,
+        len(r.new_violations), r.vias, r.human_vias, r.track_mm, r.human_track_mm, r.seconds, said(c))
 
 
 def main(argv=None) -> int:

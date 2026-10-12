@@ -67,6 +67,7 @@ def test_a_run_with_no_record_is_a_failed_result(tmp_path, monkeypatch):
 
 def test_a_routed_run_is_read_from_its_record_and_routed_board(tmp_path, monkeypatch):
     folder = _folder(tmp_path, 'board.place(Part("J1"), at=Location(1, 2), why="mechanical: connector")\n')
+    monkeypatch.setattr(route_ref, "pour_nets", lambda pcb: set())
     from placemat.kicad.route import RouteReport
     drc = {"violations": [{"type": "shorting_items", "severity": "error",
                            "items": [{"description": "Track [A] on F.Cu", "pos": {"x": 1, "y": 2}}]}]}
@@ -349,3 +350,36 @@ def test_test_b_prepares_the_regenerated_reference(tmp_path, monkeypatch):
     monkeypatch.setattr(place_ref, 'run_b', lambda *args, **kw: _b())
     place_ref._run_boards([BOARD], tmp_path / 'root', {}, VERSIONS, {'placemat'}, [], [], lambda: None)
     assert seen == [True, True]
+
+
+def _bv(old, **over):
+    c = place_ref.compare_b(place_ref.asdict(old), _b(**over), {"placemat"})
+    return c.status, c.worse
+
+
+def test_b_is_worse_for_each_of_failure_closure_open_and_drc():
+    base = _b(closure_clean=0.9, open=2, open_pour=1, open_other=1, new_violations=[])
+    drc = [prepare.Violation("short", ("A", "C"), (5.0, 5.0))]
+    assert _bv(base, closure_clean=0.0, failure="lint") == ("worse", ["failed"])
+    assert _bv(base, closure_clean=0.8, open=2, open_pour=1, open_other=1) == ("worse", ["closure_clean fell"])
+    assert _bv(base, closure_clean=0.95, open=3, open_pour=1, open_other=2) == ("worse", ["open on non-pour nets rose"])
+    assert _bv(base, closure_clean=0.95, open=3, open_pour=2, open_other=1) == ("worse", ["open on pour nets rose"])
+    assert _bv(base, closure_clean=0.95, open=2, open_pour=1, open_other=1, new_violations=drc) == ("worse", ["new DRC rose"])
+
+
+def test_b_is_better_only_when_nothing_is_worse():
+    base = _b(closure_clean=0.9, open=2, open_pour=1, open_other=1)
+    assert _bv(base, closure_clean=0.95, open=2, open_pour=1, open_other=1) == ("better", [])
+    assert _bv(base, closure_clean=0.9, open=2, open_pour=1, open_other=1) == ("same", [])
+
+
+def test_b_entry_without_the_split_compares_totals_and_says_so():
+    old = place_ref.asdict(_b(closure_clean=0.9, open=2))
+    del old["open_pour"], old["open_other"]
+    c = place_ref.compare_b(old, _b(closure_clean=0.9, open=3, open_other=3), {"placemat"})
+    assert (c.status, c.worse, c.split_unrecorded) == ("worse", ["open rose"], True)
+    assert "split not recorded" in route_ref.said(c)
+
+
+def test_a_module_is_compared_on_closure_and_area_only():
+    assert place_ref.compare_module(place_ref.asdict(_m()), _m(area_mm2=101.0), {"placemat"}).worse == ["area_mm2 rose"]

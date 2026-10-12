@@ -87,6 +87,7 @@ def test_run_a_judges_the_route_json_against_the_baseline(tmp_path, monkeypatch)
     board = route_ref.fetch.Board(name="x", repo="github:o/r", commit="0" * 40, files={}, board="x.kicad_pcb", licence="MIT",
                                   tests=("a",), phases=({"name": "vcc", "nets": ["VCC"]},), fixed=(), human_track_mm=0.2, kicad5=False)
     seen = {}
+    monkeypatch.setattr(route_ref, "pour_nets", lambda pcb: set())
 
     def route(pcb, work, toml):
         seen.update(pcb=pcb, toml=toml)
@@ -314,3 +315,55 @@ def test_pcb_version_follows_executable_symlink_and_marks_checkout_dirty(tmp_pat
     assert route_ref.pcb_version() == 'pcbc 0.4.52'
     monkeypatch.setenv('PATH', str(tmp_path / 'absent'))
     assert route_ref.pcb_version() == 'unknown'
+
+
+def _recorded(**over):
+    return json.loads(json.dumps(route_ref.asdict(_result(**over))))
+
+
+def _verdict(old, **over):
+    c = route_ref.compare(old, _result(**over), {"placemat"})
+    return c.status, c.worse
+
+
+def test_a_failed_route_is_worse():
+    assert _verdict(_recorded(), failure="RuntimeError", closure_clean=0.0, passed=False, new_violations=None) == ("worse", ["failed"])
+
+
+def test_a_fall_in_closure_is_worse_and_named():
+    assert _verdict(_recorded(), closure_clean=0.9, passed=False) == ("worse", ["closure_clean fell"])
+
+
+def test_more_open_on_non_pour_nets_is_worse_even_when_closure_rose():
+    old = _recorded(closure_clean=0.8, open=2, open_other=2, passed=False)
+    assert _verdict(old, closure_clean=0.9, open=3, open_other=3, passed=False) == ("worse", ["open on non-pour nets rose"])
+
+
+def test_more_open_on_pour_nets_is_worse():
+    old = _recorded(closure_clean=0.8, open=2, open_pour=1, open_other=1, passed=False)
+    assert _verdict(old, closure_clean=0.8, open=3, open_pour=2, open_other=1, passed=False) == ("worse", ["open on pour nets rose"])
+
+
+def test_more_new_drc_is_worse_even_when_closure_rose():
+    old = _recorded(closure_clean=0.9, passed=False)
+    assert _verdict(old, closure_clean=1.0, new_violations=[V("short", ("A", "C"), (5.0, 5.0))], passed=False) == ("worse", ["new DRC rose"])
+
+
+def test_fewer_open_with_nothing_worse_is_better():
+    old = _recorded(closure_clean=0.9, open=2, open_other=2, passed=False)
+    assert _verdict(old, closure_clean=0.9, open=1, open_other=1, passed=False) == ("better", [])
+    assert _verdict(old, closure_clean=0.9, open=2, open_other=2, passed=False) == ("same", [])
+
+
+def test_an_entry_without_the_split_compares_its_total_and_says_so():
+    old = _recorded(open=2, closure_clean=0.9, passed=False)
+    del old["open_pour"], old["open_other"]
+    c = route_ref.compare(old, _result(open=3, open_other=3, closure_clean=0.9, passed=False), {"placemat"})
+    assert (c.status, c.worse, c.split_unrecorded) == ("worse", ["open rose"], True)
+    assert "split not recorded" in route_ref.said(c) and "open rose" in route_ref.said(c)
+    assert route_ref.compare(old, _result(open=2, open_pour=1, open_other=1, closure_clean=0.9, passed=False), {"placemat"}).status == "same"
+
+
+def test_judge_splits_the_open_count_by_pour_nets():
+    r = route_ref.judge(dict(open_after=3, open_nets={"GND": 2, "A": 1}), [], _result(), {"GND"})
+    assert (r.open, r.open_pour, r.open_other) == (3, 2, 1)

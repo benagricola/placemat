@@ -67,6 +67,8 @@ class BResult:
     detail: str = ""        # what the failure said
     inputs_digest: str = ""   # of the capture's generator inputs: a changed capture is a difference, not a regression
     placement: dict = dataclasses.field(default_factory=dict)   # placement_facts: kept when the route fails or is refused
+    open_pour: int = 0      # open connections on the nets the routed board serves by a pour; open_other is the rest
+    open_other: int = 0
 
 
 @dataclasses.dataclass(frozen=True)
@@ -269,7 +271,10 @@ def run_b(board: fetch.Board, ref_dir: pathlib.Path, work: pathlib.Path, *, prep
     after = prepare.violations(drc_path) if drc_path.is_file() else (
         prepare.violations_of(route["drc_after"]) if isinstance(route.get("drc_after", {}).get("violations"), list) else None)
     new = route_ref.new_violations(after, prepared.baseline) if after is not None else None
-    return result(closure_clean=route.get("closure_clean", NOT_RUN), open=route.get("open_after", 0), new_violations=new,
+    opened = route.get("open_after", 0)
+    pour, other = route_ref.open_split(route.get("open_nets") or {}, opened, route_ref.pour_nets(pathlib.Path(route["routed_pcb"])))
+    return result(closure_clean=route.get("closure_clean", NOT_RUN), open=opened, open_pour=pour, open_other=other,
+                  new_violations=new,
                   vias=routed.vias, track_mm=routed.track_mm, run_score=run_score(record, folder), seconds=round(seconds, 1),
                   versions=versions, placement=placement)
 
@@ -335,37 +340,32 @@ def _differ(old: dict, new, changing: set[str]) -> list[str]:
     return differ + (["inputs"] if new.inputs_digest and old.get("inputs_digest", "") != new.inputs_digest else [])
 
 
-def _worse_closure(old: dict, new) -> bool:
-    return bool(new.failure) and not old.get("failure") or new.closure_clean < old["closure_clean"]
-
-
 def _compared(old: dict | None, new, changing: set[str], value) -> route_ref.Comparison:
     if old is None:
         return route_ref.Comparison("new", [])
     differ = _differ(old, new, changing)
+    values = value(old, new)
     if differ:
-        return route_ref.Comparison("not comparable", differ, value(old, new))
-    return route_ref.Comparison(value(old, new), [])
+        return dataclasses.replace(values, status="not comparable", differ=differ, value=values.status)
+    return values
 
 
-def b_by_value(old: dict, new: BResult) -> str:
-    """same, better or worse on the values alone: worse is a lower clean closure or a failure the recorded run had not."""
-    if _worse_closure(old, new):
-        return "worse"
-    if new.closure_clean > old["closure_clean"] or (old.get("failure") and not new.failure):
-        return "better"
-    return "same"
+def b_by_value(old: dict, new: BResult) -> route_ref.Comparison:
+    """same, better or worse on the values alone: route_ref.routing_values."""
+    return route_ref.routing_values(old, new)
 
 
-def module_by_value(old: dict, new: MResult) -> str:
-    """same, better or worse on the values alone: worse is a lower clean closure, or at equal closure a larger area."""
-    if _worse_closure(old, new):
-        return "worse"
-    if new.closure_clean > old["closure_clean"]:
-        return "better"
+def module_by_value(old: dict, new: MResult) -> route_ref.Comparison:
+    """same, better or worse on the values alone: a failure or lower clean closure is worse, a higher one better; at equal
+    closure a larger area is worse. A module's record has no open counts or DRC, so those are not compared."""
+    values = route_ref.routing_values(old, new, counts=False)
+    if values.status != "same":
+        return values
+    if new.area_mm2 == old["area_mm2"] or new.failure:
+        return values
     if new.area_mm2 > old["area_mm2"]:
-        return "worse"
-    return "better" if new.area_mm2 < old["area_mm2"] else "same"
+        return route_ref.Comparison("worse", [], worse=["area_mm2 rose"])
+    return route_ref.Comparison("better", [])
 
 
 def compare_b(old: dict | None, new: BResult, changing: set[str]) -> route_ref.Comparison:
@@ -394,8 +394,8 @@ def line_b(r: BResult, c: route_ref.Comparison) -> str:
     if r.failure:
         return "%-22s b FAIL  %s  FAILED %s: %s" % (r.board, route_ref.said(c), r.failure, r.detail[:200])
     a = "n/a" if r.a_closure_clean is None else "%.1f%%" % (100 * r.a_closure_clean)
-    head = "%-22s b     closure_clean %.1f%% (a %s) open %d new DRC %s vias %d/%d track %.0f/%.0f mm score %.1f %.0fs" % (
-        r.board, 100 * r.closure_clean, a, r.open, "unknown" if r.new_violations is None else len(r.new_violations), r.vias, r.ref_vias, r.track_mm, r.ref_track_mm,
+    head = "%-22s b     closure_clean %.1f%% (a %s) open non-pour %d pour %d new DRC %s vias %d/%d track %.0f/%.0f mm score %.1f %.0fs" % (
+        r.board, 100 * r.closure_clean, a, r.open_other, r.open_pour, "unknown" if r.new_violations is None else len(r.new_violations), r.vias, r.ref_vias, r.track_mm, r.ref_track_mm,
         r.run_score, r.seconds)
     return "%s  %s" % (head, route_ref.said(c))
 

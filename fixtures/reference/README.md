@@ -95,6 +95,12 @@ then also gives what the values alone say. `--changing` takes one or more of `pl
 A board or module whose preparation or run raises is a failed result, with the exception's type as its failure, and the
 run goes on to the next. A failure where the recorded entry had none is worse.
 
+A board (tests a and b) is worse than its recorded entry if the route failed, closure_clean fell, open connections on
+non-pour nets rose, open connections on pour nets rose, or new DRC errors rose, even when closure_clean improved; the line
+names the values. It is better only if none of those is worse and one improved. A pour net is a net with a copper zone on
+the routed board. An entry recorded without the split compares its total open count with the new total, and the line says
+"split not recorded". A module is compared on failure and closure_clean, then area; it records no open count or DRC.
+
 The ratchet: no board or module may get worse without the user's approval. `--update` writes the entries that are
 new, same, better or not comparable, and holds back an entry that is worse, and one that is not comparable but worse
 on its values. `--accept-worse` writes them anyway and records that the user approved the loss; it is never passed
