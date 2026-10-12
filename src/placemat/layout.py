@@ -9873,10 +9873,13 @@ class Board:
                            {"form": "ring", "radius_mm": r}, step=math.degrees(max(i.step, self.settings.place_freedom_min_step) / r), units="deg")
 
     def _settle_along_spoke(self, occ: Occupancy, i: PlaceIntent, plan: Plan, clr) -> Step:
-        """One degree of freedom: the item slides out along its bearing, from
-        the bore's keep-in (or the centre) to as far as the board reaches."""
+        """One degree of freedom: the item slides out along its bearing, within
+        its band when it has one, else from the bore's keep-in (or the centre)
+        to as far as the board reaches."""
         centre = self.centre if i.about is None else _locate(self, occ, i.about)
-        if isinstance(self._shape, Disc) and centre == self._shape.centre:
+        if i.band is not None:
+            lo, hi = i.band
+        elif isinstance(self._shape, Disc) and centre == self._shape.centre:
             lo, hi = self._shape.bore + self.keep_in, self._shape.radius - self.keep_in
         else:
             box = occ.board_box

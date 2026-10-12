@@ -5,6 +5,14 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### Fixed
+
+- **`Polar((lo, hi), bearing)` stays within its band.** A part given a band and a bearing was slid along the whole spoke,
+  from the centre (or a disc's bore) to the board's edge, and could land outside the band; a block already kept to it.
+  It now slides only between `lo` and `hi`. A script that relied on the old reach gives the wider band it meant.
+
 ## To 0.99.35
 
 ### New
