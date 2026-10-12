@@ -51,8 +51,9 @@ was read at placemat f8ae55c8 and KRT `placemat/connections` 96e0422f.
 - Plain ASCII everywhere: no em or en dashes, no unicode arrows, straight quotes.
 - Wording: say "call" and "phase"; a stamped instance on a board is a "cell".
 - Commits carry no reference to Claude or Anthropic (no Co-Authored-By, no Claude-Session, no session URL). After every
-  commit run `git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"`; it must print nothing. Do not
-  push.
+  commit run `git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored" && echo DIRTY || echo clean`;
+  it must print `clean` (a bare grep exits 1 when the message is clean, which is the passing case). "grep" in a
+  task's commit step means this command. Do not push.
 - Agents in the worktree commit only their own paths. Tasks that edit `kicad/route.py` or `kicad/phase_run.py` run one
   at a time.
 - Release: this ships in 0.100.0 with step 2 (docs/superpowers/plan-0.100-index.md); no release here.
@@ -119,13 +120,24 @@ reverses them with the spec:
 
 ## Review Focus
 
-- A victim net that has script copper as well as router copper: only the router copper is removed (Task 5, Task 11).
-- A victim whose joins belong to two phases, a `current_paths` task and the rest call's leftovers: each rerouted at its
-  own owner's settings (Task 7, Task 11).
-- A restored attempt: the phase's next call reads the failing call's output file unchanged (Task 11).
-- After a kept attempt, the final re-judgement of an earlier phase reads the reroute record (Task 13).
-- A reroute that splits a pour net: restored with `net_open_rose` (Task 8, pure).
-- A named net with only script copper: not ripped, `no_router_copper` (Task 4, Task 11).
+- A victim net that has script copper as well as router copper: only the router copper is removed. Tests: Task 5
+  `test_removing_a_victim_takes_its_router_copper_and_leaves_script_copper_and_other_nets`; Task 11
+  `test_script_copper_is_never_moved`.
+- A victim whose joins belong to two phases, a `current_paths` task and the rest call's leftovers: each rerouted at
+  its own owner's settings. Tests: Task 7 `test_joins_no_phase_asks_are_moved_too` (pure); Task 11
+  `test_joins_no_phase_asks_move_at_the_settings_of_the_phase_that_made_them` and
+  `test_a_current_paths_owner_moves_at_its_current_widths_layers_and_neckdown`.
+- A restored attempt: the phase's next call reads the failing call's output unchanged. Test: Task 11
+  `test_an_attempt_that_would_lose_an_earlier_connection_is_restored`.
+- After a kept attempt, the final re-judgement of an earlier phase reads the reroute record, and its width rows of
+  the moved net are gone. Test: Task 13 `test_a_moved_connection_replaces_its_earlier_record_and_width_rows`.
+- A reroute that splits a pour net: restored with `net_open_rose`. Test: Task 8
+  `test_the_first_failing_check_is_the_reason_and_every_finding_is_kept` (pure).
+- A named net with only script copper: not ripped, `no_router_copper`. Tests: Task 11
+  `test_script_copper_is_never_moved` and `test_only_takes_the_given_boards_copper_as_the_scripts`.
+- Limits: Task 12 `test_the_attempt_limit_skips_the_calls_later_units`,
+  `test_a_victim_set_restored_once_is_not_tried_again_in_the_call`,
+  `test_a_router_failure_in_an_attempt_restores_and_ends_the_calls_attempts`.
 - usb-c-power-adapter: whether any structured field names its blockers (Task 18).
 
 ---
@@ -216,8 +228,15 @@ def test_rip_and_reroute_is_on_by_default_with_its_limits():
     assert (s.route_rip_attempts, s.route_rip_max_nets) == (4, 3)
 
 
-def test_rip_attempts_zero_turns_it_off():
-    assert Settings(route_rip_attempts=0).route_rip_attempts == 0
+def test_a_negative_rip_limit_is_refused_at_load(tmp_path):
+    import pytest
+    from placemat.settings import SettingsError, load
+    for key in ("rip_attempts", "rip_max_nets"):
+        (tmp_path / "placemat.toml").write_text("[route]\n%s = -1\n" % key)
+        with pytest.raises(SettingsError):
+            load(tmp_path)
+    (tmp_path / "placemat.toml").write_text("[route]\nrip_attempts = 0\nrip_max_nets = 0\n")
+    assert (load(tmp_path).route_rip_attempts, load(tmp_path).route_rip_max_nets) == (0, 0)
 ```
 
 - [ ] **Step 2: Run it.** `<TEST> --full tests/test_rip_reroute.py` - expected FAIL (no such field).
@@ -235,10 +254,9 @@ def test_rip_attempts_zero_turns_it_off():
 ```
 
 Add `route.rip_attempts` and `route.rip_max_nets` to `tests/surface/settings.txt` in sorted place. Regenerate the
-api.md settings table: `cd $WT && PYTHONPATH=src /home/ben/work/placemat/.venv/bin/python -m placemat settings --markdown`
-and paste it between `<!-- settings-table:begin -->` and `<!-- settings-table:end -->`. If a settings validation set
-lists count settings that must be non-negative, add both there (check `settings.py` for the set
-`test_every_name_in_a_validation_set_is_a_real_setting` reads).
+api.md settings table: `cd /home/ben/work/placemat/.claude/worktrees/rip-reroute && PYTHONPATH=src /home/ben/work/placemat/.venv/bin/python -m placemat settings --markdown`
+and paste it between `<!-- settings-table:begin -->` and `<!-- settings-table:end -->`. Add both names to
+`_AT_LEAST_ZERO` (settings.py:766): 0 is a legal value of each (0 attempts is off; Task 12 uses 0 nets).
 
 - [ ] **Step 4: Run.** `<TEST> --full tests/test_rip_reroute.py tests/test_settings_surface.py tests/test_settings_docs.py`
   - expected PASS.
@@ -246,7 +264,7 @@ lists count settings that must be non-negative, add both there (check `settings.
 - [ ] **Step 5: Commit.**
 
 ```bash
-cd /home/ben/work/placemat/.claude/worktrees/rip-reroute && git add src/placemat/settings.py tests/surface/settings.txt skills/placemat/references/api.md tests/test_rip_reroute.py && git commit -m "Settings: [route] rip_attempts and rip_max_nets" && git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
+cd /home/ben/work/placemat/.claude/worktrees/rip-reroute && git add src/placemat/settings.py tests/surface/settings.txt skills/placemat/references/api.md tests/test_rip_reroute.py && git commit -m "Settings: [route] rip_attempts and rip_max_nets" && (git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored" && echo DIRTY || echo clean)
 ```
 
 ---
@@ -317,7 +335,8 @@ def test_a_task_call_blocks_each_net_with_a_failed_task_whose_router_names_other
 def test_a_whole_net_call_reads_net_evidence_and_the_preexisting_blockers():
     summary = {"net_evidence": {"N": _ev(), "M": _ev(_pre("W"))},
                "blockers": [{"net": "N", "stage": "preexisting", "blocked_by": [{"net": "V", "preexisting": True}]},
-                            {"net": "M", "stage": "phase3", "blocked_by": [{"net": "Z"}]}]}
+                            {"net": "M", "stage": "phase3", "blocked_by": [{"net": "Z"}]},
+                            {"net": "K", "stage": "preexisting", "blocked_by": [{"net": "V", "preexisting": True}]}]}
     got = rr.blocked_of("rest", summary=summary)
     assert [(u.net, [n.net for n in u.named], u.connections) for u in got] == [("N", ["V"], ()), ("M", ["W"], ())]
 
@@ -384,7 +403,8 @@ def _once(named) -> tuple:
 def blocked_of(kind: str, records=(), summary: dict | None = None) -> list:
     """The blocked units of one call: for a task call (`tasks`, `bus_tasks`, a `pour` call's tasks) each net with a
     `failed` record, its failed tasks as the unit's connections; for a whole-net call each net in the summary's
-    `net_evidence`, named from it and from the summary's `blockers` entries of stage `preexisting` (KRT
+    `net_evidence` (a net named only in `blockers` may have joined later in the call, so it is no unit), named from
+    it and from the summary's `blockers` entries of stage `preexisting` (KRT
     route.py:4615-4625: the router's pre-existing blocker names, kept there when a reconcile pass replaced the net's
     evidence). A unit nothing names is left out; a pair call has none."""
     if kind in TASK_CALLS:
@@ -405,7 +425,7 @@ def blocked_of(kind: str, records=(), summary: dict | None = None) -> list:
                 pre.setdefault(b.get("net"), []).extend(Named(x["net"], "preexisting")
                                                          for x in b.get("blocked_by") or () if x.get("net"))
         out = []
-        for n in list(evidence) + [n for n in pre if n not in evidence]:
+        for n in evidence:                  # the nets still failed at the end of the call (KRT docs/connections.md)
             named = _once(_named((evidence.get(n) or {}).get("blocked_by")) + pre.get(n, []))
             if named:
                 out.append(Blocked(n, named))
@@ -416,7 +436,7 @@ def blocked_of(kind: str, records=(), summary: dict | None = None) -> list:
 - [ ] **Step 4: Run.** `<TEST> --full tests/test_rip_reroute.py` - expected PASS.
 
 - [ ] **Step 5: Commit** `src/placemat/kicad/rip_reroute.py tests/test_rip_reroute.py`, message
-"Rip and reroute: the blocked units a call leaves and the nets its router names", then the attribution grep.
+"Rip and reroute: the blocked units a call leaves and the nets its router names", grep.
 
 ---
 
@@ -435,7 +455,7 @@ def blocked_of(kind: str, records=(), summary: dict | None = None) -> list:
 def copper_key(pcbnew, item) -> tuple       # (kind "segment" | "arc" | "via", net, layer id, ends rounded to 4 dp mm)
 def copper_items(path) -> set               # copper_key of every track, arc and via on a board
 # rip_reroute.py
-def router_nets(board, script_keys) -> dict             # {net: items of router copper}
+def router_nets(board, script_keys) -> dict             # {net: count of router copper items}
 def laid_nets(before, after) -> set                     # nets with copper on `after` not on `before`
 def victims_of(unit, *, router_nets, laid_by_call, pour_nets, pair_nets, excluded) -> tuple
     # (victims: tuple of net names, not_ripped: tuple of {"net", "reason"})
@@ -599,6 +619,7 @@ def remove_copper(src, dst, victims, script_keys) -> dict:
     import shutil
     from .quiet import import_pcbnew, quiet_stderr
     from .route import _copy_project, _load_board, copper_key
+    from .route_cleanup import _delete
     pcbnew = import_pcbnew()
     shutil.copy(src, dst)
     _copy_project(src, dst)
@@ -614,10 +635,7 @@ def remove_copper(src, dst, victims, script_keys) -> dict:
         out[{"segment": "tracks", "arc": "arcs", "via": "vias"}[key[0]]] += 1
         if key[0] != "via":
             mm += pcbnew.ToMM(t.GetLength())
-        group = t.GetParentGroup()
-        if group is not None:
-            group.RemoveItem(t)
-        board.Delete(t)
+        _delete(board, t)                   # group.RemoveItem, then board.Delete (route_cleanup.py:200-204)
     with quiet_stderr():
         board.Save(str(dst))
     return dict(out, track_mm=round(mm, 3))
@@ -737,12 +755,16 @@ class Move:
     owner: int             # the phase index whose settings it is rerouted at
     obligation: dict       # {"net", "from", "to", "widths"}
     asked: bool            # an obligation of `owner`; False: a join no phase asks (spec, "unasked")
+    amps: float | None = None   # the owner task's current (current_paths), so the reroute's width rows say "current"
 
-def asked_moves(victims, asked, upto, joined) -> tuple        # ([Move], reason | None)
+def asked_moves(victims, asked, upto, joined, selections=None) -> tuple   # ([Move], reason | None); amps from selections
 def unasked_pairs(victims, input_open, moves, joined_on_board) -> list   # input-open connections to move
 def first_joined(pairs, boards) -> list                       # per pair: index of the first board joining it
-def receipt_widths(receipt, phase_name, net) -> dict | None
-def task_of(obligation, layers) -> Task
+def receipt_widths(receipt, phase_name, net) -> dict | None    # via width_policy.entries (below)
+def task_amps(sel, obligation) -> float | None               # the owner's task of the same pad pair: its current
+def task_of(obligation, layers, amps=None) -> Task
+# width_policy.py
+def entries(policy) -> dict          # {(phase name, net): entry}, two disagreeing records -> unknown with conflict
 def owner_calls(sel, moves, settings) -> list                  # plan_calls on a Selection of the owner's tasks
 ```
 
@@ -784,20 +806,33 @@ def test_a_phases_width_answer_for_a_net():
                                         "U": {"status": "unknown", "widths": None}}}]}
     assert rr.receipt_widths(receipt, "signals", "V") == {"F.Cu": 0.5, "B.Cu": 0.5}
     assert rr.receipt_widths(receipt, "signals", "U") is None and rr.receipt_widths(receipt, "legs", "V") is None
+    two = {"policies": receipt["policies"] + [{"name": "signals", "kind": "pairs",
+                                                "by_net": {"V": {"status": "known", "widths": {"F.Cu": 0.3, "B.Cu": 0.3}}}}]}
+    assert rr.receipt_widths(two, "signals", "V") is None          # two records disagree, as width_policy.apply reads it
+
+
+def test_a_moved_task_keeps_its_current():
+    from placemat.kicad.phase_select import Selection, Task
+    sel = Selection("legs", "current_paths", tasks=(Task("V", ("U1", "1"), ("J1", "1"), (("F.Cu", 1.2),), amps=2.0),),
+                    layers=("F.Cu",))
+    o = _ob("V", ("J1", "1"), ("U1", "1"), {"F.Cu": 1.2})
+    assert rr.task_amps(sel, o) == 2.0
+    assert rr.task_of(o, ("F.Cu",), amps=2.0).amps == 2.0
 
 
 def test_an_owners_calls_carry_its_widths_layers_and_buses():
     from placemat.kicad.phase_run import PhaseSettings
     from placemat.kicad.phase_select import Selection
-    sel = Selection("legs", "current_paths", buses=(("S", "T", "Q"),), layers=("F.Cu",))
+    sel = Selection("legs", "current_paths", buses=(("S", "T", "Q"), ("W", "X")), layers=("F.Cu",))
     st = PhaseSettings({}, 0.2, None, {}, ("F.Cu",))
     moves = [rr.Move(0, _ob("V", ("U1", "1"), ("J1", "1"), {"F.Cu": 1.2}), True),
              rr.Move(0, _ob("S", ("U1", "4"), ("J1", "4"), {"F.Cu": 0.2}), True),
-             rr.Move(0, _ob("T", ("U1", "5"), ("J1", "5"), {"F.Cu": 0.2}), True)]
+             rr.Move(0, _ob("T", ("U1", "5"), ("J1", "5"), {"F.Cu": 0.2}), True),
+             rr.Move(0, _ob("W", ("U1", "6"), ("J1", "6"), {"F.Cu": 0.2}), True)]
     calls = rr.owner_calls(sel, moves, st)
-    assert [(c.kind, c.nets, [t.widths for t in c.tasks]) for c in calls] == [
-        ("bus_tasks", ("S", "T"), [(("F.Cu", 0.2),), (("F.Cu", 0.2),)]),
-        ("tasks", (), [(("F.Cu", 1.2),)])]
+    # a bus cut to one moved net (W) is no bus: W goes with the plain tasks
+    assert [(c.kind, c.nets, sorted(t.net for t in c.tasks)) for c in calls] == [
+        ("bus_tasks", ("S", "T"), ["S", "T"]), ("tasks", (), ["V"]), ("tasks", (), ["W"])]
 ```
 
 pcbnew (`tests/test_rip_reroute_board.py`): `first_joined` on three copies of `_two_part_board` where FB is joined
@@ -814,10 +849,6 @@ class Move:
     owner: int
     obligation: dict
     asked: bool
-
-
-def _end(e) -> tuple:
-    return (e["ref"], e["pad"], e["fp"]) if e.get("fp") else (e["ref"], e["pad"])
 
 
 def asked_moves(victims, asked, upto, joined) -> tuple:
@@ -868,19 +899,30 @@ def first_joined(pairs, boards) -> list:
 
 
 def receipt_widths(receipt, phase_name, net) -> dict | None:
-    """The router's width per layer for `net` in phase `phase_name` (kicad/width_policy.py's receipt), None when it has
-    none or two of its records disagree."""
-    found = [r["by_net"][net] for r in receipt.get("policies") or () if r["name"] == phase_name and net in r["by_net"]]
-    widths = [e["widths"] for e in found if e.get("status") == "known"]
-    if not widths or len(widths) != len(found) or any(w != widths[0] for w in widths):
-        return None
-    return dict(widths[0])
+    """The router's width per layer for `net` in phase `phase_name` (kicad/width_policy.py's receipt), read as
+    width_policy.apply reads it (width_policy.entries); None when it has none, it is unknown, or two records
+    disagree."""
+    from .width_policy import entries
+    entry = entries(receipt).get((phase_name, net))
+    return dict(entry["widths"]) if entry and entry.get("status") == "known" else None
 
 
-def task_of(o, layers):
+def task_amps(sel, o) -> float | None:
+    """The current of the owner Selection's task with the obligation's pad pair (current_paths), else None."""
+    from .phase_run import _pair_key
+    from .phase_select import end_record
+    key = _pair_key(o)
+    for t in sel.tasks:
+        if _pair_key({"net": t.net, "from": end_record(t.start), "to": end_record(t.end)}) == key:
+            return t.amps
+    return None
+
+
+def task_of(o, layers, amps=None):
     """An obligation as a --connections task, its widths in the layer order of the owner phase."""
+    from .phase_run import _end_pair
     from .phase_select import Task
-    return Task(o["net"], _end(o["from"]), _end(o["to"]), tuple((l, o["widths"][l]) for l in layers))
+    return Task(o["net"], _end_pair(o["from"]), _end_pair(o["to"]), tuple((l, o["widths"][l]) for l in layers), amps)
 
 
 def owner_calls(sel, moves, settings) -> list:
@@ -889,17 +931,22 @@ def owner_calls(sel, moves, settings) -> list:
     calls do (phase_run.plan_calls)."""
     from .phase_run import plan_calls
     from .phase_select import Selection
-    tasks = tuple(task_of(m.obligation, settings.layers) for m in moves)
+    tasks = tuple(task_of(m.obligation, settings.layers, m.amps) for m in moves)
     nets = {t.net for t in tasks}
-    buses = tuple(b for b in (tuple(n for n in bus if n in nets) for bus in sel.buses) if b)
+    # a bus keeps only its moved nets; one with fewer than two is no bus, and its net goes with the plain tasks
+    buses = tuple(b for b in (tuple(n for n in bus if n in nets) for bus in sel.buses) if len(b) >= 2)
     own = Selection(sel.phase, "rip", tasks=tasks, buses=buses, layers=settings.layers)
     return plan_calls(own, settings.clearance_map, settings.base_clearance, set())
 ```
 
 `plan_calls`' `bus_tasks` branch names the bus's nets as given; with the bus cut to the moved nets it names only them.
 
-- [ ] **Step 4: Run** - expected PASS. **Step 5: Commit** "Rip and reroute: the moved connections, their owner phases
-and their calls", grep.
+`width_policy.entries(policy)` is `apply`'s merge loop (width_policy.py:157-163) taken out as a function, and `apply`
+uses it: one rule for reading the receipt. `asked_moves` takes an optional `selections` argument and sets each move's
+`amps` from `task_amps(selections[k], o)`. Run `tests/test_effective_width_policy.py` with this task's files.
+
+- [ ] **Step 4: Run** `<TEST> --full tests/test_rip_reroute.py tests/test_rip_reroute_board.py tests/test_effective_width_policy.py`
+  - expected PASS. **Step 5: Commit** "Rip and reroute: the moved connections, their owner phases and their calls", grep.
 
 ---
 
@@ -925,6 +972,9 @@ class Standing:
     errors: list           # drc.real_errors of the DRC
     judged: list           # per phase 0..upto: judge_obligations
     outcomes: list         # per phase 0..upto: the record status per obligation, or None
+    is_real: object = None # the DRC's is_real_kind, for judging the blocked unit on `copy`
+# phase_run.py
+def judging_drc(work, board, stem) -> tuple    # (copy, drc_json, DrcReport): judge_phase's copy, guards off, fill, DRC
 
 def rank(j, outcome) -> int
 @dataclass(frozen=True)
@@ -946,7 +996,7 @@ def off_layer(given, routed, layers) -> int
 def _st(judged, outcomes=None, open_nets=None, errors=()):
     from pathlib import Path
     return rr.Standing(Path("b"), Path("c"), Path("d"), dict(open_nets or {}), list(errors), judged,
-                       outcomes or [[None] * len(j) for j in judged])
+                       outcomes or [[None] * len(j) for j in judged], None)
 
 
 J_CLEAN = {"joined": True, "violated": False, "under": {}}
@@ -1001,6 +1051,7 @@ class Standing:
     errors: list
     judged: list
     outcomes: list
+    is_real: object = None
 
 
 def rank(j, outcome) -> int:
@@ -1046,16 +1097,9 @@ def standing(ctx, asked, phases, upto, board, stem, connections) -> Standing:
     every obligation of phases 0..upto judged on it against its own phase's input DRC (phase_input_drc, ruling S15),
     and each obligation's outcome from `connections[k]`, that phase's records as they stand."""
     import json
-    import shutil
-    from .drc import real_errors, run_drc
-    from .phase_run import judge_obligations, phase_input_drc, phase_neck, records_of
-    from .route import _copy_project, fill_zones, remove_guards
-    copy, drc_json = ctx.work / (stem + "_drc.kicad_pcb"), ctx.work / (stem + "_drc.json")
-    shutil.copy(board, copy)
-    _copy_project(board, copy)
-    remove_guards(str(copy))
-    fill_zones(str(copy))
-    drc = run_drc(copy, drc_json, refill_zones=False)
+    from .drc import real_errors
+    from .phase_run import judge_obligations, judging_drc, phase_input_drc, phase_neck, records_of
+    copy, drc_json, drc = judging_drc(ctx.work, board, stem + "_drc")
     judged, outcomes = [], []
     for k in range(upto + 1):
         obs = asked[k]
@@ -1063,7 +1107,7 @@ def standing(ctx, asked, phases, upto, board, stem, connections) -> Standing:
                                         phase_input_drc(ctx.work, k)))
         outcomes.append([r.get("status") if r else None for r in records_of(obs, connections[k])])
     return Standing(Path(board), copy, drc_json, dict(drc.open_nets),
-                    real_errors(json.loads(drc_json.read_text()), drc.is_real_kind), judged, outcomes)
+                    real_errors(json.loads(drc_json.read_text()), drc.is_real_kind), judged, outcomes, drc.is_real_kind)
 
 
 def off_layer(given, routed, layers) -> int:
@@ -1079,7 +1123,13 @@ def off_layer(given, routed, layers) -> int:
 `from pathlib import Path` goes at the module top. Read `board_geometry.added_copper` and `CopperItem.layers` first and
 match their types (layers are `CopperLayer`s; see phase_run.width_shortfall:806 for the same conversion).
 
-- [ ] **Step 4: Run** - expected PASS. **Step 5: Commit** "Rip and reroute: the keep test", grep.
+`phase_run.judging_drc(work, board, stem)` is judge_phase's preamble (phase_run.py:1192-1199: copy to
+`<stem>.kicad_pcb` with the project files, guards off, zones filled, `run_drc` to `<stem>.json`) taken out, and
+`judge_phase` calls it with `stem = "p%d_drc" % index`, keeping its file names. Add `tests/test_route_phases.py` to
+this task's run.
+
+- [ ] **Step 4: Run** `<TEST> --full tests/test_rip_reroute.py tests/test_route_phases.py` - expected PASS.
+  **Step 5: Commit** "Rip and reroute: the keep test", grep.
 
 ---
 
@@ -1089,17 +1139,25 @@ match their types (layers are `CopperLayer`s; see phase_run.width_shortfall:806 
 - Create: `$WT/tests/rip_helpers.py`
 - Test: `$WT/tests/test_rip_reroute_board.py`
 
-**Interfaces:** Produces `rip_board(tmp_path, *, a_track=False) -> Path`, `TOY` (a stand-in `py_router/route.py`),
-and a `toy_rig` fixture factory used by Tasks 10-15. The engine tests in Tasks 11-15 run on it.
+**Interfaces:** Produces `rip_board(tmp_path, *, a_track=False, currents=False, third=False, c_net=False) -> Path`,
+`TOY` (a stand-in `py_router/route.py`) and `toy_router(tmp_path) -> Path` (a router checkout holding TOY). Task 10
+defines the `toy` fixture on them; the engine tests of Tasks 10-13 run on it.
 
 The board: net A between P1.1 (105, 110) and P2.1 (125, 110), net B between Q1.1 (115, 104) and Q2.1 (115, 116); SMD
-pads 0.6 mm on F.Cu; outline 100..135 x 100..125; Default class clearance 0.15, track 0.2. `a_track=True` adds A's
-straight track as script copper. The stand-in router lays each connection on the call's first layer at its width:
-straight, or else a detour `TOY_DETOUR` mm (default 8; "0": none) to either side; a path is blocked within clearance
-0.15 of another net's track (it names that net) or pad. A `--connections` call writes one record per task; a
-`--nets` call routes each named net (or `*` minus `!X`) with two pads and no track yet, at `--power-nets-widths` or
-0.2, and for a failed net writes `net_evidence` with an empty `blocked_by` and the names in `blockers` (stage
-`preexisting`), as pic_programmer's run recorded them.
+pads 0.6 mm on F.Cu; outline 100..135 x 100..125; Default class clearance 0.15, track 0.2. Options:
+`a_track=True` adds A's straight track as script copper; `currents=True` gives P1 and P2 a stated current
+(`Pm.I` "1A", as `phase_helpers.board_with_power_and_rf` does), so a `current_paths` phase asks P1.1-P2.1;
+`third=True` adds a third pad of A, P3.1 at (130, 110); `c_net=True` adds net C, R1.1 (110, 104) to R2.1 (110, 116),
+which A blocks as it blocks B.
+
+The stand-in router lays each connection on the call's first layer at its width: straight, or else a detour
+`TOY_DETOUR` mm (default 8; "0": none) to either side; a path is blocked within clearance 0.15 of another net's track
+(it names that net) or pad. A `--connections` call writes one record per task. With `TOY_NARROW=<net>`, a task on that
+net in a call whose connections file name has no `_rip` is laid at half its width and answered `joined_narrow` (path
+None): an earlier phase's record that a move must supersede. A `--nets` call routes each named net (or `*` minus
+`!X`): each pad no track of its net touches is joined to the nearest touched pad (with none touched, the first pad
+stands for the net), at `--power-nets-widths` or 0.2; for a failed net it writes `net_evidence` with an empty
+`blocked_by` and the names in `blockers` (stage `preexisting`), as pic_programmer's run recorded them.
 
 With A laid straight first, B is blocked every way. With A taken off, B goes straight, and A's detour at y = 118
 clears B (2 mm from Q2.1's centre).
@@ -1193,12 +1251,15 @@ TOY = textwrap.dedent('''
     doc = {}
     if "--connections" in a:
         recs = []
+        narrow = os.environ.get("TOY_NARROW") if "_rip" not in opt("--connections") else None
         for t in json.load(open(opt("--connections"))):
             ends = pads_of(t["net"])
+            w = max(t["widths"].values()) / (2 if t["net"] == narrow else 1)
             ok, length, met = lay(t["net"], ends[(t["from"]["ref"], t["from"]["pad"])],
-                                  ends[(t["to"]["ref"], t["to"]["pad"])], max(t["widths"].values()))
-            recs.append(dict(t, status="routed" if ok else "failed", reason=None, joined=ok, length_mm=length,
-                             min_width_mm=dict(t["widths"]) if ok else {}, layers=layers, path=None,
+                                  ends[(t["to"]["ref"], t["to"]["pad"])], w)
+            status = ("joined_narrow" if t["net"] == narrow else "routed") if ok else "failed"
+            recs.append(dict(t, status=status, reason=None, joined=ok, length_mm=length,
+                             min_width_mm={l: w for l in t["widths"]} if ok else {}, layers=layers, path=None,
                              evidence=None if ok else evidence(met)))
         doc["connections"] = recs
     else:
@@ -1210,12 +1271,30 @@ TOY = textwrap.dedent('''
             nets = [n for n in names if n in pats]
         powered = dict(zip(opts("--power-nets"), map(float, opts("--power-nets-widths"))))
         doc["net_evidence"], doc["blockers"] = {}, []
+        def touched(net, c):
+            for t in board.GetTracks():
+                if t.GetNetname() != net or t.Type() == pcbnew.PCB_VIA_T:
+                    continue
+                for e in (t.GetStart(), t.GetEnd()):
+                    if math.hypot(mm(e.x) - c[0], mm(e.y) - c[1]) < 1e-3:
+                        return True
+            return False
         for net in nets:
             ends = sorted(pads_of(net).values())
-            if len(ends) != 2 or any(t.GetNetname() == net for t in board.GetTracks()):
+            anchors = [c for c in ends if touched(net, c)]
+            loose = [c for c in ends if c not in anchors]
+            if not loose or len(ends) < 2:
                 continue
-            ok, _, met = lay(net, ends[0], ends[1], powered.get(net, 0.2))
-            if not ok:
+            if not anchors:
+                anchors, loose = [loose[0]], loose[1:]
+            met = []
+            for c in loose:
+                target = min(anchors, key=lambda e: math.hypot(e[0] - c[0], e[1] - c[1]))
+                ok, _, by = lay(net, target, c, powered.get(net, 0.2))
+                if ok:
+                    anchors.append(c)
+                met += [m for m in by if m not in met]
+            if len(anchors) < len(ends):
                 doc["net_evidence"][net] = evidence([])
                 doc["blockers"].append({"net": net, "stage": "preexisting",
                                         "blocked_by": [{"net": m, "preexisting": True} for m in met]})
@@ -1227,23 +1306,29 @@ TOY = textwrap.dedent('''
 CLASSES = 'def net_clearance_map_by_id(pcb_path, nets, design_rules=None):\n    return {}\n'
 
 
-def _part(ref, x, y, net):
-    return ('\t(footprint "t:p" (layer "F.Cu") (at %g %g)\n\t\t(property "Reference" "%s" (at 0 -2 0) '
+def _part(ref, x, y, net, amps=None):
+    current = '(property "Pm.I" "%s") ' % amps if amps else ""
+    return ('\t(footprint "t:p" (layer "F.Cu") (at %g %g)\n\t\t%s(property "Reference" "%s" (at 0 -2 0) '
             '(layer "F.SilkS"))\n\t\t(pad "1" smd rect (at 0 0) (size 0.6 0.6) (layers "F.Cu" "F.Mask") '
-            '(net "%s"))\n\t)\n' % (x, y, ref, net))
+            '(net "%s"))\n\t)\n' % (x, y, current, ref, net))
 
 
-def rip_board(tmp_path, *, a_track=False) -> Path:
-    """Net A: P1.1 (105, 110) to P2.1 (125, 110); net B: Q1.1 (115, 104) to Q2.1 (115, 116)."""
+def rip_board(tmp_path, *, a_track=False, currents=False, third=False, c_net=False) -> Path:
+    """Net A: P1.1 (105, 110) to P2.1 (125, 110), with P3.1 (130, 110) when `third`; net B: Q1.1 (115, 104) to
+    Q2.1 (115, 116); net C, when `c_net`: R1.1 (110, 104) to R2.1 (110, 116). `currents`: P1 and P2 carry 1 A."""
     pcb = tmp_path / "board" / "layout.kicad_pcb"
     pcb.parent.mkdir()
+    amps = "1A" if currents else None
     track = '\t(segment (start 105 110) (end 125 110) (width 0.2) (layer "F.Cu") (net 1))\n' if a_track else ""
+    parts = (_part("P1", 105, 110, "A", amps) + _part("P2", 125, 110, "A", amps)
+             + (_part("P3", 130, 110, "A") if third else "")
+             + _part("Q1", 115, 104, "B") + _part("Q2", 115, 116, "B")
+             + (_part("R1", 110, 104, "C") + _part("R2", 110, 116, "C") if c_net else ""))
     pcb.write_text('(kicad_pcb\n\t(version 20241229)\n\t(generator "test")\n\t(general (thickness 1.6))\n'
                    '\t(layers\n\t\t(0 "F.Cu" signal)\n\t\t(2 "B.Cu" signal)\n\t\t(25 "Edge.Cuts" user)\n'
                    '\t\t(1 "F.Mask" user)\n\t\t(5 "F.SilkS" user)\n\t)\n'
-                   '\t(net 1 "A")\n\t(net 2 "B")\n'
-                   + _part("P1", 105, 110, "A") + _part("P2", 125, 110, "A")
-                   + _part("Q1", 115, 104, "B") + _part("Q2", 115, 116, "B") + track
+                   '\t(net 1 "A")\n\t(net 2 "B")\n' + ('\t(net 3 "C")\n' if c_net else "")
+                   + parts + track
                    + '\t(gr_rect (start 100 100) (end 135 125) (stroke (width 0.1) (type solid)) (fill no) '
                      '(layer "Edge.Cuts"))\n)\n')
     _project(pcb, [{"name": "Default", "clearance": 0.15, "track_width": 0.2}])
@@ -1265,9 +1350,12 @@ def toy_router(tmp_path) -> Path:
 ```
 
 Check `_project`'s signature in `tests/test_net_clearance.py` and the `.kicad_pcb` header against `_two_part_board`
-(same version and layers); keep the same form.
+(same version and layers), and the `Pm.I` property form against `phase_helpers.board_with_power_and_rf`; keep the
+same forms. Geometry with the options: C's straight at x = 110 crosses A's straight as B's does, and A's detour at
+y = 118 clears R2.1 and Q2.1 by 2 mm; P3's leg (125, 110)-(130, 110) is clear of B and C.
 
-- [ ] **Step 2: A test of the stand-in itself** in `tests/test_rip_reroute_board.py`: run `TOY` directly
+- [ ] **Step 2: A test of the stand-in itself** in `tests/test_rip_reroute_board.py`, whose imports gain
+`import json, os, subprocess, sys` and `from tests.rip_helpers import TOY, rip_board, toy_router`: run `TOY` directly
 (`subprocess.run([sys.executable, krt / "py_router/route.py", board, out, "--nets", "A", "--layers", "F.Cu",
 "--json-out", summary])` with `FAKE_ROUTER_LOG` set) on `rip_board`: A is laid straight (one track, (105,110)-(125,110));
 then on that output `--nets B` lays nothing and writes `blockers == [{"net": "B", "stage": "preexisting",
@@ -1308,7 +1396,12 @@ class History:
     connections: list = field(default_factory=list)   # each finished phase's records ("connections")
     moved: dict = field(default_factory=dict)         # {phase index: kept reroute records owned by it, in order}
 
-    def finish(self, index, board, record) -> None    # adds a finished (routed or reused) phase
+    def record_move(self, index, attempt) -> None     # after each kept attempt of phase `index` (finding M2)
+    def finish(self, index, board, record, *, reused: bool) -> None   # a finished phase; a reused one's moves too
+
+def kept_moves(record) -> list                        # the rerouted records of a phase record's kept attempts, in order
+def moves_of(phases, k) -> list                       # [(mover phase index j > k, record)] of kept_moves with index == k
+def moved_records(phases, k) -> list                  # [record for _, record in moves_of(phases, k)]
 
 @dataclass
 class CallRip:
@@ -1324,7 +1417,7 @@ class AfterCall:
     board: Path              # the board the phase goes on from
     records: list            # router records that supersede phase i's connections
     calls: list              # (Call, board in, board out) of phase i's to add to out.calls
-    trim: set                # nets of phase i whose earlier calls' width asks are dropped (moved copper)
+    trim: set                # the victims of the kept attempts: dropped from the asks of phase i's calls before them
     summaries: list          # summary paths of the attempts' router calls
     widths: list             # route.width rows of reroutes owned by earlier phases
 
@@ -1395,27 +1488,40 @@ def test_every_phase_records_its_rip_and_rip_off_changes_nothing(toy):
 - [ ] **Step 2: Run** `<TEST> --full tests/test_rip_reroute.py tests/test_rip_reroute_route.py` - expected FAIL.
 
 - [ ] **Step 3: Implement.**
-  - `History.finish(index, board, record)`: append `board` and `record.get("connections") or []`; for every kept
-    attempt in `record["rip"]["attempts"]`, add each `rerouted` entry whose `index < index` (the argument) to
-    `moved[entry["index"]]`, in order.
+  - `kept_moves(record) = [r for a in record["rip"]["attempts"] if a["kept"] for r in a["rerouted"]]`;
+    `moves_of(phases, k) = [(j, r) for j, p in enumerate(phases) if j > k for r in kept_moves(p) if r["index"] == k]`;
+    `moved_records(phases, k) = [r for _, r in moves_of(phases, k)]`. Task 13 (the final judgement) uses
+    `moved_records`, Task 14 (the "moved by" text) `moves_of`; nothing else derives them.
+  - `History.record_move(index, attempt)`: each `attempt["rerouted"]` entry with `index < index` (the argument)
+    appended to `moved[entry["index"]]`. Task 11's `after_call` calls it right after each kept attempt, so a later
+    attempt in the same phase (a later unit, or a later call) reads the moved records, not the stale ones (spec: "each
+    outcome read from the phase's records as superseded by earlier kept attempts").
+  - `History.finish(index, board, record, *, reused)`: append `board` and `record.get("connections") or []`; when
+    `reused` (its attempts did not run in this route), also `record_move(index, a)` for each kept attempt of the
+    record.
   - `PhaseContext` gains `history: object = None` (last field). `Routed` gains `rip: dict` (default
     `{"attempts": [], "skipped": []}`) in `record()` and `of()`. `phase_record(..., rip=None)` sets `rec["rip"] =
     dict(rip or {"attempts": [], "skipped": []})`; `judge_phase` passes `routed.rip`.
-  - `route_calls`: `rip = {"attempts": [], "skipped": []}`, `extra_widths = []` and `trims = []`. After each call
-    but `pairs`, with `recs` the call's records (`run.records` for tasks, bus_tasks and pour), `doc` its summary (read
-    from `summary` when it exists, for nets, rest and bus) and `prev` the board the call was given:
+  - `route_calls`: `rip = {"attempts": [], "skipped": []}`, `extra_widths = []` and `trims = []`. Where: in the loop
+    over `calls` (phase_run.py:1096-1154), after `lock_copper(str(nxt))` and after the failing call is in
+    `out.calls` (task calls through `run.calls` at :1122, the others by the `out.calls.append((call, board, nxt))` at
+    :1152-1153), and before `board = nxt` (:1154). So the failing call stays recorded as `(call, board, nxt)` with its
+    own output, and the attempt's copper is judged by the attempt's own calls, never under the failing call's asks.
+    There, `board` is the call's input and `nxt` its output; `recs` are the call's records (`run.records` for tasks,
+    bus_tasks and pour; `[]` otherwise) and `doc` its summary (read from `summary` when it exists, for nets, rest and
+    bus; `{}` otherwise):
 
 ```python
         if call.kind != "pairs" and ctx.history is not None:
             from . import rip_reroute
-            got = rip_reroute.after_call(ctx, index, phase, sel, k, call, prev, nxt, recs, doc, connections, rip)
+            got = rip_reroute.after_call(ctx, index, phase, sel, k, call, board, nxt, recs, doc, connections, rip)
             if got.trim:
                 trims.append((len(out.calls), set(got.trim)))     # the calls made so far laid the moved copper
             nxt = got.board
             connections = superseded(connections, got.records)
             out.calls += got.calls
             out.summaries += [(phase.name, k, s) for s in got.summaries]
-            extra_widths += got.widths
+            extra_widths = [w for w in extra_widths if w.get("net") not in got.trim] + got.widths
 ```
 
     Before `phase_widths`, each call made before a kept attempt loses the moved nets from its asks:
@@ -1425,7 +1531,8 @@ def test_every_phase_records_its_rip_and_rip_off_changes_nothing(toy):
     `Routed(..., widths=phase_widths(...) + narrow_join_widths(...) + task_widths(...) + extra_widths, rip=rip)`.
   - `after_call` in this task: return `AfterCall(board_out, [], [], set(), [], [])` when
     `ctx.cfg.route_rip_attempts <= 0` or `blocked_of(...)` is empty; otherwise, for each unit, compute victims
-    (Task 4) and the gate; record each skip as
+    (Task 4: `router_nets` of `board_out`, `laid_nets(board_in, board_out)`, the pair nets of every Selection in
+    `hist.selections`, `ctx.pour_nets`, `ctx.excluded`) and the gate; record each skip as
     `{"call": k, "net": unit.net, "named": [n.record() for n in unit.named], "not_ripped": list(not_ripped), "reason": r}`.
     Attempts come in Task 11; until then a unit that passes the gate is skipped with reason `limit`. (Task 11 replaces
     that line.)
@@ -1433,8 +1540,10 @@ def test_every_phase_records_its_rip_and_rip_off_changes_nothing(toy):
     passed to it; after `asked = width_policy.apply(...)` and the guards, `hist = rip_reroute.History(tuple(run_list),
     tuple(picked[p.name] for p in run_list), tuple(asked), width_receipt, frozenset(copper_items(pcb_in)),
     tuple(input_open))`, given to `PhaseContext(..., history=hist)`. In the loop, after a phase is reused
-    (`records.append(dict(saved["record"], reused=True))`) and after one is routed and judged, call
-    `hist.finish(i, board, record)`.
+    (`records.append(dict(saved["record"], reused=True))`) call `hist.finish(i, board, saved["record"], reused=True)`,
+    and after one is routed and judged `hist.finish(i, board, record, reused=False)`.
+  - `report.log` (route.py:1483-1487) takes the last `p<i>_*.log` by name; an attempt's `p<i>_<k>_rip<a>_*.log` sorts
+    after the call's own. Skip names containing `_rip` in that glob.
   - The kept-result digest: `"phase-judgement-v10"` (route.py:1416). Grep the tests for `phase-judgement-v9` and
     update any that name it.
 
@@ -1448,9 +1557,16 @@ def test_every_phase_records_its_rip_and_rip_off_changes_nothing(toy):
 ## Task 11: One attempt
 
 **Files:**
-- Modify: `$WT/src/placemat/kicad/rip_reroute.py` (`blocked_connections`, `plan_moves`, `attempt`; `after_call`
-  makes attempts)
+- Modify: `$WT/src/placemat/kicad/rip_reroute.py` (`blocked_connections`, `plan_moves`, `reroute_blocked`,
+  `attempt`; `after_call` makes attempts; module-level imports)
 - Test: `$WT/tests/test_rip_reroute_route.py`
+
+Imports (Tasks 12 and 15 replace these names in tests): at the top of rip_reroute.py,
+`from .phase_run import (TaskRun, fresh_output, is_clean, joined_pairs, judge_obligations, phase_input_drc,
+phase_neck, phase_settings, phase_widths, records_of, route_tasks, superseded)` and `from . import pour_join`;
+`reroute_blocked` calls `pour_join.join_pour` and `route_tasks` through those names. phase_run imports rip_reroute
+only inside `route_calls`, and route.py only inside functions, so there is no import cycle. The function-local
+imports Tasks 3-8 wrote for these names go.
 
 **Interfaces:** Produces
 
@@ -1470,19 +1586,26 @@ The attempt (spec "The order of calls", "The keep or restore test"):
 2. The blocked unit at phase i's settings (`phase_settings(ctx, phase, sel, stem + "_b")`), by `reroute_blocked`: a
    `pour` call -> `pour_join.join_pour(ctx_i, ripped, ctx_i.work / (stem + "_b.kicad_pcb"), unit.net, call.width,
    layers_i, stem + "_b", phase_name, common_i)`, its TaskRun with `board` set to that output; any other ->
-   `route_tasks(ctx_i, [task_of(c, layers_i) for c in conns], ripped, stem + "_b", layers_i, common_i, phase_name)`. `ctx_i = replace(ctx, clearance_map=..., clearances_file=..., base_clearance=...)` from the
-   settings record. Each `TaskRun.calls` entry goes to phase i's calls.
+   `route_tasks(ctx_i, [task_of(c, layers_i) for c in conns], ripped, stem + "_b", layers_i, common_i, phase_name)`.
+   `reroute_blocked` takes `layers_i` and `common_i` from `settings` (a PhaseSettings) and is given `ctx_i`; the caller
+   builds `ctx_i = replace(ctx, clearance_map=..., clearances_file=..., base_clearance=...)` from the settings record.
+   Each `TaskRun.calls` entry `(attempted, in, out)` goes to phase i's calls as `(Call("tasks", tasks=attempted), in,
+   out)`, so `phase_widths` reads the tasks' own widths. Add `off_layer(ripped, run.board, layers_i)` to the
+   attempt's off-layer count: the blocked unit's copper is held to phase i's layers as the moved copper is to its
+   owner's (spec, "The keep or restore test").
 3. For each owner in ascending order: `st = phase_settings(ctx, hist.phases[o], hist.selections[o], "%s_v%d" % (stem, o))`;
    for `j, c` in `enumerate(owner_calls(hist.selections[o], moves_of_o, st))`: `route_tasks(ctx_o, c.tasks, board,
    "%s_v%d_%d" % (stem, o, j), st.layers, st.common, hist.phases[o].name, bus_nets=c.nets if c.kind == "bus_tasks"
    else None)`; add `off_layer(board, run.board, st.layers)`; each record goes to `rerouted` as
-   `dict(r, phase=hist.phases[o].name, index=o, asked=<the move's asked>)`; owner o == index: its calls go to phase
-   i's calls; owner o < index: `phase_widths(hist.phases[o], calls_o, ctx.cfg)` rows go to the attempt's `widths`.
+   `dict(r, phase=hist.phases[o].name, index=o, asked=<the move's asked>)`; each `run.calls` entry becomes
+   `(replace(c, tasks=attempted), in, out)`, as route_calls does (phase_run.py:1122); owner o == index: those calls go
+   to phase i's calls; owner o < index: `phase_widths(hist.phases[o], calls_o, ctx.cfg)` rows go to the attempt's
+   `widths`.
 4. `connections_after`: for o < index, `superseded(superseded(hist.connections[o], hist.moved.get(o, [])),
    rerouted_o)`; for index, `superseded(connections, blocked_records + rerouted_index)`.
    `after = standing(ctx, hist.asked, hist.phases, index, board, stem + "_after", connections_after)`.
 5. `blocked_clean`: `judge_obligations(after.copy, conns, after.drc_json, phase_neck(ctx.cfg, phase),
-   is_real, phase_input_drc(ctx.work, index))` and `is_clean(j, status)` with each blocked task's record status
+   after.is_real, phase_input_drc(ctx.work, index))` and `is_clean(j, status)` with each blocked task's record status
    (`records_of(conns, blocked_records)`). `v = verdict(before, after, hist.asked[:index + 1], names, blocked_clean,
    off)`.
 6. A `RouterFailed`, `RouteRefused` or `subprocess.TimeoutExpired` in 2-3: no judgement; `kept` False, `reason`
@@ -1506,9 +1629,10 @@ else `receipt_widths(hist.receipt, phase.name, unit.net)`; none -> `blocked_widt
 joined on the current board (`joined_pairs`) -> `joined_since`.
 
 `plan_moves`: `asked_moves(victims, hist.asked, index, [[j["joined"] for j in before.judged[o]] for o in
-range(index + 1)])`; then `unasked_pairs(victims, hist.input_open, moves, joined_pairs(before.board, <pairs of
-hist.input_open>))`; their owners `first_joined(pairs, hist.boards[:index] + [before.board])` (a None owner is
-`index`); each unasked pair's widths `receipt_widths(hist.receipt, hist.phases[o].name, net)`, None ->
+range(index + 1)], selections=hist.selections)` (each move's `amps` from its owner's task); then `unasked_pairs(victims, hist.input_open, moves, joined_pairs(before.board, <pairs of
+hist.input_open>))`, each obligation's ends turned to joined_pairs' tuples by `phase_run._end_pair`; their owners
+`first_joined([(_end_pair(o["from"]), _end_pair(o["to"])) for o in pairs], hist.boards[:index] + [before.board])` (a
+None owner is `index`); each unasked pair's widths `receipt_widths(hist.receipt, hist.phases[o].name, net)`, None ->
 `victim_width_unknown`. Returns the asked moves then the unasked ones.
 
 - [ ] **Step 1: Failing engine tests** (append to `tests/test_rip_reroute_route.py`):
@@ -1569,29 +1693,59 @@ def test_script_copper_is_never_moved(toy, tmp_path):
 
 
 @needs_kicad
-def test_a_moved_connection_keeps_its_own_phases_widths_layers_and_neckdown(toy):
-    legs = {"name": "legs", "width": 0.5, "layers": ["F"], "neckdown": False,
-            "connections": [{"from": {"part": "P1", "pad": "1"}, "to": {"part": "P2", "pad": "1"}}]}
-    report = toy.route(legs, B)
+def test_a_current_paths_owner_moves_at_its_current_widths_layers_and_neckdown(toy, tmp_path):
+    legs = {"name": "legs", "current_paths": True, "layers": ["F"], "neckdown": False}
+    report = toy.route(legs, B, pcb=rip_board(tmp_path, currents=True))
     att = report.phases[1]["rip"]["attempts"][0]
-    assert att["kept"] and att["rerouted"][0]["widths"] == {"F.Cu": 0.5}
+    asked = report.asked[0][0]["widths"]                       # the legs phase's current width, F.Cu only
+    assert set(asked) == {"F.Cu"} and asked["F.Cu"] > 0.2
+    assert att["kept"] and att["rerouted"][0]["widths"] == asked
     moved = [c for c in toy.calls() if "--connections" in c and "rip0_v0" in c[c.index("--connections") + 1]]
     assert moved and moved[0][moved[0].index("--layers") + 1:moved[0].index("--escalation")] == ["F.Cu"]
     assert "--no-power-tap-neckdown" in moved[0]
+    assert report.phases[0]["final_closure_clean"] == 1.0
+
+
+@needs_kicad
+def test_joins_no_phase_asks_move_at_the_settings_of_the_phase_that_made_them(toy, tmp_path):
+    legs = {"name": "legs", "current_paths": True, "layers": ["F"]}
+    report = toy.route(legs, {"name": "signals"}, {"name": "b2", "nets": ["B"]},
+                       pcb=rip_board(tmp_path, currents=True, third=True))
+    legs_r, signals, b2 = report.phases
+    # the rest call laid A's leftover leg (P2-P3) itself, so it may not move A
+    assert [(s["net"], s["reason"], s["not_ripped"]) for s in signals["rip"]["skipped"]] == [
+        ("B", "no_victim", [{"net": "A", "reason": "routed_by_call"}])]
+    att = b2["rip"]["attempts"][0]
+    assert att["kept"] and att["removed"]["tracks"] == 2
+    got = [(r["phase"], r["index"], frozenset((r["from"]["ref"], r["to"]["ref"])), r["asked"]) for r in att["rerouted"]]
+    assert got == [("legs", 0, frozenset(("P1", "P2")), True), ("signals", 1, frozenset(("P2", "P3")), False)]
+    assert b2["joined"] == 1 and legs_r["final_closure_clean"] == 1.0
+
+
+@needs_kicad
+def test_only_takes_the_given_boards_copper_as_the_scripts(toy, tmp_path):
+    report = toy.route(A, B, pcb=rip_board(tmp_path, a_track=True), upto="b", only=True)
+    (b,) = report.phases
+    assert b["rip"]["attempts"] == []
+    assert b["rip"]["skipped"][0]["not_ripped"] == [{"net": "A", "reason": "no_router_copper"}]
 ```
 
 In the same-phase test A's class clearance (0.3) is above the base (0.15), so `clearance_groups` gives A a `nets` call
-of its own before the rest call (phase_run.plan_calls), as pic_programmer's VCC.
+of its own before the rest call (phase_run.plan_calls), as pic_programmer's VCC. In the unasked test the rest phase
+asks nothing of A (the legs phase names it), so A's leftover leg P2-P3 is an input-board open connection no phase
+asks; the first phase board that joins it is the signals phase's.
 
 - [ ] **Step 2: Run** `<TEST> --full tests/test_rip_reroute_route.py` - expected FAIL.
 
 - [ ] **Step 3: Implement** `blocked_connections`, `plan_moves` and `attempt` as above, and in `after_call` replace
 Task 10's placeholder: on a unit that passes the gate, build `before` if not yet built, then `blocked_connections`
 and `plan_moves` (a reason from either is a skip with that reason), then `attempt`; `rip.made += 1`; append the
-record; kept -> `board_out = after.board`, `before = after`, the router-nets map recomputed on the new board, the
-unit's net added to the call's laid nets, its blocked records and phase-i reroutes added to `AfterCall.records`, its
-phase-i calls to `AfterCall.calls`, victims owned by phase i to `trim`, the attempt's `widths` to `AfterCall.widths`,
-and the attempt's summary paths to `AfterCall.summaries`; restored -> `rip.tried.add(frozenset(victims))`, and
+record; kept -> `hist.record_move(index, rec)` at once (finding M2: the next attempt's `before` and `after` read
+it), `board_out = after.board`, `before = after`, the router-nets map recomputed on the new board, the unit's net
+added to the call's laid nets, its blocked records and phase-i reroutes added to `AfterCall.records`, its phase-i
+calls to `AfterCall.calls`, every victim to `trim` (whatever phase owns its moves: the copper of every earlier call on
+that net is gone), the attempt's `widths` to `AfterCall.widths`, and the attempt's summary paths to
+`AfterCall.summaries`; restored -> `rip.tried.add(frozenset(victims))`, and
 `rip.stopped = True` when the reason is in `ROUTER_REASONS`. A unit after a kept attempt reads the new `before`.
 - [ ] **Step 4: Run** `<TEST> --full tests/test_rip_reroute.py tests/test_rip_reroute_board.py tests/test_rip_reroute_route.py tests/test_route_phases.py`
   - expected PASS.
@@ -1626,14 +1780,31 @@ def test_a_router_failure_in_an_attempt_restores_and_ends_the_calls_attempts(toy
 def test_the_net_limit_skips_a_unit_naming_too_many_nets(toy):
     report = toy.route(A, B, settings={"route_rip_max_nets": 0})
     assert report.phases[1]["rip"]["skipped"][0]["reason"] == "too_many_victims"
+
+
+@needs_kicad
+def test_the_attempt_limit_skips_the_calls_later_units(toy, tmp_path):
+    report = toy.route(A, {"name": "b", "nets": ["B", "C"]}, pcb=rip_board(tmp_path, c_net=True),
+                       settings={"route_rip_attempts": 1})
+    rip = report.phases[1]["rip"]
+    assert [(a["blocked"][0]["net"], a["kept"]) for a in rip["attempts"]] == [("B", True)]
+    assert [(s["net"], s["reason"]) for s in rip["skipped"]] == [("C", "limit")]
+
+
+@needs_kicad
+def test_a_victim_set_restored_once_is_not_tried_again_in_the_call(toy, tmp_path, monkeypatch):
+    monkeypatch.setenv("TOY_DETOUR", "0")                  # A cannot go round: the first attempt is restored
+    report = toy.route(A, {"name": "b", "nets": ["B", "C"]}, pcb=rip_board(tmp_path, c_net=True))
+    rip = report.phases[1]["rip"]
+    assert [(a["blocked"][0]["net"], a["kept"]) for a in rip["attempts"]] == [("B", False)]
+    assert [(s["net"], s["reason"]) for s in rip["skipped"]] == [("C", "tried")]
 ```
 
-Imports: rip_reroute imports phase_run's names at its top (`from .phase_run import route_tasks, ...`), and
-phase_run imports rip_reroute inside `route_calls`; route.py imports it inside functions. So tests can replace
-`rip_reroute.route_tasks`. `reroute_blocked` (Task 15) calls `pour_join.join_pour` through the module
-(`from . import pour_join`), so tests can replace that too.
+The toy routes a call's nets in name order, so `net_evidence` lists B before C and B's unit comes first.
 
-- [ ] **Step 2: Run** - expected FAIL until the import and the stop are right. **Step 3:** fix. **Step 4: Run**
+The router-failure test replaces `rip_reroute.route_tasks`, the module-level name Task 11 created.
+
+- [ ] **Step 2: Run** - a failure is a gap in Task 11's stop or gate handling. **Step 3:** fix it, test first. **Step 4: Run**
 `<TEST> --full tests/test_rip_reroute.py tests/test_rip_reroute_route.py` - PASS.
 - [ ] **Step 5: Commit** "Rip and reroute: a failed router call ends a call's attempts", grep.
 
@@ -1642,15 +1813,15 @@ phase_run imports rip_reroute inside `route_calls`; route.py imports it inside f
 ## Task 13: The final judgement and the width rows
 
 **Files:**
-- Modify: `$WT/src/placemat/kicad/rip_reroute.py` (`moved_records`, `moved_nets`)
+- Modify: `$WT/src/placemat/kicad/rip_reroute.py` (`moved_nets`; `moved_records` is Task 10's)
 - Modify: `$WT/src/placemat/kicad/route.py:1230-1262` (`recheck_final_phases`), `:1501` (`report.widths`)
 - Test: `$WT/tests/test_rip_reroute.py`, `$WT/tests/test_rip_reroute_route.py`
 
 **Interfaces:** Produces
 
 ```python
-def moved_records(phases, k) -> list        # kept attempts' rerouted records with index == k, from phases after k, in order
-def moved_nets(phases) -> set               # {(k, net)} of kept moves owned by an earlier phase k
+moved_records(phases, k)                    # from Task 10
+def moved_nets(phases) -> set               # {(k, net)}: every victim of a kept attempt of phase j, for every k < j
 ```
 
 - [ ] **Step 1: Failing tests.** Pure:
@@ -1660,14 +1831,30 @@ def test_the_final_judgement_reads_an_earlier_phases_moved_records():
     moved = {"net": "V", "from": {"ref": "U1", "pad": "1"}, "to": {"ref": "J1", "pad": "1"}, "status": "routed",
              "phase": "legs", "index": 0, "asked": True}
     phases = [{"name": "legs", "rip": {"attempts": [], "skipped": []}},
-              {"name": "signals", "rip": {"attempts": [{"kept": True, "rerouted": [moved]},
-                                                       {"kept": False, "rerouted": [dict(moved, status="failed")]}],
+              {"name": "rest", "rip": {"attempts": [], "skipped": []}},
+              {"name": "signals", "rip": {"attempts": [{"kept": True, "victims": ["V"], "rerouted": [moved]},
+                                                       {"kept": False, "victims": ["W"],
+                                                        "rerouted": [dict(moved, status="failed")]}],
                                           "skipped": []}}]
-    assert rr.moved_records(phases, 0) == [moved] and rr.moved_records(phases, 1) == []
-    assert rr.moved_nets(phases) == {(0, "V")}
+    assert rr.moved_records(phases, 0) == [moved] and rr.moved_records(phases, 2) == []
+    # every earlier phase's rows of a moved net go, whichever phase owns the moved connection (finding F7)
+    assert rr.moved_nets(phases) == {(0, "V"), (1, "V")}
 ```
 
-The engine side is Task 11's kept test (`a["final_joined"] == 1` after the move).
+Engine, in `tests/test_rip_reroute_route.py`: it fails without this task's change, on both asserts after the
+first.
+
+```python
+@needs_kicad
+def test_a_moved_connection_replaces_its_earlier_record_and_width_rows(toy, monkeypatch):
+    monkeypatch.setenv("TOY_NARROW", "A")                  # phase a's call lays A at half width: joined_narrow
+    a = {"name": "a", "connections": [{"from": {"part": "P1", "pad": "1"}, "to": {"part": "P2", "pad": "1"}}]}
+    report = toy.route(a, B)
+    assert report.phases[0]["connections"][0]["status"] == "joined_narrow"   # phase a's own record stands
+    assert report.phases[1]["rip"]["attempts"][0]["kept"]
+    assert report.phases[0]["final_closure_clean"] == 1.0                     # read from the moved record
+    assert not [w for w in report.widths if w.get("stage") == "a" and w.get("net") == "A"]
+```
 
 - [ ] **Step 2: Run** - FAIL. **Step 3: Implement.** In `recheck_final_phases`:
 
@@ -1683,10 +1870,12 @@ and in `_route_board`:
     from .rip_reroute import moved_nets
     gone = moved_nets(records)
     report.widths = [w for j, rec in enumerate(records) for w in rec.get("widths", [])
-                     if (j, w.get("net")) not in gone or w.get("stage") != rec["name"]] + read_widths(summaries, judged_width_nets)
+                     if (j, w.get("net")) not in gone] + read_widths(summaries, judged_width_nets)
 ```
 
-(The attempt's own rows are in the later phase's `widths` under the owner's stage name, so they stay.)
+with `moved_nets(phases) = {(k, v) for j, p in enumerate(phases) for a in p["rip"]["attempts"] if a["kept"] for v
+in a["victims"] for k in range(j)}`. A kept attempt's own rows are in its phase's `widths` under the owner's stage
+name; a later kept attempt that moves the same net again drops them too, since the copper they describe is gone.
 
 - [ ] **Step 4: Run** `<TEST> --full tests/test_rip_reroute.py tests/test_rip_reroute_route.py tests/test_route_phases.py tests/test_phase_widths.py`
   - PASS.
@@ -1706,22 +1895,27 @@ and in `_route_board`:
 def test_the_phase_lines_say_what_was_moved_restored_and_not_tried():
     from placemat.kicad.route import phase_lines
     end = lambda r, p: {"ref": r, "pad": p}
-    kept = {"call": 1, "attempt": 0, "kept": True, "reason": None, "victims": ["VCC"],
-            "blocked": [{"net": "VCC_PIC", "from": end("JP1", "2"), "to": end("U6", "1")}],
-            "rerouted": [{"net": "VCC", "phase": "legs", "index": 0}] * 6, "worse": []}
-    lost = {"call": 1, "attempt": 1, "kept": False, "reason": "obligation_worse", "victims": ["V"],
-            "blocked": [{"net": "N", "from": end("A", "1"), "to": end("B", "2")}], "rerouted": [],
-            "worse": [{"phase": "legs", "net": "V", "from": end("C", "1"), "to": end("D", "2"),
+    kept = {"call": 1, "attempt": 0, "kept": True, "reason": None, "victims": ["V"],
+            "blocked": [{"net": "N", "from": end("J1", "2"), "to": end("U2", "1")}],
+            "rerouted": [{"net": "V", "phase": "legs", "index": 0}] * 6, "worse": []}
+    lost = {"call": 1, "attempt": 1, "kept": False, "reason": "obligation_worse", "victims": ["W"],
+            "blocked": [{"net": "M", "from": end("A", "1"), "to": end("B", "2")}], "rerouted": [],
+            "worse": [{"phase": "legs", "net": "W", "from": end("C", "1"), "to": end("D", "2"),
                        "before": "clean", "after": "open"}]}
-    skipped = [{"call": 1, "net": "M", "named": [], "not_ripped": [], "reason": "too_many_victims"},
+    drc = dict(lost, attempt=2, reason="drc_new", drc_new=2, worse=[])
+    one = dict(lost, attempt=3, reason="drc_new", drc_new=1, worse=[])
+    skipped = [{"call": 1, "net": "K", "named": [], "not_ripped": [], "reason": "too_many_victims"},
                {"call": 1, "net": "Q", "named": [], "not_ripped": [], "reason": "no_victim"}]
     base = {"selector": "rest", "joined": 1, "asked": 2, "closure_clean": 0.5, "seconds": 3.0, "open": []}
     lines = phase_lines([dict(base, name="legs", rip={"attempts": [], "skipped": []}),
-                         dict(base, name="signals", rip={"attempts": [kept, lost], "skipped": skipped})])
-    assert lines[0].endswith("; moved by phase signals: VCC")
-    assert "; moved earlier copper: VCC_PIC JP1.2-U6.1 joined after moving VCC (legs, 6 connections)" in lines[1]
-    assert "; restored: N A.1-B.2 after moving V: V C.1-D.2 would be open" in lines[1]
-    assert "; not moved for M: too many nets named" in lines[1] and "Q" not in lines[1].split("not moved")[-1]
+                         dict(base, name="signals", rip={"attempts": [kept, lost, drc, one], "skipped": skipped})])
+    assert lines[0].endswith("; moved by phase signals: V")
+    assert "; moved earlier copper: N J1.2-U2.1 joined after moving V (legs, 6 connections)" in lines[1]
+    assert "; restored: M A.1-B.2 after moving W: W C.1-D.2 would be open" in lines[1]
+    assert "after moving W: 2 new DRC errors" in lines[1]
+    assert "after moving W: 1 new DRC error" in lines[1] and "1 new DRC errors" not in lines[1]
+    assert "; not moved for K: too many nets named" in lines[1] and "for Q" not in lines[1]
+    assert "(" not in lines[1].split("; restored")[1]          # no bracketed plurals
 ```
 
 `moved by` on phase 0's line comes from phase 1's kept attempt, whose records are owned by phase 0 (`index` 0).
@@ -1730,7 +1924,7 @@ def test_the_phase_lines_say_what_was_moved_restored_and_not_tried():
 
 ```python
 _RESTORED = {"blocked_not_clean": "not joined clean", "net_open_rose": "%s left with more open items",
-             "drc_new": "%d new DRC error(s)", "off_layer": "copper off its phase's layers",
+             "off_layer": "copper off its phase's layers",
              "router_failed": "the router failed", "router_refused": "the router refused a task",
              "router_timeout": "the router timed out"}
 _NOT_MOVED = {"too_many_victims": "too many nets named", "limit": "attempt limit", "tried": "same nets restored before",
@@ -1742,9 +1936,12 @@ _NOT_MOVED = {"too_many_victims": "too many nets named", "limit": "attempt limit
 Each kept attempt: `"; moved earlier copper: %s joined after moving %s (%s, %d connections)"` with the blocked
 connections as `NET A.1-B.2` (`_phase_end`), the victims joined by ", ", the owner phases' names joined by ", " and
 the count of `rerouted`. Each restored: `"; restored: %s after moving %s: %s"`, the why from `worse[0]` ("NET A-B would
-be open" / "would no longer be clean" when `after == "joined"`), `open_rose`'s first net, `drc_new`, or `_RESTORED`.
-Each skipped other than `no_victim`: `"; not moved for %s: %s"`. On a phase k's line, the nets moved by later kept
-attempts with `index == k`: `"; moved by phase %s: %s"` per later phase. The words are the edge's own; nothing parses
+be open" / "would no longer be clean" when `after == "joined"`), `open_rose`'s first net, `drc_new` as
+`"%d new DRC error%s" % (n, "" if n == 1 else "s")` (the plural by count, as `_pour_join_said` writes it), or
+`_RESTORED`.
+Each skipped other than `no_victim`: `"; not moved for %s: %s"`. On a phase k's line, from `moves_of(phases, k)`
+(Task 10), the moved nets grouped by mover phase, in order: `"; moved by phase %s: %s"`, the mover's name and its
+nets joined by ", " (each net once). The words are the edge's own; nothing parses
 them.
 
 - [ ] **Step 4: Run** `<TEST> --full tests/test_rip_reroute.py tests/test_route_phase_cli.py tests/test_route_command.py`
@@ -1753,7 +1950,7 @@ them.
 
 ---
 
-## Task 15: Pour calls and pair calls
+## Task 15: Pour calls
 
 **Files:**
 - Modify: `$WT/src/placemat/kicad/rip_reroute.py` (only if the tests show a gap)
@@ -1781,22 +1978,15 @@ def test_a_pour_calls_blocked_net_is_joined_to_its_pour_again(monkeypatch, tmp_p
                        tmp_path / "r.kicad_pcb", types.SimpleNamespace(layers=("F.Cu",), common={}), "p2_0_rip0",
                        "pours")
     assert seen == [("GND", "p2_0_rip0_b", 0.5, ("F.Cu",))]
-
-
-def test_pair_nets_and_pour_nets_never_move():
-    unit = rr.Blocked("N", (rr.Named("D_P", "preexisting"), rr.Named("GND", "static")))
-    victims, skipped = rr.victims_of(unit, router_nets={"D_P": 4, "GND": 9}, laid_by_call=set(), pour_nets={"GND"},
-                                     pair_nets={"D_P", "D_N"}, excluded=set())
-    assert victims == () and [s["reason"] for s in skipped] == ["pair_net", "pour_net"]
 ```
 
-  These pin `reroute_blocked`'s pour branch (Task 11) and the victim rules for pour and pair nets.
+  This pins `reroute_blocked`'s pour branch (Task 11). The victim rules for pour and pair nets are Task 4's test.
 
 - [ ] **Step 2: Run** - expected PASS if Task 11 followed its interface; a failure here is a fault in Task 11's
 `reroute_blocked` or in the import direction (Task 12). **Step 3:** fix any failure with the test first. **Step 4: Run**
 `<TEST> --full tests/test_rip_reroute.py tests/test_rip_reroute_route.py tests/test_route_pour_phases.py tests/test_pour_join.py`
   - PASS.
-- [ ] **Step 5: Commit** "Tests: rip and reroute after a pour call, and pour and pair nets never move", grep.
+- [ ] **Step 5: Commit** "Tests: rip and reroute after a pour call", grep.
 
 ---
 
@@ -1859,12 +2049,17 @@ documents", grep.
 
 **Files:** whatever the suite shows broken.
 
-- [ ] **Step 1:** `df -h /tmp ~`, then `<TEST> --full -n 2` once. Record the counts and every failure in the ledger,
+- [ ] **Step 1:** `df -h /tmp ~`, then `<TEST> --full -n 2 --junitxml=<scratch>/run.xml` once. Record the counts and every failure in the ledger,
 with the load average.
 - [ ] **Step 2:** Sort failures: caused by this branch (fix each with a failing test first, then rerun only that
 file), or known before the branch (test_version against the installed package; two test_studio_builder tests, as
 listed in usbc-starvation-report.md). A failure that is neither goes to the user.
 - [ ] **Step 3:** After fixes, rerun the files that failed, not the suite. Commit each fix on its own, grep.
+- [ ] **Step 4: The slow-test list.** The engine tests of Tasks 9-13 take seconds each. Run the step 1 suite with
+`--junitxml=<scratch>/run.xml` (add it to step 1's command), then
+`cd /home/ben/work/placemat/.claude/worktrees/rip-reroute && /home/ben/work/placemat/.venv/bin/python tests/update_slow_tests.py <scratch>/run.xml`,
+check that the diff of `tests/slow_tests.txt` adds this branch's tests and drops none that still exist, and commit it
+("Tests: the slow-test list with rip and reroute's engine tests"), grep.
 
 ---
 

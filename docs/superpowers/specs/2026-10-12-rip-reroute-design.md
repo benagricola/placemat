@@ -229,9 +229,10 @@ A kept attempt also changes:
 - An earlier phase k's records are not rewritten (its kept result stays as it was routed). The final re-judgement
   (`recheck_final_phases`) reads phase k's outcomes from its records superseded by every kept attempt's `rerouted`
   records with `index == k`, so a stale outcome (a `joined_narrow` that was moved) is not carried over.
-- Width rows (`RouteReport.widths`, the `route.width` findings) describe the final board: rows of a victim net from
-  the calls that laid the removed copper are dropped, and the reroute calls' rows are added under the owner phase's
-  name.
+- Width rows (`RouteReport.widths`, the `route.width` findings) describe the final board: every row of a victim net
+  from the phases before the attempt's phase, and from that phase's calls before the attempt, is dropped (all of
+  the net's router copper was removed, whichever phase owns its connections), and the reroute calls' rows are added
+  under the owner phase's name.
 
 `RouteReport` gains no top-level field: everything is in `phases[i]["rip"]`. The kept-result digest moves to
 `phase-judgement-v10`, and the two settings enter it through the `route_*` settings the digest already reads.
@@ -245,7 +246,7 @@ A kept attempt also changes:
 - Each restored attempt: `; restored: N A.1-B.2 after moving V: V C.1-D.2 would be open` (the first `worse` entry),
   `... N left with more open items`, `... 2 new DRC errors`, `... copper off its phase's layers`, `... not joined
   clean`, `... the router failed`.
-- Skipped units with a reason other than `no_victim`: `; not moved for N: too many nets named (4)`, `... attempt limit`,
+- Skipped units with a reason other than `no_victim`: `; not moved for N: too many nets named`, `... attempt limit`,
   `... same nets restored before`, `... width unknown`.
 - On an earlier phase k's line, when a later kept attempt moved its connections: `; moved by phase signals: VCC`.
 
@@ -294,8 +295,10 @@ The studio's route view and the route record's replay are unchanged in this step
 - Engine (real pcbnew and DRC, a stand-in router that lays straight or detoured tracks and names the copper it
   crosses as pre-existing): a kept attempt across phases; a kept attempt inside one phase (pic_programmer's shape); a
   restored attempt, with the phase's board equal to the failing call's output; script copper never ripped; a
-  `current_paths` owner rerouted at its widths, layers and neck-down; limits; `--only`; the final re-judgement reading
-  the reroute records.
+  `current_paths` owner rerouted at its widths, layers and neck-down; a join no phase asks moved at the settings of
+  the phase that made it; the attempt limit, a restored victim set not tried again, a router failure ending the
+  call's attempts; `--only`; the final re-judgement reading the reroute record (a `joined_narrow` replaced) and the
+  moved net's width rows gone.
 - Real boards: pic_programmer (b) and usb-c-power-adapter (b) at a fixed placement against results.json, under a
   private realboard lock.
 
