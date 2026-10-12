@@ -345,3 +345,12 @@ def new_errors(after: list, baseline: list, tol_mm: float = NEAR_MM) -> list:
     return out
 
 
+def new_error_kinds(after: list, baseline: list) -> dict:
+    """{net: sorted kinds} of the errors new_errors finds in `after` and not in the baseline (both real_errors)."""
+    out = {}
+    for e in new_errors(after, baseline):
+        for n in e["nets"]:
+            out.setdefault(n, set()).add(e["type"])
+    return {n: sorted(k) for n, k in out.items()}
+
+

@@ -19,7 +19,7 @@ import subprocess
 
 from .. import route_progress
 from ..childenv import child_env
-from .drc import REAL_KINDS, run_drc
+from .drc import run_drc
 
 ROUTER_SETTING = "[route] router_dir"
 ROUTER_ENV = "KRT_DIR"
@@ -542,24 +542,6 @@ def plane_note(dropped: dict) -> str:
     for role, layers in sorted(groups.items()):
         parts.append("%s left out, role %s" % (", ".join(layers), role))
     return "route layers: " + "; ".join(parts) + "; placemat route --layers to override"
-
-
-def _violations_by_net(drc: dict) -> dict:
-    """{net: sorted kinds} of the real DRC violations the net's items are in."""
-    import re
-    out = {}
-    for v in drc.get("violations", []):
-        if v.get("type") not in REAL_KINDS:
-            continue
-        for item in v.get("items", []):
-            m = re.search(r"\[([^\]]+)\]", item.get("description", ""))
-            if m:
-                out.setdefault(m.group(1), set()).add(v["type"])
-    return {n: sorted(k) for n, k in out.items()}
-
-
-def _nets_in_violations(drc: dict) -> set:
-    return set(_violations_by_net(drc))
 
 
 @dataclass
@@ -1491,12 +1473,10 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
             shutil.copy(work / ("in" + ext), work / ("router_out" + ext))
     cleanup, after = finalize_copper(board, pcb_out, pcb_in, work / "in.kicad_pcb", work / "drc_after.json")
     open1 = {n: v for n, v in after.open_nets.items() if n not in counted}
-    by_net = _violations_by_net(json.loads((work / "drc_after.json").read_text()))
     # ruling S15, at the route level: a net counts as shorted only by a real error the unrouted board did not have
-    from .drc import new_errors, real_errors
-    violated = {n for e in new_errors(real_errors(json.loads((work / "drc_after.json").read_text()), after.is_real),
-                                      real_errors(json.loads((work / "drc_before.json").read_text()), after.is_real))
-                for n in e["nets"]}
+    from .drc import new_error_kinds, real_errors
+    violated = new_error_kinds(real_errors(json.loads((work / "drc_after.json").read_text()), after.is_real),
+                               real_errors(json.loads((work / "drc_before.json").read_text()), after.is_real))
     sc = score(open0, open1, {n for n in violated if n not in counted})
     breaches = [b for b in router_breaches(pcb_in, pcb_out) if not own_pour_breach(b, chosen_pours)]
     log = work / "route.json"
@@ -1515,7 +1495,7 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     report.net_clearance_facts = [dict(f.facts) for f in clearance_findings
                                   if f.cause is FindingCause.SETUP_NET_CLEARANCE]
     report.duplicate_references = shared
-    report.violations = {n: by_net[n] for n in sc.shorted}
+    report.violations = {n: violated[n] for n in sc.shorted}   # the new errors that shorted it (S15)
     from .route_widths import read_widths
     judged_width_nets = {w["net"] for rec in records for w in rec.get("widths", [])}
     report.widths = [w for rec in records for w in rec.get("widths", [])] + read_widths(summaries, judged_width_nets)

@@ -64,3 +64,14 @@ def test_two_like_errors_against_one_baseline_error_leave_one_new():
     from placemat.kicad.drc import new_errors
     e = {"type": "clearance", "nets": ("A", "B"), "at_mm": (1.0, 1.0), "items": (("x", 1.0, 1.0),)}
     assert len(new_errors([e, dict(e)], [e])) == 1
+
+
+def test_the_route_names_each_net_with_the_kinds_of_its_new_errors():
+    """The route-level S15 count: an error-severity kind outside real_kinds (a starved thermal) is named for its
+    net as well; the review found the route raising KeyError on it."""
+    from placemat.kicad.drc import new_error_kinds, real_errors
+    thermal = {"type": "starved_thermal", "severity": "error",
+               "items": [{"description": "Pad 2 [GNDREF] of U1", "pos": {"x": 3.0, "y": 5.0}}]}
+    after = real_errors({"violations": [_error(1.0), _error(2.0), thermal]}, lambda _: True)
+    base = real_errors({"violations": [_error(1.0)]}, lambda _: True)
+    assert new_error_kinds(after, base) == {"GND": ["hole_clearance"], "GNDREF": ["starved_thermal"]}
