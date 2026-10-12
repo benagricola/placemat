@@ -44,7 +44,8 @@ from dataclasses import dataclass
 
 # How the measures are counted. A run recorded under another version is not comparable (report.comparable).
 # 3: rudy_steps counts each net's box at least score.congestion_box each way.
-MEASURES_VERSION = 3
+# 4: escapes graded by the surface lanes with dog-legs; a walled suspect counts as escape_closed too (D24).
+MEASURES_VERSION = 4
 
 TERMS = ("link_over", "label", "escape_crossed", "escape_closed", "escape_via", "escape_lane", "setup", "crossings",
          "airwire", "link", "giveway", "push", "back_face", "congestion", "area")

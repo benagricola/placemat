@@ -151,32 +151,36 @@ def pad_corridors(occ, ref: str, pads: dict, rotation: float, depth: float) -> l
 
 
 # ------------------------------------------------------------ surface lanes
-# The escape findings and the run score judge a pad by the cheapest way its track can leave it (placemat's own rule, not
-# a KiCad rule; docs/superpowers/specs/2026-10-07-surface-escapes-design.md). A surface lane is a straight track of the
-# net's class, kept what the exact path search keeps (the class's clearance, and a search cell more) from every other
-# net's pads, tracks, vias and pours on any of the pad's layers, and `hole_clearance` from unplated holes. It runs in two
-# legs: out of the pin field along the pin's normal (empty for a part of two pads or one), then straight in one of eight
-# compass directions to the edge of the search's window, the pad's box grown by `score.escape_reach`. A lane is toward
-# the pad's target when its end lies toward the nearest other placed pad of its net, as the search judges its edge. A via spot is a via of the net's class touching the pad's
-# edge in each direction a corridor takes (`pad_corridors`), and one where the first leg leaves the pin field (on the
-# leg, a via's clearance past the box round the part's other pads); it is clear of every other net's copper on every
-# layer, of unplated holes and of via bans. A pad whose own net's copper already leaves it is not judged: its way out is
-# made. The lanes are a first check only: where they find no surface way toward the target, the exact path search
-# (`path_out(exact=True)`) decides (`Escapes._verdict`), so the judgement is the path search's.
+# The escape findings and the run score grade a pad by the cheapest way its track can leave it (placemat's own rule, not
+# a KiCad rule; docs/superpowers/specs/2026-10-07-surface-escapes-design.md, and decision D24 of the one-score plan). A
+# surface lane is a track of the net's class, kept what the exact path search keeps (the class's clearance, and a search
+# cell more) from every other net's pads, tracks, vias and pours on any of the pad's layers, and `hole_clearance` from
+# unplated holes. It runs out of the pin field along the pin's normal (empty for a part of two pads or one), then
+# straight in one of eight compass directions to the edge of the search's window, the pad's box grown by
+# `score.escape_reach`; each such lane has four dog-legs, which turn once, 45 or 90 degrees either way, halfway along it
+# and run on to the window's edge. A lane is toward the pad's target when its end lies toward the nearest other placed
+# pad of its net, as the search judges its edge. A via spot is a via of the net's class touching the pad's edge in each
+# direction a corridor takes (`pad_corridors`), and one where the first leg leaves the pin field (on the leg, a via's
+# clearance past the box round the part's other pads); it is clear of every other net's copper on every layer, of
+# unplated holes and of via bans. A pad whose own net's copper already leaves it is not judged: its way out is made.
+#
+# The grade comes from the lanes and the via spots alone (`Escapes._verdict`): a lane toward the target, else a via
+# spot, else a lane any way, else the pad is a walled suspect, priced as a closed pad. Walled is validity, not a price:
+# the exact path search (`path_out(exact=True)`) decides it, and runs only on suspects.
 class Way(Enum):
     """A judged pad's cheapest way out (`price`)."""
     SURFACE = "surface"     # a surface lane toward its target
     VIA = "via"             # none, but a via fits beside it
-    AWAY = "away"           # neither, but a surface lane another way
-    WALLED = "walled"       # none of these
+    AWAY = "away"           # neither, but a way another direction: a lane, or for a suspect the exact search
+    WALLED = "walled"       # no lane and no via spot, and the exact search finds no way out
+    SUSPECT = "suspect"     # no lane and no via spot, the exact search not asked (`exact=False`)
 
 
 def price(way: Way, settings) -> float:
-    """What a pad whose cheapest way out is `way` costs in the run score. A walled pad has no price: it is a critical
-    finding, counted in the validity tier (score.Validity), and asking its price is an error."""
-    if way is Way.WALLED:
-        raise ValueError("a walled pad is counted in the validity tier (score.Validity), not priced")
-    return {Way.SURFACE: 0.0, Way.VIA: settings.score_escape_via, Way.AWAY: settings.score_escape_closed}[way]
+    """What a signal pad whose cheapest way out is `way` costs in the run score: a suspect is priced as a closed pad
+    whatever the exact search says of it, so a walled one is too. Walled is also a critical finding, counted in the
+    validity tier (score.Validity). A quiet net's pad has no price."""
+    return {Way.SURFACE: 0.0, Way.VIA: settings.score_escape_via}.get(way, settings.score_escape_closed)
 
 
 @dataclass(frozen=True)
@@ -185,9 +189,10 @@ class Lane:
     number: str
     net: str
     layers: frozenset
-    legs: tuple             # ((a, b), (b', c)): the track's centre line out of the pin field, then on; an empty leg is (p, p)
+    legs: tuple             # ((a, b), (b', c)[, (c', d)]): the track's centre line out of the pin field, then on, and a
+                            # dog-leg's run on past its turn; an empty leg is (p, p)
     box: Box                # round the legs' centre lines
-    direction: tuple        # the second leg's unit direction, board frame
+    direction: tuple        # the last leg's unit direction, board frame
     toward_ok: bool = True  # the lane's end lies toward `pad_lanes`'s `toward` from the pad's centre (True without one)
 
 
@@ -202,6 +207,7 @@ class ViaSpot:
 
 _COMPASS = tuple((round(math.cos(math.radians(a)), 12) + 0.0, round(math.sin(math.radians(a)), 12) + 0.0)
                  for a in range(0, 360, 45))
+_DOG_LEGS = (1, -1, 2, -2)          # a dog-leg's turn, in compass steps: 45 and 90 degrees either way
 
 
 def _exit(box: Box, ux: float, uy: float) -> float:
@@ -258,8 +264,10 @@ def pad_lanes(occ, ref: str, pads: dict, rotation: float, toward: dict | None = 
     until a second leg at 45 degrees from its end keeps a lane's reach (half the track and the clearance) from each of
     those pads' corners: on a fine pitch the neighbours' tips stand within that reach of a diagonal from the box's edge.
     A part of two pads or one has no first leg, and its second legs start at the pad's edge in their own direction. The
-    second legs run to the edge of the path search's window, the pad's box grown by `score.escape_reach` (`path_out`),
-    and a lane is toward the target when its end, seen from the pad's centre, is (as the search judges its edge)."""
+    second legs run to the edge of the path search's window, the pad's box grown by `score.escape_reach` (`path_out`).
+    Each straight lane is followed by its four dog-legs (`_DOG_LEGS`): its second leg as far as halfway, then a third
+    leg turned 45 or 90 degrees either way, on to the window's edge. A lane is toward the target when its end, seen from
+    the pad's centre, is (as the search judges its edge)."""
     from .placer import _pin_normal
     if len(pads) < occ.settings.place_escape_min_pads:
         return [], []
@@ -283,7 +291,8 @@ def pad_lanes(occ, ref: str, pads: dict, rotation: float, toward: dict | None = 
         r = nc.via_diameter / 2.0
         own = None if polys is None else polys.get(number)
         # a pad number whose centre is on none of its outlines (an SOT-223's pin and tab, split pads) has no lanes: a lane
-        # from the centre of its box would cross ground that is none of its copper, and the path search decides alone
+        # from the centre of its box would cross ground that is none of its copper; its via spots grade it, and the exact
+        # search decides whether it is walled
         blind = own is not None and not any(point_in_polygon((c.x, c.y), poly) for poly in own)
         h = _exit(box, *d) if own is None else _poly_exit((c.x, c.y), d, own)
         start = (c.x + d[0] * h, c.y + d[1] * h)
@@ -306,7 +315,7 @@ def pad_lanes(occ, ref: str, pads: dict, rotation: float, toward: dict | None = 
         end = (start[0] + d[0] * min(first, _to_edge(start, d, win)), start[1] + d[1] * min(first, _to_edge(start, d, win)))
         aim = None if toward is None else toward.get(number)
         field = len(pads) > 2
-        for ux, uy in (() if blind else _COMPASS):
+        for k, (ux, uy) in enumerate(() if blind else _COMPASS):
             if field:
                 a = end
             else:
@@ -314,10 +323,20 @@ def pad_lanes(occ, ref: str, pads: dict, rotation: float, toward: dict | None = 
                 a = (c.x + ux * e, c.y + uy * e)
             length = _to_edge(a, (ux, uy), win)
             f = (a[0] + ux * length, a[1] + uy * length)
-            legs = ((start, end), (a, f)) if field else ((a, a), (a, f))
-            ok = aim is None or (f[0] - c.x) * aim[0] + (f[1] - c.y) * aim[1] > 1e-9
-            lanes.append(Lane(ref, number, net, frozenset(layers), legs, Box.of_points([p for leg in legs for p in leg]),
-                              (ux, uy), ok))
+            first_leg = (start, end) if field else (a, a)
+            ways = [((first_leg, (a, f)), (ux, uy))]
+            if length > 1e-9:               # its dog-legs: halfway along, a turn, then on to the window's edge
+                half_way = length / 2.0
+                m = (a[0] + ux * half_way, a[1] + uy * half_way)
+                for turn in _DOG_LEGS:
+                    vx, vy = _COMPASS[(k + turn) % 8]
+                    run = _to_edge(m, (vx, vy), win)
+                    ways.append(((first_leg, (a, m), (m, (m[0] + vx * run, m[1] + vy * run))), (vx, vy)))
+            for legs, direction in ways:
+                g = legs[-1][1]
+                ok = aim is None or (g[0] - c.x) * aim[0] + (g[1] - c.y) * aim[1] > 1e-9
+                lanes.append(Lane(ref, number, net, frozenset(layers), legs,
+                                  Box.of_points([p for leg in legs for p in leg]), direction, ok))
         dirs = [d]
         if len(pads) <= 2:
             dirs += [(-d[1], d[0]), (d[1], -d[0])]
@@ -795,16 +814,16 @@ class Escapes:
                 best = (d, (a.x - at.x, a.y - at.y))
         return None if best is None else best[1]
 
-    def _verdict(self, ref: str, number: str, bans, near=None, *, native=False) -> tuple | None:
+    def _verdict(self, ref: str, number: str, bans, near=None, *, native=False, exact=True) -> tuple | None:
         """(way, what blocks) for one pad, None when it is not judged: it is unconnected, its net has no other pad placed,
         or copper of its own net (planned copper, another part's pad) already leaves it: its way out is made.
 
-        The exact path search (`path_out(exact=True)`, a window `score.escape_reach` round the pad) decides, in the
-        order of the prices: a surface route toward the target is SURFACE, else an open via spot VIA, else a surface
-        route any way AWAY, else WALLED. The lanes are a first check only: an open lane toward the target is SURFACE,
-        an open lane any way passes the third test, without the search. A pad of a quiet net (a plane's, a free net's)
-        drops to the plane by a via: it is judged for walled only, and is not reported (None) when a via spot or a
-        surface route any way is open."""
+        The lanes and the via spots grade it, in the order of the prices: an open lane toward the target is SURFACE,
+        else an open via spot VIA, else an open lane any way AWAY. A pad with none of these is a walled suspect, priced
+        as a closed pad: the exact path search (`path_out(exact=True)`, a window `score.escape_reach` round the pad,
+        any way) decides whether it is WALLED or AWAY. `exact` off leaves the search out and says SUSPECT. A pad of a
+        quiet net (a plane's, a free net's) drops to the plane by a via: it is judged for walled only, and is not
+        reported (None) when a via spot, a lane or the search gets out."""
         lanes_all, spots_all, pads = self._lanes_of(ref)
         lanes = [l for l in lanes_all if l.number == number]
         spots = [p for p in spots_all if p.number == number]
@@ -826,44 +845,42 @@ class Escapes:
         region = Box.union([pads[number][2]] + [l.box for l in lanes] + [p.box for p in spots])
         foes = self._foes(self._reach(region, net), net, ref, number)
         if native:
-            return self._native_way(ref, number, net, pads[number][2].center, aim, quiet,
-                                    lanes, spots, foes, bans, near), []
+            way = self._native_way(ref, number, net, pads[number][2].center, aim, quiet,
+                                   lanes, spots, foes, bans, near, exact)
+            return None if way is None else (way, [])
         shut = {id(l): self._lane_blocked(l, foes) for l in lanes}
-        reach = occ.settings.score_escape_reach
-
-        near = search_near(occ) if near is None else near
-
-        def search(toward) -> bool:
-            return bool(path_out(occ, ref, number, depth=reach, toward=toward, near=near, exact=True, via_exit=False,
-                                 native=self._native_paths()))
         if not quiet:
             toward = self._toward_lanes(lanes, aim, pads[number][2].center)
             if any(not shut[id(l)] for l in toward):
-                return Way.SURFACE, []
-            self.searched += 1
-            if search(aim if abs(aim[0]) + abs(aim[1]) >= 1e-12 else None):
                 return Way.SURFACE, []
             by = {_by(occ, s) for l in toward for s in shut[id(l)]}
         else:
             by = set()
         spot_shut = [self._spot_blocked(p, foes, bans) for p in spots]
         if any(not b for b in spot_shut):
-            if quiet:
-                return None
             way = Way.VIA
-        elif any(not shut[id(l)] for l in lanes) or search(None):
-            if quiet:
-                return None
+        elif any(not shut[id(l)] for l in lanes):
             way = Way.AWAY
+        elif not exact:
+            way = Way.SUSPECT
         else:
-            way = Way.WALLED
-            by |= {_by(occ, s) for l in lanes for s in shut[id(l)]}
-            by |= {_by(occ, s) if s.kind != "viaban" else Owner("who", s.owner) for b in spot_shut for s in b}
+            self.searched += 1
+            near = search_near(occ) if near is None else near
+            if path_out(occ, ref, number, depth=occ.settings.score_escape_reach, near=near, exact=True,
+                        via_exit=False, native=self._native_paths()):
+                way = Way.AWAY
+            else:
+                way = Way.WALLED
+                by |= {_by(occ, s) for l in lanes for s in shut[id(l)]}
+                by |= {_by(occ, s) if s.kind != "viaban" else Owner("who", s.owner) for b in spot_shut for s in b}
+        if quiet and way is not Way.WALLED and way is not Way.SUSPECT:
+            return None
         named = sorted(by, key=str)
         return way, [b for b in named if str(b) != ref] or named
 
-    def _native_way(self, ref, number, net, centre, aim, quiet, lanes, spots, foes, bans, near):
-        """Classification twin only; diagnostic blockers still use Python."""
+    def _native_way(self, ref, number, net, centre, aim, quiet, lanes, spots, foes, bans, near, exact=True):
+        """`_verdict`'s way from the native classification twin (`surface_judge`), None for a quiet pad with a way
+        out; what blocks is Python's alone."""
         from .geometry import _native
         if _native is None or not hasattr(_native, 'surface_judge'):
             raise RuntimeError('native surface escape judge unavailable')
@@ -894,11 +911,11 @@ class Escapes:
             [((s.circle[0], s.circle[1]), s.circle[2], bounds(s.box)) for s in spots],
             [(shape(s), lane, clearance, s.kind == 'npth') for s, lane, clearance in foes],
             [shape(s) for s in bans if net not in s.net.split(ALLOW_SEP)],
-            aim, (centre.x, centre.y), quiet, path)
-        return (Way.SURFACE, Way.VIA, Way.AWAY, Way.WALLED, None)[result]
+            aim, (centre.x, centre.y), quiet, path, exact)
+        return (Way.SURFACE, Way.VIA, Way.AWAY, Way.WALLED, None, Way.SUSPECT)[result]
 
     def judge_native(self, ref, number):
-        """Explicit classification parity entry point, not adopted by search."""
+        """`judge` by the native classification twin, for parity."""
         result = self._verdict(ref, number, self._bans(), search_near(self.occ), native=True)
         return None if result is None else result[0]
 
@@ -910,12 +927,11 @@ class Escapes:
             return list(lanes)
         cell = self.occ.settings.place_escape_cell
         return [l for l in lanes
-                if ((l.legs[1][1][0] - centre.x) * aim[0] + (l.legs[1][1][1] - centre.y) * aim[1]) / n > cell]
+                if ((l.legs[-1][1][0] - centre.x) * aim[0] + (l.legs[-1][1][1] - centre.y) * aim[1]) / n > cell]
 
     def lane_check(self, ref: str, number: str) -> tuple:
         """(an open lane toward the target, an open lane any way, the direction to the target) for one pad, where the
-        board stands: the first check `_verdict` makes before the path search. None when the pad has no lanes or no
-        target."""
+        board stands: the lanes `_verdict` grades it by. None when the pad has no lanes or no target."""
         lanes_all, _, pads = self._lanes_of(ref)
         lanes = [l for l in lanes_all if l.number == number]
         if not lanes:
@@ -965,14 +981,17 @@ class Escapes:
         """The escape findings' records over the board as it stands, by kind: `escape_crossed` (part, edge, edge)
         crossed within this Escapes' depth; `escape_via` (ref, number, net, by); `escape_closed` (ref, number, net, by,
         joins); `escape_walled` (ref, number, net, by, variant): a pad judged walled, a declared lane that runs out
-        (`lanes_walled`) or a hand-off pin walled in (`handoffs_walled`, variant "handoff")."""
+        (`lanes_walled`) or a hand-off pin walled in (`handoffs_walled`, variant "handoff"). `escape_via` and
+        `escape_closed` are the lanes' grade, the price the run score counts: a walled signal pad is a suspect, priced
+        as closed, so it is listed under `escape_closed` as well as `escape_walled`."""
         via, closed, walled = [], [], []
+        quiet = self.occ.quiet_nets
         for ref, number, net, way, by in self.judged():
             if way is Way.VIA:
                 via.append((ref, number, net, by))
-            elif way is Way.AWAY:
+            elif _priced_closed(way, net in quiet):
                 closed.append((ref, number, net, by, self._joins(ref, number, net)))
-            elif way is Way.WALLED:
+            if way is Way.WALLED:
                 walled.append((ref, number, net, by, "walled"))
         seen = {(w[0], w[1]) for w in walled}
         walled += [(r, n, net, by, "walled") for r, n, net, by, _ in self.lanes_walled() if (r, n) not in seen]
@@ -989,9 +1008,13 @@ class Escapes:
         if ways is None:
             ways = {(r, n): way for r, n, _, way, _ in self.judged()}
         walls = {key for key, way in ways.items() if way is Way.WALLED}
+        quiet = self.occ.quiet_nets
+        nets = {}
+        for ref, number in ways:
+            nets[(ref, number)] = _pads_of(self.occ.items[ref].shapes, ref).get(number, ("",))[0]
         return {'escape_crossed': self.occ.ratsnest().crossed_pairs(self.depth),
                 'escape_via': sum(way is Way.VIA for way in ways.values()),
-                'escape_closed': sum(way is Way.AWAY for way in ways.values()),
+                'escape_closed': sum(_priced_closed(way, nets[key] in quiet) for key, way in ways.items()),
                 'escape_walled': len(walls) + sum((r, n) not in walls for r, n, *_ in self.lanes_walled())
                                  + len(self.handoffs_walled())}
 
@@ -1420,7 +1443,7 @@ class EscapeDelta:
             ways = self.ways
             counts = {'escape_crossed': self._base_crossed(), 'escape_via': 0, 'escape_closed': 0, 'escape_walled': 0}
             for key, way in ways.items():
-                _add(counts, way, self._base_walls(key), 1)
+                _add(counts, way, self._base_walls(key), 1, self.nets[key] in self.occ.quiet_nets)
             self._counts = counts
         return self._counts
 
@@ -1437,13 +1460,15 @@ class EscapeDelta:
         if frozenset(self.occ.pending) != self._pending or self.occ.board_box != self._frame:
             raise ValueError('EscapeDelta pending geometry or frame changed; rebuild the lifted snapshot')
 
-    def difference(self, view, geometries, copper, *, native=False):
+    def difference(self, view, geometries, copper, *, native=False, exact=True):
         """(signed raw count changes from the rest board to the candidate, pads rejudged).
 
         `native` uses the proved native classification twin, and the native
         exact path search for the supplemental lane and hand-off checks;
         snapshot assembly still runs in Python. It is a hybrid parity entry
-        point, not the final prepared native candidate kernel.
+        point, not the final prepared native candidate kernel. `exact` off
+        grades the candidate by its lanes alone: no exact search, and the
+        walled change is 0 (not asked).
         """
         self._check()
         esc = copy.copy(self.base)
@@ -1478,19 +1503,21 @@ class EscapeDelta:
         out = {'escape_crossed': view.ratsnest().crossed_pairs(esc.depth) - self._base_crossed(),
                'escape_via': 0, 'escape_closed': 0, 'escape_walled': 0}
         bans, near = esc._bans(), search_near(view)
-        for key in sorted(selected | walls | moving):
+        quiet = self.occ.quiet_nets
+        for key in sorted(selected | (walls if exact else set()) | moving):
             if key in moving:
                 before_way, before_walls = None, (False, False)
             else:
                 before_way, before_walls = self._base_way(key), self._base_walls(key)
             way, flags = before_way, before_walls
             if key in selected or key in moving:
-                verdict = esc._verdict(*key, bans, near, native=native)
+                verdict = esc._verdict(*key, bans, near, native=native, exact=exact)
                 way = None if verdict is None else verdict[0]
-            if key in walls or key in moving:
+            if exact and (key in walls or key in moving):
                 flags = _wall_flags(esc, *key)
-            _add(out, before_way, before_walls, -1)
-            _add(out, way, flags, 1)
+            on_quiet = (self.nets.get(key) or _pads_of(view.items[key[0]].shapes, key[0]).get(key[1], ("",))[0]) in quiet
+            _add(out, before_way, before_walls if exact else None, -1, on_quiet)
+            _add(out, way, flags if exact else None, 1, on_quiet)
         return out, len(selected | moving)
 
     def change(self, view, geometries, copper, *, native=False):
@@ -1517,15 +1544,23 @@ def _wall_flags(esc, ref, number) -> tuple:
             esc._handoff_walled(ref, number, net, layers, box, blame=False) is not None)
 
 
-def _add(counts, way, walls, sign) -> None:
+def _priced_closed(way, quiet: bool) -> bool:
+    """Whether a pad of `way` is priced as a closed pad: one whose lanes get out only away from its target, and a
+    signal pad's walled suspect, whatever the exact search says of it (`price`)."""
+    return way is Way.AWAY or (not quiet and way in (Way.WALLED, Way.SUSPECT))
+
+
+def _add(counts, way, walls, sign, quiet: bool = False) -> None:
     """Add one pad's way and wall flags into raw escape counts, as `Escapes.counts` counts them: a pad is walled once
-    whether its way or its declared lane walls it, and a walled hand-off once more."""
-    lane, handoff = walls
+    whether its way or its declared lane walls it, and a walled hand-off once more. `walls` None: the walled count is
+    not asked (a candidate graded by its lanes alone)."""
     if way is Way.VIA:
         counts['escape_via'] += sign
-    elif way is Way.AWAY:
+    elif _priced_closed(way, quiet):
         counts['escape_closed'] += sign
-    counts['escape_walled'] += sign * (int(way is Way.WALLED or lane) + int(handoff))
+    if walls is not None:
+        lane, handoff = walls
+        counts['escape_walled'] += sign * (int(way is Way.WALLED or lane) + int(handoff))
 
 
 def path_out(occ, ref: str, number: str, depth: float | None = None, toward=None, near=None, own=(),

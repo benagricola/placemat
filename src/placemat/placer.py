@@ -9,6 +9,7 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass, field
 import functools
+import heapq
 import math
 
 from . import geometry as _geometry_module
@@ -252,6 +253,13 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
     they were passed. A scored scan over a wide radius is coarse first,
     then fine around its best spots.
 
+    A scorer with `scan` and `walls` (score_search.MSTScorer) grades each
+    candidate by `scan`, whose walled count is exact only where it says so,
+    and the scan asks `walls(placement)` of each candidate it would take (a
+    refinement seed, the chosen one) before taking it: one that walls a pad
+    is dropped behind every one that walls none, and the next is taken. With
+    `pick` every candidate is weighed exactly instead.
+
     `accept(placement)`, when given, is asked of a candidate the item's own
     test passed (the items riding the one scanned, layout.py): None counts
     it, a sentence refuses it, tallied under the sentence's text before its
@@ -279,6 +287,12 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
     seen: set = set()
     native = occ.native_sweeper(item, hint.face, rots, others, clearance) if NATIVE_SWEEP else None
     scoring = score.native(rots, hint.face) if native is not None and hasattr(score, "native") else None
+    # A scorer that grades by the lanes (score_search.MSTScorer, D24) asks the exact walled count only of the
+    # candidates the scan takes (`walls`); an explore's draw reads every candidate's, so it asks them all.
+    weigh = score.scan if score is not None and pick is None and hasattr(score, "scan") else score
+    walls = getattr(score, "walls", None) if weigh is not score else None
+    if scoring is not None and hasattr(scoring, "exact_all"):
+        scoring.exact_all = walls is None
     if scoring is not None and hasattr(scoring, "begin_scan"):
         scoring.begin_scan()            # a pruning scorer prunes by this scan's own best candidates
     # Carried vias that may give way (giveway.py): a pass judges the item as it is first; the
@@ -313,6 +327,45 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
                 out.append(entry)
                 if n is not None and len(out) == n:
                     break
+        return out
+
+    checked: dict = {}                  # (x, y, rotation) -> the exact walled count `walls` gave
+
+    def ranked(entries, n: int | None, counts: bool = False) -> list:
+        """The first `n` (all, for None) of `entries` in their order, each the scan would take asked its exact walled
+        count first (`walls`): one that walls a pad stands again at that count, behind every one that walls none, and
+        the next is taken. A candidate the scorer pruned stands at (UNWEIGHED, a lower bound of its cost): reached, it
+        is weighed in full. `counts`: only those `accept` counts."""
+        if walls is None:
+            out = sorted(entries, key=lambda k: k[:3])
+            return counted(out, n) if counts else (out if n is None else out[:n])
+        heap = []
+        for k, e in enumerate(entries):
+            key = (e[3].location.x, e[3].location.y, e[3].rotation)
+            if key in checked:
+                e = ((checked[key], e[0][1]),) + tuple(e[1:])
+            heap.append((e[:3], k, e))
+        heapq.heapify(heap)
+        out = []
+        while heap and (n is None or len(out) < n):
+            _, k, e = heapq.heappop(heap)
+            cand = e[3]
+            key = (cand.location.x, cand.location.y, cand.rotation)
+            if e[0][0] == UNWEIGHED:
+                w, cost = score(cand)
+                checked[key] = w
+                e = ((w, cost),) + tuple(e[1:])
+                heapq.heappush(heap, (e[:3], k, e))
+                continue
+            if key not in checked and e[0][0] == 0:
+                checked[key] = walls(cand)
+                if checked[key]:
+                    e = ((checked[key], e[0][1]),) + tuple(e[1:])
+                    heapq.heappush(heap, (e[:3], k, e))
+                    continue
+            if counts and refused(cand):
+                continue
+            out.append(e)
         return out
 
     def blocker_key(b) -> tuple:
@@ -367,7 +420,7 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
         sc, before = UNSCORED, None
         if score:
             before = best[0] if best is not None else None
-            sc = score(cand)
+            sc = weigh(cand)
             if best is not None:
                 best[0] = before
             # `before` is the lowest cost of a spot that walls nothing: this one cannot beat it walling a pad, nor at
@@ -427,7 +480,7 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
                     if inline and refused(cand):
                         continue
                     d = math.hypot(x - hint.location.x, y - hint.location.y)
-                    legal.append((score(cand) if score else UNSCORED, d, tie(cand), cand))
+                    legal.append((weigh(cand) if score else UNSCORED, d, tie(cand), cand))
                     if stop_at_first:
                         for c, h, bl in held:
                             tally(h[0], h[1], [blocker_key(b) for b in bl])
@@ -507,7 +560,7 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
             if inline and refused(cand):
                 continue
             d = math.hypot(x - hint.location.x, y - hint.location.y)
-            legal.append((((sc[1], sc[0]) if scored else score(cand)) if score else UNSCORED, d, tie(cand), cand))
+            legal.append((((sc[1], sc[0]) if scored else weigh(cand)) if score else UNSCORED, d, tie(cand), cand))
             if stop_at_first:
                 break
         if gw is None or (stop_at_first and legal):
@@ -642,9 +695,9 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
             # The best coarse spots by score seed the refinement, and so do the best `accept` takes: a coarse spot
             # that `accept` (the riders) refuses can have a neighbour a fine step away that it takes, and a score
             # better than any spot near the ones it does take.
-            seeds = [cand for _, _, _, cand in legal[:cfg.place_refine_spots]]
+            seeds = [cand for _, _, _, cand in ranked(legal, cfg.place_refine_spots)]
             if accept is not None:
-                seeds += [cand for _, _, _, cand in counted(legal, cfg.place_refine_spots)
+                seeds += [cand for _, _, _, cand in ranked(legal, cfg.place_refine_spots, True)
                           if not any(cand is seed for seed in seeds)]
             for k, cand in enumerate(seeds):
                 if spent():
@@ -656,7 +709,9 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
                 # "within radius of the hint" is what a script gets.
                 legal += sweep(lattice(cand.location, coarse, step, (hint.location.x, hint.location.y, radius)), False)
     if accept is not None and not inline:
-        legal = counted(sorted(legal, key=lambda k: k[:3]), 1 if pick is None else None)
+        legal = ranked(legal, 1 if pick is None else None, True)
+    elif walls is not None and legal:
+        legal = ranked(legal, 1)
     cut = budget.measurement() if budget is not None and budget.cut else None
     if not legal:
         return ScanResult(None, hint, tried, rejected, reasons, blockers, cut=cut, bound=n_bound[0])

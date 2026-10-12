@@ -145,6 +145,9 @@ fn copper_exit(c: Point, u: Point, polys: &[Vec<Point>]) -> f64 {
     }
 }
 
+/// A dog-leg's turn, in compass steps: 45 and 90 degrees either way (Python `_DOG_LEGS`).
+const DOG_LEGS: [i64; 4] = [1, -1, 2, -2];
+
 /// Exact pad-lane generation twin. Rotation coefficients are computed once
 /// with Python's math functions when preparing turns. Local centres and the
 /// returned row normal use the same clean9 applications as _pin_normal.
@@ -323,7 +326,7 @@ pub fn surface_lanes(
         let length = first.min(to_edge(start, d, win));
         let end = (start.0 + d.0 * length, start.1 + d.1 * length);
         if !blind {
-            for u in compass {
+            for (k, u) in compass.iter().copied().enumerate() {
                 let a = if pads.len() > 2 {
                     end
                 } else {
@@ -332,17 +335,27 @@ pub fn surface_lanes(
                 };
                 let length = to_edge(a, u, win);
                 let f = (a.0 + u.0 * length, a.1 + u.1 * length);
-                let legs = if pads.len() > 2 {
-                    vec![(start, end), (a, f)]
-                } else {
-                    vec![(a, a), (a, f)]
-                };
-                let box_ = union(
-                    legs.iter()
-                        .flat_map(|(a, b)| [a, b])
-                        .map(|p| (p.0, p.1, p.0, p.1)),
-                );
-                lanes.push((pad.number.clone(), (legs, pad.layers, box_), u));
+                let first_leg = if pads.len() > 2 { (start, end) } else { (a, a) };
+                let mut ways = vec![(vec![first_leg, (a, f)], u)];
+                // Its dog-legs (Python `_DOG_LEGS`): halfway along, a turn of 45 or 90 degrees either way, then on to
+                // the window's edge.
+                if length > 1e-9 {
+                    let half_way = length / 2.0;
+                    let m = (a.0 + u.0 * half_way, a.1 + u.1 * half_way);
+                    for turn in DOG_LEGS {
+                        let v = compass[(k as i64 + turn).rem_euclid(8) as usize];
+                        let run = to_edge(m, v, win);
+                        ways.push((vec![first_leg, (a, m), (m, (m.0 + v.0 * run, m.1 + v.1 * run))], v));
+                    }
+                }
+                for (legs, direction) in ways {
+                    let box_ = union(
+                        legs.iter()
+                            .flat_map(|(a, b)| [a, b])
+                            .map(|p| (p.0, p.1, p.0, p.1)),
+                    );
+                    lanes.push((pad.number.clone(), (legs, pad.layers, box_), direction));
+                }
             }
         }
         let mut directions = vec![d];
@@ -448,11 +461,14 @@ fn segment_distance(a: Point, b: Point, poly: &[Point]) -> f64 {
 
 /// Classification only: eligibility, current nearest-target identity and
 /// original intent are supplied by the snapshot builder. 0/1/2/3 are
-/// surface/via/away/walled; 4 means a quiet pad has a way out and no finding.
-/// The classifier requires via_exit=false, just as Python `_verdict`: a via
-/// is judged by its spots after the toward surface search, never counted as
-/// a free surface route. The standalone path kernel supports both modes.
+/// surface/via/away/walled; 4 means a quiet pad has a way out and no finding;
+/// 5 a walled suspect the exact search was not asked of (`exact` false).
+/// Python `_verdict`'s twin: the lanes and via spots grade the pad (an open
+/// lane toward the target, else a free via spot, else an open lane any way);
+/// the exact search (via_exit=false) runs only on a suspect, any way.
 #[pyfunction]
+#[pyo3(signature = (lanes, spots, foes, bans, aim, centre, quiet, path, exact=true))]
+#[allow(clippy::too_many_arguments)]
 pub fn surface_judge(
     py: Python<'_>,
     lanes: Vec<Lane>,
@@ -463,82 +479,62 @@ pub fn surface_judge(
     centre: Point,
     quiet: bool,
     path: Path,
+    exact: bool,
 ) -> PyResult<u8> {
     py.check_signals()?;
     let grid = judge_inputs(&lanes, &spots, &foes, &bans, aim, centre, &path)?;
     let open = open_lanes(&lanes, &foes);
     let (start, walls, layers, window, track, via, _, path_bans, cell, epsilon, via_exit) = path;
-    let search = |toward| {
-        path_search(
-            py, &start, &walls, layers, window, grid, track, via, toward, &path_bans, cell, epsilon,
-            via_exit, None,
-        )
-    };
-    // The search toward the target, when there is one, also says whether there is a way out at all; a quiet pad
-    // searches without a direction, and only when the via spots leave it unanswered.
-    let mut any = None;
     if !quiet {
         let d = aim
             .ok_or_else(|| PyValueError::new_err("signal surface escape lacks target direction"))?;
         if open_toward(open.iter().map(|l| l.0.last().unwrap().1), centre, d, cell) {
             return Ok(0);
         }
-        let found = search(toward(d))?;
-        if found.toward {
-            return Ok(0);
-        }
-        any = Some(found.any);
     }
-    if spot_free(&spots, &foes, &bans) {
-        return Ok(if quiet { 4 } else { 1 });
+    grade(quiet, spot_free(&spots, &foes, &bans), !open.is_empty(), exact, || {
+        Ok(path_search(
+            py, &start, &walls, layers, window, grid, track, via, None, &path_bans, cell, epsilon, via_exit, None,
+        )?
+        .toward)
+    })
+}
+
+/// A pad's grade once no open lane goes toward its target: a free via spot, else an open lane any way, else a walled
+/// suspect, which `search` (whether the exact search gets out any way) decides when `exact`, else 5.
+fn grade(quiet: bool, spot: bool, open: bool, exact: bool, search: impl FnOnce() -> PyResult<bool>) -> PyResult<u8> {
+    if spot || open {
+        return Ok(if quiet { 4 } else if spot { 1 } else { 2 });
     }
-    if !open.is_empty()
-        || match any {
-            Some(any) => any,
-            None => search(None)?.toward,
-        }
-    {
-        return Ok(if quiet { 4 } else { 2 });
+    if !exact {
+        return Ok(5);
     }
-    Ok(3)
+    Ok(if search()? { if quiet { 4 } else { 2 } } else { 3 })
 }
 
 /// A signal pad's escape facts that do not depend on where its target is: the ends of its open lanes, whether a via
-/// spot is free, and every point where the exhaustive surface search reached its window's edge. `way` turns them and
-/// a target direction into the verdict `surface_judge` gives for the same inputs.
+/// spot is free, and, for a walled suspect (no open lane, no free spot), whether the exact search reaches its window's
+/// edge. `way` turns them and a target direction into the verdict `surface_judge` gives for the same inputs.
 pub(crate) struct SurfaceFacts {
     centre: Point,
-    mid: Point,
     cell: f64,
     open_ends: Vec<Point>,
     spot_free: bool,
-    exits: Vec<Point>,
+    gets_out: bool,
 }
 
 impl SurfaceFacts {
     /// `surface_judge`'s verdict for a signal pad aiming along `d`.
-    pub(crate) fn way(&self, d: Point) -> u8 {
+    pub(crate) fn way(&self, d: Point, exact: bool) -> u8 {
         if open_toward(self.open_ends.iter().copied(), self.centre, d, self.cell) {
             return 0;
         }
-        let found = match toward(d) {
-            None => !self.exits.is_empty(),
-            Some(d) => self.exits.iter().any(|&p| facing(p, self.mid, Some(d))),
-        };
-        if found {
-            0
-        } else if self.spot_free {
-            1
-        } else if !self.open_ends.is_empty() || !self.exits.is_empty() {
-            2
-        } else {
-            3
-        }
+        grade(false, self.spot_free, !self.open_ends.is_empty(), exact, || Ok(self.gets_out)).unwrap_or(3)
     }
 }
 
-/// The facts `SurfaceFacts::way` judges a signal pad by, from `surface_judge`'s inputs less the aim. The search runs
-/// to the end instead of stopping at the first way out.
+/// The facts `SurfaceFacts::way` judges a signal pad by, from `surface_judge`'s inputs less the aim. The exact search
+/// runs only for a walled suspect.
 pub(crate) fn surface_facts(
     py: Python<'_>,
     lanes: Vec<Lane>,
@@ -550,21 +546,18 @@ pub(crate) fn surface_facts(
 ) -> PyResult<SurfaceFacts> {
     py.check_signals()?;
     let grid = judge_inputs(&lanes, &spots, &foes, &bans, None, centre, &path)?;
-    let open_ends = open_lanes(&lanes, &foes).iter().map(|l| l.0.last().unwrap().1).collect();
+    let open_ends: Vec<Point> = open_lanes(&lanes, &foes).iter().map(|l| l.0.last().unwrap().1).collect();
+    let free = spot_free(&spots, &foes, &bans);
     let (start, walls, layers, window, track, via, _, path_bans, cell, epsilon, via_exit) = path;
-    let mut exits = Vec::new();
-    let found = path_search(
-        py, &start, &walls, layers, window, grid, track, via, None, &path_bans, cell, epsilon, via_exit,
-        Some(&mut exits),
-    )?;
-    Ok(SurfaceFacts {
-        centre,
-        mid: found.mid,
-        cell,
-        open_ends,
-        spot_free: spot_free(&spots, &foes, &bans),
-        exits,
-    })
+    let gets_out = if free || !open_ends.is_empty() {
+        false
+    } else {
+        path_search(
+            py, &start, &walls, layers, window, grid, track, via, None, &path_bans, cell, epsilon, via_exit, None,
+        )?
+        .toward
+    };
+    Ok(SurfaceFacts { centre, cell, open_ends, spot_free: free, gets_out })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -580,13 +573,30 @@ fn judge_inputs(
     let grid = validate_search(
         &path.0, &path.1, path.2, path.3, path.4, path.5, aim, &path.7, path.8, path.9,
     )?;
+    if path.10 {
+        return Err(PyValueError::new_err(
+            "invalid surface escape classification snapshot",
+        ));
+    }
+    check_lanes(lanes, spots, foes, bans, aim, centre)?;
+    Ok(grid)
+}
+
+/// `judge_inputs`'s checks of the lanes, spots, foes and bans, without the path.
+fn check_lanes(
+    lanes: &[Lane],
+    spots: &[Spot],
+    foes: &[Foe],
+    bans: &[Shape],
+    aim: Option<Point>,
+    centre: Point,
+) -> PyResult<()> {
     if !valid_point(centre)
         || aim.is_some_and(|p| !valid_point(p))
         || !foes
             .iter()
             .all(|f| validate_shape(&f.0) && f.1.is_finite() && f.1 >= 0.0 && f.2.is_finite())
         || !bans.iter().all(validate_shape)
-        || path.10
         || !lanes.iter().all(|l| {
             valid_bounds(l.2)
                 && l.1 != 0
@@ -607,23 +617,62 @@ fn judge_inputs(
             "invalid surface escape classification snapshot",
         ));
     }
-    Ok(grid)
+    Ok(())
+}
+
+/// `surface_judge`'s grade from the lanes and spots, the exact search (`search`: whether it gets out any way) asked
+/// only of a walled suspect when `exact`. It stops at the first lane that decides.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn judge_lanes(
+    lanes: &[Lane],
+    spots: &[Spot],
+    foes: &[Foe],
+    bans: &[Shape],
+    aim: Option<Point>,
+    centre: Point,
+    quiet: bool,
+    cell: f64,
+    exact: bool,
+    search: impl FnOnce() -> PyResult<bool>,
+) -> PyResult<u8> {
+    check_lanes(lanes, spots, foes, bans, aim, centre)?;
+    if !quiet {
+        let d = aim
+            .ok_or_else(|| PyValueError::new_err("signal surface escape lacks target direction"))?;
+        if lanes.iter().any(|l| open_toward(std::iter::once(l.0.last().unwrap().1), centre, d, cell) && lane_open(l, foes)) {
+            return Ok(0);
+        }
+    }
+    grade(quiet, spot_free(spots, foes, bans), lanes.iter().any(|l| lane_open(l, foes)), exact, search)
+}
+
+/// Whether no foe comes within its reach of the lane. A leg whose own box is that far from the foe's box is passed
+/// without the exact distance.
+fn lane_open(l: &Lane, foes: &[Foe]) -> bool {
+    !foes.iter().any(|f| {
+        (f.3 || f.0 .2 & l.1 != 0)
+            && box_gap(f.0 .1, l.2) < f.1
+            && l.0.iter().any(|&(a, b)| {
+                box_gap(f.0 .1, (a.0.min(b.0), a.1.min(b.1), a.0.max(b.0), a.1.max(b.1))) < f.1
+                    && segment_distance(a, b, &f.0 .0) < f.1
+            })
+    })
+}
+
+/// Whether the exact search of `path` (no via exits) reaches its window's edge any way.
+pub(crate) fn search_any(py: Python<'_>, path: Path) -> PyResult<bool> {
+    let (start, walls, layers, window, track, via, _, path_bans, cell, epsilon, via_exit) = path;
+    if via_exit {
+        return Err(PyValueError::new_err("invalid surface escape classification snapshot"));
+    }
+    let grid = validate_search(&start, &walls, layers, window, track, via, None, &path_bans, cell, epsilon)?;
+    Ok(path_search(py, &start, &walls, layers, window, grid, track, via, None, &path_bans, cell, epsilon, false, None)?
+        .toward)
 }
 
 /// The lanes no foe comes within its reach of.
 fn open_lanes<'a>(lanes: &'a [Lane], foes: &[Foe]) -> Vec<&'a Lane> {
-    lanes
-        .iter()
-        .filter(|l| {
-            !foes.iter().any(|f| {
-                (f.3 || f.0 .2 & l.1 != 0)
-                    && box_gap(f.0 .1, l.2) < f.1
-                    && l.0
-                        .iter()
-                        .any(|&(a, b)| segment_distance(a, b, &f.0 .0) < f.1)
-            })
-        })
-        .collect()
+    lanes.iter().filter(|l| lane_open(l, foes)).collect()
 }
 
 /// Whether an open lane ends more than one cell toward `d` from the pad's centre (any open lane, when `d` has no
@@ -631,14 +680,6 @@ fn open_lanes<'a>(lanes: &'a [Lane], foes: &[Foe]) -> Vec<&'a Lane> {
 fn open_toward(mut ends: impl Iterator<Item = Point>, centre: Point, d: Point, cell: f64) -> bool {
     let n = crate::exact::hypot(d.0, d.1);
     ends.any(|end| n < 1e-12 || ((end.0 - centre.0) * d.0 + (end.1 - centre.1) * d.1) / n > cell)
-}
-
-fn toward(d: Point) -> Option<Point> {
-    if d.0.abs() + d.1.abs() < 1e-12 {
-        None
-    } else {
-        Some(d)
-    }
 }
 
 /// Whether some via spot is clear of every foe and every via ban.
@@ -982,18 +1023,13 @@ fn steps8(toward: Option<Point>) -> [(i64, i64); 8] {
 }
 
 /// What one exhaustive search found: a way out facing `toward` (any way out when there is no direction, or a via
-/// spot when vias exit), a way out in any direction, and the centre of the start shapes' box that faces are judged
-/// from.
+/// spot when vias exit).
 struct Found {
     toward: bool,
-    any: bool,
-    mid: Point,
 }
 
 /// The exact surface search: the rectangular-cell walk from the start shapes, then the octilinear lattice rooted on
-/// each anchor. It stops at the first way out facing `toward`. When there is none, both walks have run to the end,
-/// so `any` says whether either reached the window's edge in some other direction: what the same search without a
-/// direction answers, without a second walk.
+/// each anchor. It stops at the first way out facing `toward`.
 #[allow(clippy::too_many_arguments)]
 fn path_search(
     py: Python<'_>,
@@ -1013,7 +1049,6 @@ fn path_search(
 ) -> PyResult<Found> {
     py.check_signals()?;
     let (order4, order8) = (steps4(toward), steps8(toward));
-    let mut any = false;
     let width = window.2 - window.0;
     let height = window.3 - window.1;
     let (cw, ch) = (width / nx as f64, height / ny as f64);
@@ -1058,7 +1093,7 @@ fn path_search(
         },
     );
     let mid = ((top.0 + top.2) / 2.0, (top.1 + top.3) / 2.0);
-    let found = Found { toward: true, any: true, mid };
+    let found = Found { toward: true };
     // Per cell: bit 1 seen, bit 2 wall judged, bit 4 blocked.
     let slot = |i: i64, j: i64| (i * ny + j) as usize;
     let mut state = vec![0u8; (nx * ny) as usize];
@@ -1091,7 +1126,6 @@ fn path_search(
             } else if facing(p, mid, toward) {
                 return Ok(found);
             }
-            any = true;
         }
         if via_free(p) {
             return Ok(found);
@@ -1154,7 +1188,6 @@ fn path_search(
                 } else if facing(p, mid, toward) {
                     return Ok(found);
                 }
-                any = true;
             }
             if via_free(p) {
                 return Ok(found);
@@ -1182,7 +1215,7 @@ fn path_search(
             }
         }
     }
-    Ok(Found { toward: false, any, mid })
+    Ok(Found { toward: false })
 }
 
 /// The cells (and lattice points) of one pad's exact surface search that a track can reach on the lifted board: what
@@ -1357,8 +1390,7 @@ impl LiftedSearch {
     fn found(&self, py: Python<'_>, added: &[Shape], toward: Option<Point>) -> PyResult<Found> {
         let (order4, order8) = (steps4(toward), steps8(toward));
         let walls = Added::new(added.iter().filter(|s| s.2 & self.layers != 0).collect(), self.track, self.epsilon);
-        let found = Found { toward: true, any: true, mid: self.mid };
-        let mut any = false;
+        let found = Found { toward: true };
         let (nx, ny, window, cw, ch) = (self.nx, self.ny, self.window, self.cw, self.ch);
         let centre = |i: i64, j: i64| (window.0 + (i as f64 + 0.5) * cw, window.1 + (j as f64 + 0.5) * ch);
         let slot = |i: i64, j: i64| (i * ny + j) as usize;
@@ -1377,7 +1409,6 @@ impl LiftedSearch {
                 if facing(centre(i, j), self.mid, toward) {
                     return Ok(found);
                 }
-                any = true;
             }
             for k in order4.map(|(di, dj)| (i + di, j + dj)) {
                 if 0 <= k.0 && k.0 < nx && 0 <= k.1 && k.1 < ny {
@@ -1408,7 +1439,6 @@ impl LiftedSearch {
                     if facing(p, self.mid, toward) {
                         return Ok(found);
                     }
-                    any = true;
                 }
                 for (di, dj) in order8 {
                     {
@@ -1425,19 +1455,22 @@ impl LiftedSearch {
                 }
             }
         }
-        Ok(Found { toward: false, any, mid: self.mid })
+        Ok(Found { toward: false })
     }
 }
 
 /// One pad's judgement inputs on the lifted board: its lanes, spots, the rest of the board's foes and bans, which
-/// lanes those leave open, which spots they leave free, and the lifted search. `judge` adds a candidate's shapes.
+/// lanes those leave open, which spots they leave free, and its exact search's path, whose lifted search is made the
+/// first time a walled suspect asks it. `judge` adds a candidate's shapes.
 pub(crate) struct LiftedPad {
     lanes: Vec<Lane>,
     spots: Vec<Spot>,
     open: Vec<usize>,
     free: Vec<usize>,
     centre: Point,
-    search: LiftedSearch,
+    cell: f64,
+    path: Path,
+    search: std::sync::OnceLock<LiftedSearch>,
 }
 
 pub(crate) fn lift_pad(
@@ -1457,63 +1490,53 @@ pub(crate) fn lift_pad(
     let free = (0..spots.len())
         .filter(|&i| spot_free(std::slice::from_ref(&spots[i]), &foes, &bans))
         .collect();
-    let search = lift_search(py, &path)?;
-    Ok(LiftedPad { lanes, spots, open, free, centre, search })
+    let cell = path.8;
+    Ok(LiftedPad { lanes, spots, open, free, centre, cell, path, search: std::sync::OnceLock::new() })
 }
 
 impl LiftedPad {
-    /// `surface_judge`'s verdict with the candidate's foes, bans and path shapes added to the lifted board's.
+    /// `surface_judge`'s verdict with the candidate's foes and bans added to the lifted board's; `walls` gives the
+    /// candidate's path shapes, asked only when a walled suspect is searched (`exact`).
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn judge(
         &self,
         py: Python<'_>,
         foes: &[Foe],
         bans: &[Shape],
-        walls: &[Shape],
-        path_bans: &[Shape],
         aim: Option<Point>,
         quiet: bool,
+        exact: bool,
+        walls: impl FnOnce() -> Vec<Shape>,
     ) -> PyResult<u8> {
         py.check_signals()?;
         if aim.is_some_and(|p| !valid_point(p))
             || !foes.iter().all(|f| validate_shape(&f.0) && f.1.is_finite() && f.1 >= 0.0 && f.2.is_finite())
-            || !bans.iter().chain(walls).chain(path_bans).all(validate_shape)
+            || !bans.iter().all(validate_shape)
         {
             return Err(PyValueError::new_err("invalid surface escape classification snapshot"));
         }
-        let open: Vec<&Lane> = self
-            .open
-            .iter()
-            .map(|&i| &self.lanes[i])
-            .filter(|l| open_lanes(std::slice::from_ref(*l), foes).len() == 1)
-            .collect();
-        let search = |toward| self.search.found(py, walls, toward);
-        let mut any = None;
+        let open = || self.open.iter().map(|&i| &self.lanes[i]).filter(|l| lane_open(l, foes));
         if !quiet {
             let d = aim.ok_or_else(|| PyValueError::new_err("signal surface escape lacks target direction"))?;
-            if open_toward(open.iter().map(|l| l.0.last().unwrap().1), self.centre, d, self.search.cell) {
+            if self.open.iter().map(|&i| &self.lanes[i])
+                .any(|l| open_toward(std::iter::once(l.0.last().unwrap().1), self.centre, d, self.cell) && lane_open(l, foes)) {
                 return Ok(0);
             }
-            let found = search(toward(d))?;
-            if found.toward {
-                return Ok(0);
-            }
-            any = Some(found.any);
         }
         let spot = self
             .free
             .iter()
             .any(|&i| spot_free(std::slice::from_ref(&self.spots[i]), foes, bans));
-        if spot {
-            return Ok(if quiet { 4 } else { 1 });
-        }
-        if !open.is_empty()
-            || match any {
-                Some(any) => any,
-                None => search(None)?.toward,
+        grade(quiet, spot, open().next().is_some(), exact, || {
+            let walls = walls();
+            if !walls.iter().all(validate_shape) {
+                return Err(PyValueError::new_err("invalid surface escape classification snapshot"));
             }
-        {
-            return Ok(if quiet { 4 } else { 2 });
-        }
-        Ok(3)
+            if self.search.get().is_none() {
+                let lifted = lift_search(py, &self.path)?;
+                let _ = self.search.set(lifted);
+            }
+            Ok(self.search.get().unwrap().found(py, &walls, None)?.toward)
+        })
     }
 }

@@ -24,23 +24,24 @@ def test_with_the_diagonals_closed_the_lane_north_along_the_row_end_is_the_way_t
     """C2 and C3 close both diagonals west; the lane north along the row's end runs to the window's edge west of the pad's
     centre, which the path search counts as toward the target too."""
     occ, esc = ic_with_cap(offset_mm=1.0, lateral_mm=0.0, room=False)
-    assert not any(esc.lane_open(l) for l in esc.lanes("U1", "1") if l.direction[0] < -0.5)
-    north = next(l for l in esc.lanes("U1", "1") if l.direction == pytest.approx((0.0, -1.0)))
+    assert not any(esc.lane_open(l) for l in esc.lanes("U1", "1") if l.direction[0] < -0.5 and len(l.legs) == 2)
+    north = next(l for l in esc.lanes("U1", "1") if l.direction == pytest.approx((0.0, -1.0)) and len(l.legs) == 2)
     assert esc.lane_open(north) and north.legs[1][1][0] < 27.3
     assert esc.judge("U1", "1") is Way.SURFACE
 
 
-def test_where_no_lane_gets_out_the_path_search_decides():
-    """The ring's pads 1.0 mm off: every straight lane meets a ring pad, and the search finds a track out through the
-    gaps between them."""
+def test_where_no_lane_gets_out_the_lanes_and_via_spots_grade_without_the_search():
+    """The ring's pads 1.0 mm off: every lane meets a ring pad, though the search would find a track out through the
+    gaps between them. The lanes and via spots grade the pad (D24): a via spot is free, so it is VIA, and the search is
+    not asked."""
     from tests.test_escape_findings import _walled_in
     occ = _via_only_board(_walled_in(1.0)).resolve().occupancy
     esc = judging(occ)
     assert not esc.lane_check("U9", "1")[1]
     ways = {(r, n): w for r, n, _, w, _ in esc.judged()}
-    assert ways[("U9", "1")] is Way.SURFACE
+    assert ways[("U9", "1")] is Way.VIA
     esc.searched = 0
-    assert esc.judge("U9", "1") is Way.SURFACE and esc.searched == 1
+    assert esc.judge("U9", "1") is Way.VIA and esc.searched == 0
 
 
 def _via_only(gap=0.8):
@@ -86,8 +87,14 @@ def test_a_row_pad_has_eight_lanes_from_its_edge_reaching_out_to_the_setting():
     g = occ.items["U1"]
     lanes, spots = pad_lanes(occ, "U1", _pads_of(g.shapes, "U1"), g.reference.rotation)
     mine = [l for l in lanes if l.number == "1"]
-    assert len(mine) == 8
+    assert len(mine) == 8 * 5                                       # each straight lane and its four dog-legs
     win = esc._lanes_of("U1")[2]["1"][2].inflate(Settings().score_escape_reach)      # the path search's window
+    for l in mine:
+        end = l.legs[-1][1]
+        assert min(abs(end[0] - win.left), abs(end[0] - win.right), abs(end[1] - win.top), abs(end[1] - win.bottom)) \
+            == pytest.approx(0.0, abs=1e-9)                             # every lane ends on the window's edge
+    mine = [l for l in mine if len(l.legs) == 2]
+    assert len(mine) == 8
     for l in mine:
         (a, b), (b2, end) = l.legs
         assert a == b == b2 == pytest.approx((PIN1_EDGE, PIN1_Y))       # pin 1 is the row's end: no field west of it
@@ -119,7 +126,7 @@ def test_a_two_pad_part_has_no_first_leg_and_a_via_spot_on_three_sides():
     g = occ.items["T1"]
     lanes, spots = pad_lanes(occ, "T1", _pads_of(g.shapes, "T1"), g.reference.rotation)
     mine = [l for l in lanes if l.number == "1"]
-    assert len(mine) == 8 and all(l.legs[0][0] == l.legs[0][1] for l in mine)
+    assert len(mine) == 40 and all(l.legs[0][0] == l.legs[0][1] for l in mine)
     assert len([s for s in spots if s.number == "1"]) == 3
 
 
@@ -183,8 +190,7 @@ def test_the_settings_default_as_decided():
     assert s.score_escape_reach == 3.0 and s.score_escape_via == 10.0
     assert price(Way.SURFACE, s) == 0.0
     assert price(Way.AWAY, s) == s.score_escape_closed
-    with pytest.raises(ValueError, match="validity"):
-        price(Way.WALLED, s)
+    assert price(Way.WALLED, s) == price(Way.SUSPECT, s) == s.score_escape_closed     # a suspect, priced as closed
     cfg = dataclasses.replace(s, score_escape_via=7.0)
     assert price(Way.VIA, cfg) == 7.0
 

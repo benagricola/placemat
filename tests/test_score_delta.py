@@ -176,12 +176,12 @@ def test_sparse_candidate_view_preserves_raw_nearest_ties_and_multiland_anchor_i
     baseline_mirror = occ.ratsnest().mirror
     observed = []
     original = delta._escape_change
-    def check(view, geometries, copper):
+    def check(view, geometries, copper, **kw):
         rn = view.ratsnest()
         assert len([a for a in rn._anchors['S'] if a.ref == moving_ref]) == 1
         assert [(a.ref, a.number) for a in rn._anchors['S']] == sorted((a.ref, a.number) for a in rn._anchors['S'])
         observed.append(judging(view)._aim('P0', '1', 'S', Location(30, 30)))
-        return original(view, geometries, copper)
+        return original(view, geometries, copper, **kw)
     delta._escape_change = check
     first = delta(plan.placement('m'))
     assert delta(plan.placement('m')) == first
@@ -222,8 +222,8 @@ def test_affected_escape_snapshot_rechecks_exact_window_and_skips_disjoint_other
     occ.lift({'B1'})
     delta = Delta(board, occ, moving, plan.links, plan=plan)
     snapshot = delta._escape_delta
-    assert snapshot.base.judge('U9', '1') is Way.SURFACE
-    assert not snapshot.base.lane_check('U9', '1')[1]  # only the exact path gets out
+    assert snapshot.base.judge('U9', '1') is Way.VIA      # its lanes closed, a via spot free (D24)
+    assert not snapshot.base.lane_check('U9', '1')[1]
     candidate = replace(plan.placement('b1'), location=Location(30, 30))
     view, geometries, copper = delta._view(candidate)
     expected = {key: len(value) for key, value in judging(view).found().items()}

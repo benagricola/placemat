@@ -7,6 +7,20 @@ section for each hand-written pattern a newer form replaces.
 
 ## Unreleased
 
+- **Escapes are graded by the surface lanes, and the placement search is the one-score search by default.** A pad's
+  escape price comes from its lanes and via spots alone: an open lane toward what it joins is free, else a free via spot
+  is `escape_via`, else an open lane any way is `escape_closed`. Each straight lane now also has four dog-legs, turning
+  once, 45 or 90 degrees either way, halfway along. A pad with no open lane and no free via spot is a walled suspect: it
+  costs `score.escape_closed` and is listed `escape_closed`, and the exact path search, run only for suspects, decides
+  whether it is also `escape_walled` (validity). Before, the exact search decided every grade, so pads it found a way
+  out for that the lanes do not see now read `escape_via` or `escape_closed`, and a walled pad is listed under both
+  `escape_closed` and `escape_walled`. `place.search_wire` defaults to `mst`: the search scores each candidate's change
+  of the common run score with the escapes graded this way, and asks the exact walled check only of the positions it
+  takes, dropping one that walls a pad for the next: the one-score search. `place.search_wire = "clique"` keeps the
+  earlier pull estimate for now.
+  Run measures are version 4 (`measures.v`): runs, explore variants, bench rows and reference placements recorded
+  before are not compared with new ones.
+
 - **A net's RUDY box is at least `score.congestion_box` (3.0 mm) each way.** It was one 0.5 mm cell, so a short net along one axis put its whole wire into a strip one cell wide, and a small turn that widened it could lower the worst cell by several `score.congestion_step` steps: tens of mm of run score, and `turn.better` notices, from a sub-millimetre change of wire. The floor applies to the search, the run score (`rudy_steps`), the turn check and `metrics.rudy` alike. On the bench modules the worst cell falls by about a half (`rudy_steps` 290 to 144 summed), so a run score recorded before reads higher than the same placement scores now; `score.congestion_box = 0.5` restores the old figures.
 
 - **Run measures are version 3** (`measures.v`), as `rudy_steps` is counted on the floored net box. A run, explore variant, bench row or reference placement recorded under version 2 is not compared with a new one (`report.comparable`, `fixtures/bench.py`, `place_ref`): a stored best from before reads as absent and the next run takes its place, as a version 1 record did at version 2. Changing `score.congestion_box` or `score.congestion_step` later does not re-rank stored runs, which keep the `rudy_steps` they were recorded with.
