@@ -136,6 +136,9 @@ section for each hand-written pattern a newer form replaces.
   then the lower x and y, and a net whose merge would part its pads or come within clearance of another net is tried
   the other way round before both vias are kept. Scripts need no change.
 
+- **The 3D model self-test leaves no folder in the temporary directory.** Each studio start that checked KiCad's model
+  export left a `placemat-3d-*` folder behind; thousands built up. It now goes when the check ends.
+
 ## To 0.99.36
 
 ### New
