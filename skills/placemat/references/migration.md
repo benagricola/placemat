@@ -5,6 +5,13 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### Fixed
+
+- **The 3D model self-test leaves no folder in the temporary directory.** Each studio start that checked KiCad's model
+  export left a `placemat-3d-*` folder behind; thousands built up. It now goes when the check ends.
+
 ## To 0.99.36
 
 ### New

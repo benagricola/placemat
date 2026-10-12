@@ -167,3 +167,23 @@ def test_the_converter_process_speaks_json_lines_and_says_ready_with_its_self_te
         p.wait(timeout=60)
     assert evs[0]["ev"] == "ready" and evs[0]["selftest"]["ok"]
     assert [e["state"] for e in evs if e["ev"] == "model"] == ["ok"] and evs[-1]["ev"] == "batch_done"
+
+
+def test_the_self_test_leaves_no_scratch_folder_behind(cfg, monkeypatch, tmp_path):
+    """Its scratch board goes in a folder of its own that is gone when it returns, whether the export worked or not."""
+    import tempfile
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    monkeypatch.setattr(mc, "kicad_version", lambda cli: "test")
+
+    def scratch(jobs, folder, back=frozenset()):
+        pcb = Path(folder) / "scratch.kicad_pcb"
+        pcb.write_text("")
+        return pcb
+
+    def refuse(cli, pcb, timeout_s):
+        raise mc.ConvertError("export_failed", returncode=1, detail="")
+    monkeypatch.setattr(mc, "_scratch", scratch)
+    monkeypatch.setattr(mc, "export_glb", refuse)
+    r = mc.self_test(cfg, "kicad-cli")
+    assert not r["ok"] and r["failure"]["code"] == "export_failed"
+    assert not list(tmp_path.glob("placemat-3d-*"))

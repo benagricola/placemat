@@ -365,7 +365,9 @@ def self_test(cfg: Config, cli: str) -> dict:
     version = kicad_version(cli)
     jobs = [{"kind": "file", "path": str(SELFTEST_MODEL), "name": SELFTEST_MODEL.name}] * 2
     try:
-        glb = Glb(export_glb(cli, _scratch_files(jobs, back={1}), cfg.timeout_s))
+        with tempfile.TemporaryDirectory(prefix="placemat-3d-") as d:
+            glb = Glb(export_glb(cli, _scratch([dict(j, kind="file") for j in jobs], Path(d), back={1}),
+                                 cfg.timeout_s))
     except ConvertError as e:
         return {"ok": False, "failure": e.record, "version": version}
     plane_front, plane_back = model_place.planes(THICKNESS)
@@ -386,11 +388,6 @@ def self_test(cfg: Config, cli: str) -> dict:
         return {"ok": False, "version": version, "front": f, "back": g,
                 "failure": {"code": "planes_differ", "version": version, "front": f, "back": g}}
     return {"ok": True, "version": version, "front": f, "back": g}
-
-
-def _scratch_files(jobs: list, back: set) -> Path:
-    d = Path(tempfile.mkdtemp(prefix="placemat-3d-"))
-    return _scratch([dict(j, kind="file") for j in jobs], d, back)
 
 
 # ---------------------------------------------------------------- a batch
