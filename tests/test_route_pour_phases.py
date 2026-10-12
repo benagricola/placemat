@@ -128,8 +128,8 @@ def test_a_router_run_joins_the_pads_a_partial_pour_leaves_apart(breakout_pcb, t
 
 
 def _four_layer_with_pours(breakout_pcb, dest, nets):
-    """The breakout, four layers, a partial In2 pour of each net over the
-    box round its first two plated pads."""
+    """The breakout, four layers, no tracks, a partial In2 pour of each net over the box round its first two plated
+    pads. The breakout's own tracks join every pad of these nets, which would leave join_pour nothing apart to join."""
     import pcbnew
     dest.mkdir()
     for ext in (".kicad_pcb", ".kicad_pro"):
@@ -138,6 +138,8 @@ def _four_layer_with_pours(breakout_pcb, dest, nets):
     pcb = dest / "layout.kicad_pcb"
     brd = pcbnew.LoadBoard(str(pcb))
     brd.SetCopperLayerCount(4)
+    for t in list(brd.GetTracks()):
+        brd.Delete(t)
     for net in nets:
         pads = [p for f in brd.GetFootprints() for p in f.Pads()
                 if p.GetNetname() == net and p.GetAttribute() == pcbnew.PAD_ATTRIB_PTH][:2]
@@ -160,19 +162,22 @@ def _four_layer_with_pours(breakout_pcb, dest, nets):
 @needs_kicad
 @needs_breakout
 def test_each_pour_net_is_routed_with_the_others_pours_guarded(breakout_pcb, tmp_path, monkeypatch):
-    """Two pour nets, each in a call of its own: each call takes off its own net's guard for itself alone, the other's
-    partial pour kept clear of it, and the board it leaves has its own pour guarded again."""
+    """Two pour nets, each joined in a join_pour of its own: its drop call and its task calls see its own net's guard
+    taken off and the other's partial pour kept clear of it, and the board it leaves has its own pour guarded again."""
     import pcbnew
     import placemat.kicad.route as route_mod
     pcb = _guarded(_four_layer_with_pours(breakout_pcb, tmp_path / "in", ["PERMIT_A", "PERMIT_B"]),
                    ["PERMIT_A", "PERMIT_B"])
     passes = []
 
-    def seen(cmd):                    # the plane repair's call names its net
+    def seen(cmd):                    # each call's net: the plane repair's --nets, a task call's --connections tasks
         if "--no-fix-drc-settings" in cmd:
-            nets = cmd[cmd.index("--nets") + 1:cmd.index("--layers")]
-            brd = pcbnew.LoadBoard(cmd[2])
-            passes.append((nets, sorted(z.GetZoneName() for z in brd.Zones() if z.GetIsRuleArea())))
+            kind, nets = "drops", cmd[cmd.index("--nets") + 1:cmd.index("--layers")]
+        else:
+            kind = "tasks"
+            nets = sorted({t["net"] for t in json.loads(Path(cmd[cmd.index("--connections") + 1]).read_text())})
+        brd = pcbnew.LoadBoard(cmd[2])
+        passes.append((kind, nets, sorted(z.GetZoneName() for z in brd.Zones() if z.GetIsRuleArea())))
     monkeypatch.setattr(route_mod.subprocess, "run", _copying(seen))
     work = tmp_path / "work"
     work.mkdir()
@@ -181,8 +186,10 @@ def test_each_pour_net_is_routed_with_the_others_pours_guarded(breakout_pcb, tmp
     _join(ctx, pcb, a, "PERMIT_A", None, ROUTE_LAYERS, "p0_0")
     assert _rule_areas(a) == ["placemat pour PERMIT_A In2.Cu", "placemat pour PERMIT_B In2.Cu"]
     _join(ctx, a, b, "PERMIT_B", None, ROUTE_LAYERS, "p0_1")
-    assert passes == [(["PERMIT_A"], ["placemat pour PERMIT_B In2.Cu"]),
-                      (["PERMIT_B"], ["placemat pour PERMIT_A In2.Cu"])]
+    assert [p[0] for p in passes if p[1] == ["PERMIT_A"]][:2] == ["drops", "tasks"]
+    assert [p[0] for p in passes if p[1] == ["PERMIT_B"]][:2] == ["drops", "tasks"]
+    assert {(tuple(nets), tuple(guards)) for _, nets, guards in passes} == {
+        (("PERMIT_A",), ("placemat pour PERMIT_B In2.Cu",)), (("PERMIT_B",), ("placemat pour PERMIT_A In2.Cu",))}
     assert _rule_areas(b) == ["placemat pour PERMIT_A In2.Cu", "placemat pour PERMIT_B In2.Cu"]
 
 
@@ -190,8 +197,8 @@ def test_each_pour_net_is_routed_with_the_others_pours_guarded(breakout_pcb, tmp
 @needs_breakout
 def test_a_pour_net_routes_on_its_phases_layers_at_its_width_and_keeps_the_inner_guards(breakout_pcb, tmp_path,
                                                                                          monkeypatch):
-    """A phase on F and B: the call routes on those layers, and the inner-layer guards of the other pour net (and
-    its own, put back) stay on the route's layers for the calls after it."""
+    """A phase on F and B at 0.5 mm: the drop call and the task calls join on those layers at that width, and the
+    inner-layer guards of the other pour net (and its own, put back) stay on the route's layers for the calls after it."""
     import placemat.kicad.route as route_mod
     pcb = _guarded(_four_layer_with_pours(breakout_pcb, tmp_path / "in", ["PERMIT_A", "PERMIT_B"]),
                    ["PERMIT_A", "PERMIT_B"])
@@ -203,6 +210,7 @@ def test_a_pour_net_routes_on_its_phases_layers_at_its_width_and_keeps_the_inner
     _join(_ctx(tmp_path, work), pcb, out, "PERMIT_A", 0.5, ["F.Cu", "B.Cu"], "p0_0")
     assert _rule_areas(out) == ["placemat pour PERMIT_A In2.Cu", "placemat pour PERMIT_B In2.Cu"]
     drops, *tracks = seen
+    assert "--no-fix-drc-settings" in drops and tracks          # the drop call, then the tasks for the groups left apart
     assert "--layer-costs" not in drops
     assert drops[drops.index("--layers") + 1:drops.index("--track-width")] == ["F.Cu", "B.Cu"]
     assert drops[drops.index("--track-width") + 1] == "0.5" and drops[drops.index("--max-track-width") + 1] == "0.5"

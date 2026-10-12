@@ -469,9 +469,13 @@ def test_the_real_router_sends_its_nets_as_it_routes_them_and_the_record_replays
                          board_info={"run": "r1", "script": "x_layout.py"})
     kinds = [e["ev"] for e in sent]
     assert kinds[0] == "route_board" and "route_stage" in kinds and kinds.index("route_queue") < kinds.index("route_net_begin") < kinds.index("route_net_end")
-    assert [e for e in sent if e["ev"] == "route_commit" and e["net"] == net]            # a net's copper is committed after its search ends; the pair stage sends commits only
-    assert [e for e in sent if e["ev"] == "route_net_end" and e["net"] == net][0]["ok"] is True
-    commit = [e for e in sent if e["ev"] == "route_commit" and e["net"] == net][0]
+    # the pour phase joins its net by the plane repair's drops (pour_join.join_pour, D31), a router script outside the hooks; with every pad
+    # joined by the drops it makes no task call, so the hooked router's nets are the signals phase's
+    assert [j["net"] for j in report.phases[0]["pour_joins"]] == [net]
+    ends = [i for i, e in enumerate(sent) if e["ev"] == "route_net_end" and e.get("stage") == "signals" and e["ok"] is True]
+    assert ends
+    routed = sent[ends[0]]["net"]
+    commit = next(e for e in sent[ends[0]:] if e["ev"] == "route_commit" and e["net"] == routed)      # a net's copper is committed after its search ends
     assert commit["seg"] and all(len(s) == 6 for s in commit["seg"])
     assert report.record and Path(report.record).is_file()
     record = route_progress.read_record(Path(report.record))
