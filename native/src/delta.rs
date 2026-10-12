@@ -32,7 +32,6 @@ pub struct TreeDelta {
     tags: Vec<usize>,
     parent: Vec<usize>,
     points: Vec<(i64, i64)>,
-    old_length: f64,
     old_order: Vec<(i64, usize, usize)>,
 }
 
@@ -165,7 +164,6 @@ impl TreeDelta {
             tags: vec![0; n],
             parent: vec![0; n],
             points: nodes.iter().map(|p| (nm(p.0), nm(p.1))).collect(),
-            old_length: length(rest, old),
             old_order,
         })
     }
@@ -278,7 +276,9 @@ impl TreeDelta {
                 .enumerate()
                 .filter_map(|(i, &edge)| (!self.retained[i]).then_some(edge)),
         );
-        length(&self.nodes, &self.tree) - self.old_length
+        // As score_delta's `mst_change`: the added edges' length (in tree order) less the dropped edges' (in the
+        // rest tree's order), each summed as Python sums, so the change is the same to the bit.
+        length(&self.nodes, &self.added) - length(&self.nodes, &self.dropped)
     }
 }
 
