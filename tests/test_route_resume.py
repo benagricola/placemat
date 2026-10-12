@@ -25,11 +25,12 @@ FAKE = textwrap.dedent('''
     a = sys.argv[1:]
     pcb_in, pcb_out = a[0], a[1]
     nets = []
-    for x in a[a.index("--nets") + 1:]:
+    for x in a[a.index("--nets") + 1:] if "--nets" in a else ():
         if x.startswith("--"):
             break
         nets.append(x)
-    kind = "main" if "*" in nets else "island"
+    # the pour phase's plane repair names its net; its tracks for pads still apart are --connections tasks
+    kind = "tasks" if "--connections" in a else "main" if "*" in nets else "island"
     with open(os.environ["FAKE_ROUTER_LOG"], "a") as f:
         f.write(kind + "\\n")
     mode = os.environ.get("FAKE_ROUTER_" + kind.upper(), "")
@@ -41,7 +42,12 @@ FAKE = textwrap.dedent('''
         time.sleep(600)
     shutil.copy(pcb_in, pcb_out)
     if "--json-out" in a:
-        open(a[a.index("--json-out") + 1], "w").write("{}")
+        doc = {}
+        if "--connections" in a:
+            doc["connections"] = [dict(t, status="routed", joined=True, length_mm=1.0, min_width_mm=t["widths"],
+                                       layers=list(t["widths"]), evidence=None)
+                                  for t in json.load(open(a[a.index("--connections") + 1]))]
+        open(a[a.index("--json-out") + 1], "w").write(json.dumps(doc))
 ''')
 
 
@@ -124,6 +130,7 @@ def rig(tmp_path, monkeypatch):
     (krt / ".venv/bin/python").symlink_to(sys.executable)
     (krt / "py_router").mkdir()
     (krt / "py_router/route.py").write_text(FAKE)
+    (krt / "py_router/repair_planes.py").write_text(FAKE)
     (krt / "py_router/list_nets.py").write_text("def net_clearance_map_by_id(pcb_path, nets, design_rules=None):\n    return {}\n")
     (krt / "VERSION").write_text("fake-1\n")
     fake_capabilities(krt)
@@ -141,7 +148,9 @@ def rig(tmp_path, monkeypatch):
         root = tmp_path
 
         def calls(self):
-            return self.calls_file.read_text().split() if self.calls_file.exists() else []
+            """The pour phase's plane repair ("island") and the rest call ("main"); the pour phase's task calls for pads
+            the stand-in repair left apart are left out."""
+            return [c for c in self.calls_file.read_text().split() if c != "tasks"] if self.calls_file.exists() else []
 
         def route(self, **kw):
             from placemat.kicad.route import route_board

@@ -1031,7 +1031,7 @@ def route_calls(ctx, index, phase, sel, board) -> PhaseOutcome:
                 _copy_project(got, nxt)
         elif call.kind == "pour":
             route_pour_net(ctx, board, nxt, call.nets[0], call.width, layers, stem, phase.neckdown,
-                           tuple(phase.router_args))
+                           tuple(phase.router_args), phase=phase.name)
             out.summaries.append((phase.name, k, summary))
         elif call.kind in ("tasks", "bus_tasks"):
             pending, j, src = list(call.tasks), 0, board

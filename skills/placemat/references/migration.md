@@ -26,6 +26,12 @@ section for each hand-written pattern a newer form replaces.
 
 - **Routing phases.** Pair phase widths come from net classes; omit an explicit phase width.
 
+- **Routing phases.** A phase that names a pour net joins its pads to the pour by via drops first: a via in each pad
+  no copper joins to the pour, or beside it with a short track, at the net class's sizes; a pad a cell's via or other
+  copper already joins is left as it is. Pads still apart after that are routed to the pour by a track each group.
+  Before, the router laid the whole net as tracks, pad to pad, re-routing pads already on the pour. Scripts need no
+  change.
+
 - **Routing phases.** A phase's connections are judged against the DRC errors the phase added: an error its input
   board already had (a footprint's own pad against its own hole, say) no longer marks every connection of that
   net as not clean. Scripts need no change.

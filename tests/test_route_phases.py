@@ -65,6 +65,7 @@ def rig(tmp_path, monkeypatch):
     (krt / ".venv/bin/python").symlink_to(sys.executable)
     (krt / "py_router").mkdir()
     (krt / "py_router/route.py").write_text(FAKE)
+    (krt / "py_router/repair_planes.py").write_text(FAKE)       # the plane repair: copies its board, logs its call
     (krt / "py_router/list_nets.py").write_text(CLASSES)
     fake_capabilities(krt)
     (krt / "VERSION").write_text("fake-1\n")
@@ -688,3 +689,58 @@ def test_a_later_phase_that_names_the_pour_net_routes_it(rig):
                        pour_nets={"VIN"})
     assert report.pour_routed_by == {"VIN": "vin"}
     assert any("VIN" in _nets(c) for c in rig.calls())
+
+
+def _drops(call):
+    return "--no-fix-drc-settings" in call
+
+
+@needs_kicad
+def test_a_phase_naming_a_pour_net_drops_vias_first_then_routes_only_the_pads_still_apart(rig):
+    """D31: the plane repair runs first on the pour net; the pour (over J1's VIN pad only) still misses U1's, so one
+    connection task routes U1.3 to J1.2, the pad the pour reaches. Nothing routes VIN as a whole net."""
+    _vin_pour(rig.pcb, 125.6, 127)
+    rig.route({"name": "pours", "nets": ["VIN"]}, pour_nets={"VIN"})
+    calls = rig.calls()
+    assert _drops(calls[0]) and calls[0][calls[0].index("--nets") + 1] == "VIN"
+    assert calls[0][calls[0].index("--escalation") + 1] == "off"
+    (track,) = [c for c in calls[1:] if "--connections" in c]
+    assert "--nets" not in track and track[0] == calls[0][1]            # on the board the drops left
+    (task,) = json.loads(open(track[track.index("--connections") + 1]).read())
+    assert task["net"] == "VIN" and (task["from"], task["to"]) == ({"ref": "U1", "pad": "3"}, {"ref": "J1", "pad": "2"})
+    assert task["widths"] == {"F.Cu": 0.2, "B.Cu": 0.2}
+
+
+@needs_kicad
+def test_a_pour_net_whose_pads_the_pour_already_joins_gets_no_call(rig):
+    """A phase selects only what is open: a pour joining every pad of its net leaves the phase nothing to do."""
+    _vin_pour(rig.pcb, 112.5, 127)
+    report = rig.route({"name": "pours", "nets": ["VIN"]}, pour_nets={"VIN"})
+    assert not [c for c in rig.calls() if _drops(c) or "--connections" in c]
+    assert report.phases[0]["asked"] == 0
+
+
+@needs_kicad
+def test_the_drop_call_cannot_weaken_the_boards_rules(rig, monkeypatch):
+    """The plane repair writes a project of its own beside its board (the stand-in lowers min_hole_clearance there);
+    the pour call puts the board's back before anything is judged."""
+    from pathlib import Path
+    from placemat.kicad import route
+    project = rig.pcb.with_suffix(".kicad_pro")
+    data = json.loads(project.read_text())
+    data.setdefault("board", {}).setdefault("design_settings", {}).setdefault("rules", {})["min_hole_clearance"] = 0.25
+    project.write_text(json.dumps(data))
+    _vin_pour(rig.pcb, 125.6, 127)
+    monkeypatch.setenv("FAKE_ROUTER_LOWER_HOLE", "1")
+    checked = []
+    real = route.run_drc
+
+    def original_rules(pcb, *args, **kwargs):
+        doc = json.loads(Path(pcb).with_suffix(".kicad_pro").read_text())
+        assert doc["board"]["design_settings"]["rules"]["min_hole_clearance"] == 0.25
+        checked.append(Path(pcb).name)
+        return real(pcb, *args, **kwargs)
+    monkeypatch.setattr(route, "run_drc", original_rules)
+    monkeypatch.setattr(phase_run, "run_drc", original_rules)
+    rig.route({"name": "pours", "nets": ["VIN"]}, pour_nets={"VIN"})
+    assert {"p0_drc.kicad_pcb", "routed.kicad_pcb"} <= set(checked)

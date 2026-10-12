@@ -1017,7 +1017,7 @@ def router_command(python, script, pcb_in, pcb_out, excluded, layers, summary,
     return cmd + list(active_settings().route_router_args) + list(extra_args) + ["--json-out", str(summary)]
 
 
-REQUIRES = ("route.py:--connections", "route.py:--bus-nets")
+REQUIRES = ("route.py:--connections", "route.py:--bus-nets", "repair_planes.py:--no-fix-drc-settings")
 
 
 _CAPS: dict = {}            # (router folder, its capability script's mtime and size) -> its listing: one a process
@@ -1102,31 +1102,71 @@ def router_capable(rpy, router_dir) -> list:
 
 
 def route_pour_net(ctx, board: Path, out: Path, net: str, width, layers, stem: str, neckdown: bool = True,
-                   extra_args=()) -> list:
-    """Route one net the board serves by a pour, alone (D15), on `layers` (the phase's): its pads and the pieces its
-    pours leave apart, the router counting the net's own zones as joining what they reach. Every pour net's partial
-    inner-layer pours are guarded on the route's input board, on the route's layers (`ctx.layers`); this call takes
-    its own net's guard off for itself and puts it back on `out`, for a pour net, so the
-    calls before and after it keep clear of its pour. Writes `out`, its copper locked. Returns the guards put back
-    ("NET on LAYER" each)."""
+                   extra_args=(), phase: str = "") -> list:
+    """Join one net the board serves by a pour to its pours, alone (D15), on `layers` (the phase's), by via drops
+    first and tracks after (D31, kicad/pour_join.py): the router's plane repair taps every pad with no copper to the
+    pour (a via in the pad, or beside it with a short track) and leaves a pad already joined alone; then each group of
+    pads still apart is routed to a pad the pour reaches by one `--connections` task, at `width` or the net's class
+    width, the router counting the pour's fill round that pad as joining it. The pours go to both calls as zones
+    (pours_as_zones) and come back as drawn (pours_back); the board's project rules are copied back over each call's.
+    Every pour net's partial inner-layer pours are guarded on the route's input board, on the route's layers
+    (`ctx.layers`); this call takes its own net's guard off for itself and puts it back on `out`, so the calls before
+    and after it keep clear of its pour. Writes `out`, its copper locked. Returns the guards put back ("NET on
+    LAYER" each). A task the router refuses stops the route (RouteRefused "router_refused"); a call that fails raises
+    RouterFailed."""
+    from .phase_run import answered, connection_summary, refused_records, write_connections
+    from .phase_select import _class_widths
+    from .pour_join import drop_command, pad_groups, tasks_to_pour
     share = ctx.cfg.route_plane_share
     inp = ctx.work / (stem + "_in.kicad_pcb")
     shutil.copy(board, inp)
     _copy_project(board, inp)
     drop_pour_guards(str(inp), {net})
     pours_as_zones(str(inp), net)
+    nc = ctx.geometry.netclasses.get(net) or next((c for c in ctx.geometry.netclasses.values()
+                                                   if c.name == "Default"), None)
+    widths = tuple((l, width) for l in layers) if width else _class_widths(ctx.geometry, net, layers)
+    dropped = ctx.work / (stem + "_drops.kicad_pcb")
+    cmd = drop_command(ctx.rpy, ctx.router_dir, inp, dropped, net, layers,
+                       via_size=nc.via_diameter if nc else 0.0, via_drill=nc.via_drill if nc else 0.0,
+                       track_width=max(w for _, w in widths), iterations=ctx.iterations)
+    log = ctx.work / (stem + "_drops.log")
+    rc = run_router(cmd, log, ctx.router_dir, ctx.env, ctx.timeout)
+    if rc != 0 or not dropped.exists():
+        tail = "\n".join(log.read_text(errors="replace").splitlines()[-8:])
+        raise RouterFailed("the router exited %d dropping vias from pour net %s" % (rc, net), rc, log, tail)
+    _copy_project(inp, dropped)             # the repair writes a project of its own beside its board
+    lock_copper(str(dropped))
+    src, j = dropped, 0
+    pending = tasks_to_pour(pad_groups(dropped, net), net, widths)
     # A net's own layers go to the router as its --layers. The router appends every board copper layer left out
     # of --layers with the forbidden cost, the same as `--layer-costs -1` on it (KRT py_router/route.py:1291-1310):
     # no track and no via end on it, but a via between two allowed layers spans it (rust_router/src/router.rs:
     # 917-923, 1283-1288), so the net's through vias still pass the inner layers and join a pour there.
-    cmd = router_command(ctx.rpy, ctx.script, inp, out, set(), layers, ctx.work / (stem + "_summary.json"),
-                         ctx.iterations, ctx.probe, ctx.quick, nets=[net], widths={net: width} if width else None,
-                         clearances=ctx.clearances_file, neckdown=neckdown, extra_args=extra_args)
-    log = ctx.work / (stem + ".log")
-    rc = run_router(cmd, log, ctx.router_dir, ctx.env, ctx.timeout)
-    if rc != 0 or not out.exists():
-        tail = "\n".join(log.read_text(errors="replace").splitlines()[-8:])
-        raise RouterFailed("the router exited %d routing pour net %s" % (rc, net), rc, log, tail)
+    while pending:
+        cfile = write_connections(pending, ctx.work / ("%s_%d_connections.json" % (stem, j)), layers)
+        part = ctx.work / ("%s_%d.kicad_pcb" % (stem, j))
+        psum = ctx.work / ("%s_%d_summary.json" % (stem, j))
+        cmd = router_command(ctx.rpy, ctx.script, src, part, set(), layers, psum, ctx.iterations, ctx.probe,
+                             ctx.quick, connections=cfile, clearances=ctx.clearances_file, neckdown=neckdown,
+                             extra_args=extra_args)
+        log = ctx.work / ("%s_%d.log" % (stem, j))
+        rc = run_router(cmd, log, ctx.router_dir, ctx.env, ctx.timeout)
+        if rc != 0 or not part.exists():
+            tail = "\n".join(log.read_text(errors="replace").splitlines()[-8:])
+            raise RouterFailed("the router exited %d routing pour net %s" % (rc, net), rc, log, tail)
+        _copy_project(inp, part)
+        lock_copper(str(part))
+        recs = answered(pending, connection_summary(psum, pending, phase, log).get("connections") or [])
+        refused = refused_records(recs)
+        if refused:
+            raise RouteRefused("router_refused", phase=phase, tasks=refused)
+        deferred = [t for t, r in zip(pending, recs) if r.get("status") == "deferred"]
+        src = part
+        if len(deferred) == len(pending):     # nothing moved: the router deferred every task; they stay so
+            break
+        pending, j = deferred, j + 1
+    shutil.copy(src, out)
     _copy_project(inp, out)
     pours_back(str(out), board)
     lock_copper(str(out))
@@ -1176,12 +1216,14 @@ def group_clearance(clearances: dict, net, base: float) -> float | None:
 
 
 
-def _router_lacks(rpy, router_dir_path, phases) -> list:
-    """The REQUIRES this route needs that the router lacks: `--bus-nets` only when a phase states a bus. Divergence
-    from Task 13's brief, which asks every REQUIRES always: the fork's `--bus-nets` (Task 6) has not landed, and
-    asking it of a route with no bus would refuse every route until it does."""
+def _router_lacks(rpy, router_dir_path, phases, pours=()) -> list:
+    """The REQUIRES this route needs that the router lacks: `--bus-nets` only when a phase states a bus, the plane
+    repair (`repair_planes.py`, pour_join.drop_command) only when the board has pour nets. Divergence from Task 13's
+    brief, which asks every REQUIRES always: the fork's `--bus-nets` (Task 6) has not landed, and asking it of a route
+    with no bus would refuse every route until it does."""
     buses = any(p.selector in ("buses", "interfaces") for p in phases)
-    return [m for m in router_capable(rpy, router_dir_path) if buses or not m.endswith(":--bus-nets")]
+    return [m for m in router_capable(rpy, router_dir_path)
+            if (buses or not m.endswith(":--bus-nets")) and (pours or not m.startswith("repair_planes.py:"))]
 
 
 def new_error_count(before_json, after_json, is_real) -> int | None:
@@ -1343,7 +1385,7 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     pcb, work = Path(pcb).resolve(), Path(work).resolve()          # the router runs in its own folder: paths it is given are absolute
     rpy = Path(router_dir_path) / ".venv/bin/python"
     route_py = Path(router_dir_path) / "py_router/route.py"
-    missing = _router_lacks(rpy, router_dir_path, run_list)
+    missing = _router_lacks(rpy, router_dir_path, run_list, pour_nets)
     if missing:
         raise RouteRefused("router_old", router=str(router_dir_path), missing=", ".join(missing))
     caps = router_capabilities(rpy, router_dir_path)

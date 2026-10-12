@@ -5,7 +5,8 @@ import json
 from placemat.route_phase import parse_phases
 
 SIGNALS = ({"name": "signals"},)
-CAPABILITIES = {"modules": {"route.py": True}, "flags": {"route.py": ["--connections", "--bus-nets"]}}
+CAPABILITIES = {"modules": {"route.py": True, "repair_planes.py": True},
+                "flags": {"route.py": ["--connections", "--bus-nets"], "repair_planes.py": ["--no-fix-drc-settings"]}}
 
 
 def phases(*raw):

@@ -3991,8 +3991,14 @@ net at different widths route one call per width, widest first. A phase's pairs,
 in that order.
 
 A pour net (a net with a zone or filled pour on the board: the plan's plane nets for `run --route`) that a phase names
-is routed alone in a call of its own, its pours handed to the router as zones, so the router joins only the pads and
-pieces the pours leave apart. Every pour net's partial inner-layer pours are kept clear of other nets' tracks on the
+is joined to its pours alone, in calls of its own, its pours handed to the router as zones. Via drops come first: the
+router's plane repair gives each pad of the net that no copper joins to its pour a via in the pad, or a via beside it
+with a short track on the phase's layers, at the net class's via and track sizes, never below the board's own rules,
+and leaves a pad already joined (by a cell's via, a track, the pour itself) as it is. Then each group of the net's
+pads still apart from the pour is routed to the nearest pad the pour reaches by one pad-to-pad task, at the phase's
+width or the net class's; the track may end on the pour's fill. The calls leave the board's rules as they were. The plane
+repair takes neither `[route] router_args` nor the phase's `router_args`, and spaces by the net classes, not by a
+capture's stated net clearance; the tracking call takes both, as other calls do. Every pour net's partial inner-layer pours are kept clear of other nets' tracks on the
 route's layers, whatever the phase's own `layers`, from the first phase on; a pour net's call takes its own net's guard
 off for itself alone. A pour net no phase names is left to its pours and is not counted in the closure. The rest
 phase never takes a pour net. A `current_paths` phase does not route the pour nets it picks up: the pour carries the
@@ -4074,7 +4080,7 @@ the code and its facts):
 | `no_phases` | the project has no `[[route.phase]]`: `route: no routing phases in placemat.toml; \`placemat settings --example\` writes a placemat.toml with example phases` |
 | `unknown_phase` | a phase named to route up to is not one of the project's |
 | `capture` | the capture's `nets.layout.json` cannot be read, or was written for another netlist (`path`, the sidecar; `reason`; `detail`) |
-| `router_old` | the router lacks a flag the phases need (`--connections`; `--bus-nets` for a phase with buses) |
+| `router_old` | the router lacks a flag the phases need (`--connections`; `--bus-nets` for a phase with buses; the plane repair's `--no-fix-drc-settings` on a board with pour nets) |
 | `width_policy_unavailable` | the router has no width query (`py_router/nominal_width_policy.py`, on the placemat fork) or its interpreter will not start (`router`, `script`; `error` and `errno` when it will not start); routing stops before changing copper |
 | `width_policy_failed` | the router's width query gave no answer (`router`; `failure`: `timeout` with `seconds`, `failed` with `exit_code`, or `malformed` with `problem`; `log`, its output); routing stops before changing copper |
 | `router_owned` | `[route] router_args` or a phase's `router_args` names, by the router's own flag list, a flag placemat sets itself (`phase`, null for `[route]`; `flag`; `owned`, the router flag it names). The settings refuse the plain cases when they are read; this catches an abbreviation only the router's list resolves |
