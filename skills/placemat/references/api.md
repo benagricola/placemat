@@ -5121,20 +5121,17 @@ its kind.
 
 `escape_via`, `escape_closed` and `escape_walled` judge each pad by the cheapest way its track can leave it. This is
 placemat's own rule, not a KiCad rule. A pad is judged when it is not a no-connect pin, its net has another pad placed,
-and no copper of its own net (a track, a via, a pour, another part's pad) already leaves it. It is graded by its surface
-lanes and via spots: tracks of the net's class kept the net class's clearance, and a search cell more, from every other
-net's copper (pads, tracks, vias and pours) on any of the pad's own layers. A lane runs out of the pin field along the
-pin's normal, then at 0, 45, 90 ... 315 degrees to the edge of a window `score.escape_reach` round the pad's box; each
-also has four dog-legs, turning once, 45 or 90 degrees either way, halfway along. An open lane toward the nearest other
-placed pad of its net is free; else a via spot is `escape_via` (`score.escape_via`); else an open lane any way is
-`escape_closed`; else the pad is a walled suspect, priced `score.escape_closed` and listed `escape_closed`, and the exact
-path search (a track any way within that window) decides whether it is also `escape_walled`. A via spot is a via of the
-net's class touching the pad's edge (along the pin's normal; also to either side, and behind, for a part of two pads or
-one), and one where a track leaves the pin field, clear of every other net's copper on every layer, of unplated holes
-and of via bans. The placement search grades its candidates the same way and asks the exact search only of the
-positions it takes (a refinement seed, the chosen spot): one that walls a pad is dropped and the next is taken. A pad of
-a plane's or free net drops to its plane by a via: it is reported only as `escape_walled`, when no via spot, no lane
-and no surface route is open. A pad whose own
+and no copper of its own net (a track, a via, a pour, another part's pad) already leaves it. Its way out is looked for by
+the exact path search, a track of the net's class kept the net class's clearance from every other net's copper (pads,
+tracks, vias and pours) on any of the pad's own layers, within `score.escape_reach` of the pad's box: a surface route toward the nearest
+other placed pad of its net is free; else a via spot is `escape_via` (`score.escape_via`); else a surface route any way
+is `escape_closed`; else the pad is `escape_walled`. A via spot is a via of the net's class touching the pad's edge
+(along the pin's normal; also to either side, and behind, for a part of two pads or one), and one where a track leaves
+the pin field, clear of every other net's copper on every layer, of unplated holes and of via bans. Straight surface
+lanes from the pad (out of the pin field along the normal, then at 0, 45, 90 ... 315 degrees to the edge of the
+search's window) are tried first, kept a search cell more than the search keeps: a pad whose lane toward its target is
+open is judged free without the search, which would find the same way. A pad of a plane's or free net drops to its
+plane by a via: it is reported only as `escape_walled`, when no via spot and no surface route is open. A pad whose own
 copper (a declared lane, a stub) ends in the air, and a hand-off pin, are judged walled by the path search from where
 that copper ends. A pad that copper of its own net already leaves with a way on (a track that reaches another pad of the
 net, a via in it, a pour over it) is not counted, closed or walled; a track or an escape's lane that ends in the air is
@@ -5480,7 +5477,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `place.approach_reach` | `8.0` | mm | how far along a pad's airwire toward its nearest target the `escape.pinched` check looks for a gap between two other parts' copper that the pad's track does not fit through |
 | `place.approach_detour` | `2.0` | mm | how far to either side of that airwire a track may go round such a gap, on the pad's layer and crossing no other net's airwire, and still count as a way: a pinch with a way round within it is no `escape.pinched` finding |
 | `place.turn_gain_mm` | `2.0` | mm | the least reduction of the common run score for another legal turn at the same body centre to produce a `turn.better` finding |
-| `place.search_wire` | `"mst"` | choice | temporary: the placement search's scorer; `mst` is the one-score search, the complete common run-score change, its escapes graded by the lanes and walled checked by the exact search on the positions it takes; `clique` keeps the earlier pull estimate. One of: clique, mst. |
+| `place.search_wire` | `"clique"` | choice | temporary measured search comparison: clique keeps the existing scorer; mst evaluates the complete common objective exhaustively. One of: clique, mst. |
 | `place.turn_gain_share` | `0.05` | share | the least share of the item's wire and declared-link contribution the common run-score gain must reach for a `turn.better` finding |
 | `place.turn_held_words` | `["turn", "turned", "turns", "rotation", "rotated", "rotate", "facing", "faces", "degrees"]` | list | words that, in the `why=` of an item whose turn the script fixes, say the turn was chosen: a better turn is then a `turn.better` notice with `held_by` "why" and no edit |
 | `place.split_min_group` | `2` | count | the least members a group needs to count as one, in a cell's `split` finding |

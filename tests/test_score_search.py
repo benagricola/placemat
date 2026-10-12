@@ -1,5 +1,4 @@
-"""The one-score search (the default) ranks complete signed objectives, its escapes graded by the lanes and walled checked
-exactly where it takes a candidate (D24)."""
+"""The temporary MST search ranks complete signed objectives exhaustively."""
 from dataclasses import replace
 import math
 
@@ -161,7 +160,7 @@ def test_actual_scan_spreads_dense_net_on_common_congestion_objective(monkeypatc
     assert negative, 'spreading must exercise a negative signed congestion term'
 
 
-def test_one_score_default_scores_linkless_area_while_the_pull_estimate_remains_nearest():
+def test_mst_measurement_flag_scores_linkless_area_while_clique_default_remains_nearest():
     from tests.test_score_measures import _two_part_board
     plans = {}
     for mode in ('clique', 'mst'):
@@ -173,7 +172,7 @@ def test_one_score_default_scores_linkless_area_while_the_pull_estimate_remains_
         board.place(Part('c1'), at=Near(Location(20, 20)), radius=1.0, rotations=(0,))
         plan = board.resolve()
         plans[mode] = plan.placement('c1'), score.whole(board, plan.occupancy, plan)
-    assert Settings().place_search_wire == 'mst'
+    assert Settings().place_search_wire == 'clique'
     assert plans['clique'][0].location == Location(20, 20)
     assert plans['mst'][1]['airwire'] == plans['clique'][1]['airwire'] == 0.0
     assert plans['mst'][1]['area'] < plans['clique'][1]['area']
@@ -254,12 +253,8 @@ def test_native_legal_scan_preserves_exact_python_declared_lane_blocker_fallback
     assert (result.walled, result.score) == expected[0][0]
 
 
-@pytest.mark.parametrize('floor', [None, -1e6])
 @pytest.mark.parametrize('native', [False, True])
-def test_actual_scan_rejects_cheaper_walled_candidate_before_scalar(monkeypatch, native, floor):
-    """The cheaper spot walls the pad. Graded by its lanes it is only a suspect; the scan asks the exact walled check of
-    the spot it would take and takes the next. With a floor below every candidate (a front face's, an arrangement's)
-    no candidate is checked as it is weighed, and the check before taking it decides alone."""
+def test_actual_scan_rejects_cheaper_walled_candidate_before_scalar(monkeypatch, native):
     from placemat.occupancy import ban_shape
     from tests.fixtures import pad, track
     from tests.test_surface_escapes import _part_of, _round_pad
@@ -288,11 +283,7 @@ def test_actual_scan_rejects_cheaper_walled_candidate_before_scalar(monkeypatch,
     outside = scoring(replace(hint, location=Location(34, 30)))
     assert inside[0] > outside[0] == 0
     assert inside[1] < outside[1], 'fixture must make the walled pose cheaper'
-    assert scoring.delta.relative(hint, exact=False)[1] == 0          # graded by the lanes, the walled count is not asked
     monkeypatch.setattr(placer, 'NATIVE_SWEEP', native)
-    scoring = MSTScorer(board, occ, item, plan=plan)
-    if floor is not None:
-        scoring.best[0] = floor
     result = placer.scan(occ, item, hint, 4, 2, rotations=(0,), score=scoring,
                         within=lambda x, y: x >= 30 and y == 30)
     assert result.chosen.location == Location(34, 30)
@@ -429,7 +420,7 @@ def test_native_common_adapter_refuses_malformed_inputs_before_scoring():
                            ((0, math.nan, 0), math.inf), ((0, 0, 0), math.nan)]:
         with pytest.raises(ValueError, match='weights or floor'):
             geometry._native.NativeDeltaScoring(prepared.candidate, prepared.scoring,
-                                                prepared.surface, weights, (0, 0, 0), floor)
+                                                prepared.surface, weights, (0, 0), floor)
     native = scoring.native((0,), Face.FRONT)
     for x, y, turn in [(math.nan, 19, 0), (25, math.inf, 0), (1e300, 19, 0), (25, 19, 1)]:
         with pytest.raises(ValueError):

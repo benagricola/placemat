@@ -229,7 +229,7 @@ def measure(board, plan, step, *, count, repeats):
         old_call = (lambda row: old_native.evaluate(row[0].location.x, row[0].location.y, row[1])) \
             if old_native is not None else (lambda row: old(row[0]))
         new_call = (lambda row: full.evaluate(row[0].location.x, row[0].location.y, row[1])) \
-            if full is not None else (lambda row: common.scan(row[0]))
+            if full is not None else (lambda row: common(row[0]))
         # First complete evaluation after preparation, before any warm-up.
         def first(call):
             start = time.perf_counter_ns()
@@ -283,7 +283,7 @@ def resolve_measure(board):
     originals = [(Occupancy, 'commit', Occupancy.commit), (NativeSweeper, 'run', NativeSweeper.run),
                  (type(board), '_scorer', type(board)._scorer),
                  (Scorer, 'native', Scorer.native), (MSTScorer, 'native', MSTScorer.native),
-                 (Scorer, '__call__', Scorer.__call__), (MSTScorer, 'scan', MSTScorer.scan)]
+                 (Scorer, '__call__', Scorer.__call__), (MSTScorer, '__call__', MSTScorer.__call__)]
     def commit(self, *args, **kwargs):
         start = time.perf_counter_ns()
         try:
@@ -346,7 +346,7 @@ def resolve_measure(board):
                 times[kind] = times.get(kind, 0) + (time.perf_counter_ns() - start) / 1000
         return call
     replacements = [commit, run, scorer, native_wrapper(Scorer.native), native_wrapper(MSTScorer.native),
-                    python_wrapper(Scorer.__call__), python_wrapper(MSTScorer.scan)]
+                    python_wrapper(Scorer.__call__), python_wrapper(MSTScorer.__call__)]
     start = time.perf_counter()
     try:
         for (cls, name, _), replacement in zip(originals, replacements):

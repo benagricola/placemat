@@ -246,8 +246,6 @@ pub struct PreparedSurface {
     lifted: HashMap<(usize, usize, usize), Arc<surface::LiftedPad>>,
     // The run's memo of rest pads across visits, and the generation of its rest board this surface was made against.
     memo: Option<(Arc<Mutex<Memo>>, u64)>,
-    // Whether the evaluation under way asks the exact search of walled suspects and counts walled pads (D24).
-    exact: bool,
 }
 
 // The rest shapes by the Python blocker grid's 2 mm buckets (`near`): a shape is in every bucket its box's
@@ -712,7 +710,6 @@ impl PreparedSurface {
             contact_cache: HashMap::new(),
             lifted: HashMap::new(),
             memo,
-            exact: true,
         })
     }
 
@@ -780,10 +777,8 @@ impl PreparedSurface {
 
     /// Full native geometry, eligibility, aim and supplemental judgements.
     /// Counts are absolute except signed crossed-edge change. Returned ways
-    /// are inspection evidence. `exact` off grades the escapes by the lanes
-    /// alone: no exact search, a suspect is way 5, and the walled count is 0.
-    #[pyo3(signature=(candidate,delta,x,y,turn,inspect=false,exact=true))]
-    #[allow(clippy::too_many_arguments)]
+    /// are inspection evidence; search adoption remains separately gated.
+    #[pyo3(signature=(candidate,delta,x,y,turn,inspect=false))]
     fn evaluate(
         &mut self,
         py: Python<'_>,
@@ -793,7 +788,6 @@ impl PreparedSurface {
         y: f64,
         turn: usize,
         inspect: bool,
-        exact: bool,
     ) -> PyResult<(
         (f64, f64, f64, f64, f64, f64),
         i64,
@@ -803,27 +797,22 @@ impl PreparedSurface {
         Vec<(String, String, u8)>,
         Vec<(String, String)>,
     )> {
-        self.evaluate_inner(py, &mut candidate, &mut delta, x, y, turn, inspect, exact)
+        self.evaluate_inner(py, &mut candidate, &mut delta, x, y, turn, inspect)
     }
 
     /// Diagnostic stage timings include timer overhead; never used by sweep.
-    #[pyo3(signature=(candidate,delta,x,y,turn,exact=true))]
-    #[allow(clippy::too_many_arguments)]
     fn profile(&mut self, py: Python<'_>, mut candidate: PyRefMut<'_, PreparedCandidate>,
-               mut delta: PyRefMut<'_, NativeDelta>, x: f64, y: f64, turn: usize, exact: bool)
+               mut delta: PyRefMut<'_, NativeDelta>, x: f64, y: f64, turn: usize)
                -> PyResult<(Evaluation, Vec<(&'static str, f64)>)> {
         let mut timings = Some(Profile::default());
-        self.exact = exact;
         let result = self.evaluate_profiled(py, &mut candidate, &mut delta, x, y, turn, true, &mut timings)?;
         Ok((result, timings.unwrap().rows()))
     }
 }
 
 impl PreparedSurface {
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn evaluate_inner(&mut self, py: Python<'_>, candidate: &mut PreparedCandidate,
-        delta: &mut NativeDelta, x: f64, y: f64, turn: usize, inspect: bool, exact: bool) -> PyResult<Evaluation> {
-        self.exact = exact;
+        delta: &mut NativeDelta, x: f64, y: f64, turn: usize, inspect: bool) -> PyResult<Evaluation> {
         self.evaluate_profiled(py, candidate, delta, x, y, turn, inspect, &mut None)
     }
 
@@ -879,10 +868,9 @@ impl PreparedSurface {
 
     /// (vias, away, walled) of a candidate `place_candidate` has placed and whose wire and crossings `delta` has
     /// just solved (`wire_cross` at the same x, y and turn): the escape judgements of `evaluate`, without its wire,
-    /// crossings or layout terms, graded by the lanes alone (`exact` off).
+    /// crossings or layout terms.
     pub(crate) fn escape_counts(&mut self, py: Python<'_>, candidate: &mut PreparedCandidate,
         delta: &mut NativeDelta, turn: usize) -> PyResult<(usize, usize, usize)> {
-        self.exact = false;
         let (vias, away, walled, _, _) = self.fields(py, candidate, delta, turn, false, &mut None)?;
         Ok((vias, away, walled))
     }
@@ -1000,13 +988,10 @@ impl PreparedSurface {
                 if *mode == Mode::Reuse {
                     if !self.nets.contains_key(&net) { continue; }
                     let c = &self.fields[fi].cached.as_ref().unwrap()[pi];
-                    let quiet = self.nets[&net].quiet;
                     if c.way == 1 { vias += 1; }
-                    else if c.way == 2 || (c.way == 3 && !quiet) { away += 1; }
-                    if self.exact {
-                        if c.wall { walls.insert((owner.clone(), number.clone())); }
-                        if c.handoff { handoffs.push((owner.clone(), number.clone())); }
-                    }
+                    else if c.way == 2 { away += 1; }
+                    if c.wall { walls.insert((owner.clone(), number.clone())); }
+                    if c.handoff { handoffs.push((owner.clone(), number.clone())); }
                     if inspect { ways.push((owner, number, c.way)); }
                     continue;
                 }
@@ -1031,7 +1016,7 @@ impl PreparedSurface {
                             timing.aim += started.elapsed().as_secs_f64() * 1e6;
                         }
                         if let Some(d) = aim {
-                            way = facts.surface.as_ref().unwrap().way(d, self.exact);
+                            way = facts.surface.as_ref().unwrap().way(d);
                         }
                     }
                     let judged = Judged { way, wall: facts.wall, handoff: facts.handoff, facts: None };
@@ -1052,20 +1037,18 @@ impl PreparedSurface {
                 } else {
                     self.judge_pad(py, candidate, delta, turn, fi, pi, lanes, index, false, profile)?
                 };
-                // A suspect (3 walled, 5 not searched) is priced as a closed pad; a quiet one has no price.
-                let quiet = self.nets[&net].quiet;
                 if judged.way == 1 {
                     vias += 1;
-                } else if judged.way == 2 || (matches!(judged.way, 3 | 5) && !quiet) {
+                } else if judged.way == 2 {
                     away += 1;
+                } else if judged.way == 3 {
+                    walls.insert((owner.clone(), number.clone()));
                 }
-                if self.exact {
-                    if judged.way == 3 || judged.wall {
-                        walls.insert((owner.clone(), number.clone()));
-                    }
-                    if judged.handoff {
-                        handoffs.push((owner.clone(), number.clone()));
-                    }
+                if judged.wall {
+                    walls.insert((owner.clone(), number.clone()));
+                }
+                if judged.handoff {
+                    handoffs.push((owner.clone(), number.clone()));
                 }
                 if inspect {
                     ways.push((owner, number, judged.way));
@@ -1272,36 +1255,41 @@ impl PreparedSurface {
                     if let (Some(timing), Some(started)) = (profile.as_mut(), blockers_started) {
                         timing.blockers += started.elapsed().as_secs_f64() * 1e6;
                     }
-                    // The candidate's path shapes are gathered only for a walled suspect the exact search is asked of.
-                    let exact = self.exact;
-                    let this = &*self;
-                    way = profiled!(profile, judge, this.lifted[&key].judge(
-                        py, &foes, &bans, aim, net.quiet, exact,
-                        || this.path(candidate, turn, field, pad, mine, &[], net, this.settings.reach, aim, false,
-                                     false, index, Part::Moving).path.1,
+                    let search = profiled!(profile, path_setup, self.path(candidate, turn, field, pad, mine, &[], net,
+                        self.settings.reach, aim, false, false, index, Part::Moving));
+                    guard.push(search.reach);
+                    way = profiled!(profile, judge, self.lifted[&key].judge(
+                        py, &foes, &bans, &search.path.1, &search.path.7, aim, net.quiet,
                     ))?;
                 } else {
                 let (foes, bans) = self.blockers(candidate, turn, field, pad, net, region, index, Part::All);
                 if let (Some(timing), Some(started)) = (profile.as_mut(), blockers_started) {
                     timing.blockers += started.elapsed().as_secs_f64() * 1e6;
                 }
+                let search = profiled!(profile, path_setup, self.path(
+                    candidate,
+                    turn,
+                    field,
+                    pad,
+                    mine,
+                    &[],
+                    net,
+                    self.settings.reach,
+                    aim,
+                    false,
+                    false,
+                    index,
+                    Part::All,
+                ));
+                guard.push(search.reach);
                 if gather {
-                    let search = profiled!(profile, path_setup, self.path(
-                        candidate, turn, field, pad, mine, &[], net, self.settings.reach, aim, false, false, index,
-                        Part::All,
-                    ));
-                    guard.push(search.reach);
                     let found = profiled!(profile, judge, surface::surface_facts(
                         py, pad_lanes, pad_spots, foes, bans, centre, search.path,
                     ))?;
                     gathered = Some(found);
                 } else {
-                    // The exact search's path is made only for a walled suspect it is asked of.
-                    let this = &*self;
-                    way = profiled!(profile, judge, surface::judge_lanes(
-                        &pad_lanes, &pad_spots, &foes, &bans, aim, centre, net.quiet, this.settings.cell, this.exact,
-                        || surface::search_any(py, this.path(candidate, turn, field, pad, mine, &[], net,
-                            this.settings.reach, aim, false, false, index, Part::All).path),
+                    way = profiled!(profile, judge, surface::surface_judge(
+                        py, pad_lanes, pad_spots, foes, bans, aim, centre, net.quiet, search.path,
                     ))?;
                 }
                 }
@@ -1319,8 +1307,7 @@ impl PreparedSurface {
         let handoff = net.size < 2 && !unconnected && !facts.through;
         let mut wall = false;
         let mut unanswered = false;
-        // Validity only: asked when the walled count is (`exact`), and always for facts kept across candidates.
-        if (declared || handoff) && (self.exact || gather) {
+        if declared || handoff {
             let search = self.path(
                 candidate,
                 turn,

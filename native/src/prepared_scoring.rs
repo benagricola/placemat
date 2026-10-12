@@ -1,12 +1,7 @@
 //! Complete common-objective candidate scoring inside the native sweep.
-//! The escapes are graded by the lanes alone (D24); the walled count is the
-//! exact search's, asked only of a candidate that would become `floor` (the
-//! best cost of a candidate proved to wall no pad) or one of the `keep` best
-//! a pruning scorer holds, so both are proved. Any other candidate stands at
-//! 0 walled, for the scan to ask `exact` of before taking it; with
-//! `exact_all` set every candidate is asked. With `configure_prune`, a candidate is
+//! `floor` is the incumbent record. With `configure_prune`, a candidate is
 //! pruned when its exact terms so far plus proved lower bounds of the rest
-//! exceed the `keep`-th best of those costs (R13): it cannot be among the
+//! exceed the `keep`-th best weighed cost (R13): it cannot be among the
 //! `keep` best, so no scan that reads only that many is changed.
 use crate::candidate::PreparedCandidate;
 use crate::prepared_surface::PreparedSurface;
@@ -20,13 +15,9 @@ pub struct NativeDeltaScoring {
     pub(crate) delta: Py<NativeDelta>,
     pub(crate) surface: Py<PreparedSurface>,
     weights: (f64, f64, f64),
-    // the lifted board's closed, via and walled counts
-    baseline: (usize, usize, usize),
+    baseline: (usize, usize),
     #[pyo3(get, set)]
     pub(crate) floor: f64,
-    // every candidate's walled count asked of the exact search (an explore's draw reads them all)
-    #[pyo3(get, set)]
-    exact_all: bool,
     prune: Option<Prune>,
     #[pyo3(get)]
     pruned: u64,
@@ -49,12 +40,12 @@ struct Prune {
 impl NativeDeltaScoring {
     #[new]
     fn new(candidate: Py<PreparedCandidate>, delta: Py<NativeDelta>, surface: Py<PreparedSurface>,
-           weights: (f64, f64, f64), baseline: (usize, usize, usize), floor: f64) -> PyResult<Self> {
+           weights: (f64, f64, f64), baseline: (usize, usize), floor: f64) -> PyResult<Self> {
         if [weights.0, weights.1, weights.2].iter().any(|w| !w.is_finite() || *w < 0.0)
             || floor.is_nan() {
             return Err(PyValueError::new_err("invalid common-objective weights or floor"));
         }
-        Ok(Self { candidate, delta, surface, weights, baseline, floor, exact_all: false, prune: None, pruned: 0 })
+        Ok(Self { candidate, delta, surface, weights, baseline, floor, prune: None, pruned: 0 })
     }
 
     /// Prune on proved bounds (R13). `keep`: how many of the best weighed candidates the scan reads, so a candidate
@@ -90,17 +81,6 @@ impl NativeDeltaScoring {
         let surface = self.surface.clone_ref(py);
         self.score(py, &mut candidate.borrow_mut(py), &mut delta.borrow_mut(py),
                    &mut surface.borrow_mut(py), x, y, turn)
-    }
-
-    /// (cost, walled) of one candidate with the walled count asked of the exact search: the pads it walls in beyond
-    /// the lifted board's, which may be below 0. Neither `floor` nor the pruning bounds move.
-    fn exact(&mut self, py: Python<'_>, x: f64, y: f64, turn: usize) -> PyResult<(f64, i64)> {
-        let candidate = self.candidate.clone_ref(py);
-        let delta = self.delta.clone_ref(py);
-        let surface = self.surface.clone_ref(py);
-        let (raw, crossed, vias, closed, walled, _, _) = surface.borrow_mut(py).evaluate_inner(
-            py, &mut candidate.borrow_mut(py), &mut delta.borrow_mut(py), x, y, turn, false, true)?;
-        Ok((self.total(raw, crossed, vias, closed), walled as i64 - self.baseline.2 as i64))
     }
 }
 
@@ -150,20 +130,18 @@ impl NativeDeltaScoring {
             ((wire, cross, link, over, area, congestion), crossed, vias, closed, walled)
         } else {
             let (raw, crossed, vias, closed, walled, _, _) =
-                surface.evaluate_inner(py, candidate, delta, x, y, turn, false, self.exact_all)?;
+                surface.evaluate_inner(py, candidate, delta, x, y, turn, false)?;
             (raw, crossed, vias, closed, walled)
         };
-        let cost = self.total(raw, crossed, vias, closed);
-        // The walled count: the exact search's, beyond the lifted board's, when every candidate's is asked or this one
-        // would hold the floor or a place among the `keep` best; else 0, unasked.
-        let mut walled = if self.exact_all { walled as i64 - self.baseline.2 as i64 } else { 0 };
-        let holds = cost < self.floor
-            || self.prune.as_ref().is_some_and(|p| p.kept.len() < p.keep || cost < p.kept[p.keep - 1]);
-        if !self.exact_all && holds {
-            let (_, _, _, _, exact, _, _) = surface.evaluate_inner(py, candidate, delta, x, y, turn, false, true)?;
-            walled = exact as i64 - self.baseline.2 as i64;
+        let mut total = crate::exact::PySum::new();
+        // Keep the Python Delta term insertion order, including zero push.
+        for value in [raw.0, raw.1, raw.2, raw.3, 0.0, 0.0, raw.4, raw.5,
+                      self.weights.0 * crossed as f64,
+                      self.weights.1 * (closed as f64 - self.baseline.0 as f64),
+                      self.weights.2 * (vias as f64 - self.baseline.1 as f64)] {
+            total.add(value);
         }
-        let walled = walled.max(0);
+        let cost = total.total();
         if walled == 0 {
             self.floor = self.floor.min(cost);
             if let Some(prune) = self.prune.as_mut() {
@@ -174,18 +152,6 @@ impl NativeDeltaScoring {
                 }
             }
         }
-        Ok((cost, walled))
-    }
-
-    fn total(&self, raw: (f64, f64, f64, f64, f64, f64), crossed: i64, vias: usize, closed: usize) -> f64 {
-        let mut total = crate::exact::PySum::new();
-        // Keep the Python Delta term insertion order, including zero push.
-        for value in [raw.0, raw.1, raw.2, raw.3, 0.0, 0.0, raw.4, raw.5,
-                      self.weights.0 * crossed as f64,
-                      self.weights.1 * (closed as f64 - self.baseline.0 as f64),
-                      self.weights.2 * (vias as f64 - self.baseline.1 as f64)] {
-            total.add(value);
-        }
-        total.total()
+        Ok((cost, walled as i64))
     }
 }
