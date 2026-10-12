@@ -237,3 +237,26 @@ def test_when_every_candidate_walls_a_pad_the_walk_scores_all_and_takes_the_leas
                          score=scorer)
     assert len(scorer.asked) == result.tried - sum(result.rejected.values())
     assert result.walled == 1 and (result.chosen.location.x, result.chosen.location.y) == first
+
+
+@pytest.mark.parametrize('rotation', [0, 90])
+def test_a_scan_of_some_turns_uses_the_wider_prepared_surface_with_the_same_result(monkeypatch, rotation):
+    """A scorer prepared for turns (0, 90) serves a scan of one of them: the sweep's turn is mapped to its own, and the
+    scan is the one a scorer prepared for that turn alone gives."""
+    if not _native_available() or not hasattr(geometry._native.NativeDeltaScoring, 'set_turn_map'):
+        pytest.skip('native turn map unavailable')
+    monkeypatch.setattr(placer, 'NATIVE_SWEEP', True)
+    runs = {}
+    for wide in (False, True):
+        board, item, plan = triangle(True)
+        occ = plan.occupancy
+        hint = occ._geometry(item).reference
+        occ.lift({item.ref})
+        scoring = MSTScorer(board, occ, item, plan=plan, prune=True)
+        if wide:
+            assert scoring.native((0, 90), Face.FRONT) is not None
+        result = placer.scan(occ, item, replace(hint, rotation=rotation), 8.0, 0.25, rotations=(rotation,),
+                             clearance=board.geometry.default_clearance, score=scoring)
+        runs[wide] = (result.chosen, result.walled, result.score, result.tried, len(scoring._native))
+    assert runs[True][:4] == runs[False][:4]
+    assert runs[True][4] == 1                   # no surface of its own was prepared for the one turn

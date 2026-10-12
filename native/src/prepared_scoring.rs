@@ -35,6 +35,8 @@ pub struct NativeDeltaScoring {
     // how many candidates were given the escape grades: the sweep's in full and `full`'s
     #[pyo3(get)]
     escaped: u64,
+    // the sweep's turn k is this scorer's turn `turn_map[k]` (a scan of some of the turns it was prepared for)
+    turn_map: Option<Vec<usize>>,
 }
 
 // The proved lower bound of a lifted snapshot's partial costs (`configure_prune`).
@@ -54,7 +56,7 @@ impl NativeDeltaScoring {
             return Err(PyValueError::new_err("invalid common-objective weights or floor"));
         }
         Ok(Self { candidate, delta, surface, weights, baseline, floor, escapes: true, prune: None, pruned: 0,
-                  escaped: 0 })
+                  escaped: 0, turn_map: None })
     }
 
     /// Prune partial costs on a proved bound (R13). `keep`: how many of the best partial costs the scan's walk
@@ -66,6 +68,13 @@ impl NativeDeltaScoring {
         }
         self.prune = Some(Prune { keep, kept: Vec::new(), congestion });
         Ok(())
+    }
+
+    /// Which of its turns a sweep's turns are: the sweep's turn k is turn `map[k]`; None, the same turns. `evaluate`,
+    /// `full` and `partial_cost` take this scorer's own turns.
+    #[pyo3(signature = (map=None))]
+    fn set_turn_map(&mut self, map: Option<Vec<usize>>) {
+        self.turn_map = map;
     }
 
     /// A new scan: the best partial costs it prunes by are its own.
@@ -80,8 +89,11 @@ impl NativeDeltaScoring {
         let candidate = self.candidate.clone_ref(py);
         let delta = self.delta.clone_ref(py);
         let surface = self.surface.clone_ref(py);
-        self.score(py, &mut candidate.borrow_mut(py), &mut delta.borrow_mut(py),
-                   &mut surface.borrow_mut(py), x, y, turn)
+        let map = self.turn_map.take();
+        let result = self.score(py, &mut candidate.borrow_mut(py), &mut delta.borrow_mut(py),
+                                &mut surface.borrow_mut(py), x, y, turn);
+        self.turn_map = map;
+        result
     }
 
     /// The partial cost of one candidate (every term but the escape grades and the walled check), never pruned:
@@ -112,6 +124,10 @@ impl NativeDeltaScoring {
     pub(crate) fn score(&mut self, py: Python<'_>, candidate: &mut PreparedCandidate,
                        delta: &mut NativeDelta, surface: &mut PreparedSurface,
                        x: f64, y: f64, turn: usize) -> PyResult<(f64, i64)> {
+        let turn = match &self.turn_map {
+            Some(map) => *map.get(turn).ok_or_else(|| PyValueError::new_err("sweep turn outside the turn map"))?,
+            None => turn,
+        };
         if !self.escapes {
             return self.partial(delta, surface, candidate, x, y, turn, true);
         }

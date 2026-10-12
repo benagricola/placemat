@@ -373,6 +373,9 @@ def _swaps(occ, movable, keys, placement, ref_of, nets_of, links_of, cost, terms
 
             score = part_score(k, nets_of[k], math.inf) if one_score is None else \
                 _limited(one_score(movable[k]), k, limits_ok, satellite_ok)
+            if one_score is not None and hasattr(score, 'delta'):
+                # one surface for every turn's scan (score_search.MSTScorer.native maps each scan's turn to it)
+                score.native(tuple(sorted({r % 360 for r in turns.get(k, (spot[k].rotation,))})), spot[k].face)
             best = None
             for rot in turns.get(k, (spot[k].rotation,)):
                 c = occ.shifted_body_box(movable[k], Placement(Location(0.0, 0.0), rot, spot[k].face)).center

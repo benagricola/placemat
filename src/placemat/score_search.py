@@ -102,6 +102,13 @@ class MSTScorer:
         rotations = tuple(rotations)
         key = rotations, face
         if key not in self._native:
+            # A scan of some of the turns a prepared scorer has: that scorer, its sweep's turns mapped to its own
+            # (the same scores; a surface is prepared once per lifted board and face).
+            wider = next((k for k, scoring in self._native.items() if scoring is not None and k[1] == face
+                          and set(rotations) <= set(k[0])), None)
+            if wider is not None and hasattr(self._native[wider], 'set_turn_map'):
+                self._native[wider].set_turn_map([wider[0].index(r) for r in rotations])
+                return self._native[wider]
             prepared, reason = prepare(self.delta, rotations, face, rest_cache=True)
             if prepared is None or not hasattr(geometry._native, 'NativeDeltaScoring'):
                 self.refusals[key] = reason or 'complete native sweep adapter unavailable'
@@ -116,7 +123,10 @@ class MSTScorer:
                 if self.prune and PRUNE:
                     scoring.configure_prune(self.spots, self._congestion_bound())
                 self._native[key] = scoring
-        return self._native[key]
+        scoring = self._native[key]
+        if scoring is not None and hasattr(scoring, 'set_turn_map'):
+            scoring.set_turn_map(None)
+        return scoring
 
     def _congestion_bound(self):
         """The proved lower bound of R13 on the congestion change for this lifted board: at least minus its price
