@@ -112,7 +112,7 @@ class Settings:
     place_refine_spots: int = S(3, "count",
         "how many of the best coarse spots get a fine pass: this many by score, and, where the part's riders refuse some spots, this many of those they take")
     place_escape_spots: int = S(8, "count",
-        "how many candidates of a scan the one-score search gives the escape grades and the walled check: the best this many by every other term that wall no pad, going down that order past each that does; the rest rank below them")
+        "how many candidates of a scan the one-score search gives the escape grades and the walled check: the best this many by every other term that wall no pad beyond the lifted board's walled pads, going down that order past each that does; the rest rank below them")
     place_block_gap_step: float = S(0.05, "mm",
         "how finely a block's tightest gap is searched")
     place_block_gap_reach: float = S(2.0, "mm",
