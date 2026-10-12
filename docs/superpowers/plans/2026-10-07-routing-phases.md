@@ -220,6 +220,12 @@ Not user decisions. Each line gives the ruling, its reason, and what it costs if
   from every later phase and did not finish within test (b)'s hour; a net the project names is routed as asked, and
   a pour that misses a carrier pad is a failure, not a silence (the user, 2026-10-11; amended the same day after
   review). Cost if wrong: a carrier pad the pour misses stays open until a phase that names the net routes it.
+- S15 A phase's obligation is `violated` only by a real DRC error that its input board did not have: `judge_obligations`
+  compares the DRC after the phase with the phase's input board's (the phase before's judging DRC, or the unrouted
+  board's for the first phase and for `--only`), matched as `drc_new` matches errors; the final re-judgement uses
+  the same input DRC per phase. Reason: a footprint's own pre-existing error (a connector's pad against its own hole)
+  marked every connection on its net as not clean, so a pour phase read 0% clean with its net complete. Cost if
+  wrong: an error already on the board no longer marks its net.
 - The "Decisions (to confirm)" heading became "Decisions", each entry naming who decided it. Reason: nothing applied is
   pending confirmation. Cost if wrong: none.
 

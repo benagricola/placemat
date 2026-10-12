@@ -26,6 +26,10 @@ section for each hand-written pattern a newer form replaces.
 
 - **Routing phases.** Pair phase widths come from net classes; omit an explicit phase width.
 
+- **Routing phases.** A phase's connections are judged against the DRC errors the phase added: an error its input
+  board already had (a footprint's own pad against its own hole, say) no longer marks every connection of that
+  net as not clean. Scripts need no change.
+
 - **Routing phases.** A `current_paths` phase no longer routes the pour nets it picks up. The pour carries such a
   net's current, so its connections are asked of the pour: one the pour joins is listed as left to it, one it does
   not join is open in the phase's closure and named in the route's line. Before, the phase routed the whole pour net as tracks at the widest current width, which could take the board's

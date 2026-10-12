@@ -4026,7 +4026,8 @@ last phase's board is `router_out.kicad_pcb`, and `routed.kicad_pcb` is made fro
   reference, an end on one of them also names its footprint's KiCad uuid (`"fp"`), and is judged on that footprint.
 - `joined`, `closure_clean`: the obligations clean on the board after the phase (a DRC of it, guards off and zones
   filled) and their share (1.0 with none asked). Clean is joined by copper (KiCad's connectivity), its net in no real
-  error of that DRC (the `real` bucket at severity error, as `drc_new` counts them), not narrower than asked along the
+  error of that DRC that the phase's input board did not already have (the `real` bucket at severity error, matched as
+  `drc_new` matches them; the input board's DRC is the phase before's, or the unrouted board's for the first phase), not narrower than asked along the
   copper path that joins its two pads (a thin branch to another pad does not count), and not a `joined_narrow`
   outcome. The path is its tracks and any stretch of a pour's fill, a filled copper polygon or another pad it passes
   through; such a stretch is as wide as the widest disc that can travel through that copper from where the path
@@ -4040,11 +4041,11 @@ last phase's board is `router_out.kicad_pcb`, and `routed.kicad_pcb` is made fro
   the copper is split into tracks does not change it.
 - `open`: each obligation not clean, with `outcome` (its task record's `status`; null for a whole-net call),
   `evidence` (the router's own record of why, as it gave it; null when it gave none), `violated: true` when joined
-  but its net has a real DRC error, `under` (`{layer: mm}`) when joined narrower than asked, and `width_unknown: true`
+  but its net has a real DRC error the phase's input board did not have, `under` (`{layer: mm}`) when joined narrower than asked, and `width_unknown: true`
   when joined but no copper path between its pads could be measured (copper joined only partway along a curved
   track, which is measured end to end at its own length, or a net the router gave no width for, below).
 - `final_asked`, `final_closure_clean`, `final_open`: the same obligations as `asked`, judged again on the final
-  board, after the last phase and the clean-up. A short or a narrow join left by a later phase shows in the final
+  board, after the last phase and the clean-up, against the same input board's DRC. A short or a narrow join left by a later phase shows in the final
   fields; a fault is not attributed to a phase.
 
 The report also has `vias`, `track_mm` and `segments` (the copper the route added on the final board, as the router's

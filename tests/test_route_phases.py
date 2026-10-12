@@ -370,7 +370,7 @@ def test_a_phase_whose_judgement_failed_keeps_its_routing_and_is_judged_on_the_r
 def test_widths_failed_counts_joined_narrow_outcomes(rig, monkeypatch):
     monkeypatch.setenv("FAKE_ROUTER_STATUS", "joined_narrow")
     monkeypatch.setattr(phase_run, "judge_obligations",
-                        lambda pcb, obs, drc, neck=0.0, is_real=None: [{"joined": True, "violated": False, "under": {}}
+                        lambda pcb, obs, drc, neck=0.0, is_real=None, baseline_json=None: [{"joined": True, "violated": False, "under": {}}
                                                                         for _ in obs])
     report = rig.route({"name": "leg", "width": 0.4, "connections": [{"from": {"part": "U1", "pad": "3"},
                                                                     "to": {"part": "J1", "pad": "2"}}]})

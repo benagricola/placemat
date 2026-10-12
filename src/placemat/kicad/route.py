@@ -1264,15 +1264,16 @@ def recheck_final_phases(report, asked, run_list, width_receipt, pcb_out, drc_pa
     """Ruling S6: every phase's obligations (`asked`, obligations_of, fixed from the input board before routing) judged
     again on the routed board `pcb_out`, after the last phase and the clean-up. Fills each phase record's final_* counts, `report.final_judged`,
     `report.widths_failed` and `report.asked`."""
-    from .phase_run import is_clean, judge_obligations, phase_neck, records_of
+    from .phase_run import is_clean, judge_obligations, phase_input_drc, phase_neck, records_of
     if not (len(report.phases) == len(asked) == len(run_list)):
         raise ValueError("final phase/obligation count mismatch")
     report.final_judged = []
     report.widths_failed = 0
-    for rec, obs, phase in zip(report.phases, asked, run_list):
+    for i, (rec, obs, phase) in enumerate(zip(report.phases, asked, run_list)):
         rec["width_policy"] = [p for p in width_receipt['policies'] if p['name'] == phase.name]
         rec["final_asked"] = len(obs)
-        got = judge_obligations(pcb_out, obs, drc_path, phase_neck(cfg, phase), after.is_real)
+        got = judge_obligations(pcb_out, obs, drc_path, phase_neck(cfg, phase), after.is_real,
+                                phase_input_drc(Path(drc_path).parent, i) if drc_path is not None else None)
         report.final_judged.append(got)
         connections = rec.get("connections") or []
         outcomes = [r.get("status") if r else None for r in records_of(obs, connections)]
@@ -1441,7 +1442,7 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     from .. import __version__
     settings_part = {k: v for k, v in sorted(json.loads(cfg.json()).items())
                      if k.startswith("route_") and k not in ("route_router_dir", "route_phase")}
-    base = digest("phase-judgement-v7", file_digest(pcb), file_digest(pcb.with_suffix(".kicad_pro")), file_digest(pcb.with_suffix(".kicad_dru")),
+    base = digest("phase-judgement-v8", file_digest(pcb), file_digest(pcb.with_suffix(".kicad_pro")), file_digest(pcb.with_suffix(".kicad_dru")),
                   capture.digest if capture else "", sorted(excluded), sorted(pours), layers, quick, iterations, probe,
                   router_version(router_dir_path), __version__, settings_part, cfg.check_rise_c)     # rise_c: current widths
     state.set_order(["only:" + run_list[0].name] if only else [p.name for p in run_list])

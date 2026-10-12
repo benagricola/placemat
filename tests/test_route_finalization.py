@@ -46,7 +46,7 @@ def test_every_phase_is_judged_again_and_a_second_judging_starts_afresh(monkeypa
     obs = [[{'net': 'EARLIER', 'from': {'ref': 'U1'}, 'to': {'ref': 'U2'}}],
            [{'net': 'LAST', 'from': {'ref': 'U3'}, 'to': {'ref': 'U4'}}]]
     seen = []
-    def judge(pcb, asked, drc, neck, real):
+    def judge(pcb, asked, drc, neck, real, baseline=None):
         seen.append(asked)
         return [{'joined': True, 'under': {}, 'violated': False, 'width_unknown': asked[0]['net'] == 'EARLIER'}]
     monkeypatch.setattr(phase_run, 'judge_obligations', judge)
