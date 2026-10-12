@@ -1431,13 +1431,15 @@ impl LiftedSearch {
 
 /// One pad's judgement inputs on the lifted board: its lanes, spots, the rest of the board's foes and bans, which
 /// lanes those leave open, which spots they leave free, and the lifted search. `judge` adds a candidate's shapes.
+/// The lifted search is made the first time a judgement asks it (`searched`): many judgements end on an open lane.
 pub(crate) struct LiftedPad {
     lanes: Vec<Lane>,
     spots: Vec<Spot>,
     open: Vec<usize>,
     free: Vec<usize>,
     centre: Point,
-    search: LiftedSearch,
+    path: Path,
+    search: std::sync::OnceLock<LiftedSearch>,
 }
 
 pub(crate) fn lift_pad(
@@ -1457,11 +1459,19 @@ pub(crate) fn lift_pad(
     let free = (0..spots.len())
         .filter(|&i| spot_free(std::slice::from_ref(&spots[i]), &foes, &bans))
         .collect();
-    let search = lift_search(py, &path)?;
-    Ok(LiftedPad { lanes, spots, open, free, centre, search })
+    Ok(LiftedPad { lanes, spots, open, free, centre, path, search: std::sync::OnceLock::new() })
 }
 
 impl LiftedPad {
+    /// The lifted search, made on first use.
+    fn searched(&self, py: Python<'_>) -> PyResult<&LiftedSearch> {
+        if let Some(search) = self.search.get() {
+            return Ok(search);
+        }
+        let made = lift_search(py, &self.path)?;
+        Ok(self.search.get_or_init(|| made))
+    }
+
     /// `surface_judge`'s verdict with the candidate's foes, bans and path shapes added to the lifted board's.
     pub(crate) fn judge(
         &self,
@@ -1486,11 +1496,11 @@ impl LiftedPad {
             .map(|&i| &self.lanes[i])
             .filter(|l| open_lanes(std::slice::from_ref(*l), foes).len() == 1)
             .collect();
-        let search = |toward| self.search.found(py, walls, toward);
+        let search = |toward| self.searched(py)?.found(py, walls, toward);
         let mut any = None;
         if !quiet {
             let d = aim.ok_or_else(|| PyValueError::new_err("signal surface escape lacks target direction"))?;
-            if open_toward(open.iter().map(|l| l.0.last().unwrap().1), self.centre, d, self.search.cell) {
+            if open_toward(open.iter().map(|l| l.0.last().unwrap().1), self.centre, d, self.path.8) {
                 return Ok(0);
             }
             let found = search(toward(d))?;

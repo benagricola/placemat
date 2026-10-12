@@ -8,6 +8,7 @@ from __future__ import annotations
 import math
 import weakref
 from dataclasses import dataclass
+from operator import itemgetter
 
 from . import geometry
 from .escapes import _layer_bits, _net_sizes, _pads_of, _unconnected, judging, search_near
@@ -59,10 +60,30 @@ def _moving_roles(shapes, pools):
     return masks
 
 
+# Each shape's record by its identity, the shape held with it so its id stays its own while the entry lives. A shape
+# is frozen, so its record never changes. Cleared past _RECORDS_MAX.
+_RECORDS = {}
+_RECORDS_MAX = 200_000
+
+
+def _field(occ, ref, g):
+    """(its pads' intent, its turn as (rotation, cos, sin)) of a footprint's field where `g` stands."""
+    pads = _pads_of(g.shapes, ref)
+    intent = [(number, net, _unconnected(occ, ref, number, net)) for number, (net, _, _) in pads.items()]
+    radians = math.radians(g.reference.rotation)
+    return intent, (g.reference.rotation, math.cos(radians), math.sin(radians))
+
+
 def _record(shape):
-    box = shape.box
-    return (shape.owner, shape.kind, shape.net, shape.label, _layer_bits(shape.layers), list(shape.poly),
-            (box.left, box.top, box.right, box.bottom), list(shape.ends), bool(shape.lane), shape.wire)
+    hit = _RECORDS.get(id(shape))
+    if hit is None or hit[0] is not shape:
+        box = shape.box
+        hit = shape, (shape.owner, shape.kind, shape.net, shape.label, _layer_bits(shape.layers), list(shape.poly),
+                      (box.left, box.top, box.right, box.bottom), list(shape.ends), bool(shape.lane), shape.wire)
+        if len(_RECORDS) >= _RECORDS_MAX:
+            _RECORDS.clear()
+        _RECORDS[id(shape)] = hit
+    return hit[1]
 
 
 @dataclass(frozen=True)
@@ -85,13 +106,26 @@ class PreparedEscape:
         return self.surface.evaluate(self.candidate, self.scoring, placement.location.x, placement.location.y, turn, inspect)
 
 
+# Whether prepared surfaces share rest pads across lifted boards (`memo_of`): False measures without it (a measurement
+# switch, as escapes.BASELINE_MEMO is; never a setting).
+NATIVE_MEMO = True
 _MEMOS = weakref.WeakKeyDictionary()
 _PRICES = weakref.WeakKeyDictionary()
 
 
+def _picked(values, indices) -> list:
+    """`[values[i] for i in indices]`, picked at C speed."""
+    if not indices:
+        return []
+    if len(indices) == 1:
+        return [values[indices[0]]]
+    return list(itemgetter(*indices)(values))
+
+
 def _pair_prices(occ):
-    """The pair clearances `prepare` has asked `occ` for, by (net, (other net, owner, wire)), kept for its life: a
-    pair's clearance comes from the board's net classes and rules, which do not change while the occupancy lives."""
+    """The pair clearances `prepare` has asked `occ` for, by net and then (other net, owner, wire) (0.0 for its own
+    net), kept for its life: a pair's clearance comes from the board's net classes and rules, which do not change while
+    the occupancy lives."""
     held = _PRICES.get(occ)
     if held is None or held[0] is not occ.rules:     # rules replaced: price afresh
         held = _PRICES[occ] = (occ.rules, {})
@@ -103,7 +137,7 @@ def memo_of(occ):
     (`EscapeMemo`): each surface checks it against its own rest board, so it holds only what still applies. None
     without the native class."""
     native = geometry._native
-    if native is None or not hasattr(native, 'EscapeMemo'):
+    if native is None or not hasattr(native, 'EscapeMemo') or not NATIVE_MEMO:
         return None
     memo = _MEMOS.get(occ)
     if memo is None:
@@ -160,6 +194,7 @@ def prepare(delta, rotations, face, *, rest_cache=False):
     rest_roles = [rest_membership[id(s)] for s in rest]
     moving_roles, moving_shapes, field_turns = [], [], {}
     pads_by_ref = {}
+    rest_fields = None
     for rotation in rotations:
         origin = Placement(Location(0, 0), rotation, face)
         placed, copper = occ.placed_geometries(delta.item, origin)
@@ -178,18 +213,21 @@ def prepare(delta, rotations, face, *, rest_cache=False):
             return None, 'transformed pool source association is missing or ambiguous'
         moving_roles.append(roles)
         moving_shapes.append(shapes)
-        active = {ref: g for ref, g in occ.items.items() if ref not in occ.pending}
-        active.update(placed)
-        for ref, g in sorted(active.items()):
+        if rest_fields is None:
+            # The rest of the board's fields are the same at every turn: read once.
+            rest_fields = {ref: _field(occ, ref, g) for ref, g in occ.items.items()
+                           if ref not in occ.pending and ref not in placed and occ.geometry.has_footprint(ref)}
+        for ref, g in placed.items():
             if not occ.geometry.has_footprint(ref):
                 continue
-            pads = _pads_of(g.shapes, ref)
-            intent = [(number, net, _unconnected(occ, ref, number, net)) for number, (net, _, _) in pads.items()]
+            intent, turn = _field(occ, ref, g)
             if ref in pads_by_ref and pads_by_ref[ref] != intent:
                 return None, 'candidate changes pad intent grouping'
             pads_by_ref[ref] = intent
-            radians = math.radians(g.reference.rotation)
-            field_turns.setdefault(ref, []).append((g.reference.rotation, math.cos(radians), math.sin(radians)))
+            field_turns.setdefault(ref, []).append(turn)
+    for ref, (intent, turn) in (rest_fields or {}).items():
+        pads_by_ref[ref] = intent
+        field_turns[ref] = [turn] * len(moving_shapes)
     if not moving_shapes or any(len(shapes) != len(moving_shapes[0]) for shapes in moving_shapes):
         return None, 'candidate source shape count changes'
     # Original owner/net/wire rules are geometry independent. Net intent must
@@ -215,19 +253,17 @@ def prepare(delta, rotations, face, *, rest_cache=False):
         else:
             classes.append(-1)
     priced = _pair_prices(occ)
+    wanted = set(keys)
     net_records = []
     for net in nets:
         nc = geom.netclass(net)
         clearance = max(nc.clearance, geom.hole_clearance, rules, class_clearance)
         reach = max(nc.track_width / 2.0, nc.via_diameter / 2.0) + clearance
-
-        def price(key):
-            k = net, key
-            if k not in priced:
-                priced[k] = occ.pair_clearance(net, key[0], '', key[1], True, key[2])[0]
-            return priced[k]
-        row = [price(key) if key[0] != net else 0.0 for key in keys] + [0.0]     # [-1]: a shape with no pair
-        pairs = [row[c] for c in classes]
+        known = priced.setdefault(net, {})
+        for key in wanted - known.keys():
+            known[key] = occ.pair_clearance(net, key[0], '', key[1], True, key[2])[0] if key[0] != net else 0.0
+        row = _picked(known, keys) + [0.0]     # [-1]: a shape with no pair
+        pairs = _picked(row, classes)
         net_records.append((net, sizes.get(net, 0), net in occ.quiet_nets, nc.track_width, nc.clearance,
                             nc.via_diameter, nc.via_drill, reach, pairs))
     fields = [(ref, pads, field_turns[ref]) for ref, pads in sorted(pads_by_ref.items())]
