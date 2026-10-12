@@ -6,6 +6,7 @@ nearest targets, all escape judgements and non-escape terms stay native.
 from __future__ import annotations
 
 import math
+import weakref
 from dataclasses import dataclass
 
 from . import geometry
@@ -25,6 +26,24 @@ def _moving_roles(shapes, pools):
     assigning a role to the wrong original source identity.
     """
     masks = [0] * len(shapes)
+    try:
+        by_shape = {}
+        for i, source in enumerate(shapes):
+            by_shape.setdefault(source, []).append(i)
+    except TypeError:               # a shape with an unhashable field: compare each pair, as before
+        by_shape = None
+    if by_shape is not None:
+        for role, pool in pools:
+            counts = {}
+            for member in pool:
+                counts[member] = counts.get(member, 0) + 1
+            for member, count in counts.items():
+                equal = by_shape.get(member, [])
+                if not equal or len(equal) != count:
+                    return None
+                for index in equal:
+                    masks[index] |= role
+        return masks
     for role, pool in pools:
         seen = set()
         for member in pool:
@@ -64,6 +83,32 @@ class PreparedEscape:
         if placement.arrangement and placement.arrangement != getattr(self.snapshot.item, 'arrangement', ''):
             raise ValueError('prepared escape arrangement differs from its frozen source; rebuild the snapshot')
         return self.surface.evaluate(self.candidate, self.scoring, placement.location.x, placement.location.y, turn, inspect)
+
+
+_MEMOS = weakref.WeakKeyDictionary()
+_PRICES = weakref.WeakKeyDictionary()
+
+
+def _pair_prices(occ):
+    """The pair clearances `prepare` has asked `occ` for, by (net, (other net, owner, wire)), kept for its life: a
+    pair's clearance comes from the board's net classes and rules, which do not change while the occupancy lives."""
+    held = _PRICES.get(occ)
+    if held is None or held[0] is not occ.rules:     # rules replaced: price afresh
+        held = _PRICES[occ] = (occ.rules, {})
+    return held[1]
+
+
+def memo_of(occ):
+    """The native memo of rest pads that every prepared surface on `occ` shares, from one lifted board to the next
+    (`EscapeMemo`): each surface checks it against its own rest board, so it holds only what still applies. None
+    without the native class."""
+    native = geometry._native
+    if native is None or not hasattr(native, 'EscapeMemo'):
+        return None
+    memo = _MEMOS.get(occ)
+    if memo is None:
+        memo = _MEMOS[occ] = native.EscapeMemo()
+    return memo
 
 
 def prepare(delta, rotations, face, *, rest_cache=False):
@@ -157,27 +202,40 @@ def prepare(delta, rotations, face, *, rest_cache=False):
     cfg = occ.settings
     rules = occ.rules.largest() if occ.rules else 0.0
     class_clearance = max((c.clearance for c in geom.netclasses.values()), default=0.0)
+    # Each shape's pair clearance depends only on its (net, owner, wire): the distinct keys are priced once per net
+    # (and kept on the occupancy across lifted boards), and each shape reads its key's price.
+    keys, key_index, classes = [], {}, []
+    for s, role in zip(rest + list(moving_shapes[0]), rest_roles + moving_roles[0]):
+        if role & CONTACT and s.kind in ('pad', 'through', 'copper'):
+            key = s.net, s.owner, s.wire
+            if key not in key_index:
+                key_index[key] = len(keys)
+                keys.append(key)
+            classes.append(key_index[key])
+        else:
+            classes.append(-1)
+    priced = _pair_prices(occ)
     net_records = []
     for net in nets:
         nc = geom.netclass(net)
         clearance = max(nc.clearance, geom.hole_clearance, rules, class_clearance)
         reach = max(nc.track_width / 2.0, nc.via_diameter / 2.0) + clearance
-        clearances = {}
 
-        def pair(s):
-            key = s.net, s.owner, s.wire
-            if key not in clearances:
-                clearances[key] = occ.pair_clearance(net, s.net, '', s.owner, True, s.wire)[0]
-            return clearances[key]
-        pairs = [pair(s) if role & CONTACT and s.kind in ('pad', 'through', 'copper') and s.net != net else 0.0
-                 for s, role in zip(rest + list(moving_shapes[0]), rest_roles + moving_roles[0])]
+        def price(key):
+            k = net, key
+            if k not in priced:
+                priced[k] = occ.pair_clearance(net, key[0], '', key[1], True, key[2])[0]
+            return priced[k]
+        row = [price(key) if key[0] != net else 0.0 for key in keys] + [0.0]     # [-1]: a shape with no pair
+        pairs = [row[c] for c in classes]
         net_records.append((net, sizes.get(net, 0), net in occ.quiet_nets, nc.track_width, nc.clearance,
                             nc.via_diameter, nc.via_drill, reach, pairs))
     fields = [(ref, pads, field_turns[ref]) for ref, pads in sorted(pads_by_ref.items())]
+    memo = memo_of(occ)
     surface = native.PreparedSurface(candidate, kernel, [_record(s) for s in rest],
         [fp.ref for fp in geom.footprints], rest_roles, moving_roles, fields, net_records,
         (cfg.score_escape_reach, cfg.score_escape_depth, cfg.place_escape_cell, cfg.place_escape_min_pads,
-         geom.drc_epsilon, geom.hole_clearance, cfg.place_escape_lane_via_exit))
+         geom.drc_epsilon, geom.hole_clearance, cfg.place_escape_lane_via_exit), *([memo] if memo is not None else []))
     if rest_cache:
         if not hasattr(surface, 'configure_rest_cache'):
             return None, 'complete native rest-field cache unavailable'

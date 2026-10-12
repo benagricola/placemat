@@ -8,7 +8,7 @@ use crate::NativeDelta;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 type Evaluation = ((f64, f64, f64, f64, f64, f64), i64, usize, usize, usize,
                    Vec<(String, String, u8)>, Vec<(String, String)>);
@@ -93,6 +93,102 @@ struct Judged {
     handoff: bool,
     facts: Option<PadFacts>,
 }
+// A rest pad across visits: its owner, its number and its field's rotation's bits.
+type MemoKey = (String, String, u64);
+
+/// What a run's searches learn about rest pads, kept from one lifted board to the next: each pad's lifted search and
+/// its facts, with the boxes (its guard) that every shape its judgement reads overlaps. A new surface hands the memo
+/// its rest board; the memo compares it with the last one it saw and drops every entry whose guard an added or removed
+/// shape overlaps, so what is left was made against the same shapes there. A change of settings clears it.
+pub(crate) struct Memo {
+    generation: u64,
+    settings: Vec<u64>,
+    shapes: HashMap<u64, Vec<Bounds>>,
+    lifted: HashMap<MemoKey, (Arc<surface::LiftedPad>, Vec<Bounds>)>,
+    facts: HashMap<MemoKey, Arc<PadFacts>>,
+}
+
+fn touching(a: Bounds, b: Bounds) -> bool {
+    a.0 <= b.2 && b.0 <= a.2 && a.1 <= b.3 && b.1 <= a.3
+}
+
+impl Memo {
+    fn record_hash(record: &PlacedRecord, role: u8) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        let (owner, kind, net, pad, layers, polygon, bounds, ends, lane, wire) = record;
+        (owner, kind, net, pad, layers, lane, wire, role).hash(&mut h);
+        for p in polygon.iter().chain(ends.iter()) {
+            (p.0.to_bits(), p.1.to_bits()).hash(&mut h);
+        }
+        (bounds.0.to_bits(), bounds.1.to_bits(), bounds.2.to_bits(), bounds.3.to_bits()).hash(&mut h);
+        h.finish()
+    }
+
+    /// Bring the memo to `rest`: drop what a changed shape reaches, keep the rest, and start a new generation.
+    fn sync(&mut self, rest: &[PlacedRecord], roles: &[u8], settings: Vec<u64>) -> u64 {
+        let mut shapes: HashMap<u64, Vec<Bounds>> = HashMap::new();
+        for (record, role) in rest.iter().zip(roles) {
+            shapes.entry(Self::record_hash(record, *role)).or_default().push(record.6);
+        }
+        if settings != self.settings {
+            self.lifted.clear();
+            self.facts.clear();
+            self.settings = settings;
+        } else {
+            let mut changed = Vec::new();
+            for (key, boxes) in shapes.iter() {
+                let before = self.shapes.get(key).map_or(0, |b| b.len());
+                if boxes.len() > before {
+                    changed.extend_from_slice(boxes);
+                }
+            }
+            for (key, boxes) in self.shapes.iter() {
+                let after = shapes.get(key).map_or(0, |b| b.len());
+                if boxes.len() > after {
+                    changed.extend_from_slice(boxes);
+                }
+            }
+            if !changed.is_empty() {
+                let reached = |guard: &[Bounds]| guard.iter().any(|g| changed.iter().any(|c| touching(*g, *c)));
+                self.lifted.retain(|_, (_, guard)| !reached(guard));
+                self.facts.retain(|_, facts| !reached(&facts.guard));
+            }
+        }
+        self.shapes = shapes;
+        self.generation += 1;
+        self.generation
+    }
+}
+
+/// A run's memo of rest pads across lifted boards (`Memo`). Held by the caller for as long as its board lives.
+#[pyclass]
+pub struct EscapeMemo {
+    inner: Arc<Mutex<Memo>>,
+}
+
+#[pymethods]
+impl EscapeMemo {
+    #[new]
+    fn new() -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(Memo {
+                generation: 0,
+                settings: Vec::new(),
+                shapes: HashMap::new(),
+                lifted: HashMap::new(),
+                facts: HashMap::new(),
+            })),
+        }
+    }
+
+    /// (lifted searches, facts) held.
+    fn sizes(&self) -> (usize, usize) {
+        let memo = self.inner.lock().unwrap();
+        (memo.lifted.len(), memo.facts.len())
+    }
+}
+
 struct Field {
     owner: String,
     pads: Vec<Pad>,
@@ -141,13 +237,15 @@ pub struct PreparedSurface {
     rest_index: Option<RestIndex>,
     // Per (field, turn): a rest field's lanes. Per (field, pad, turn): a rest pad's facts on the lifted board.
     field_lanes: HashMap<(usize, usize), Arc<FieldLanes>>,
-    pad_facts: HashMap<(usize, usize, usize), PadFacts>,
+    pad_facts: HashMap<(usize, usize, usize), Arc<PadFacts>>,
     // Per (field, pad): a rest pad's contacts on the lifted board, its copper chain, and the boxes of its contact
     // shapes and chain members. A candidate whose shapes on the pad's net overlap none of those boxes touches none of
     // those shapes, so its contacts are the same.
     contact_cache: HashMap<(usize, usize), (ContactFacts, Vec<usize>, Vec<Bounds>)>,
     // Per (field, pad, turn): a rest pad's search on the lifted board.
-    lifted: HashMap<(usize, usize, usize), surface::LiftedPad>,
+    lifted: HashMap<(usize, usize, usize), Arc<surface::LiftedPad>>,
+    // The run's memo of rest pads across visits, and the generation of its rest board this surface was made against.
+    memo: Option<(Arc<Mutex<Memo>>, u64)>,
 }
 
 // The rest shapes by the Python blocker grid's 2 mm buckets (`near`): a shape is in every bucket its box's
@@ -228,6 +326,18 @@ enum Part {
 }
 
 impl PreparedSurface {
+    fn memo_key(&self, fi: usize, pi: usize, turn: usize) -> MemoKey {
+        let field = &self.fields[fi];
+        (field.owner.clone(), field.pads[pi].number.clone(), field.turns[turn].0.to_bits())
+    }
+
+    /// The run's memo, when this surface's rest board is the one it was last brought to.
+    fn memo(&self) -> Option<std::sync::MutexGuard<'_, Memo>> {
+        let (memo, generation) = self.memo.as_ref()?;
+        let memo = memo.lock().unwrap();
+        (memo.generation == *generation).then_some(memo)
+    }
+
     fn role(&self, turn: usize, index: usize) -> u8 {
         if index < self.rest_roles.len() {
             self.rest_roles[index]
@@ -384,6 +494,7 @@ impl PreparedSurface {
 #[pymethods]
 impl PreparedSurface {
     #[new]
+    #[pyo3(signature = (candidate, delta, rest, footprints, rest_roles, moving_roles, fields, nets, settings, memo=None))]
     fn new(
         py: Python<'_>,
         candidate: PyRef<'_, PreparedCandidate>,
@@ -395,6 +506,7 @@ impl PreparedSurface {
         fields: Vec<FieldRecord>,
         nets: Vec<NetRecord>,
         settings: (f64, f64, f64, usize, f64, f64, bool),
+        memo: Option<PyRef<'_, EscapeMemo>>,
     ) -> PyResult<Self> {
         let (reach, depth, cell, minimum, epsilon, hole_clearance, lane_via_exit) = settings;
         if [reach, depth, epsilon, hole_clearance]
@@ -556,6 +668,13 @@ impl PreparedSurface {
             });
         }
         let identity = candidate.identity.clone();
+        let memo = memo.map(|m| {
+            let inner = m.inner.clone();
+            let bits = vec![reach.to_bits(), depth.to_bits(), cell.to_bits(), minimum as u64, epsilon.to_bits(),
+                            hole_clearance.to_bits(), lane_via_exit as u64];
+            let generation = inner.lock().unwrap().sync(&rest, &rest_roles, bits);
+            (inner, generation)
+        });
         let mut contacts = PreparedContacts::new(py, rest, footprints)?;
         contacts.configure_contact_roles(
             candidate,
@@ -590,6 +709,7 @@ impl PreparedSurface {
             pad_facts: HashMap::new(),
             contact_cache: HashMap::new(),
             lifted: HashMap::new(),
+            memo,
         })
     }
 
@@ -817,6 +937,17 @@ impl PreparedSurface {
             // paths. A pad the candidate's geometry reaches is judged again in full. A pad on a net it touches
             // keeps its geometry but may aim elsewhere: its facts on the lifted board, gathered once, are judged
             // against the new aim. Any other pad keeps its cached verdict.
+            if self.fields[fi].cached.is_some() && self.memo.is_some() {
+                for pi in 0..self.fields[fi].pads.len() {
+                    if !self.pad_facts.contains_key(&(fi, pi, turn)) {
+                        let key = self.memo_key(fi, pi, turn);
+                        let kept = self.memo().and_then(|m| m.facts.get(&key).cloned());
+                        if let Some(facts) = kept {
+                            self.pad_facts.insert((fi, pi, turn), facts);
+                        }
+                    }
+                }
+            }
             let modes: Vec<Mode> = match &self.fields[fi].cached {
                 Some(cached) => {
                     let field = &self.fields[fi];
@@ -875,7 +1006,7 @@ impl PreparedSurface {
                         let judged = self.judge_pad(py, candidate, delta, turn, fi, pi, lanes, index, true, profile)?;
                         Some(judged.facts.unwrap())
                     };
-                    let facts = gathered.as_ref().or_else(|| self.pad_facts.get(&key)).unwrap();
+                    let facts = gathered.as_ref().or_else(|| self.pad_facts.get(&key).map(|f| &**f)).unwrap();
                     let mut way = 4;
                     if facts.eligible {
                         let aim_started = profile.as_ref().map(|_| std::time::Instant::now());
@@ -893,6 +1024,13 @@ impl PreparedSurface {
                     // not the lifted board: they answer it, and only their guard is kept.
                     if let Some(mut facts) = gathered {
                         facts.valid = !facts.guard.iter().any(|g| reaches(*g));
+                        let facts = Arc::new(facts);
+                        if facts.valid {
+                            let memo_key = self.memo_key(fi, pi, turn);
+                            if let Some(mut memo) = self.memo() {
+                                memo.facts.insert(memo_key, facts.clone());
+                            }
+                        }
                         self.pad_facts.insert(key, facts);
                     }
                     judged
@@ -1090,12 +1228,25 @@ impl PreparedSurface {
                     // made once, and each candidate adds only its own shapes to it.
                     let key = (fi, pi, turn);
                     if !self.lifted.contains_key(&key) {
+                        let memo_key = self.memo_key(fi, pi, turn);
+                        if let Some(kept) = self.memo().and_then(|m| m.lifted.get(&memo_key).map(|(l, _)| l.clone())) {
+                            self.lifted.insert(key, kept);
+                        }
+                    }
+                    if !self.lifted.contains_key(&key) {
                         let (foes, bans) = self.blockers(candidate, turn, field, pad, net, region, index, Part::Rest);
                         let search = self.path(candidate, turn, field, pad, mine, &[], net, self.settings.reach, None,
                                                false, false, index, Part::Rest);
-                        let lifted = profiled!(profile, judge, surface::lift_pad(
+                        let lifted = Arc::new(profiled!(profile, judge, surface::lift_pad(
                             py, pad_lanes.clone(), pad_spots.clone(), foes, bans, centre, search.path,
-                        ))?;
+                        ))?);
+                        // A shape that can pass one of its tests overlaps the blocker region grown by a cell, or
+                        // the path search's reach.
+                        let guard = vec![inflate(region, self.settings.cell), search.reach];
+                        let memo_key = self.memo_key(fi, pi, turn);
+                        if let Some(mut memo) = self.memo() {
+                            memo.lifted.insert(memo_key, (lifted.clone(), guard));
+                        }
                         self.lifted.insert(key, lifted);
                     }
                     let field = &self.fields[fi];

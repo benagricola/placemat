@@ -1653,6 +1653,7 @@ fn placemat_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<candidate::PreparedCandidate>()?;
     m.add_class::<escape_contacts::PreparedContacts>()?;
     m.add_class::<prepared_surface::PreparedSurface>()?;
+    m.add_class::<prepared_surface::EscapeMemo>()?;
     m.add_class::<prepared_scoring::NativeDeltaScoring>()?;
     m.add_class::<NativeCleanupScoring>()?;
     m.add_function(wrap_pyfunction!(sweep, m)?)?;
