@@ -880,22 +880,387 @@
       "closure_clean": 1.0,
       "detail": "",
       "failure": "",
+      "hand": {},
       "inputs_digest": "a2634fa7c4d5caba",
+      "placed_area_mm2": null,
       "placement": {
         "airwire_mm": 5.026,
         "area_mm2": 24.75,
         "crossings": 0,
-        "findings": 4,
+        "findings": 5,
         "placed": 4,
         "run_score": 5.026
       },
       "run_score": 5.026,
       "script": "fairing/GnssAntenna",
-      "seconds": 2.7,
+      "seconds": 8.3,
       "versions": {
-        "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
-        "pcb": "pcbc 0.4.52",
-        "placemat": "a3e7b36e27eeabf822a9377719e909f025ff1d5c"
+        "krt": "b602f7fe154178cdc988643f9c74d4d7309f0bd0",
+        "pcb": "318b4b0d19ce55bc032c70941a2559b9b7728404",
+        "placemat": "93ba1fa177d167fe38992cdae4685557c3c5b720"
+      }
+    },
+    "fairing_hand/Backlight": {
+      "area_mm2": 85.95,
+      "closure_clean": 1.0,
+      "detail": "",
+      "failure": "",
+      "hand": {
+        "airwire_mm": 12.668,
+        "area_mm2": 96.18,
+        "closure_clean": 1.0,
+        "crossings": 0,
+        "detail": "",
+        "failure": "",
+        "open": 0
+      },
+      "inputs_digest": "e93e6b56a41c89b1",
+      "placed_area_mm2": 92.79,
+      "placement": {
+        "airwire_mm": 0.0,
+        "area_mm2": 85.95,
+        "crossings": 0,
+        "findings": 4,
+        "placed": 6,
+        "run_score": 0.0
+      },
+      "run_score": 0.0,
+      "script": "fairing_hand/Backlight",
+      "seconds": 12.6,
+      "versions": {
+        "krt": "b602f7fe154178cdc988643f9c74d4d7309f0bd0",
+        "pcb": "318b4b0d19ce55bc032c70941a2559b9b7728404",
+        "placemat": "93ba1fa177d167fe38992cdae4685557c3c5b720"
+      }
+    },
+    "fairing_hand/Debug": {
+      "area_mm2": 70.67,
+      "closure_clean": 1.0,
+      "detail": "",
+      "failure": "",
+      "hand": {
+        "airwire_mm": 28.065,
+        "area_mm2": 86.75,
+        "closure_clean": 1.0,
+        "crossings": 2,
+        "detail": "",
+        "failure": "",
+        "open": 0
+      },
+      "inputs_digest": "02b6545f9a47c6c2",
+      "placed_area_mm2": 78.56,
+      "placement": {
+        "airwire_mm": 0.0,
+        "area_mm2": 70.67,
+        "crossings": 0,
+        "findings": 2,
+        "placed": 11,
+        "run_score": 0.0
+      },
+      "run_score": 0.0,
+      "script": "fairing_hand/Debug",
+      "seconds": 9.9,
+      "versions": {
+        "krt": "b602f7fe154178cdc988643f9c74d4d7309f0bd0",
+        "pcb": "318b4b0d19ce55bc032c70941a2559b9b7728404",
+        "placemat": "93ba1fa177d167fe38992cdae4685557c3c5b720"
+      }
+    },
+    "fairing_hand/GnssReceiver": {
+      "area_mm2": 140.08,
+      "closure_clean": 1.0,
+      "detail": "",
+      "failure": "",
+      "hand": {
+        "airwire_mm": 8.848,
+        "area_mm2": 148.27,
+        "closure_clean": 1.0,
+        "crossings": 0,
+        "detail": "",
+        "failure": "",
+        "open": 0
+      },
+      "inputs_digest": "1ac3bb1f79a091e3",
+      "placed_area_mm2": 146.89,
+      "placement": {
+        "airwire_mm": 0.0,
+        "area_mm2": 140.08,
+        "crossings": 0,
+        "findings": 3,
+        "placed": 5,
+        "run_score": 0.0
+      },
+      "run_score": 0.0,
+      "script": "fairing_hand/GnssReceiver",
+      "seconds": 10.5,
+      "versions": {
+        "krt": "b602f7fe154178cdc988643f9c74d4d7309f0bd0",
+        "pcb": "318b4b0d19ce55bc032c70941a2559b9b7728404",
+        "placemat": "93ba1fa177d167fe38992cdae4685557c3c5b720"
+      }
+    },
+    "fairing_hand/Mcu": {
+      "area_mm2": 205.93,
+      "closure_clean": 1.0,
+      "detail": "",
+      "failure": "",
+      "hand": {
+        "airwire_mm": 88.897,
+        "area_mm2": 221.66,
+        "closure_clean": 0.9286,
+        "crossings": 3,
+        "detail": "",
+        "failure": "",
+        "open": 1
+      },
+      "inputs_digest": "38c8507a97a072b6",
+      "placed_area_mm2": 216.5,
+      "placement": {
+        "airwire_mm": 0.0,
+        "area_mm2": 205.93,
+        "crossings": 0,
+        "findings": 5,
+        "placed": 27,
+        "run_score": 21.44
+      },
+      "run_score": 21.44,
+      "script": "fairing_hand/Mcu",
+      "seconds": 19.6,
+      "versions": {
+        "krt": "b602f7fe154178cdc988643f9c74d4d7309f0bd0",
+        "pcb": "318b4b0d19ce55bc032c70941a2559b9b7728404",
+        "placemat": "93ba1fa177d167fe38992cdae4685557c3c5b720"
+      }
+    },
+    "fairing_hand/Protection": {
+      "area_mm2": 199.24,
+      "closure_clean": 1.0,
+      "detail": "",
+      "failure": "",
+      "hand": {
+        "airwire_mm": 64.439,
+        "area_mm2": 206.86,
+        "closure_clean": 1.0,
+        "crossings": 7,
+        "detail": "",
+        "failure": "",
+        "open": 0
+      },
+      "inputs_digest": "a3ec5c823ae9c218",
+      "placed_area_mm2": 206.4,
+      "placement": {
+        "airwire_mm": 0.0,
+        "area_mm2": 199.24,
+        "crossings": 0,
+        "findings": 12,
+        "placed": 18,
+        "run_score": 3800.0
+      },
+      "run_score": 3800.0,
+      "script": "fairing_hand/Protection",
+      "seconds": 25.9,
+      "versions": {
+        "krt": "b602f7fe154178cdc988643f9c74d4d7309f0bd0",
+        "pcb": "318b4b0d19ce55bc032c70941a2559b9b7728404",
+        "placemat": "93ba1fa177d167fe38992cdae4685557c3c5b720"
+      }
+    },
+    "fairing_hand/Supervisor": {
+      "area_mm2": 112.4,
+      "closure_clean": 1.0,
+      "detail": "",
+      "failure": "",
+      "hand": {
+        "airwire_mm": 38.426,
+        "area_mm2": 120.62,
+        "closure_clean": 1.0,
+        "crossings": 6,
+        "detail": "",
+        "failure": "",
+        "open": 0
+      },
+      "inputs_digest": "42532d341137b1e0",
+      "placed_area_mm2": 119.85,
+      "placement": {
+        "airwire_mm": 11.82,
+        "area_mm2": 112.4,
+        "crossings": 0,
+        "findings": 4,
+        "placed": 15,
+        "run_score": 231.82
+      },
+      "run_score": 231.82,
+      "script": "fairing_hand/Supervisor",
+      "seconds": 21.9,
+      "versions": {
+        "krt": "b602f7fe154178cdc988643f9c74d4d7309f0bd0",
+        "pcb": "318b4b0d19ce55bc032c70941a2559b9b7728404",
+        "placemat": "93ba1fa177d167fe38992cdae4685557c3c5b720"
+      }
+    },
+    "fairing_hand/Usb5v": {
+      "area_mm2": 178.28,
+      "closure_clean": 1.0,
+      "detail": "",
+      "failure": "",
+      "hand": {
+        "airwire_mm": 39.154,
+        "area_mm2": 190.21,
+        "closure_clean": 1.0,
+        "crossings": 7,
+        "detail": "",
+        "failure": "",
+        "open": 0
+      },
+      "inputs_digest": "52bbe71d04cc1898",
+      "placed_area_mm2": 190.32,
+      "placement": {
+        "airwire_mm": 8.801,
+        "area_mm2": 178.28,
+        "crossings": 0,
+        "findings": 14,
+        "placed": 21,
+        "run_score": 3408.801
+      },
+      "run_score": 3408.801,
+      "script": "fairing_hand/Usb5v",
+      "seconds": 17.8,
+      "versions": {
+        "krt": "b602f7fe154178cdc988643f9c74d4d7309f0bd0",
+        "pcb": "318b4b0d19ce55bc032c70941a2559b9b7728404",
+        "placemat": "93ba1fa177d167fe38992cdae4685557c3c5b720"
+      }
+    },
+    "fairing_hand/UsbConverter": {
+      "area_mm2": 220.62,
+      "closure_clean": 1.0,
+      "detail": "",
+      "failure": "",
+      "hand": {
+        "airwire_mm": 105.025,
+        "area_mm2": 233.35,
+        "closure_clean": 0.8667,
+        "crossings": 13,
+        "detail": "",
+        "failure": "",
+        "open": 2
+      },
+      "inputs_digest": "e0bca55ad0453755",
+      "placed_area_mm2": 228.89,
+      "placement": {
+        "airwire_mm": 0.0,
+        "area_mm2": 220.62,
+        "crossings": 0,
+        "findings": 7,
+        "placed": 22,
+        "run_score": 60.0
+      },
+      "run_score": 60.0,
+      "script": "fairing_hand/UsbConverter",
+      "seconds": 19.3,
+      "versions": {
+        "krt": "b602f7fe154178cdc988643f9c74d4d7309f0bd0",
+        "pcb": "318b4b0d19ce55bc032c70941a2559b9b7728404",
+        "placemat": "93ba1fa177d167fe38992cdae4685557c3c5b720"
+      }
+    },
+    "fairing_hand/UsbMoisture": {
+      "area_mm2": 77.01,
+      "closure_clean": 1.0,
+      "detail": "",
+      "failure": "",
+      "hand": {
+        "airwire_mm": 42.42,
+        "area_mm2": 68.98,
+        "closure_clean": 1.0,
+        "crossings": 6,
+        "detail": "",
+        "failure": "",
+        "open": 0
+      },
+      "inputs_digest": "01a264aeb2e0705a",
+      "placed_area_mm2": 82.2,
+      "placement": {
+        "airwire_mm": 0.0,
+        "area_mm2": 77.01,
+        "crossings": 0,
+        "findings": 4,
+        "placed": 12,
+        "run_score": 0.0
+      },
+      "run_score": 0.0,
+      "script": "fairing_hand/UsbMoisture",
+      "seconds": 13.5,
+      "versions": {
+        "krt": "b602f7fe154178cdc988643f9c74d4d7309f0bd0",
+        "pcb": "318b4b0d19ce55bc032c70941a2559b9b7728404",
+        "placemat": "93ba1fa177d167fe38992cdae4685557c3c5b720"
+      }
+    },
+    "fairing_hand/UsbPowerPath": {
+      "area_mm2": 60.12,
+      "closure_clean": 1.0,
+      "detail": "",
+      "failure": "",
+      "hand": {
+        "airwire_mm": 43.335,
+        "area_mm2": 62.06,
+        "closure_clean": 1.0,
+        "crossings": 3,
+        "detail": "",
+        "failure": "",
+        "open": 0
+      },
+      "inputs_digest": "75f7676c8ec5a805",
+      "placed_area_mm2": 65.54,
+      "placement": {
+        "airwire_mm": 0.0,
+        "area_mm2": 60.12,
+        "crossings": 0,
+        "findings": 4,
+        "placed": 16,
+        "run_score": 149.76
+      },
+      "run_score": 149.76,
+      "script": "fairing_hand/UsbPowerPath",
+      "seconds": 13.4,
+      "versions": {
+        "krt": "b602f7fe154178cdc988643f9c74d4d7309f0bd0",
+        "pcb": "318b4b0d19ce55bc032c70941a2559b9b7728404",
+        "placemat": "93ba1fa177d167fe38992cdae4685557c3c5b720"
+      }
+    },
+    "fairing_hand/UsbSink": {
+      "area_mm2": 40.23,
+      "closure_clean": 1.0,
+      "detail": "",
+      "failure": "",
+      "hand": {
+        "airwire_mm": 32.609,
+        "area_mm2": 44.87,
+        "closure_clean": 1.0,
+        "crossings": 5,
+        "detail": "",
+        "failure": "",
+        "open": 0
+      },
+      "inputs_digest": "3fe8ec86bc6d9615",
+      "placed_area_mm2": 43.84,
+      "placement": {
+        "airwire_mm": 0.0,
+        "area_mm2": 40.23,
+        "crossings": 0,
+        "findings": 4,
+        "placed": 10,
+        "run_score": 20.0
+      },
+      "run_score": 20.0,
+      "script": "fairing_hand/UsbSink",
+      "seconds": 11.9,
+      "versions": {
+        "krt": "b602f7fe154178cdc988643f9c74d4d7309f0bd0",
+        "pcb": "318b4b0d19ce55bc032c70941a2559b9b7728404",
+        "placemat": "93ba1fa177d167fe38992cdae4685557c3c5b720"
       }
     },
     "mnb/BrakeChopper": {
@@ -903,22 +1268,24 @@
       "closure_clean": 1.0,
       "detail": "",
       "failure": "",
-      "inputs_digest": "57b0da692724e4e7",
+      "hand": {},
+      "inputs_digest": "fcdb74f35989e293",
+      "placed_area_mm2": null,
       "placement": {
         "airwire_mm": 70.964,
         "area_mm2": 403.38,
         "crossings": 0,
-        "findings": 10,
+        "findings": 11,
         "placed": 23,
         "run_score": 410.964
       },
       "run_score": 410.964,
       "script": "mnb/BrakeChopper",
-      "seconds": 5.8,
+      "seconds": 10.8,
       "versions": {
-        "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
-        "pcb": "pcbc 0.4.52",
-        "placemat": "a3e7b36e27eeabf822a9377719e909f025ff1d5c"
+        "krt": "b602f7fe154178cdc988643f9c74d4d7309f0bd0",
+        "pcb": "318b4b0d19ce55bc032c70941a2559b9b7728404",
+        "placemat": "93ba1fa177d167fe38992cdae4685557c3c5b720"
       }
     },
     "mnb/Buck_LM5164": {
@@ -926,22 +1293,24 @@
       "closure_clean": 1.0,
       "detail": "",
       "failure": "",
-      "inputs_digest": "330f72420d84f969",
+      "hand": {},
+      "inputs_digest": "103f560ba5d25d85",
+      "placed_area_mm2": null,
       "placement": {
         "airwire_mm": 22.716,
         "area_mm2": 146.09,
         "crossings": 1,
-        "findings": 1,
+        "findings": 2,
         "placed": 15,
         "run_score": 222.716
       },
       "run_score": 222.716,
       "script": "mnb/Buck_LM5164",
-      "seconds": 7.8,
+      "seconds": 12.1,
       "versions": {
-        "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
-        "pcb": "pcbc 0.4.52",
-        "placemat": "a3e7b36e27eeabf822a9377719e909f025ff1d5c"
+        "krt": "b602f7fe154178cdc988643f9c74d4d7309f0bd0",
+        "pcb": "318b4b0d19ce55bc032c70941a2559b9b7728404",
+        "placemat": "93ba1fa177d167fe38992cdae4685557c3c5b720"
       }
     },
     "mnb/Buck_SY8513FCC": {
@@ -949,22 +1318,24 @@
       "closure_clean": 1.0,
       "detail": "",
       "failure": "",
-      "inputs_digest": "2ea35e1febbe77f9",
+      "hand": {},
+      "inputs_digest": "80f79fe3a9085637",
+      "placed_area_mm2": null,
       "placement": {
         "airwire_mm": 31.347,
         "area_mm2": 265.9,
         "crossings": 0,
-        "findings": 1,
+        "findings": 2,
         "placed": 16,
         "run_score": 231.347
       },
       "run_score": 231.347,
       "script": "mnb/Buck_SY8513FCC",
-      "seconds": 8.3,
+      "seconds": 12.6,
       "versions": {
-        "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
-        "pcb": "pcbc 0.4.52",
-        "placemat": "a3e7b36e27eeabf822a9377719e909f025ff1d5c"
+        "krt": "b602f7fe154178cdc988643f9c74d4d7309f0bd0",
+        "pcb": "318b4b0d19ce55bc032c70941a2559b9b7728404",
+        "placemat": "93ba1fa177d167fe38992cdae4685557c3c5b720"
       }
     },
     "mnb/Buck_TPS563201": {
@@ -972,22 +1343,24 @@
       "closure_clean": 1.0,
       "detail": "",
       "failure": "",
-      "inputs_digest": "affaf6c87dfd6150",
+      "hand": {},
+      "inputs_digest": "4014339e1d9c1047",
+      "placed_area_mm2": null,
       "placement": {
         "airwire_mm": 17.539,
         "area_mm2": 86.72,
         "crossings": 0,
-        "findings": 1,
+        "findings": 2,
         "placed": 10,
         "run_score": 217.539
       },
       "run_score": 217.539,
       "script": "mnb/Buck_TPS563201",
-      "seconds": 4.1,
+      "seconds": 10.0,
       "versions": {
-        "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
-        "pcb": "pcbc 0.4.52",
-        "placemat": "a3e7b36e27eeabf822a9377719e909f025ff1d5c"
+        "krt": "b602f7fe154178cdc988643f9c74d4d7309f0bd0",
+        "pcb": "318b4b0d19ce55bc032c70941a2559b9b7728404",
+        "placemat": "93ba1fa177d167fe38992cdae4685557c3c5b720"
       }
     },
     "mnb/CanFrontendDiscrete": {
@@ -995,22 +1368,24 @@
       "closure_clean": 1.0,
       "detail": "",
       "failure": "",
-      "inputs_digest": "e795f7f895fa33bf",
+      "hand": {},
+      "inputs_digest": "84b0241c63867ac4",
+      "placed_area_mm2": null,
       "placement": {
         "airwire_mm": 52.236,
         "area_mm2": 251.02,
         "crossings": 2,
-        "findings": 7,
+        "findings": 8,
         "placed": 19,
         "run_score": 360.236
       },
       "run_score": 360.236,
       "script": "mnb/CanFrontendDiscrete",
-      "seconds": 6.0,
+      "seconds": 11.5,
       "versions": {
-        "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
-        "pcb": "pcbc 0.4.52",
-        "placemat": "a3e7b36e27eeabf822a9377719e909f025ff1d5c"
+        "krt": "b602f7fe154178cdc988643f9c74d4d7309f0bd0",
+        "pcb": "318b4b0d19ce55bc032c70941a2559b9b7728404",
+        "placemat": "93ba1fa177d167fe38992cdae4685557c3c5b720"
       }
     },
     "mnb/CanFrontendNative": {
@@ -1018,22 +1393,24 @@
       "closure_clean": 1.0,
       "detail": "",
       "failure": "",
-      "inputs_digest": "c1d74a984800dd63",
+      "hand": {},
+      "inputs_digest": "1f4a7adc49efa27d",
+      "placed_area_mm2": null,
       "placement": {
         "airwire_mm": 27.858,
         "area_mm2": 133.54,
         "crossings": 0,
-        "findings": 3,
+        "findings": 4,
         "placed": 12,
         "run_score": 267.858
       },
       "run_score": 267.858,
       "script": "mnb/CanFrontendNative",
-      "seconds": 4.1,
+      "seconds": 9.5,
       "versions": {
-        "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
-        "pcb": "pcbc 0.4.52",
-        "placemat": "a3e7b36e27eeabf822a9377719e909f025ff1d5c"
+        "krt": "b602f7fe154178cdc988643f9c74d4d7309f0bd0",
+        "pcb": "318b4b0d19ce55bc032c70941a2559b9b7728404",
+        "placemat": "93ba1fa177d167fe38992cdae4685557c3c5b720"
       }
     },
     "mnb/IdealDiodeInput": {
@@ -1041,22 +1418,24 @@
       "closure_clean": 1.0,
       "detail": "",
       "failure": "",
-      "inputs_digest": "0889a14cbaf8078f",
+      "hand": {},
+      "inputs_digest": "30f7aa59ac3bfbfd",
+      "placed_area_mm2": null,
       "placement": {
         "airwire_mm": 20.175,
         "area_mm2": 218.0,
         "crossings": 0,
-        "findings": 1,
+        "findings": 2,
         "placed": 8,
         "run_score": 220.175
       },
       "run_score": 220.175,
       "script": "mnb/IdealDiodeInput",
-      "seconds": 3.8,
+      "seconds": 10.3,
       "versions": {
-        "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
-        "pcb": "pcbc 0.4.52",
-        "placemat": "a3e7b36e27eeabf822a9377719e909f025ff1d5c"
+        "krt": "b602f7fe154178cdc988643f9c74d4d7309f0bd0",
+        "pcb": "318b4b0d19ce55bc032c70941a2559b9b7728404",
+        "placemat": "93ba1fa177d167fe38992cdae4685557c3c5b720"
       }
     },
     "mnb/MCU_RP2350B": {
@@ -1064,22 +1443,24 @@
       "closure_clean": 1.0,
       "detail": "",
       "failure": "",
-      "inputs_digest": "8e598f093b28ebbe",
+      "hand": {},
+      "inputs_digest": "b44972e6a91f9d41",
+      "placed_area_mm2": null,
       "placement": {
-        "airwire_mm": 132.425,
+        "airwire_mm": 130.839,
         "area_mm2": 508.65,
-        "crossings": 5,
-        "findings": 14,
+        "crossings": 6,
+        "findings": 15,
         "placed": 30,
-        "run_score": 592.425
+        "run_score": 594.839
       },
-      "run_score": 592.425,
+      "run_score": 594.839,
       "script": "mnb/MCU_RP2350B",
-      "seconds": 6.3,
+      "seconds": 16.2,
       "versions": {
-        "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
-        "pcb": "pcbc 0.4.52",
-        "placemat": "a3e7b36e27eeabf822a9377719e909f025ff1d5c"
+        "krt": "b602f7fe154178cdc988643f9c74d4d7309f0bd0",
+        "pcb": "318b4b0d19ce55bc032c70941a2559b9b7728404",
+        "placemat": "93ba1fa177d167fe38992cdae4685557c3c5b720"
       }
     },
     "mnb/McuButtons": {
@@ -1087,22 +1468,24 @@
       "closure_clean": 1.0,
       "detail": "",
       "failure": "",
-      "inputs_digest": "beeb1f0715fb60f7",
+      "hand": {},
+      "inputs_digest": "7b8423f286f84dc8",
+      "placed_area_mm2": null,
       "placement": {
         "airwire_mm": 15.469,
         "area_mm2": 103.5,
         "crossings": 0,
-        "findings": 4,
+        "findings": 5,
         "placed": 7,
         "run_score": 15.469
       },
       "run_score": 15.469,
       "script": "mnb/McuButtons",
-      "seconds": 3.7,
+      "seconds": 9.3,
       "versions": {
-        "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
-        "pcb": "pcbc 0.4.52",
-        "placemat": "a3e7b36e27eeabf822a9377719e909f025ff1d5c"
+        "krt": "b602f7fe154178cdc988643f9c74d4d7309f0bd0",
+        "pcb": "318b4b0d19ce55bc032c70941a2559b9b7728404",
+        "placemat": "93ba1fa177d167fe38992cdae4685557c3c5b720"
       }
     },
     "mnb/McuButtonsSide": {
@@ -1110,22 +1493,24 @@
       "closure_clean": 1.0,
       "detail": "",
       "failure": "",
-      "inputs_digest": "bcf48f32d43f69f7",
+      "hand": {},
+      "inputs_digest": "b2ff1ad0635ba30c",
+      "placed_area_mm2": null,
       "placement": {
-        "airwire_mm": 5.842,
+        "airwire_mm": 6.326,
         "area_mm2": 70.65,
         "crossings": 0,
-        "findings": 4,
+        "findings": 5,
         "placed": 7,
-        "run_score": 75.842
+        "run_score": 76.326
       },
-      "run_score": 75.842,
+      "run_score": 76.326,
       "script": "mnb/McuButtonsSide",
-      "seconds": 3.7,
+      "seconds": 10.6,
       "versions": {
-        "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
-        "pcb": "pcbc 0.4.52",
-        "placemat": "a3e7b36e27eeabf822a9377719e909f025ff1d5c"
+        "krt": "b602f7fe154178cdc988643f9c74d4d7309f0bd0",
+        "pcb": "318b4b0d19ce55bc032c70941a2559b9b7728404",
+        "placemat": "93ba1fa177d167fe38992cdae4685557c3c5b720"
       }
     },
     "mnb/OptoSense": {
@@ -1133,22 +1518,24 @@
       "closure_clean": 1.0,
       "detail": "",
       "failure": "",
-      "inputs_digest": "8af63c8acc147ad9",
+      "hand": {},
+      "inputs_digest": "2ec647e1eb6315ee",
+      "placed_area_mm2": null,
       "placement": {
         "airwire_mm": 14.735,
         "area_mm2": 106.14,
         "crossings": 0,
-        "findings": 1,
+        "findings": 2,
         "placed": 8,
         "run_score": 214.735
       },
       "run_score": 214.735,
       "script": "mnb/OptoSense",
-      "seconds": 3.8,
+      "seconds": 10.5,
       "versions": {
-        "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
-        "pcb": "pcbc 0.4.52",
-        "placemat": "a3e7b36e27eeabf822a9377719e909f025ff1d5c"
+        "krt": "b602f7fe154178cdc988643f9c74d4d7309f0bd0",
+        "pcb": "318b4b0d19ce55bc032c70941a2559b9b7728404",
+        "placemat": "93ba1fa177d167fe38992cdae4685557c3c5b720"
       }
     },
     "mnb/PermitReceiver": {
@@ -1156,22 +1543,24 @@
       "closure_clean": 1.0,
       "detail": "",
       "failure": "",
-      "inputs_digest": "50f1ea046b1ba31c",
+      "hand": {},
+      "inputs_digest": "36ad66f87872853b",
+      "placed_area_mm2": null,
       "placement": {
         "airwire_mm": 0.0,
         "area_mm2": 94.61,
         "crossings": 0,
-        "findings": 1,
+        "findings": 2,
         "placed": 8,
         "run_score": 200.0
       },
       "run_score": 200.0,
       "script": "mnb/PermitReceiver",
-      "seconds": 3.7,
+      "seconds": 8.6,
       "versions": {
-        "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
-        "pcb": "pcbc 0.4.52",
-        "placemat": "a3e7b36e27eeabf822a9377719e909f025ff1d5c"
+        "krt": "b602f7fe154178cdc988643f9c74d4d7309f0bd0",
+        "pcb": "318b4b0d19ce55bc032c70941a2559b9b7728404",
+        "placemat": "93ba1fa177d167fe38992cdae4685557c3c5b720"
       }
     },
     "mnb/ProtectionCell": {
@@ -1179,22 +1568,24 @@
       "closure_clean": 1.0,
       "detail": "",
       "failure": "",
-      "inputs_digest": "6d60d16329e20f78",
+      "hand": {},
+      "inputs_digest": "c568d0f0cb68360c",
+      "placed_area_mm2": null,
       "placement": {
         "airwire_mm": 0.0,
         "area_mm2": 93.85,
         "crossings": 0,
-        "findings": 1,
+        "findings": 2,
         "placed": 5,
         "run_score": 200.0
       },
       "run_score": 200.0,
       "script": "mnb/ProtectionCell",
-      "seconds": 3.4,
+      "seconds": 7.7,
       "versions": {
-        "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
-        "pcb": "pcbc 0.4.52",
-        "placemat": "a3e7b36e27eeabf822a9377719e909f025ff1d5c"
+        "krt": "b602f7fe154178cdc988643f9c74d4d7309f0bd0",
+        "pcb": "318b4b0d19ce55bc032c70941a2559b9b7728404",
+        "placemat": "93ba1fa177d167fe38992cdae4685557c3c5b720"
       }
     },
     "mnb/RelayDriver": {
@@ -1202,22 +1593,24 @@
       "closure_clean": 1.0,
       "detail": "",
       "failure": "",
-      "inputs_digest": "8b4f19b99b0d1c19",
+      "hand": {},
+      "inputs_digest": "9af7f7ab9dad22d6",
+      "placed_area_mm2": null,
       "placement": {
         "airwire_mm": 8.87,
         "area_mm2": 110.03,
         "crossings": 0,
-        "findings": 1,
+        "findings": 2,
         "placed": 2,
         "run_score": 208.87
       },
       "run_score": 208.87,
       "script": "mnb/RelayDriver",
-      "seconds": 3.5,
+      "seconds": 8.5,
       "versions": {
-        "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
-        "pcb": "pcbc 0.4.52",
-        "placemat": "a3e7b36e27eeabf822a9377719e909f025ff1d5c"
+        "krt": "b602f7fe154178cdc988643f9c74d4d7309f0bd0",
+        "pcb": "318b4b0d19ce55bc032c70941a2559b9b7728404",
+        "placemat": "93ba1fa177d167fe38992cdae4685557c3c5b720"
       }
     },
     "mnb/ReversePolarityFet": {
@@ -1225,22 +1618,24 @@
       "closure_clean": 1.0,
       "detail": "",
       "failure": "",
-      "inputs_digest": "d76a0ce2676ccc3b",
+      "hand": {},
+      "inputs_digest": "6c90eeffd83bdcc1",
+      "placed_area_mm2": null,
       "placement": {
         "airwire_mm": 0.0,
         "area_mm2": 91.73,
         "crossings": 0,
-        "findings": 1,
+        "findings": 2,
         "placed": 6,
         "run_score": 200.0
       },
       "run_score": 200.0,
       "script": "mnb/ReversePolarityFet",
-      "seconds": 4.7,
+      "seconds": 8.8,
       "versions": {
-        "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
-        "pcb": "pcbc 0.4.52",
-        "placemat": "a3e7b36e27eeabf822a9377719e909f025ff1d5c"
+        "krt": "b602f7fe154178cdc988643f9c74d4d7309f0bd0",
+        "pcb": "318b4b0d19ce55bc032c70941a2559b9b7728404",
+        "placemat": "93ba1fa177d167fe38992cdae4685557c3c5b720"
       }
     },
     "mnb/SwdHeader": {
@@ -1248,45 +1643,49 @@
       "closure_clean": 1.0,
       "detail": "",
       "failure": "",
-      "inputs_digest": "28ec0b7c09c0d922",
+      "hand": {},
+      "inputs_digest": "a5cf6355e32625ca",
+      "placed_area_mm2": null,
       "placement": {
         "airwire_mm": 0.0,
         "area_mm2": 26.04,
         "crossings": 0,
-        "findings": 1,
+        "findings": 2,
         "placed": 1,
         "run_score": 200.0
       },
       "run_score": 200.0,
       "script": "mnb/SwdHeader",
-      "seconds": 3.2,
+      "seconds": 6.8,
       "versions": {
-        "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
-        "pcb": "pcbc 0.4.52",
-        "placemat": "a3e7b36e27eeabf822a9377719e909f025ff1d5c"
+        "krt": "b602f7fe154178cdc988643f9c74d4d7309f0bd0",
+        "pcb": "318b4b0d19ce55bc032c70941a2559b9b7728404",
+        "placemat": "93ba1fa177d167fe38992cdae4685557c3c5b720"
       }
     },
     "mnb/UsbC": {
       "area_mm2": 133.9,
-      "closure_clean": 0.0,
+      "closure_clean": 1.0,
       "detail": "",
       "failure": "",
-      "inputs_digest": "18ec3791ebd1e516",
+      "hand": {},
+      "inputs_digest": "89e7dac46e945d83",
+      "placed_area_mm2": null,
       "placement": {
         "airwire_mm": 24.513,
         "area_mm2": 133.9,
         "crossings": 0,
-        "findings": 5,
+        "findings": 6,
         "placed": 5,
         "run_score": 704.513
       },
       "run_score": 704.513,
       "script": "mnb/UsbC",
-      "seconds": 3.8,
+      "seconds": 10.5,
       "versions": {
-        "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
-        "pcb": "pcbc 0.4.52",
-        "placemat": "a3e7b36e27eeabf822a9377719e909f025ff1d5c"
+        "krt": "b602f7fe154178cdc988643f9c74d4d7309f0bd0",
+        "pcb": "318b4b0d19ce55bc032c70941a2559b9b7728404",
+        "placemat": "93ba1fa177d167fe38992cdae4685557c3c5b720"
       }
     }
   }
