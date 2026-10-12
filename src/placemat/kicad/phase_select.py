@@ -21,6 +21,7 @@ class Task:
     end: tuple
     widths: tuple           # ((layer name, mm), ...) in the phase's layer order
     amps: float | None = None
+    apart: bool = False     # the ends are apart in KiCad's view: the router must not answer joined_before (S22)
 
     def record(self) -> dict:
         return {"net": self.net, "from": end_record(self.start), "to": end_record(self.end),

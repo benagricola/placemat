@@ -246,6 +246,19 @@ Not user decisions. Each line gives the ruling, its reason, and what it costs if
   board did not have (route.py `_route_board`). Errors are matched one to one, on type and every item's description
   and position (drc.new_errors), for drc_new as well. Reason: review M3 and M7. Cost if wrong: drc_new and the
   route's closure read differently from step 0's.
+- S18 (fork) A routed via's hole keeps the board's hole clearance off foreign tracks and pads (GridRouteConfig
+  via_hole_floor / via_hole_raise), raise-only: a board declaring no floor routes as before. Reason: watchy's
+  task call laid a via 0.250 mm hole-to-track where the board asks 0.254. Cost if wrong: fewer via sites on boards
+  whose hole floor exceeds clearance plus annular ring.
+- S19 Which of a pour net's pads are joined is decided by KiCad's connectivity (zones refilled in pcbnew), before
+  and after the drops; that view picks the --pads and the tasks.
+- S20 The pour's task calls run with KICAD_PLANE_FINALIZE=0, upstream's own switch for its in-run plane repair.
+- S21 With the own-pad lift off, an antenna's GND pad the drops cannot reach is left open and named, not shorted.
+- S22 (a) A pour task carries `apart`: the router (fork --connections field) routes it and never answers
+  joined_before from its own model. (b) After a phase's pour calls, one re-check in KiCad's view: a pour net a later
+  pour call split gets one more join, recorded as its pour_joins entry's `rejoin`. Reason: esp-rust-board's GND
+  tasks came back joined_before where KiCad showed them apart, and the VBUS call split +5V. Cost if wrong: one more
+  pad_groups pass per pour net per phase.
 - The "Decisions (to confirm)" heading became "Decisions", each entry naming who decided it. Reason: nothing applied is
   pending confirmation. Cost if wrong: none.
 

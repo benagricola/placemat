@@ -1154,12 +1154,15 @@ def _router_lacks(rpy, router_dir_path, phases) -> list:
 
 def pour_flags_lacking(caps) -> list:
     """The flags a pour net's calls give the router (pour_join.REPAIR_FLAGS on its plane repair, TASK_FLAGS on its
-    tasks) that its capability listing (router_capabilities) does not have, as "module:--flag"; every one when it has
-    no listing."""
-    from .pour_join import REPAIR_FLAGS, TASK_FLAGS
+    tasks) and the task fields its tasks carry (TASK_FIELDS, the listing's `task_fields`) that its capability listing
+    (router_capabilities) does not have, as "module:--flag" or "route.py:connections.FIELD"; every one when it has no
+    listing."""
+    from .pour_join import REPAIR_FLAGS, TASK_FIELDS, TASK_FLAGS
     flags = (caps or {}).get("flags") or {}
+    fields = ((caps or {}).get("task_fields") or {}).get("route.py") or ()
     return ["%s:%s" % (mod, f) for mod, want in (("repair_planes.py", REPAIR_FLAGS), ("route.py", TASK_FLAGS))
-            for f in want if f not in (flags.get(mod) or ())]
+            for f in want if f not in (flags.get(mod) or ())] + \
+        ["route.py:connections.%s" % f for f in TASK_FIELDS if f not in fields]
 
 
 def new_error_count(before_json, after_json, is_real) -> int | None:

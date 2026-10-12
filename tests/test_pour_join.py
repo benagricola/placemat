@@ -23,7 +23,14 @@ def test_each_group_apart_from_the_pour_gets_one_task_to_the_nearest_joined_pad(
               PadGroup((_end("C5", -3.0),), False)]
     tasks = tasks_to_pour(groups, "GND", W)
     assert [(t.start, t.end) for t in tasks] == [(("C2", "1"), ("C3", "1")), (("C1", "1"), ("C5", "1"))]
-    assert all(t.net == "GND" and t.widths == W for t in tasks)
+    assert all(t.net == "GND" and t.widths == W and t.apart for t in tasks)
+
+
+def test_a_task_judged_apart_says_so_in_the_connections_file(tmp_path):
+    from placemat.kicad.phase_run import write_connections
+    (t,) = tasks_to_pour([PadGroup((_end("C1", 0.0),), True), PadGroup((_end("C2", 5.0),), False)], "GND", W)
+    path = write_connections([t], tmp_path / "c.json", ["F.Cu", "B.Cu"])
+    assert json.loads(path.read_text())[0]["apart"] is True
 
 
 def test_a_net_whose_pads_all_reach_one_piece_of_the_pour_gets_no_task():

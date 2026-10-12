@@ -40,8 +40,9 @@ def write_connections(tasks, path, layers) -> Path:
     from .phase_select import end_record
     # an end names its footprint's uuid ("fp") only when another footprint has its reference: an ordinary board's
     # file is as before
-    path.write_text(json.dumps([{"net": t.net, "from": end_record(t.start), "to": end_record(t.end),
-                                 "widths": dict(t.widths)} for t in tasks],
+    path.write_text(json.dumps([dict({"net": t.net, "from": end_record(t.start), "to": end_record(t.end),
+                                      "widths": dict(t.widths)}, **({"apart": True} if t.apart else {}))
+                                for t in tasks],
                                indent=1) + "\n")
     return path
 
@@ -1075,7 +1076,7 @@ def route_calls(ctx, index, phase, sel, board) -> PhaseOutcome:
     calls = plan_calls(sel, ctx.clearance_map, ctx.base_clearance, set(ctx.excluded) | set(ctx.pour_nets))
     layers = list(sel.layers)
     out = PhaseOutcome(board, {}, {})
-    pairs, connections, bus_groups, pour_joins = None, [], [], []
+    pairs, connections, bus_groups, pour_joins, pour_calls = None, [], [], [], []
     common = dict(iterations=ctx.iterations, probe=ctx.probe, quick=ctx.quick, clearances=ctx.clearances_file,
                   neckdown=phase.neckdown, extra_args=tuple(phase.router_args))
     what = "phase %s" % phase.name
@@ -1098,6 +1099,7 @@ def route_calls(ctx, index, phase, sel, board) -> PhaseOutcome:
             from .pour_join import join_pour
             joined, run = join_pour(ctx, board, nxt, call.nets[0], call.width, layers, stem, phase.name, common)
             pour_joins.append(joined)
+            pour_calls.append((call, stem, joined))
             out.summaries += [(phase.name, k, s) for s in run.summaries]
             connections += run.records
         elif call.kind in ("tasks", "bus_tasks"):
@@ -1137,6 +1139,20 @@ def route_calls(ctx, index, phase, sel, board) -> PhaseOutcome:
         if call.kind not in ("tasks", "bus_tasks"):
             out.calls.append((call, board, nxt))
         board = nxt
+    if len(pour_calls) > 1:
+        # ruling S22 (b): one re-check, in KiCad's view, of each pour net a later pour call of the phase may have split;
+        # a net with more pad groups than its own call left gets one more join (drops for the pads now apart, then
+        # tasks), recorded as its pour_joins entry's "rejoin"
+        from .pour_join import join_pour, pad_groups
+        for call, stem, joined in pour_calls[:-1]:
+            if len(pad_groups(board, call.nets[0])) <= joined["groups_after"]:
+                continue
+            nxt = ctx.work / (stem + "r.kicad_pcb")
+            again, run = join_pour(ctx, board, nxt, call.nets[0], call.width, layers, stem + "r", phase.name, common)
+            joined["rejoin"] = again
+            out.summaries += [(phase.name, len(calls), s) for s in run.summaries]
+            connections += run.records
+            board = nxt
     if not calls:                                   # a phase that selected nothing open: its board is its input
         nxt = ctx.work / ("p%d_0.kicad_pcb" % index)
         shutil.copy(board, nxt)

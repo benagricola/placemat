@@ -25,6 +25,7 @@ import shutil
 REPAIR = "py_router/repair_planes.py"
 # the flags drop_command and join_pour give the router (each checked against its capability list: route.py
 # _router_lacks_pour_flags)
+TASK_FIELDS = ("apart",)       # the task fields join_pour's tasks carry (route.py, krt_capabilities task_fields)
 REPAIR_FLAGS = ("--nets", "--layers", "--via-size", "--via-drill", "--track-width", "--min-track-width",
                 "--max-track-width", "--escalation", "--no-fix-drc-settings", "--no-kicad-recheck", "--pads",
                 "--no-join-gate", "--no-own-pad-lift", "--net-clearances", "--max-iterations")
@@ -112,7 +113,7 @@ def tasks_to_pour(groups, net: str, widths) -> list:
         a, b = min(((a, b) for a in g.pads for b in main.pads),
                    key=lambda ab: (math.hypot(ab[0].x - ab[1].x, ab[0].y - ab[1].y), ab[0].end(), ab[1].end()))
         ends = sorted((a.end(), b.end()), key=lambda e: (e[0], e[1]))
-        out.append(Task(net, ends[0], ends[1], tuple(widths)))
+        out.append(Task(net, ends[0], ends[1], tuple(widths), apart=True))
     return out
 
 
@@ -183,8 +184,11 @@ def join_pour(ctx, board: Path, out: Path, net: str, width, layers, stem: str, p
     guarded on the route's input board; this call takes its own net's guard off for itself and puts it back on
     `out`. The board's project files are copied back over each call's. Returns (record, phase_run.TaskRun):
     {"net", "pads", "joined_before", "apart_before", "tapped", "vias": {"in_pad", "beside"}, "groups_left",
-    "tasks": [the router's record of each task]}; pads count those inside the board's outline, "tapped" the pads
-    apart before that the drops joined, "groups_left" the groups the tasks were given."""
+    "groups_after", "tasks": [the router's record of each task]}; pads count those inside the board's outline, "tapped"
+    the pads apart before that the drops joined, "groups_left" the groups the tasks were given, "groups_after" the
+    net's pad groups on `out` (route_calls' re-check compares it after the phase's later pour calls, ruling S22).
+    Each task says its ends are apart (`apart`): KiCad's view decided it, and the router must not answer
+    joined_before from its own model."""
     from .phase_run import TaskRun, fresh_output, route_tasks
     from .phase_select import _class_widths
     from .route import (RouterFailed, _copy_project, drop_pour_guards, guard_partial_pours, lock_copper,
@@ -230,9 +234,10 @@ def join_pour(ctx, board: Path, out: Path, net: str, width, layers, stem: str, p
     pours_back(str(out), board)
     lock_copper(str(out))
     guard_partial_pours(str(out), {net}, ctx.layers, ctx.cfg.route_plane_share)
+    groups_after = len(pad_groups(out, net))
     record = {"net": net, "pads": sum(len(g.pads) for g in before),
               "joined_before": sum(len(g.pads) for g in before if g.joined), "apart_before": len(apart),
               "tapped": sum(1 for p in apart if any(p in g.pads for g in after if g.joined)),
               "vias": {"in_pad": sum(1 for v in vias if v["in_pad"]), "beside": sum(1 for v in vias if not v["in_pad"])},
-              "groups_left": len(pending), "tasks": list(run.records)}
+              "groups_left": len(pending), "groups_after": groups_after, "tasks": list(run.records)}
     return record, run

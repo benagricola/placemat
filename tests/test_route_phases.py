@@ -717,6 +717,7 @@ def test_a_phase_naming_a_pour_net_drops_vias_first_then_routes_only_the_pads_st
     assert "--no-own-pad-lift" in track
     (task,) = json.loads(open(track[track.index("--connections") + 1]).read())
     assert task["net"] == "VIN" and (task["from"], task["to"]) == ({"ref": "J1", "pad": "2"}, {"ref": "U1", "pad": "3"})
+    assert task["apart"] is True                                # KiCad's view decided it: no joined_before (S22)
     assert task["widths"] == {"F.Cu": 0.2, "B.Cu": 0.2}
     # the pour call's outcome is data in the phase record (I5), and its task's record answers the open connection (I1)
     (p,) = report.phases
@@ -733,12 +734,14 @@ def test_a_router_without_the_plane_repairs_flags_is_refused_only_when_a_phase_n
     from tests.phase_helpers import CAPABILITIES
     caps = json.loads(json.dumps(CAPABILITIES))
     caps["flags"]["repair_planes.py"].remove("--no-join-gate")
+    caps["task_fields"]["route.py"].remove("apart")
     (rig.router / "krt_capabilities.py").write_text("print(%r)\n" % json.dumps(caps))
     _vin_pour(rig.pcb, 125.6, 127)
     rig.route(FB, pour_nets={"VIN"})                                  # a board with a pour, no phase naming it
     with pytest.raises(RouteRefused) as e:
         rig.route({"name": "pours", "nets": ["VIN"]}, pour_nets={"VIN"})
     assert e.value.code == "router_old" and "repair_planes.py:--no-join-gate" in e.value.facts["missing"]
+    assert "route.py:connections.apart" in e.value.facts["missing"]
 
 
 @needs_kicad
@@ -785,3 +788,31 @@ def test_a_pour_joins_record_is_said_on_its_phase_line():
     (line,) = phase_lines([rec])
     assert line.endswith("; GND: 3 pads on the pour, 82 of 90 apart tapped (47 vias in a pad, 10 beside), "
                          "1 of 3 groups left joined by a track")
+
+
+@needs_kicad
+def test_a_pour_net_a_later_pour_call_split_is_joined_again_once(rig, monkeypatch):
+    """Ruling S22 (b): after the phase's pour calls, FB (joined first) has more pad groups than its own call left, as
+    if VIN's call had cut its pour: FB gets one more join, recorded as its pour_joins entry's rejoin; VIN, the last,
+    is not re-checked."""
+    import shutil
+    from placemat.kicad import pour_join
+    from placemat.kicad.phase_run import TaskRun
+    from placemat.kicad.route import _copy_project
+    calls = []
+
+    def fake_join(ctx, board, out, net, width, layers, stem, phase, common):
+        calls.append((net, stem))
+        shutil.copy(board, out)
+        _copy_project(board, out)
+        return ({"net": net, "pads": 2, "joined_before": 1, "apart_before": 1, "tapped": 1,
+                 "vias": {"in_pad": 1, "beside": 0}, "groups_left": 0, "groups_after": 1, "tasks": []},
+                TaskRun(out))
+    end = pour_join.PadEnd("U1", "2", "u", 0.0, 0.0)
+    split = [pour_join.PadGroup((end,), True), pour_join.PadGroup((pour_join.PadEnd("J1", "1", "j", 9.0, 0.0),), True)]
+    monkeypatch.setattr(pour_join, "join_pour", fake_join)
+    monkeypatch.setattr(pour_join, "pad_groups", lambda pcb, net: split if net == "FB" else split[:1])
+    report = rig.route({"name": "pours", "nets": ["FB", "VIN"]}, pour_nets={"FB", "VIN"})
+    assert calls == [("FB", "p0_0"), ("VIN", "p0_1"), ("FB", "p0_0r")]
+    fb, vin = report.phases[0]["pour_joins"]
+    assert fb["rejoin"]["net"] == "FB" and "rejoin" not in vin
