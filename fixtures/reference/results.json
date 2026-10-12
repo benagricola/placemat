@@ -11,13 +11,15 @@
         "new_violations": [],
         "open": 0,
         "open_nets": [],
+        "open_other": 0,
+        "open_pour": 0,
         "passed": true,
-        "seconds": 175.5,
+        "seconds": 102.3,
         "track_mm": 2808.2342632919044,
         "versions": {
-          "krt": "b602f7fe154178cdc988643f9c74d4d7309f0bd0",
+          "krt": "96e0422fc240ab7e97dd40a98c793ff8fb0a4196",
           "pcb": "318b4b0d19ce55bc032c70941a2559b9b7728404",
-          "placemat": "d30e9ebd7402d82cd9a262ee6ae04fb502aa8ce5"
+          "placemat": "9a2a02601c645819b2f6ec773952238f69ae2436"
         },
         "vias": 217,
         "widths": "class"
@@ -32,13 +34,15 @@
         "new_violations": [],
         "open": 0,
         "open_nets": [],
+        "open_other": 0,
+        "open_pour": 0,
         "passed": true,
-        "seconds": 137.4,
+        "seconds": 76.5,
         "track_mm": 2607.5702479308975,
         "versions": {
-          "krt": "b602f7fe154178cdc988643f9c74d4d7309f0bd0",
+          "krt": "96e0422fc240ab7e97dd40a98c793ff8fb0a4196",
           "pcb": "318b4b0d19ce55bc032c70941a2559b9b7728404",
-          "placemat": "d30e9ebd7402d82cd9a262ee6ae04fb502aa8ce5"
+          "placemat": "9a2a02601c645819b2f6ec773952238f69ae2436"
         },
         "vias": 196,
         "widths": "human"
@@ -121,13 +125,15 @@
         "open_nets": [
           "GND"
         ],
+        "open_other": 0,
+        "open_pour": 1,
         "passed": false,
-        "seconds": 185.2,
+        "seconds": 78.7,
         "track_mm": 402.3510321632144,
         "versions": {
-          "krt": "b602f7fe154178cdc988643f9c74d4d7309f0bd0",
+          "krt": "1f734689469cdec571883130f9034c23a742b038",
           "pcb": "318b4b0d19ce55bc032c70941a2559b9b7728404",
-          "placemat": "d30e9ebd7402d82cd9a262ee6ae04fb502aa8ce5"
+          "placemat": "9a2a02601c645819b2f6ec773952238f69ae2436"
         },
         "vias": 19,
         "widths": "class"
@@ -144,13 +150,15 @@
         "open_nets": [
           "GND"
         ],
+        "open_other": 0,
+        "open_pour": 1,
         "passed": false,
-        "seconds": 197.2,
+        "seconds": 78.6,
         "track_mm": 405.1138024244813,
         "versions": {
-          "krt": "b602f7fe154178cdc988643f9c74d4d7309f0bd0",
+          "krt": "1f734689469cdec571883130f9034c23a742b038",
           "pcb": "318b4b0d19ce55bc032c70941a2559b9b7728404",
-          "placemat": "d30e9ebd7402d82cd9a262ee6ae04fb502aa8ce5"
+          "placemat": "9a2a02601c645819b2f6ec773952238f69ae2436"
         },
         "vias": 20,
         "widths": "human"
@@ -273,13 +281,15 @@
         "new_violations": [],
         "open": 0,
         "open_nets": [],
+        "open_other": 0,
+        "open_pour": 0,
         "passed": true,
-        "seconds": 30.6,
+        "seconds": 20.7,
         "track_mm": 1550.2739683415043,
         "versions": {
-          "krt": "b602f7fe154178cdc988643f9c74d4d7309f0bd0",
+          "krt": "b19e9a511ffc3976cb8f7a26b5437e81d747c33a",
           "pcb": "318b4b0d19ce55bc032c70941a2559b9b7728404",
-          "placemat": "d30e9ebd7402d82cd9a262ee6ae04fb502aa8ce5"
+          "placemat": "9a2a02601c645819b2f6ec773952238f69ae2436"
         },
         "vias": 46,
         "widths": "class"
@@ -294,13 +304,15 @@
         "new_violations": [],
         "open": 0,
         "open_nets": [],
+        "open_other": 0,
+        "open_pour": 0,
         "passed": true,
-        "seconds": 32.9,
+        "seconds": 22.3,
         "track_mm": 1549.1899062981481,
         "versions": {
-          "krt": "b602f7fe154178cdc988643f9c74d4d7309f0bd0",
+          "krt": "b19e9a511ffc3976cb8f7a26b5437e81d747c33a-dirty",
           "pcb": "318b4b0d19ce55bc032c70941a2559b9b7728404",
-          "placemat": "d30e9ebd7402d82cd9a262ee6ae04fb502aa8ce5"
+          "placemat": "9a2a02601c645819b2f6ec773952238f69ae2436"
         },
         "vias": 44,
         "widths": "human"
@@ -395,15 +407,17 @@
         "new_violations": [],
         "open": 0,
         "open_nets": [],
+        "open_other": 0,
+        "open_pour": 0,
         "passed": true,
-        "seconds": 575.5,
-        "track_mm": 539.3427517170148,
+        "seconds": 479.8,
+        "track_mm": 539.1800100172179,
         "versions": {
-          "krt": "b602f7fe154178cdc988643f9c74d4d7309f0bd0",
+          "krt": "1f734689469cdec571883130f9034c23a742b038",
           "pcb": "318b4b0d19ce55bc032c70941a2559b9b7728404",
-          "placemat": "d30e9ebd7402d82cd9a262ee6ae04fb502aa8ce5"
+          "placemat": "9a2a02601c645819b2f6ec773952238f69ae2436"
         },
-        "vias": 95,
+        "vias": 94,
         "widths": "class"
       },
       "human": {
@@ -465,13 +479,15 @@
           "SCL",
           "USB_D+"
         ],
+        "open_other": 15,
+        "open_pour": 3,
         "passed": false,
-        "seconds": 109.8,
+        "seconds": 68.5,
         "track_mm": 732.6354604987764,
         "versions": {
-          "krt": "b602f7fe154178cdc988643f9c74d4d7309f0bd0",
+          "krt": "1f734689469cdec571883130f9034c23a742b038-dirty",
           "pcb": "318b4b0d19ce55bc032c70941a2559b9b7728404",
-          "placemat": "d30e9ebd7402d82cd9a262ee6ae04fb502aa8ce5"
+          "placemat": "9a2a02601c645819b2f6ec773952238f69ae2436"
         },
         "vias": 85,
         "widths": "class"
@@ -506,13 +522,15 @@
           "SCL",
           "VIB_PWM"
         ],
+        "open_other": 7,
+        "open_pour": 7,
         "passed": false,
-        "seconds": 83.5,
+        "seconds": 92.6,
         "track_mm": 786.2176093022065,
         "versions": {
-          "krt": "b602f7fe154178cdc988643f9c74d4d7309f0bd0",
+          "krt": "1f734689469cdec571883130f9034c23a742b038-dirty",
           "pcb": "318b4b0d19ce55bc032c70941a2559b9b7728404",
-          "placemat": "d30e9ebd7402d82cd9a262ee6ae04fb502aa8ce5"
+          "placemat": "9a2a02601c645819b2f6ec773952238f69ae2436"
         },
         "vias": 96,
         "widths": "human"
@@ -717,12 +735,12 @@
       "protocol": {
         "KICAD_NET_RESCUE": "0"
       },
-      "seconds": 9.0,
+      "seconds": 7.6,
       "track_mm": 24.994,
       "versions": {
-        "krt": "b602f7fe154178cdc988643f9c74d4d7309f0bd0",
+        "krt": "96e0422fc240ab7e97dd40a98c793ff8fb0a4196",
         "pcb": "318b4b0d19ce55bc032c70941a2559b9b7728404",
-        "placemat": "d30e9ebd7402d82cd9a262ee6ae04fb502aa8ce5"
+        "placemat": "9a2a02601c645819b2f6ec773952238f69ae2436"
       },
       "vias": 0,
       "widths_failed": 1
