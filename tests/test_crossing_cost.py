@@ -35,10 +35,12 @@ def _crossings(b, plan):
 
 
 def test_a_spot_whose_airwires_cross_a_placed_net_costs_more_than_one_that_does_not():
-    blind = _board(score_crossing=0.0)
+    # Congestion unpriced on both boards: priced, it keeps R1 off S's airwire on its own (U's airwire box over S's
+    # costs a RUDY step at the hint), and the blind board would show no crossing for crossings to remove.
+    blind = _board(score_crossing=0.0, score_congestion=0.0)
     _declare(blind)
     assert _crossings(blind, blind.resolve())["plain+plain"] == 1          # the hint's spot: W's pad south, U's airwire across S
-    b = _board(score_crossing=50.0)
+    b = _board(score_crossing=50.0, score_congestion=0.0)
     _declare(b)
     assert _crossings(b, b.resolve()).get("plain+plain", 0) == 0
 
