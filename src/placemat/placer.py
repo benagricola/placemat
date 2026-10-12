@@ -264,8 +264,11 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
     order, asking `full` of each, until `place.escape_spots` of them wall no
     pad beyond the lifted board's (`walled_base`) or the candidates run out;
     it ranks those by the full score, and the
-    rest below them. With `pick` every candidate is asked `full` instead, as
-    the draw reads them all.
+    rest below them. A candidate whose carried vias must give way enters that
+    order at its partial cost plus the least a giving way costs, and its vias
+    are resolved (charged to the budget, a refusal tallied) only if the walk
+    reaches it. With `pick` every candidate is asked `full` instead, as the
+    draw reads them all.
 
     `accept(placement)`, when given, is asked of a candidate the item's own
     test passed (the items riding the one scanned, layout.py): None counts
@@ -338,7 +341,25 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
 
     python_scored: dict = {}            # (x, y, rotation) -> what a give way adds, for a candidate scored in Python
     weighed: dict = {}                  # (x, y, rotation) -> (walled, cost) in full, for a candidate the walk took
-    unpruned: dict = {}                 # (x, y, rotation) -> the partial cost of a pruned candidate the walk reached
+    revised: dict = {}                  # (x, y, rotation) -> the exact partial cost (with what its give way costs) of
+                                        # a pruned or give-way candidate the walk reached
+    deferred: dict = {}                 # (x, y, rotation) -> the partial cost of a candidate whose vias give way only
+                                        # when the walk reaches it
+    gave_way_refused: set = set()       # (x, y, rotation) of such a candidate whose vias could not give way
+
+    def give_way(cand) -> float | None:
+        """The partial cost plus what the vias' giving way costs of a deferred candidate the walk reached, or None
+        when they cannot give way (tallied as `gave_way` tallies it) or the step's budget is spent."""
+        if afford(1) == 0:
+            budget.cut = True
+            return None
+        res = gw.resolve(cand)
+        charge(max(1, res.judged))
+        if res.why is not None:
+            tally(_reason_key(res.why), (lambda why=res.why: why), [blocker_key(res.blocker)])
+            return None
+        python_scored[where(cand)] = res.cost
+        return deferred[where(cand)] + res.cost
 
     def where(cand) -> tuple:
         return cand.location.x, cand.location.y, cand.rotation
@@ -361,15 +382,25 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
         if not partial:
             out = sorted(entries, key=lambda k: k[:3])
             return counted(out, n) if counts else (out if n is None else out[:n])
-        heap = [((unpruned.get(where(e[3]), e[0][1]), e[1], e[2]), k, e) for k, e in enumerate(entries)]
+        heap = [((revised.get(where(e[3]), e[0][1]), e[1], e[2]), k, e) for k, e in enumerate(entries)
+                if where(e[3]) not in gave_way_refused]
         heapq.heapify(heap)
         taken = 0
         while heap and taken < score.spots:
             _, k, e = heapq.heappop(heap)
             cand = e[3]
-            if e[0][0] == UNWEIGHED and where(cand) not in unpruned:
-                unpruned[where(cand)] = score.partial(cand)
-                heapq.heappush(heap, ((unpruned[where(cand)], e[1], e[2]), k, e))
+            key = where(cand)
+            if key in deferred and key not in revised:
+                cost = give_way(cand)
+                if cost is None:
+                    gave_way_refused.add(key)
+                    continue
+                revised[key] = cost
+                heapq.heappush(heap, ((cost, e[1], e[2]), k, e))
+                continue
+            if e[0][0] == UNWEIGHED and key not in revised:
+                revised[key] = score.partial(cand)
+                heapq.heappush(heap, ((revised[key], e[1], e[2]), k, e))
                 continue
             if counts and refused(cand):
                 continue
@@ -420,7 +451,9 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
         what a spot truly costs, so none is pruned against a cost it did not
         reach. `judged`: the candidate is one the sweeper judged legal less
         its vias, and its Python judgment (of the net ties) too, so it is
-        not judged here again."""
+        not judged here again. With the one-score search's partial costs the
+        vias are not resolved here: the candidate is added at its partial cost
+        plus the least a giving way costs, for the walk (`give_way`)."""
         if not (judged and JUDGE_ONCE):
             if gw.native is None:               # judged here, not by the pass: a judgment of its own
                 if afford(1) == 0:
@@ -442,6 +475,13 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
             if bounded and before < math.inf and (sc[0] > 0 or sc[1] + least > before):
                 n_bound[0] += 1
                 return None
+        if partial:
+            # The one-score search: the vias give way only if the walk reaches the candidate, at its partial cost
+            # plus the least a giving way costs (a lower bound of what it will cost); `give_way` then resolves it.
+            deferred[where(cand)] = sc[1]
+            d = math.hypot(cand.location.x - hint.location.x, cand.location.y - hint.location.y)
+            legal.append(((sc[0], sc[1] + least), d, tie(cand), cand))
+            return None
         if afford(1) == 0:
             budget.cut = True
             return None
@@ -452,8 +492,6 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
         if not (inline and refused(cand)):
             if best is not None:
                 best[0] = min(before, sc[1] + res.cost) if not sc[0] else before
-            if partial:
-                python_scored[where(cand)] = res.cost
             d = math.hypot(cand.location.x - hint.location.x, cand.location.y - hint.location.y)
             legal.append(((sc[0], sc[1] + res.cost), d, tie(cand), cand))
         return None

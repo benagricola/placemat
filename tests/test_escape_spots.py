@@ -169,3 +169,37 @@ def test_walk_counts_walls_beyond_the_lifted_boards(monkeypatch):
     assert (scorer.asked[0].location.x, scorer.asked[0].location.y, scorer.asked[0].rotation) == (*first, 0)
     assert len(scorer.asked) == 3                       # the walled one, then two at the lifted board's count
     assert result.walled == 3 and result.chosen != scorer.asked[0]
+
+
+@pytest.mark.parametrize('native', [False, True])
+def test_give_way_resolved_only_when_the_walk_reaches_it(monkeypatch, native):
+    """A candidate whose carried vias must give way enters the walk at its partial cost plus the least a giving way
+    costs; its vias are resolved only if the walk reaches it. Every candidate scored in full (a draw) resolves all."""
+    from placemat import giveway
+    from placemat.occupancy import Occupancy
+    from placemat.placement import Placement
+    from tests.test_vias_give_way import _moving_board
+    if native and not _native_available():
+        pytest.skip('native partial scoring unavailable')
+    resolved = {}
+    for mode in ('walk', 'draw'):
+        board = _moving_board((39.1, 42.2), True, (19.5, 23.0))
+        board.settings = replace(board.settings, place_search_wire='mst', cleanup_enabled=False, place_escape_spots=1)
+        plan = board.resolve()
+        occ = Occupancy(board.geometry, 0.5, settings=board.settings)
+        item = board.geometry.cells['m']
+        centre = occ._geometry(item).reference.location
+        hint = Placement(Location(round(centre.x - 20, 9), round(centre.y - 20, 9)), 0.0, Face.FRONT)
+        occ.lift({fp.ref for fp in item.members})
+        scoring = MSTScorer(board, occ, item, plan=plan, prune=mode == 'walk')
+        calls = []
+        original = giveway.ScanGiveWay.resolve
+        monkeypatch.setattr(giveway.ScanGiveWay, 'resolve', lambda self, p: (calls.append(p), original(self, p))[1])
+        monkeypatch.setattr(placer, 'NATIVE_SWEEP', native)
+        result = placer.scan(occ, item, hint, 1.0, 0.2, (0.0,), score=scoring,
+                             pick=(lambda rows: rows[0]) if mode == 'draw' else None)
+        resolved[mode] = (len(calls), result.chosen, result.score)
+        monkeypatch.undo()
+    assert resolved['walk'][0] < resolved['draw'][0], resolved
+    assert resolved['walk'][1:] == resolved['draw'][1:]
+    # Reached, a deferred candidate is resolved and priced: test_score_search's give-way scan (radius 0) has only it.
