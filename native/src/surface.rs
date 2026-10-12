@@ -1,7 +1,7 @@
 //! Exact surface escape search: the Python rectangular-cell walk followed by
 //! every octilinear lattice rooted on the pad/own-copper anchors. This is a
 //! geometry kernel, not a replacement for escape eligibility or validity.
-use crate::geometry::{point_in_polygon, point_segment_distance, segments_intersect};
+use crate::geometry::{point_in_polygon, point_segment_distance, point_segment_within, segments_intersect};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use std::collections::HashSet;
@@ -665,7 +665,7 @@ fn shape_near((poly, b, _, _, delta): &Shape, p: Point, radius: f64, epsilon: f6
         return false;
     }
     point_in_polygon(p, poly)
-        || (0..poly.len()).any(|i| point_segment_distance(p, poly[i], poly[(i + 1) % poly.len()]) < r)
+        || (0..poly.len()).any(|i| point_segment_within(p, poly[i], poly[(i + 1) % poly.len()], r))
 }
 
 /// The shapes a search tests, bucketed by area so a cell tests only the shapes whose grown box can reach it. A shape

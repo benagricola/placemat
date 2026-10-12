@@ -61,7 +61,7 @@ struct Pad {
 // owner, (number, net, unconnected, way, full influence region, wall, handoff)
 type RestCacheRecord = (String, Vec<(String, String, bool, u8, Bounds, bool, bool)>);
 struct CachedPad {
-    number: String, way: u8, region: Bounds, wall: bool, handoff: bool,
+    way: u8, region: Bounds, wall: bool, handoff: bool,
 }
 // One field's lanes and via spots, and each pad's contact shapes and their box: all of a fixed field's own geometry,
 // so a rest field's are made once per turn.
@@ -74,6 +74,9 @@ struct FieldLanes {
 // must stay out of for that to hold: the pad's blocker region, both search reaches and its own copper chain. Moving
 // geometry clear of every box is invisible to every test the judgement makes.
 struct PadFacts {
+    // Gathered with no candidate geometry reaching the guard: the facts hold for the lifted board. Facts that are not
+    // valid keep only their guard, which sends the pad to a full judgement while geometry still reaches it.
+    valid: bool,
     // The pad is judged (a signal net with a target, not joined or on another part's pad).
     eligible: bool,
     centre: Point,
@@ -570,7 +573,7 @@ impl PreparedSurface {
                 if region.0 > minimum.0 || region.1 > minimum.1 || region.2 < minimum.2 || region.3 < minimum.3 {
                     return Err(PyValueError::new_err("rest cache influence omits the pad search window"));
                 }
-                cached.push(CachedPad { number, way, region, wall, handoff });
+                cached.push(CachedPad { way, region, wall, handoff });
             }
             prepared.push((index, cached));
         }
@@ -803,7 +806,7 @@ impl PreparedSurface {
                 let lanes = lanes.as_ref().unwrap();
                 let judged = if *mode == Mode::Aim {
                     let key = (fi, pi, turn);
-                    let gathered = if self.pad_facts.contains_key(&key) {
+                    let gathered = if self.pad_facts.get(&key).is_some_and(|f| f.valid) {
                         None
                     } else {
                         let judged = self.judge_pad(py, candidate, delta, turn, fi, pi, lanes, index, true, profile)?;
@@ -824,11 +827,10 @@ impl PreparedSurface {
                     }
                     let judged = Judged { way, wall: facts.wall, handoff: facts.handoff, facts: None };
                     // Facts gathered while candidate geometry reaches the guard boxes describe this candidate,
-                    // not the lifted board: they answer it but are not kept.
-                    if let Some(facts) = gathered {
-                        if !facts.guard.iter().any(|g| reaches(*g)) {
-                            self.pad_facts.insert(key, facts);
-                        }
+                    // not the lifted board: they answer it, and only their guard is kept.
+                    if let Some(mut facts) = gathered {
+                        facts.valid = !facts.guard.iter().any(|g| reaches(*g));
+                        self.pad_facts.insert(key, facts);
                     }
                     judged
                 } else {
@@ -1124,6 +1126,7 @@ impl PreparedSurface {
             timing.supplemental += started.elapsed().as_secs_f64() * 1e6;
         }
         let facts = gather.then(|| PadFacts {
+            valid: false,
             eligible: eligible && !net.quiet,
             centre,
             surface: gathered,

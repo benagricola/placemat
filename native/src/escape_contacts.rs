@@ -97,6 +97,9 @@ impl ContactIndex {
 pub struct PreparedContacts {
     rest: Vec<Shape>,
     footprints: HashSet<String>,
+    // Whether each rest shape's owner is a footprint, and each moving shape's per turn once roles are configured.
+    rest_footprint: Vec<bool>,
+    moving_footprint: Option<Vec<Vec<bool>>>,
     seen: Vec<bool>,
     todo: Vec<usize>,
     chain: Vec<usize>,
@@ -105,7 +108,50 @@ pub struct PreparedContacts {
     candidate_identity: Option<std::sync::Arc<()>>,
     rest_index: ContactIndex,
     turn_indexes: Option<Vec<ContactIndex>>,
+    // Per net with many rest contact shapes: those shapes by 2 mm buckets, made on first use.
+    net_grids: HashMap<String, NetGrid>,
 }
+
+/// A net's rest contact shapes by the 2 mm buckets their boxes cover. The shapes whose buckets meet a box's include
+/// every one whose box overlaps it, so a touch test over them, in index order, finds what a pass over all finds.
+struct NetGrid {
+    cells: HashMap<(i64, i64), Vec<usize>>,
+}
+
+impl NetGrid {
+    fn bucket(v: f64) -> i64 {
+        (v / 2.0).floor() as i64
+    }
+
+    fn new(indices: &[usize], rest: &[Shape]) -> Self {
+        let mut cells: HashMap<(i64, i64), Vec<usize>> = HashMap::new();
+        for &i in indices {
+            let b = rest[i].bounds;
+            for x in Self::bucket(b.0)..=Self::bucket(b.2) {
+                for y in Self::bucket(b.1)..=Self::bucket(b.3) {
+                    cells.entry((x, y)).or_default().push(i);
+                }
+            }
+        }
+        Self { cells }
+    }
+
+    fn near(&self, b: Bounds, out: &mut Vec<usize>) {
+        out.clear();
+        for x in Self::bucket(b.0)..=Self::bucket(b.2) {
+            for y in Self::bucket(b.1)..=Self::bucket(b.3) {
+                if let Some(cell) = self.cells.get(&(x, y)) {
+                    out.extend_from_slice(cell);
+                }
+            }
+        }
+        out.sort_unstable();
+        out.dedup();
+    }
+}
+
+// Below this many rest shapes a net is scanned whole.
+const NET_GRID_MIN: usize = 48;
 impl PreparedContacts {
     pub(crate) fn shape<'a>(
         &'a self,
@@ -210,14 +256,19 @@ impl PreparedContacts {
         for (i, shape) in rest.iter().enumerate() {
             rest_index.add(i, &shape.net, &shape.owner, &shape.pad, &shape.kind);
         }
+        let footprints: HashSet<String> = footprints.into_iter().collect();
+        let rest_footprint = rest.iter().map(|s| footprints.contains(&s.owner)).collect();
         Ok(Self {
             rest_index,
             turn_indexes: None,
+            net_grids: HashMap::new(),
             rest_contact: vec![true; rest.len()],
             moving_contact: None,
             candidate_identity: None,
             rest,
-            footprints: footprints.into_iter().collect(),
+            rest_footprint,
+            moving_footprint: None,
+            footprints,
             seen: Vec::new(),
             todo: Vec::new(),
             chain: Vec::new(),
@@ -267,8 +318,16 @@ impl PreparedContacts {
             }
             turn_indexes.push(index);
         }
+        self.moving_footprint = Some(
+            (0..candidate.turn_count())
+                .map(|t| {
+                    candidate.turn(t).shapes.iter().map(|s| self.footprints.contains(&s.owner)).collect()
+                })
+                .collect(),
+        );
         self.rest_index = rest_index;
         self.turn_indexes = Some(turn_indexes);
+        self.net_grids.clear();
         self.candidate_identity = Some(candidate.identity.clone());
         self.rest_contact = rest;
         self.moving_contact = Some(moving);
@@ -334,6 +393,17 @@ impl PreparedContacts {
             out.extend(moving);
         }
         Some(out)
+    }
+
+    /// Whether shape `index`'s owner is one of the footprints.
+    fn in_footprint(&self, turn: usize, index: usize, owner: &str) -> bool {
+        if index < self.rest.len() {
+            return self.rest_footprint[index];
+        }
+        match &self.moving_footprint {
+            Some(m) => m[turn][index - self.rest.len()],
+            None => self.footprints.contains(owner),
+        }
     }
 
     pub(crate) fn shape_count(&self, candidate: &PreparedCandidate, turn: usize) -> usize {
@@ -424,22 +494,42 @@ impl PreparedContacts {
     ) -> PyResult<ContactFacts> {
         let count = self.rest.len() + candidate.turn(turn).shapes.len();
         // Rest precedes moving shapes exactly as in the original full scan.
-        let mut indices = self.rest_index.by_net.get(net).cloned().unwrap_or_default();
-        if let Some(indexes) = &self.turn_indexes {
-            if let Some(moving) = indexes[turn].by_net.get(net) {
-                indices.extend(moving);
-            }
+        let rest_on_net: &[usize] = self.rest_index.by_net.get(net).map_or(&[], |v| v.as_slice());
+        let moving_on_net: Vec<usize> = if let Some(indexes) = &self.turn_indexes {
+            indexes[turn].by_net.get(net).cloned().unwrap_or_default()
         } else {
-            indices.extend(
-                candidate
-                    .turn(turn)
-                    .shapes
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, shape)| shape.net == net)
-                    .map(|(i, _)| self.rest.len() + i),
-            );
+            candidate
+                .turn(turn)
+                .shapes
+                .iter()
+                .enumerate()
+                .filter(|(_, shape)| shape.net == net)
+                .map(|(i, _)| self.rest.len() + i)
+                .collect()
+        };
+        if rest_on_net.len() >= NET_GRID_MIN && !self.net_grids.contains_key(net) {
+            let grid = NetGrid::new(rest_on_net, &self.rest);
+            self.net_grids.insert(net.to_owned(), grid);
         }
+        let grid = self.net_grids.get(net).filter(|_| rest_on_net.len() >= NET_GRID_MIN);
+        let all: Vec<usize> = rest_on_net.iter().copied().chain(moving_on_net.iter().copied()).collect();
+        // The net's shapes a touch test against `b` can pass, in index order: the bucketed rest shapes near it and
+        // every moving shape, or the whole net when it is small.
+        let mut near_rest = Vec::new();
+        let mut candidates = |b: Bounds, out: &mut Vec<usize>| {
+            match grid {
+                Some(grid) => {
+                    grid.near(b, &mut near_rest);
+                    out.clear();
+                    out.extend_from_slice(&near_rest);
+                    out.extend_from_slice(&moving_on_net);
+                }
+                None => {
+                    out.clear();
+                    out.extend_from_slice(&all);
+                }
+            }
+        };
         let pad_key = (owner.to_owned(), number.to_owned());
         let mut seeds = self
             .rest_index
@@ -462,91 +552,104 @@ impl PreparedContacts {
                     .map(|(i, _)| self.rest.len() + i),
             );
         }
-        self.seen.resize(count, false);
-        self.seen.fill(false);
-        self.todo.clear();
-        self.chain.clear();
+        let mut seen = std::mem::take(&mut self.seen);
+        let mut todo = std::mem::take(&mut self.todo);
+        let mut chain = std::mem::take(&mut self.chain);
+        seen.resize(count, false);
+        seen.fill(false);
+        todo.clear();
+        chain.clear();
         let mut layers = 0;
         let mut joined = false;
         let mut on_pad = false;
-        for &index in &seeds {
-            py.check_signals()?;
-            let mine = self.shape(candidate, turn, index);
-            if mine.owner == owner && mine.pad == number && pad(mine.kind) {
-                if mine.net != net || mine.layers == 0 {
-                    return Err(PyValueError::new_err("escape contact pad intent mismatch"));
+        let mut indices = Vec::new();
+        let result = (|| -> PyResult<ContactFacts> {
+            for &index in &seeds {
+                py.check_signals()?;
+                let mine = self.shape(candidate, turn, index);
+                if mine.owner == owner && mine.pad == number && pad(mine.kind) {
+                    if mine.net != net || mine.layers == 0 {
+                        return Err(PyValueError::new_err("escape contact pad intent mismatch"));
+                    }
+                    layers |= mine.layers;
+                    candidates(mine.bounds, &mut indices);
+                    for (walk, &other) in indices.iter().enumerate() {
+                        if walk % 128 == 0 {
+                            py.check_signals()?;
+                        }
+                        let shape = self.shape(candidate, turn, other);
+                        if shape.layers & mine.layers == 0 || !touches(&mine, &shape) {
+                            continue;
+                        }
+                        joined |= copper(shape.kind) && !self.in_footprint(turn, other, shape.owner);
+                        on_pad |= pad(shape.kind) && shape.owner != owner;
+                    }
+                    todo.push(index);
                 }
-                layers |= mine.layers;
+            }
+            if todo.is_empty() {
+                return Err(PyValueError::new_err("escape contact pad missing"));
+            }
+            while let Some(index) = todo.pop() {
+                py.check_signals()?;
+                let at = self.shape(candidate, turn, index);
+                candidates(at.bounds, &mut indices);
+                for (walk, &other) in indices.iter().enumerate() {
+                    if walk % 128 == 0 {
+                        py.check_signals()?;
+                    }
+                    if seen[other] || !self.is_contact(turn, other) {
+                        continue;
+                    }
+                    let shape = self.shape(candidate, turn, other);
+                    if shape.net == net
+                        && copper(shape.kind)
+                        && !self.in_footprint(turn, other, shape.owner)
+                        && shape.layers & layers != 0
+                        && touches(&at, &shape)
+                    {
+                        seen[other] = true;
+                        chain.push(other);
+                        todo.push(other);
+                    }
+                }
+            }
+            let mut runs_on = false;
+            let mut through = false;
+            let mut declared = true;
+            for &index in &chain {
+                let own = self.shape(candidate, turn, index);
+                through |= own.kind == "through";
+                declared &= own.lane || own.wire;
+                candidates(own.bounds, &mut indices);
                 for (walk, &other) in indices.iter().enumerate() {
                     if walk % 128 == 0 {
                         py.check_signals()?;
                     }
                     let shape = self.shape(candidate, turn, other);
-                    if shape.layers & mine.layers == 0 || !touches(&mine, &shape) {
-                        continue;
+                    if self.is_contact(turn, other)
+                        && pad(shape.kind)
+                        && shape.net == net
+                        && self.in_footprint(turn, other, shape.owner)
+                        && !(shape.owner == owner && shape.pad == number)
+                        && shape.layers & own.layers != 0
+                        && touches(&own, &shape)
+                    {
+                        runs_on = true;
                     }
-                    joined |= copper(shape.kind) && !self.footprints.contains(shape.owner);
-                    on_pad |= pad(shape.kind) && shape.owner != owner;
-                }
-                self.todo.push(index);
-            }
-        }
-        if self.todo.is_empty() {
-            return Err(PyValueError::new_err("escape contact pad missing"));
-        }
-        while let Some(index) = self.todo.pop() {
-            py.check_signals()?;
-            for (walk, &other) in indices.iter().enumerate() {
-                if walk % 128 == 0 {
-                    py.check_signals()?;
-                }
-                if self.seen[other] || !self.is_contact(turn, other) {
-                    continue;
-                }
-                let at = self.shape(&candidate, turn, index);
-                let shape = self.shape(&candidate, turn, other);
-                if shape.net == net
-                    && copper(shape.kind)
-                    && !self.footprints.contains(shape.owner)
-                    && shape.layers & layers != 0
-                    && touches(&at, &shape)
-                {
-                    self.seen[other] = true;
-                    self.chain.push(other);
-                    self.todo.push(other);
                 }
             }
-        }
-        let mut runs_on = false;
-        let mut through = false;
-        let mut declared = true;
-        for &index in &self.chain {
-            let own = self.shape(&candidate, turn, index);
-            through |= own.kind == "through";
-            declared &= own.lane || own.wire;
-            for (walk, &other) in indices.iter().enumerate() {
-                if walk % 128 == 0 {
-                    py.check_signals()?;
-                }
-                let shape = self.shape(&candidate, turn, other);
-                if self.is_contact(turn, other)
-                    && pad(shape.kind)
-                    && shape.net == net
-                    && self.footprints.contains(shape.owner)
-                    && !(shape.owner == owner && shape.pad == number)
-                    && shape.layers & own.layers != 0
-                    && touches(&own, &shape)
-                {
-                    runs_on = true;
-                }
-            }
-        }
-        Ok(ContactFacts {
-            joined,
-            on_pad,
-            runs_on,
-            through,
-            declared,
-        })
+            Ok(ContactFacts {
+                joined,
+                on_pad,
+                runs_on,
+                through,
+                declared,
+            })
+        })();
+        self.seen = seen;
+        self.todo = todo;
+        self.chain = chain;
+        result
     }
 }
