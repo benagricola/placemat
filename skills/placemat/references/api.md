@@ -4001,7 +4001,9 @@ Then the group of the net's pads holding the most pads among those on the pour s
 is routed to its nearest pad by one pad-to-pad task, at the phase's width or the net class's; the track may end on
 the pour's fill. A part outside the board's outline gets no task. Neither call crosses a footprint's own copper (an
 antenna) to reach a pad of that footprint. Both take the capture's stated net clearances; the plane repair takes no
-`[route] router_args` or phase `router_args`. The calls leave the board's rules as they were. Every pour net's partial inner-layer pours are kept clear of other nets' tracks on the
+`[route] router_args` or phase `router_args`. The calls leave the board's rules as they were. The tasks run with
+the router's environment variable `KICAD_PLANE_FINALIZE=0`, its own switch for the plane repair it otherwise runs at the
+end of a route, so the tasks are the only tracks the call lays. Every pour net's partial inner-layer pours are kept clear of other nets' tracks on the
 route's layers, whatever the phase's own `layers`, from the first phase on; a pour net's call takes its own net's guard
 off for itself alone. A pour net no phase names is left to its pours and is not counted in the closure. The rest
 phase never takes a pour net. A `current_paths` phase does not route the pour nets it picks up: the pour carries the
