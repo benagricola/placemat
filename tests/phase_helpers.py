@@ -2,11 +2,14 @@
 listing a stand-in router gives so a route takes it for the placemat fork."""
 import json
 
+from placemat.kicad.pour_join import REPAIR_FLAGS, TASK_FLAGS
 from placemat.route_phase import parse_phases
 
 SIGNALS = ({"name": "signals"},)
+
 CAPABILITIES = {"modules": {"route.py": True, "repair_planes.py": True},
-                "flags": {"route.py": ["--connections", "--bus-nets"], "repair_planes.py": ["--no-fix-drc-settings"]}}
+                "flags": {"route.py": ["--connections", "--bus-nets", *TASK_FLAGS],
+                          "repair_planes.py": list(REPAIR_FLAGS)}}
 
 
 def phases(*raw):

@@ -15,8 +15,7 @@ import time
 
 from .drc import run_drc
 from .route import (RouteRefused, RouterFailed, _copy_project, run_router, clearance_groups, fill_zones,
-                    group_clearance, lock_copper, main_pass_nets, remove_guards, route_pairs, route_pour_net,
-                    router_command)
+                    group_clearance, lock_copper, main_pass_nets, remove_guards, route_pairs, router_command)
 
 
 @dataclass(frozen=True)
@@ -151,17 +150,19 @@ class Routed:
     summaries: list = field(default_factory=list)       # (phase name, call index, summary path as str)
 
     widths: list = field(default_factory=list)
+    pour_joins: list = field(default_factory=list)      # pour_join.join_pour's record of each pour call
 
     def record(self) -> dict:
         return {"widths": list(self.widths), "board": Path(self.board).name, "seconds": round(self.seconds, 1), "ncalls": self.ncalls,
                 "pairs": self.pairs, "connections": list(self.connections), "bus_groups": list(self.bus_groups),
-                "summaries": [list(s) for s in self.summaries]}
+                "summaries": [list(s) for s in self.summaries], "pour_joins": list(self.pour_joins)}
 
     @staticmethod
     def of(doc: dict, work) -> "Routed":
         return Routed(Path(work) / doc["board"], doc["seconds"], doc["ncalls"], doc.get("pairs"),
                       list(doc.get("connections") or ()), list(doc.get("bus_groups") or ()),
-                      [tuple(s) for s in doc.get("summaries") or ()], list(doc.get("widths") or ()))
+                      [tuple(s) for s in doc.get("summaries") or ()], list(doc.get("widths") or ()),
+                      list(doc.get("pour_joins") or ()))
 
 
 def _run(cmd, log: Path, ctx) -> int:
@@ -872,15 +873,16 @@ def open_entry(o, j, record, net_evidence) -> dict:
 
 
 def phase_record(phase, index, sel, obligations, judged, seconds, calls, pairs=None, connections=(), bus_groups=(),
-                 net_evidence=None) -> dict:
+                 net_evidence=None, pour_joins=()) -> dict:
     """What one phase did: its definition, `asked` (its obligations), `joined` (those clean on the board after it),
     `closure_clean` (joined / asked, 1.0 when nothing is asked), `open` (open_entry of each one not clean), its time,
     router calls, pair outcome, --connections records and bus groups, and `pour_served`: each connection a
     current_paths phase left to its pour (ruling S13), {"net", "from", "to", "joined"}, joined as judged after the
-    phase; one the pour does not join is also open. `reused` is set by the route."""
+    phase; one the pour does not join is also open. `pour_joins`: each pour call's record (pour_join.join_pour: its
+    pads, the drops' vias, the tasks for the groups still apart). `reused` is set by the route."""
     connections = list(connections)
     rec = dict(phase.record(), index=index, seconds=round(seconds, 1), reused=False, calls=calls, pairs=pairs,
-               connections=connections, bus_groups=list(bus_groups), widths=[],
+               connections=connections, bus_groups=list(bus_groups), widths=[], pour_joins=list(pour_joins),
                pour_served=[dict({k: o[k] for k in ("net", "from", "to")}, joined=bool(j["joined"]))
                             for o, j in zip(obligations, judged) if o.get("pour_served")])
     records = records_of(obligations, connections)
@@ -991,6 +993,69 @@ def answered(pending, recs) -> list:
             for t, r in zip(pending, recs)]
 
 
+@dataclass
+class TaskRun:
+    """What route_tasks left: the last board, the router's record of each task it answered (deferred ones only when
+    nothing moved), each sub-call's summary path, each sub-call's (tasks attempted, board in, board out), and the
+    bus groups the router reported."""
+    board: Path
+    records: list = field(default_factory=list)
+    summaries: list = field(default_factory=list)
+    calls: list = field(default_factory=list)
+    bus_groups: list = field(default_factory=list)
+
+
+def fresh_output(path) -> Path:
+    """`path`, a board a call is about to write, with any board, project, rules or summary an earlier run left under
+    its name removed: a router that never overwrites an existing project (KRT seed_project_for_output) must not hand
+    an earlier run's back."""
+    path = Path(path)
+    for ext in (".kicad_pcb", ".kicad_pro", ".kicad_dru", ".kicad_prl"):
+        path.with_suffix(ext).unlink(missing_ok=True)
+    return path
+
+
+def route_tasks(ctx, pending, src, stem, layers, common, phase, bus_nets=None) -> TaskRun:
+    """Route pad-to-pad tasks (--connections) on `src`, in sub-calls `<stem>_<j>`: each call's copper locked and the
+    board's project copied back; the tasks the router defers go again on the board the call left, until none is
+    deferred or a call moves none. A task the router refuses stops the route (RouteRefused "router_refused"); a
+    call that fails raises RouterFailed."""
+    out = TaskRun(Path(src))
+    pending, j = list(pending), 0
+    while pending:
+        cfile = write_connections(pending, ctx.work / ("%s_%d_connections.json" % (stem, j)), layers)
+        part = fresh_output(ctx.work / ("%s_%d.kicad_pcb" % (stem, j)))
+        psum = ctx.work / ("%s_%d_summary.json" % (stem, j))
+        psum.unlink(missing_ok=True)
+        cmd = router_command(ctx.rpy, ctx.script, out.board, part, set(), layers, psum, connections=cfile,
+                             bus_nets=list(bus_nets) if bus_nets else None, **common)
+        log = ctx.work / ("%s_%d.log" % (stem, j))
+        rc = _run(cmd, log, ctx)
+        if rc != 0 or not part.exists():
+            _failed(rc, log, "phase %s" % phase)
+        _copy_project(out.board, part)
+        lock_copper(str(part))
+        out.summaries.append(psum)
+        data = connection_summary(psum, pending, phase, log)
+        recs = answered(pending, data.get("connections") or [])
+        if bus_nets:
+            out.bus_groups += data.get("bus_groups") or []
+        refused = refused_records(recs)
+        if refused:
+            raise RouteRefused("router_refused", phase=phase, tasks=refused)
+        attempted = tuple(t for t, r in zip(pending, recs) if r.get("status") != "deferred")
+        if attempted:
+            out.calls.append((attempted, out.board, part))
+        deferred = [t for t, r in zip(pending, recs) if r.get("status") == "deferred"]
+        out.records += [r for r in recs if r.get("status") != "deferred"]
+        out.board = part
+        if len(deferred) == len(pending):     # nothing moved: the router deferred every task; they stay so
+            out.records += [r for r in recs if r.get("status") == "deferred"]
+            break
+        pending, j = deferred, j + 1
+    return out
+
+
 def route_calls(ctx, index, phase, sel, board) -> PhaseOutcome:
     """Route one phase's calls (plan_calls) on `board`, in order, each on the board the one before left, its copper
     locked. The outcome's `routed` is what judge_phase needs. A task the router refuses stops the route (RouteRefused
@@ -1010,7 +1075,7 @@ def route_calls(ctx, index, phase, sel, board) -> PhaseOutcome:
     calls = plan_calls(sel, ctx.clearance_map, ctx.base_clearance, set(ctx.excluded) | set(ctx.pour_nets))
     layers = list(sel.layers)
     out = PhaseOutcome(board, {}, {})
-    pairs, connections, bus_groups = None, [], []
+    pairs, connections, bus_groups, pour_joins = None, [], [], []
     common = dict(iterations=ctx.iterations, probe=ctx.probe, quick=ctx.quick, clearances=ctx.clearances_file,
                   neckdown=phase.neckdown, extra_args=tuple(phase.router_args))
     what = "phase %s" % phase.name
@@ -1030,42 +1095,20 @@ def route_calls(ctx, index, phase, sel, board) -> PhaseOutcome:
                 shutil.copy(got, nxt)
                 _copy_project(got, nxt)
         elif call.kind == "pour":
-            route_pour_net(ctx, board, nxt, call.nets[0], call.width, layers, stem, phase.neckdown,
-                           tuple(phase.router_args), phase=phase.name)
-            out.summaries.append((phase.name, k, summary))
+            from .pour_join import join_pour
+            joined, run = join_pour(ctx, board, nxt, call.nets[0], call.width, layers, stem, phase.name, common)
+            pour_joins.append(joined)
+            out.summaries += [(phase.name, k, s) for s in run.summaries]
+            connections += run.records
         elif call.kind in ("tasks", "bus_tasks"):
-            pending, j, src = list(call.tasks), 0, board
-            while pending:
-                cfile = write_connections(pending, ctx.work / ("%s_%d_connections.json" % (stem, j)), layers)
-                part = ctx.work / ("%s_%d.kicad_pcb" % (stem, j))
-                psum = ctx.work / ("%s_%d_summary.json" % (stem, j))
-                cmd = router_command(ctx.rpy, ctx.script, src, part, set(), layers, psum, connections=cfile,
-                                     bus_nets=list(call.nets) if call.kind == "bus_tasks" else None, **common)
-                log = ctx.work / ("%s_%d.log" % (stem, j))
-                rc = _run(cmd, log, ctx)
-                if rc != 0 or not part.exists():
-                    _failed(rc, log, what)
-                _copy_project(src, part)
-                lock_copper(str(part))
-                out.summaries.append((phase.name, k, psum))
-                data = connection_summary(psum, pending, phase.name, log)
-                recs = answered(pending, data.get("connections") or [])
-                if call.kind == "bus_tasks":
-                    bus_groups += data.get("bus_groups") or []
-                refused = refused_records(recs)
-                if refused:
-                    raise RouteRefused("router_refused", phase=phase.name, tasks=refused)
-                attempted = tuple(t for t, r in zip(pending, recs) if r.get("status") != "deferred")
-                if attempted:
-                    out.calls.append((replace(call, tasks=attempted), src, part))
-                deferred = [t for t, r in zip(pending, recs) if r.get("status") == "deferred"]
-                connections += [r for r in recs if r.get("status") != "deferred"]
-                if len(deferred) == len(pending):     # nothing moved: the router deferred every task; they stay so
-                    connections += [r for r in recs if r.get("status") == "deferred"]
-                    break
-                pending, src, j = deferred, part, j + 1
-            shutil.copy(src, nxt)
-            _copy_project(src, nxt)
+            run = route_tasks(ctx, call.tasks, board, stem, layers, common, phase.name,
+                              bus_nets=call.nets if call.kind == "bus_tasks" else None)
+            out.summaries += [(phase.name, k, s) for s in run.summaries]
+            out.calls += [(replace(call, tasks=attempted), s, p) for attempted, s, p in run.calls]
+            connections += run.records
+            bus_groups += run.bus_groups
+            shutil.copy(run.board, nxt)
+            _copy_project(run.board, nxt)
         else:
             if call.kind == "rest":
                 # the router refuses a `*` that matches no net (exit 1, "No nets matched the given patterns!"):
@@ -1104,7 +1147,7 @@ def route_calls(ctx, index, phase, sel, board) -> PhaseOutcome:
                         [(n, k, str(sp)) for n, k, sp in out.summaries],
                         phase_widths(phase, out.calls, ctx.cfg)
                         + narrow_join_widths(phase, sel, connections, board, ctx.cfg)
-                        + task_widths(phase, sel, connections)).record()
+                        + task_widths(phase, sel, connections), pour_joins).record()
     return out
 
 
@@ -1131,17 +1174,20 @@ def judge_phase(ctx, index, phase, sel, routed: Routed, obligations) -> tuple:
                           judge_obligations(judged, obligations, drc_json, neck, drc.is_real,
                                             phase_input_drc(ctx.work, index)),
                           routed.seconds + time.time() - t0, routed.ncalls, routed.pairs, routed.connections,
-                          routed.bus_groups, net_evidence)
+                          routed.bus_groups, net_evidence, routed.pour_joins)
     record["widths"] = list(routed.widths)
     return record, dict(drc.open_nets)
 
 
 def phase_input_drc(work, index) -> Path:
-    """The DRC of phase `index`'s input board (ruling S15): the phase before's judging DRC, or for the first phase (and
-    a phase routed alone, `--only`) the route's input board's (`drc_before.json`), which also stands in when the
-    phase before has none."""
-    before = Path(work) / ("p%d_drc.json" % (index - 1))
-    return before if index > 0 and before.exists() else Path(work) / "drc_before.json"
+    """The DRC of phase `index`'s input board (ruling S15): the route's input board's (`drc_before.json`) for the first
+    phase, and for a phase routed alone (`--only`, index 0); the phase before's judging DRC for any other. A phase
+    after the first is judged only once the phase before it has been (a resumed phase keeps its files), so a missing
+    one is a fault and raises FileNotFoundError."""
+    path = Path(work) / ("p%d_drc.json" % (index - 1) if index > 0 else "drc_before.json")
+    if not path.exists():
+        raise FileNotFoundError(path)
+    return path
 
 
 def phase_neck(cfg, phase) -> float:

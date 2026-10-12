@@ -3991,14 +3991,17 @@ net at different widths route one call per width, widest first. A phase's pairs,
 in that order.
 
 A pour net (a net with a zone or filled pour on the board: the plan's plane nets for `run --route`) that a phase names
-is joined to its pours alone, in calls of its own, its pours handed to the router as zones. Via drops come first: the
-router's plane repair gives each pad of the net that no copper joins to its pour a via in the pad, or a via beside it
-with a short track on the phase's layers, at the net class's via and track sizes, never below the board's own rules,
-and leaves a pad already joined (by a cell's via, a track, the pour itself) as it is. Then each group of the net's
-pads still apart from the pour is routed to the nearest pad the pour reaches by one pad-to-pad task, at the phase's
-width or the net class's; the track may end on the pour's fill. The calls leave the board's rules as they were. The plane
-repair takes neither `[route] router_args` nor the phase's `router_args`, and spaces by the net classes, not by a
-capture's stated net clearance; the tracking call takes both, as other calls do. Every pour net's partial inner-layer pours are kept clear of other nets' tracks on the
+is joined to its pours alone, in calls of its own, its pours handed to the router as zones. Via drops come first:
+the router's plane repair gives each pad of the net that KiCad's connectivity finds apart from every pour of the net
+a via in the pad, or a via beside it with a short track on the phase's layers, at the net class's via size and track
+width, never below the board's own rules; its via's hole keeps the board's hole clearance as well. A pad already
+joined (by a cell's via, a track, the pour itself) is left as it is. The repair also joins split pieces of the pour
+with tracks no wider than the phase's width or the net class's, and leaves anything still split to the next step.
+Then the group of the net's pads holding the most pads among those on the pour stands for it, and every other group
+is routed to its nearest pad by one pad-to-pad task, at the phase's width or the net class's; the track may end on
+the pour's fill. A part outside the board's outline gets no task. Neither call crosses a footprint's own copper (an
+antenna) to reach a pad of that footprint. Both take the capture's stated net clearances; the plane repair takes no
+`[route] router_args` or phase `router_args`. The calls leave the board's rules as they were. Every pour net's partial inner-layer pours are kept clear of other nets' tracks on the
 route's layers, whatever the phase's own `layers`, from the first phase on; a pour net's call takes its own net's guard
 off for itself alone. A pour net no phase names is left to its pours and is not counted in the closure. The rest
 phase never takes a pour net. A `current_paths` phase does not route the pour nets it picks up: the pour carries the
@@ -4050,6 +4053,12 @@ last phase's board is `router_out.kicad_pcb`, and `routed.kicad_pcb` is made fro
   but its net has a real DRC error the phase's input board did not have, `under` (`{layer: mm}`) when joined narrower than asked, and `width_unknown: true`
   when joined but no copper path between its pads could be measured (copper joined only partway along a curved
   track, which is measured end to end at its own length, or a net the router gave no width for, below).
+- `pour_joins`: one record per pour net the phase joined to its pour: `net`; `pads` (its pads inside the board's
+  outline); `joined_before` (those on the pour before the call, left alone); `apart_before`; `tapped` (pads apart
+  before that the drops joined); `vias` (`in_pad`, `beside`: the vias the drops added); `groups_left` (the groups
+  still apart after the drops, one task each); `tasks` (the router's record of each task, as in `connections`). The
+  phase line says the same: "GND: 3 pads on the pour, 82 of 90 apart tapped (47 vias in a pad, 10 beside), 1 of 3
+  groups left joined by a track".
 - `final_asked`, `final_closure_clean`, `final_open`: the same obligations as `asked`, judged again on the final
   board, after the last phase and the clean-up, against the same input board's DRC. A short or a narrow join left by a later phase shows in the final
   fields; a fault is not attributed to a phase.
@@ -4080,7 +4089,7 @@ the code and its facts):
 | `no_phases` | the project has no `[[route.phase]]`: `route: no routing phases in placemat.toml; \`placemat settings --example\` writes a placemat.toml with example phases` |
 | `unknown_phase` | a phase named to route up to is not one of the project's |
 | `capture` | the capture's `nets.layout.json` cannot be read, or was written for another netlist (`path`, the sidecar; `reason`; `detail`) |
-| `router_old` | the router lacks a flag the phases need (`--connections`; `--bus-nets` for a phase with buses; the plane repair's `--no-fix-drc-settings` on a board with pour nets) |
+| `router_old` | the router lacks a flag the phases need (`--connections`; `--bus-nets` for a phase with buses; for a phase that names a pour net, the plane repair's `--pads`, `--no-join-gate`, `--no-own-pad-lift`, `--net-clearances` and the others its call gives, and route.py's `--no-own-pad-lift`) |
 | `width_policy_unavailable` | the router has no width query (`py_router/nominal_width_policy.py`, on the placemat fork) or its interpreter will not start (`router`, `script`; `error` and `errno` when it will not start); routing stops before changing copper |
 | `width_policy_failed` | the router's width query gave no answer (`router`; `failure`: `timeout` with `seconds`, `failed` with `exit_code`, or `malformed` with `problem`; `log`, its output); routing stops before changing copper |
 | `router_owned` | `[route] router_args` or a phase's `router_args` names, by the router's own flag list, a flag placemat sets itself (`phase`, null for `[route]`; `flag`; `owned`, the router flag it names). The settings refuse the plain cases when they are read; this catches an abbreviation only the router's list resolves |

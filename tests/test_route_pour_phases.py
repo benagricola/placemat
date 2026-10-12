@@ -1,5 +1,7 @@
-"""A named routing phase routes pour nets alone while preserving other pours.
+"""A named routing phase joins pour nets to their pours alone (pour_join.join_pour: via drops, then a task for each
+group still apart) while preserving other pours.
 """
+import json
 import shutil
 from pathlib import Path
 from types import SimpleNamespace
@@ -16,10 +18,36 @@ ROUTE_LAYERS = ["F.Cu", "In2.Cu", "B.Cu"]
 
 
 def _ctx(tmp_path, work):
-    """What route_pour_net reads of a route's phase context (kicad/phase_run.PhaseContext)."""
+    """What join_pour reads of a route's phase context (kicad/phase_run.PhaseContext)."""
     return SimpleNamespace(cfg=Settings(), work=work, rpy="py", script="route.py", router_dir=str(tmp_path),
                            iterations=None, probe=None, quick=True, clearances_file=None, env={}, timeout=60,
-                           layers=ROUTE_LAYERS)
+                           layers=ROUTE_LAYERS, geometry=SimpleNamespace(netclasses={}, min_track_width=0.2))
+
+
+COMMON = dict(iterations=None, probe=None, quick=True, clearances=None, neckdown=True, extra_args=())
+
+
+def _join(ctx, board, out, net, width, layers, stem):
+    from placemat.kicad.pour_join import join_pour
+    return join_pour(ctx, board, out, net, width, layers, stem, "pour", COMMON)
+
+
+def _copying(seen=None):
+    """A stand-in for subprocess.run of the router and its plane repair: copies its input board to its output, notes
+    each call through `seen`, and writes a routed record for each --connections task."""
+    import subprocess
+
+    def run(cmd, **kw):
+        if seen is not None:
+            seen(cmd)
+        shutil.copy(cmd[2], cmd[3])
+        if "--json-out" in cmd and "--connections" in cmd:
+            tasks = json.loads(Path(cmd[cmd.index("--connections") + 1]).read_text())
+            Path(cmd[cmd.index("--json-out") + 1]).write_text(json.dumps({"connections": [
+                dict(t, status="routed", joined=True, length_mm=1.0, min_width_mm=t["widths"],
+                     layers=list(t["widths"]), evidence=None) for t in tasks]}))
+        return subprocess.CompletedProcess(cmd, 0)
+    return run
 
 
 def _guarded(pcb, nets):
@@ -134,42 +162,28 @@ def _four_layer_with_pours(breakout_pcb, dest, nets):
 def test_each_pour_net_is_routed_with_the_others_pours_guarded(breakout_pcb, tmp_path, monkeypatch):
     """Two pour nets, each in a call of its own: each call takes off its own net's guard for itself alone, the other's
     partial pour kept clear of it, and the board it leaves has its own pour guarded again."""
-    import subprocess
     import pcbnew
     import placemat.kicad.route as route_mod
     pcb = _guarded(_four_layer_with_pours(breakout_pcb, tmp_path / "in", ["PERMIT_A", "PERMIT_B"]),
                    ["PERMIT_A", "PERMIT_B"])
     passes = []
 
-    def stand_in(cmd, **kw):          # the router: copies its input to its output
-        inp, out = cmd[2], cmd[3]
-        nets = cmd[cmd.index("--nets") + 1:cmd.index("--layers")]
-        brd = pcbnew.LoadBoard(inp)
-        passes.append((nets, sorted(z.GetZoneName() for z in brd.Zones() if z.GetIsRuleArea())))
-        shutil.copy(inp, out)
-        return subprocess.CompletedProcess(cmd, 0)
-    monkeypatch.setattr(route_mod.subprocess, "run", stand_in)
+    def seen(cmd):                    # the plane repair's call names its net
+        if "--no-fix-drc-settings" in cmd:
+            nets = cmd[cmd.index("--nets") + 1:cmd.index("--layers")]
+            brd = pcbnew.LoadBoard(cmd[2])
+            passes.append((nets, sorted(z.GetZoneName() for z in brd.Zones() if z.GetIsRuleArea())))
+    monkeypatch.setattr(route_mod.subprocess, "run", _copying(seen))
     work = tmp_path / "work"
     work.mkdir()
     ctx = _ctx(tmp_path, work)
     a, b = work / "p0_0.kicad_pcb", work / "p0_1.kicad_pcb"
-    assert route_mod.route_pour_net(ctx, pcb, a, "PERMIT_A", None, ROUTE_LAYERS, "p0_0") == ["PERMIT_A on In2.Cu"]
-    route_mod.route_pour_net(ctx, a, b, "PERMIT_B", None, ROUTE_LAYERS, "p0_1")
+    _join(ctx, pcb, a, "PERMIT_A", None, ROUTE_LAYERS, "p0_0")
+    assert _rule_areas(a) == ["placemat pour PERMIT_A In2.Cu", "placemat pour PERMIT_B In2.Cu"]
+    _join(ctx, a, b, "PERMIT_B", None, ROUTE_LAYERS, "p0_1")
     assert passes == [(["PERMIT_A"], ["placemat pour PERMIT_B In2.Cu"]),
                       (["PERMIT_B"], ["placemat pour PERMIT_A In2.Cu"])]
     assert _rule_areas(b) == ["placemat pour PERMIT_A In2.Cu", "placemat pour PERMIT_B In2.Cu"]
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 @needs_kicad
@@ -178,26 +192,24 @@ def test_a_pour_net_routes_on_its_phases_layers_at_its_width_and_keeps_the_inner
                                                                                          monkeypatch):
     """A phase on F and B: the call routes on those layers, and the inner-layer guards of the other pour net (and
     its own, put back) stay on the route's layers for the calls after it."""
-    import subprocess
     import placemat.kicad.route as route_mod
     pcb = _guarded(_four_layer_with_pours(breakout_pcb, tmp_path / "in", ["PERMIT_A", "PERMIT_B"]),
                    ["PERMIT_A", "PERMIT_B"])
     seen = []
-
-    def stand_in(cmd, **kw):
-        seen.append(cmd)
-        assert "--layer-costs" not in cmd
-        shutil.copy(cmd[2], cmd[3])
-        return subprocess.CompletedProcess(cmd, 0)
-    monkeypatch.setattr(route_mod.subprocess, "run", stand_in)
+    monkeypatch.setattr(route_mod.subprocess, "run", _copying(seen.append))
     work = tmp_path / "work"
     work.mkdir()
     out = work / "p0_0.kicad_pcb"
-    route_mod.route_pour_net(_ctx(tmp_path, work), pcb, out, "PERMIT_A", 0.5, ["F.Cu", "B.Cu"], "p0_0")
+    _join(_ctx(tmp_path, work), pcb, out, "PERMIT_A", 0.5, ["F.Cu", "B.Cu"], "p0_0")
     assert _rule_areas(out) == ["placemat pour PERMIT_A In2.Cu", "placemat pour PERMIT_B In2.Cu"]
-    (cmd,) = seen
-    assert cmd[cmd.index("--layers") + 1:cmd.index("--escalation")] == ["F.Cu", "B.Cu"]
-    assert cmd[cmd.index("--power-nets") + 1] == "PERMIT_A" and cmd[cmd.index("--power-nets-widths") + 1] == "0.5"
+    drops, *tracks = seen
+    assert "--layer-costs" not in drops
+    assert drops[drops.index("--layers") + 1:drops.index("--track-width")] == ["F.Cu", "B.Cu"]
+    assert drops[drops.index("--track-width") + 1] == "0.5" and drops[drops.index("--max-track-width") + 1] == "0.5"
+    for cmd in tracks:
+        assert cmd[cmd.index("--layers") + 1:cmd.index("--escalation")] == ["F.Cu", "B.Cu"]
+        for t in json.loads(Path(cmd[cmd.index("--connections") + 1]).read_text()):
+            assert t["net"] == "PERMIT_A" and t["widths"] == {"F.Cu": 0.5, "B.Cu": 0.5}
 
 
 def _graphic_pour(breakout_pcb, dest, net, group=None):
@@ -243,25 +255,23 @@ def test_a_pour_nets_own_graphic_pour_reaches_the_router_as_a_zone(breakout_pcb,
     """The router credits a net's zones as joining what they reach, but not its filled copper graphics (KRT models
     each as scanline bands and takes every band for an island of the net to join). So the pour net's call hands the
     router the net's own pour as a zone over its copper, and the board it leaves has the pour back as drawn."""
-    import subprocess
     import pcbnew
     import placemat.kicad.route as route_mod
     pcb, uuid, outline = _graphic_pour(breakout_pcb, tmp_path / "in", "PERMIT_A")
     seen = []
 
-    def stand_in(cmd, **kw):          # the router: copies its input to its output
-        inp, out = cmd[2], cmd[3]
-        brd = pcbnew.LoadBoard(inp)
-        seen.append(([(z.GetNetname(), brd.GetLayerName(z.GetFirstLayer()), z.Outline().Area(), z.IsFilled())
-                      for z in brd.Zones() if not z.GetIsRuleArea() and z.GetNetname() == "PERMIT_A"],
-                     [d.m_Uuid.AsString() for d in brd.GetDrawings() if d.IsOnCopperLayer() and d.GetNetname() == "PERMIT_A"]))
-        shutil.copy(inp, out)
-        return subprocess.CompletedProcess(cmd, 0)
-    monkeypatch.setattr(route_mod.subprocess, "run", stand_in)
+    def look(cmd):                    # the plane repair's input: the pour as a zone
+        if "--no-fix-drc-settings" in cmd:
+            brd = pcbnew.LoadBoard(cmd[2])
+            seen.append(([(z.GetNetname(), brd.GetLayerName(z.GetFirstLayer()), z.Outline().Area(), z.IsFilled())
+                          for z in brd.Zones() if not z.GetIsRuleArea() and z.GetNetname() == "PERMIT_A"],
+                         [d.m_Uuid.AsString() for d in brd.GetDrawings()
+                          if d.IsOnCopperLayer() and d.GetNetname() == "PERMIT_A"]))
+    monkeypatch.setattr(route_mod.subprocess, "run", _copying(look))
     work = tmp_path / "work"
     work.mkdir()
     board = work / "p0_0.kicad_pcb"
-    route_mod.route_pour_net(_ctx(tmp_path, work), pcb, board, "PERMIT_A", None, ROUTE_LAYERS, "p0_0")
+    _join(_ctx(tmp_path, work), pcb, board, "PERMIT_A", None, ROUTE_LAYERS, "p0_0")
     (zones, graphics), = seen
     assert graphics == []
     (net, layer, area, filled), = [z for z in zones if z[1] == "In2.Cu"]
@@ -297,19 +307,15 @@ def test_a_router_run_lays_no_copper_over_the_pour_nets_own_graphic_pour(breakou
 @needs_kicad
 @needs_breakout
 def test_a_cells_graphic_pour_goes_back_into_its_group(breakout_pcb, tmp_path, monkeypatch):
-    import subprocess
     import pcbnew
     import placemat.kicad.route as route_mod
     pcb, uuid, _ = _graphic_pour(breakout_pcb, tmp_path / "in", "PERMIT_A", group="cell_a")
 
-    def stand_in(cmd, **kw):
-        shutil.copy(cmd[2], cmd[3])
-        return subprocess.CompletedProcess(cmd, 0)
-    monkeypatch.setattr(route_mod.subprocess, "run", stand_in)
+    monkeypatch.setattr(route_mod.subprocess, "run", _copying())
     work = tmp_path / "work"
     work.mkdir()
     board = work / "p0_0.kicad_pcb"
-    route_mod.route_pour_net(_ctx(tmp_path, work), pcb, board, "PERMIT_A", None, ROUTE_LAYERS, "p0_0")
+    _join(_ctx(tmp_path, work), pcb, board, "PERMIT_A", None, ROUTE_LAYERS, "p0_0")
     out = pcbnew.LoadBoard(str(board))
     back, = [d for d in out.GetDrawings() if d.m_Uuid.AsString() == uuid]
     assert back.GetParentGroup() is not None and back.GetParentGroup().GetName() == "cell_a"

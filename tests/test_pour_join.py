@@ -1,11 +1,12 @@
 """A phase that names a pour net joins its pads to the pour by via drops first, then tracks for what is left (D31,
-kicad/pour_join.py)."""
+rulings S16 and S17, kicad/pour_join.py)."""
 import json
 import subprocess
 
 import pytest
 
-from placemat.kicad.pour_join import PadEnd, PadGroup, drop_command, pad_groups, tasks_to_pour
+from placemat.kicad.pour_join import (REPAIR_FLAGS, PadEnd, PadGroup, drop_command, new_vias, pad_groups,
+                                     tasks_to_pour)
 from tests.conftest import ROUTER, needs_kicad, needs_router
 from tests.test_net_clearance import _two_part_board
 
@@ -21,38 +22,55 @@ def test_each_group_apart_from_the_pour_gets_one_task_to_the_nearest_joined_pad(
               PadGroup((_end("C3", 14.0), _end("C4", 30.0)), False),
               PadGroup((_end("C5", -3.0),), False)]
     tasks = tasks_to_pour(groups, "GND", W)
-    assert [(t.start, t.end) for t in tasks] == [(("C3", "1"), ("C2", "1")), (("C5", "1"), ("C1", "1"))]
+    assert [(t.start, t.end) for t in tasks] == [(("C2", "1"), ("C3", "1")), (("C1", "1"), ("C5", "1"))]
     assert all(t.net == "GND" and t.widths == W for t in tasks)
 
 
-def test_a_net_whose_pads_all_reach_the_pour_gets_no_task():
-    assert tasks_to_pour([PadGroup((_end("C1", 0.0),), True), PadGroup((_end("C2", 5.0),), True)], "GND", W) == []
+def test_a_net_whose_pads_all_reach_one_piece_of_the_pour_gets_no_task():
+    assert tasks_to_pour([PadGroup((_end("C1", 0.0), _end("C2", 5.0)), True)], "GND", W) == []
+
+
+def test_a_group_on_another_piece_of_the_pour_is_joined_to_the_largest():
+    """Two groups both reach a pour of the net, on pieces nothing joins (the region joins failed): the smaller group
+    is routed to the larger."""
+    tasks = tasks_to_pour([PadGroup((_end("C1", 0.0),), True), PadGroup((_end("C2", 5.0), _end("C3", 9.0)), True)],
+                          "GND", W)
+    assert [(t.start, t.end) for t in tasks] == [(("C1", "1"), ("C2", "1"))]
 
 
 def test_with_no_group_on_the_pour_the_largest_group_stands_for_it():
     big = PadGroup((_end("C1", 0.0), _end("C2", 1.0)), False)
     tasks = tasks_to_pour([PadGroup((_end("C3", 9.0),), False), big], "GND", W)
-    assert [(t.start, t.end) for t in tasks] == [(("C3", "1"), ("C2", "1"))]
+    assert [(t.start, t.end) for t in tasks] == [(("C2", "1"), ("C3", "1"))]
 
 
 def test_an_end_on_a_shared_reference_names_its_footprint():
     tasks = tasks_to_pour([PadGroup((_end("C1", 0.0),), True), PadGroup((_end("TP1", 2.0, shared=True),), False)],
                           "GND", W)
-    assert tasks[0].start == ("TP1", "1", "uuid-TP1")
+    assert tasks[0].end == ("TP1", "1", "uuid-TP1")
 
 
 def test_the_drop_call_keeps_the_boards_sizes_and_rules():
     cmd = drop_command("py", "/krt", "in.kicad_pcb", "out.kicad_pcb", "GND", ["F.Cu", "B.Cu"], via_size=0.6,
-                       via_drill=0.3, track_width=0.25, iterations=500)
+                       via_drill=0.3, track_width=0.25, pads_file="pads.json", clearances_file="c.json",
+                       iterations=500)
     assert cmd[:4] == ["py", "/krt/py_router/repair_planes.py", "in.kicad_pcb", "out.kicad_pcb"]
     assert cmd[cmd.index("--nets") + 1] == "GND"
     assert cmd[cmd.index("--layers") + 1:cmd.index("--layers") + 3] == ["F.Cu", "B.Cu"]
     assert cmd[cmd.index("--via-size") + 1] == "0.6" and cmd[cmd.index("--via-drill") + 1] == "0.3"
     assert cmd[cmd.index("--track-width") + 1] == "0.25" and cmd[cmd.index("--min-track-width") + 1] == "0.25"
+    assert cmd[cmd.index("--max-track-width") + 1] == "0.25"            # ruling S16: region joins at the class width
     assert cmd[cmd.index("--escalation") + 1] == "off"
-    assert "--no-fix-drc-settings" in cmd and "--no-kicad-recheck" in cmd
+    assert {"--no-fix-drc-settings", "--no-kicad-recheck", "--no-join-gate", "--no-own-pad-lift"} <= set(cmd)
+    assert cmd[cmd.index("--pads") + 1] == "pads.json" and cmd[cmd.index("--net-clearances") + 1] == "c.json"
     assert "--rip-blocker-nets" not in cmd
     assert cmd[cmd.index("--max-iterations") + 1] == "500"
+    assert {a for a in cmd if a.startswith("--")} <= set(REPAIR_FLAGS)
+
+
+def test_a_net_with_no_class_sizes_leaves_the_via_to_the_repair():
+    cmd = drop_command("py", "/krt", "in", "out", "GND", ["F.Cu"], track_width=0.2)
+    assert "--via-size" not in cmd and "--via-drill" not in cmd and "--pads" not in cmd
 
 
 def _zone(pcb, net, layer, box):
@@ -110,5 +128,28 @@ def test_every_flag_of_the_drop_call_is_one_the_routers_plane_repair_parses():
                                      cwd=str(ROUTER), timeout=60, check=True).stdout)
     known = set(caps["flags"]["repair_planes.py"])
     cmd = drop_command(rpy, ROUTER, "in", "out", "GND", ["F.Cu"], via_size=0.6, via_drill=0.3, track_width=0.2,
-                       iterations=5)
+                       pads_file="p.json", clearances_file="c.json", iterations=5)
     assert {a for a in cmd if a.startswith("--")} <= known
+    assert set(REPAIR_FLAGS) <= known
+
+
+@needs_kicad
+def test_a_pad_off_the_board_is_in_no_group(tmp_path):
+    """A part left outside the outline (a generation's unplaced parts) gets no task."""
+    pcb = _two_part_board(tmp_path)
+    text = pcb.read_text().replace('(footprint "t:p" (layer "F.Cu") (at 125 110)', '(footprint "t:p" (layer "F.Cu") (at 225 110)')
+    pcb.write_text(text)
+    refs = sorted(p.ref for g in pad_groups(pcb, "VIN") for p in g.pads)
+    assert refs == ["U1"]
+
+
+@needs_kicad
+def test_the_vias_a_call_added_are_named_in_the_pad_or_beside_it(tmp_path):
+    import shutil
+    pcb = _two_part_board(tmp_path)
+    after = tmp_path / "after.kicad_pcb"
+    shutil.copy(pcb, after)
+    _via(after, "VIN", 113, 110)            # on U1.3
+    _via(after, "VIN", 118, 115)            # in the open
+    assert new_vias(pcb, after, "VIN") == [{"at": [113.0, 110.0], "in_pad": True},
+                                           {"at": [118.0, 115.0], "in_pad": False}]

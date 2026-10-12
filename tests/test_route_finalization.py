@@ -51,6 +51,7 @@ def test_every_phase_is_judged_again_and_a_second_judging_starts_afresh(monkeypa
         return [{'joined': True, 'under': {}, 'violated': False, 'width_unknown': asked[0]['net'] == 'EARLIER'}]
     monkeypatch.setattr(phase_run, 'judge_obligations', judge)
     monkeypatch.setattr(phase_run, 'phase_neck', lambda cfg, phase: None)
+    monkeypatch.setattr(phase_run, 'phase_input_drc', lambda work, index: None)
     route.recheck_final_phases(report, obs, phases, {'policies': []}, 'routed', 'drc',
                                SimpleNamespace(is_real=lambda _: True), None)
     assert seen == obs and report.asked == obs
@@ -90,6 +91,7 @@ def test_final_connected_and_width_evidence_counts_are_distinct_from_clean(monke
                'widths': {'F.Cu': 0.2}} for i in range(3)]]
     monkeypatch.setattr(phase_run, 'judge_obligations', lambda *args: judged)
     monkeypatch.setattr(phase_run, 'phase_neck', lambda *args: None)
+    monkeypatch.setattr(phase_run, 'phase_input_drc', lambda work, index: None)
     report = SimpleNamespace(phases=[{'name': 'signals', 'connections': []}], final_judged=[], widths_failed=0)
     route.recheck_final_phases(report, asked, [SimpleNamespace(name='signals')], {'policies': []},
                               'routed', 'drc', SimpleNamespace(is_real=lambda _: True), None)

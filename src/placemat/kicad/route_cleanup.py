@@ -169,23 +169,32 @@ def pad_groups(board, pcbnew) -> dict:
     single pad is 1 whatever copper hangs off it. An NPTH pad has no copper
     and joins nothing, so it is left out (KiCad leaves it out of a net's
     connectivity too)."""
+    return {net: len(gs) for net, gs in connected_pad_groups(board, pcbnew).items()}
+
+
+def connected_pad_groups(board, pcbnew, nets=None) -> dict:
+    """{net: [[pad, ...], ...]}: each net's copper pads (NPTH pads left out, as pad_groups says) grouped by KiCad's
+    connectivity, in board order; only the nets in `nets` when given. The board's connectivity is built here."""
     board.BuildConnectivity()
     cn = board.GetConnectivity()
     pads = {}
     for p in board.GetPads():
-        if p.GetNetCode() > 0 and p.GetAttribute() != pcbnew.PAD_ATTRIB_NPTH:
+        if p.GetNetCode() > 0 and p.GetAttribute() != pcbnew.PAD_ATTRIB_NPTH and (nets is None or p.GetNetname() in nets):
             pads.setdefault(p.GetNetname(), []).append(p)
-    groups = {}
+    out = {}
     for net, ps in pads.items():
-        seen, n = set(), 0
+        by_uuid = {p.m_Uuid.AsString(): p for p in ps}
+        seen, groups = set(), []
         for p in ps:
             if p.m_Uuid.AsString() in seen:
                 continue
-            n += 1
-            seen.add(p.m_Uuid.AsString())
-            seen |= {i.m_Uuid.AsString() for i in cn.GetConnectedItems(p) if i.GetClass() == "PAD"}
-        groups[net] = n
-    return groups
+            members = [p.m_Uuid.AsString()] + [i.m_Uuid.AsString() for i in cn.GetConnectedItems(p)
+                                               if i.GetClass() == "PAD" and i.m_Uuid.AsString() in by_uuid]
+            members = [m for m in dict.fromkeys(members) if m not in seen]
+            seen.update(members)
+            groups.append([by_uuid[m] for m in members])
+        out[net] = groups
+    return out
 
 
 def _delete(board, item) -> None:

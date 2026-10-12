@@ -148,9 +148,9 @@ def rig(tmp_path, monkeypatch):
         root = tmp_path
 
         def calls(self):
-            """The pour phase's plane repair ("island") and the rest call ("main"); the pour phase's task calls for pads
-            the stand-in repair left apart are left out."""
-            return [c for c in self.calls_file.read_text().split() if c != "tasks"] if self.calls_file.exists() else []
+            """Each router call: the pour phase's plane repair ("island") and its task calls for the groups the
+            stand-in repair leaves apart ("tasks"), and the rest call ("main")."""
+            return self.calls_file.read_text().split() if self.calls_file.exists() else []
 
         def route(self, **kw):
             from placemat.kicad.route import route_board
@@ -170,10 +170,10 @@ def _finished(work, order=("pour", "signals")) -> list:
 
 def test_a_rerun_with_the_same_inputs_skips_every_phase_the_first_finished(rig):
     first = rig.route()
-    assert rig.calls() == ["island", "main"] and first.resumed == []
+    assert rig.calls() == ["island", "tasks", "main"] and first.resumed == []
     assert _finished(rig.work) == ["pour", "signals"]
     again = rig.route()
-    assert rig.calls() == ["island", "main"]                          # no router ran
+    assert rig.calls() == ["island", "tasks", "main"]                          # no router ran
     assert again.resumed == ["pour", "signals"] and [p["reused"] for p in again.phases] == [True, True]
     assert (again.closure, again.open_after) == (first.closure, first.open_after)
     assert [p["asked"] for p in again.phases] == [p["asked"] for p in first.phases]
@@ -184,30 +184,30 @@ def test_a_rest_phase_that_fails_leaves_the_pour_phase_done_and_the_rerun_does_o
     monkeypatch.setenv("FAKE_ROUTER_MAIN", "fail")
     with pytest.raises(RuntimeError, match="router exited 3"):
         rig.route()
-    assert rig.calls() == ["island", "main"]
+    assert rig.calls() == ["island", "tasks", "main"]
     assert _finished(rig.work) == ["pour"]
     assert (rig.work / "p0_0.kicad_pcb").exists()
     monkeypatch.delenv("FAKE_ROUTER_MAIN")
     done = rig.route()
-    assert rig.calls() == ["island", "main", "main"] and done.resumed == ["pour"]
+    assert rig.calls() == ["island", "tasks", "main", "main"] and done.resumed == ["pour"]
 
 
 def test_a_changed_input_reruns_the_phases_it_reaches(rig, monkeypatch):
     rig.route()
     # the excluded nets are in every phase's key: every phase is new
     again = rig.route(exclude_nets={"VBUS", "V3V3"})
-    assert rig.calls() == ["island", "main", "island", "main"] and again.resumed == []
+    assert rig.calls() == ["island", "tasks", "main", "island", "tasks", "main"] and again.resumed == []
     # a changed board is new for the same reason
     text = rig.pcb.read_text()
     rig.pcb.write_text(text.replace("(version", "(version", 1) + "\n")
     third = rig.route(exclude_nets={"VBUS", "V3V3"})
-    assert rig.calls() == ["island", "main"] * 3 and third.resumed == []
+    assert rig.calls() == ["island", "tasks", "main"] * 3 and third.resumed == []
 
 
 def test_without_resume_every_phase_runs_again(rig):
     rig.route()
     again = rig.route(resume=False)
-    assert rig.calls() == ["island", "main"] * 2 and again.resumed == []
+    assert rig.calls() == ["island", "tasks", "main"] * 2 and again.resumed == []
 
 
 def test_a_pair_phase_is_kept_and_reused_like_any_other(rig, monkeypatch):
@@ -229,7 +229,7 @@ def test_a_pair_phase_is_kept_and_reused_like_any_other(rig, monkeypatch):
     again = rig.route(phases=three)
     assert len(calls) == 1 and again.resumed == ["pair", "pour", "signals"]
     assert again.phases[0]["pairs"]["coupled"] == ["FB_5V/FB_5V_GND"]
-    assert rig.calls() == ["island", "main"]
+    assert rig.calls() == ["island", "tasks", "main"]
 
 
 # ---------------------------------------------------------------- a real stop
@@ -268,4 +268,4 @@ def test_a_stopped_route_keeps_the_finished_phases_ends_the_router_and_resumes(r
     assert not Path("/proc/%d" % router).exists(), "the router outlived the stop"
     assert _finished(rig.work) == ["pour"] and (rig.work / "p0_0.kicad_pcb").exists()
     done = rig.route()
-    assert rig.calls() == ["island", "main", "main"] and done.resumed == ["pour"]
+    assert rig.calls() == ["island", "tasks", "main", "main"] and done.resumed == ["pour"]

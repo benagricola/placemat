@@ -700,15 +700,39 @@ def test_a_phase_naming_a_pour_net_drops_vias_first_then_routes_only_the_pads_st
     """D31: the plane repair runs first on the pour net; the pour (over J1's VIN pad only) still misses U1's, so one
     connection task routes U1.3 to J1.2, the pad the pour reaches. Nothing routes VIN as a whole net."""
     _vin_pour(rig.pcb, 125.6, 127)
-    rig.route({"name": "pours", "nets": ["VIN"]}, pour_nets={"VIN"})
+    report = rig.route({"name": "pours", "nets": ["VIN"]}, pour_nets={"VIN"})
     calls = rig.calls()
     assert _drops(calls[0]) and calls[0][calls[0].index("--nets") + 1] == "VIN"
     assert calls[0][calls[0].index("--escalation") + 1] == "off"
+    # only the pad apart from the pour may be tapped; J1.2 is on it and is left alone
+    assert json.loads(open(calls[0][calls[0].index("--pads") + 1]).read()) == [{"ref": "U1", "pad": "3"}]
     (track,) = [c for c in calls[1:] if "--connections" in c]
     assert "--nets" not in track and track[0] == calls[0][1]            # on the board the drops left
+    assert "--no-own-pad-lift" in track
     (task,) = json.loads(open(track[track.index("--connections") + 1]).read())
-    assert task["net"] == "VIN" and (task["from"], task["to"]) == ({"ref": "U1", "pad": "3"}, {"ref": "J1", "pad": "2"})
+    assert task["net"] == "VIN" and (task["from"], task["to"]) == ({"ref": "J1", "pad": "2"}, {"ref": "U1", "pad": "3"})
     assert task["widths"] == {"F.Cu": 0.2, "B.Cu": 0.2}
+    # the pour call's outcome is data in the phase record (I5), and its task's record answers the open connection (I1)
+    (p,) = report.phases
+    (joined,) = p["pour_joins"]
+    assert {k: joined[k] for k in ("net", "pads", "joined_before", "apart_before", "tapped", "vias", "groups_left")} \
+        == {"net": "VIN", "pads": 2, "joined_before": 1, "apart_before": 1, "tapped": 0,
+            "vias": {"in_pad": 0, "beside": 0}, "groups_left": 1}
+    assert [t["status"] for t in joined["tasks"]] == ["routed"]
+    assert [o["outcome"] for o in p["open"]] == ["routed"]          # the stand-in lays no copper
+
+
+@needs_kicad
+def test_a_router_without_the_plane_repairs_flags_is_refused_only_when_a_phase_names_a_pour_net(rig):
+    from tests.phase_helpers import CAPABILITIES
+    caps = json.loads(json.dumps(CAPABILITIES))
+    caps["flags"]["repair_planes.py"].remove("--no-join-gate")
+    (rig.router / "krt_capabilities.py").write_text("print(%r)\n" % json.dumps(caps))
+    _vin_pour(rig.pcb, 125.6, 127)
+    rig.route(FB, pour_nets={"VIN"})                                  # a board with a pour, no phase naming it
+    with pytest.raises(RouteRefused) as e:
+        rig.route({"name": "pours", "nets": ["VIN"]}, pour_nets={"VIN"})
+    assert e.value.code == "router_old" and "repair_planes.py:--no-join-gate" in e.value.facts["missing"]
 
 
 @needs_kicad
@@ -744,3 +768,14 @@ def test_the_drop_call_cannot_weaken_the_boards_rules(rig, monkeypatch):
     monkeypatch.setattr(phase_run, "run_drc", original_rules)
     rig.route({"name": "pours", "nets": ["VIN"]}, pour_nets={"VIN"})
     assert {"p0_drc.kicad_pcb", "routed.kicad_pcb"} <= set(checked)
+
+
+def test_a_pour_joins_record_is_said_on_its_phase_line():
+    from placemat.kicad.route import phase_lines
+    rec = {"name": "pours", "selector": "nets", "joined": 80, "asked": 87, "closure_clean": 0.9195, "seconds": 89.0,
+           "open": [], "pour_joins": [{"net": "GND", "pads": 93, "joined_before": 3, "apart_before": 90, "tapped": 82,
+                                       "vias": {"in_pad": 47, "beside": 10}, "groups_left": 3,
+                                       "tasks": [{"status": "routed"}, {"status": "failed"}, {"status": "failed"}]}]}
+    (line,) = phase_lines([rec])
+    assert line.endswith("; GND: 3 pads on the pour, 82 of 90 apart tapped (47 vias in a pad, 10 beside), "
+                         "1 of 3 groups left joined by a track")

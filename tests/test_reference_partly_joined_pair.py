@@ -65,7 +65,8 @@ def test_an_actual_half_joined_pair_routes_without_changing_its_joined_leg(tmp_p
         assert completed.count(name) == 1, categories
         assert name not in categories["partial"] and name not in categories["failed"], categories
         assert signals["calls"] == 0
-        assert (pair["final_asked"], pair["final_joined"], pair["final_open"]) == (2, 2, [])
+        # ruling S6: the phase's asked set is the input board's open connections on its nets; USB_D_P is joined there
+        assert (pair["final_asked"], pair["final_joined"], pair["final_open"]) == (1, 1, [])
         final = pathlib.Path(report["routed_pcb"])
         final_drc = tmp_path / "final-drc.json"
         run_drc(final, final_drc)

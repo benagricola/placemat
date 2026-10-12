@@ -227,6 +227,25 @@ Not user decisions. Each line gives the ruling, its reason, and what it costs if
   the same input DRC per phase. Reason: a footprint's own pre-existing error (a connector's pad against its own hole)
   marked every connection on its net as not clean, so a pour phase read 0% clean with its net complete. Cost if
   wrong: an error already on the board no longer marks its net.
+- S16 (fix round 1 of D31) The plane repair's region joins, which tie split pieces of one pour together with tracks,
+  are part of D31's join to the pour and stay; they are laid no wider than the net class's track width, or the
+  phase's width when it sets one (`--max-track-width`, as `--track-width` and `--min-track-width`). The group with
+  the most pads among those on the pour stands for it; every other group, on another piece of the pour or on none,
+  is routed to it by one task. Reason: without the joins nothing ties a partial pour's islands together, and at the
+  repair's default 2.0 mm they took 236 mm of +3V3 on esp-rust-board. Cost if wrong: a split pour joined by thin
+  tracks.
+- S17 (fork) The fork's plane repair changes for placemat, on the connections branch, each a documented divergence:
+  its via map keeps a tap via's hole at the board's hole clearance; `--no-own-pad-lift` (repair and route.py) keeps
+  a footprint's own copper blocking every net, so no track crosses an antenna to reach its GND pad; `--net-clearances`
+  takes the capture's stated clearances as route.py does; `--pads` limits the taps to the pads KiCad finds apart from
+  the pour; `--no-join-gate` leaves what is still split to placemat's tasks. placemat checks these flags in the
+  router's capability list when a phase names a pour net (`router_old` otherwise). Reason: watchy's drops added a
+  hole-clearance error and an antenna short; the review's I4. Cost if wrong: an antenna GND pad the repair cannot
+  reach is left open instead of shorted.
+- S15 also covers the route's own closure: `closure_clean`'s shorted nets are those in real errors the unrouted
+  board did not have (route.py `_route_board`). Errors are matched one to one, on type and every item's description
+  and position (drc.new_errors), for drc_new as well. Reason: review M3 and M7. Cost if wrong: drc_new and the
+  route's closure read differently from step 0's.
 - The "Decisions (to confirm)" heading became "Decisions", each entry naming who decided it. Reason: nothing applied is
   pending confirmation. Cost if wrong: none.
 

@@ -302,9 +302,9 @@ NEAR_MM = 0.05      # test (a)'s match distance (fixtures/reference/route_ref.py
 
 def real_errors(data: dict, is_real) -> list:
     """The violations of a kicad-cli DRC report in the `real` bucket (`is_real(kind)`, DrcReport.is_real: the
-    `[drc] real_kinds`) at severity error, not set aside by a keepout's allow list: {"type", "nets", "at_mm"}, nets
-    sorted (each item's "[NET]", as route._violations_by_net reads them), at_mm the least item position. Warnings and
-    the other buckets never count."""
+    `[drc] real_kinds`) at severity error, not set aside by a keepout's allow list: {"type", "nets", "at_mm",
+    "items"}, nets sorted (each item's "[NET]", as route._violations_by_net reads them), at_mm the least item
+    position, items each item's (description, x, y), sorted. Warnings and the other buckets never count."""
     out = []
     for v in data.get("violations", []):
         if v.get("severity") != "error" or not is_real(v.get("type", "")) or _permitted(v, {}):
@@ -313,14 +313,35 @@ def real_errors(data: dict, is_real) -> list:
         nets = tuple(sorted({m.group(1) for i in items for m in [_NET_RE.search(i.get("description", ""))] if m}))
         at = min(((float((i.get("pos") or {}).get("x", 0.0)), float((i.get("pos") or {}).get("y", 0.0))) for i in items),
                  default=(0.0, 0.0))
-        out.append({"type": v.get("type", ""), "nets": nets, "at_mm": at})
+        both = tuple(sorted((i.get("description", ""), float((i.get("pos") or {}).get("x", 0.0)),
+                             float((i.get("pos") or {}).get("y", 0.0))) for i in items))
+        out.append({"type": v.get("type", ""), "nets": nets, "at_mm": at, "items": both})
     return out
 
 
 def new_errors(after: list, baseline: list, tol_mm: float = NEAR_MM) -> list:
-    """What `after` (real_errors) has that no baseline error of the same type and nets matches within `tol_mm` on
-    each axis (test (a)'s rule, fixtures/reference/route_ref.py new_violations)."""
-    def known(v):
-        return any(b["type"] == v["type"] and b["nets"] == v["nets"] and abs(b["at_mm"][0] - v["at_mm"][0]) <= tol_mm
-                   and abs(b["at_mm"][1] - v["at_mm"][1]) <= tol_mm for b in baseline)
-    return [v for v in after if not known(v)]
+    """What `after` (real_errors) has that the baseline has not, matched one to one: an error of `after` takes the
+    first baseline error left of the same type whose items are its items (each the same description, its position
+    within `tol_mm` on each axis), and one of them can be matched once. An error with no items of its own read
+    (a record from before items were kept) falls back to type, nets and least position (test (a)'s rule,
+    fixtures/reference/route_ref.py new_violations)."""
+    def same(v, b):
+        if v["type"] != b["type"]:
+            return False
+        vi, bi = v.get("items"), b.get("items")
+        if vi is None or bi is None:
+            return v["nets"] == b["nets"] and abs(b["at_mm"][0] - v["at_mm"][0]) <= tol_mm \
+                and abs(b["at_mm"][1] - v["at_mm"][1]) <= tol_mm
+        return len(vi) == len(bi) and all(a[0] == c[0] and abs(a[1] - c[1]) <= tol_mm and abs(a[2] - c[2]) <= tol_mm
+                                          for a, c in zip(vi, bi))
+    left = list(baseline)
+    out = []
+    for v in after:
+        k = next((i for i, b in enumerate(left) if same(v, b)), None)
+        if k is None:
+            out.append(v)
+        else:
+            del left[k]
+    return out
+
+

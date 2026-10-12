@@ -39,6 +39,7 @@ section for each hand-written pattern a newer form replaces.
 - **Routing phases.** A phase that names a pour net joins its pads to the pour by via drops first: a via in each pad
   no copper joins to the pour, or beside it with a short track, at the net class's sizes; a pad a cell's via or other
   copper already joins is left as it is. Pads still apart after that are routed to the pour by a track each group.
+  `route.json`'s phase record gives what the call did as `pour_joins`.
   Before, the router laid the whole net as tracks, pad to pad, re-routing pads already on the pour. Scripts need no
   change.
 
