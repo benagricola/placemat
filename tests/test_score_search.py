@@ -580,5 +580,4 @@ def test_pruned_native_scan_keeps_the_exhaustive_seeds_and_winner(monkeypatch, c
         native = scoring.native((0, 90), Face.FRONT)
         runs[prune] = (result.chosen, result.walled, result.score, native.pruned)
     assert runs[True][:3] == runs[False][:3]
-    # Crossing: the congestion bound (one step, -10) is wider than the partial costs' spread, so none is pruned.
-    assert runs[False][3] == 0 and (runs[True][3] > 0 or crossing), runs
+    assert runs[False][3] == 0 and runs[True][3] > 0, runs

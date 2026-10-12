@@ -6,6 +6,7 @@ Each candidate is scored on every term but the escape grades; the best `place.es
 import math
 
 from .score_delta import Delta
+from .values import Face
 
 # Whether a pruning scorer prunes at all: False measures the exhaustive search under the same callers (a measurement
 # switch, as placer.NATIVE_SWEEP is; never a setting).
@@ -129,7 +130,15 @@ class MSTScorer:
         return scoring
 
     def _congestion_bound(self):
-        """The proved lower bound of R13 on the congestion change for this lifted board: at least minus its price
-        times the worst cell's steps now, as none can go below zero. The other partial terms are computed before it."""
+        """The proved lower bound of R13 on the congestion change for this lifted board: the change with the item's
+        nets taken off the grid altogether. A candidate's grid holds every other net's demand as it is and the item's
+        nets' demand, which is never below none, so its worst cell is never below that one's. The other partial
+        terms are computed before it."""
         delta = self.delta
-        return -delta.board.settings.score_congestion * delta.grid.steps() if delta.grid is not None else 0.0
+        if delta.grid is None:
+            return 0.0
+        from .placement import Placement
+        from .values import Location
+        geometries, _ = delta.occ.placed_geometries(delta.item, Placement(Location(0, 0), 0.0, Face.FRONT))
+        nets = delta._congestion_points(geometries)
+        return delta.board.settings.score_congestion * delta.grid.change({net: [] for net in nets})
