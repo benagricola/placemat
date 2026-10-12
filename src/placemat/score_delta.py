@@ -12,7 +12,7 @@ from dataclasses import dataclass
 
 from . import score
 from .board_geometry import members_of
-from .ratsnest import Anchor, KIND_IMPEDANCE, crossing_price, mst_change, prices_of, segments_cross
+from .ratsnest import Anchor, KIND_IMPEDANCE, count_crossings, crossing_price, mst_change, nm_segment, prices_of
 from .values import Box
 
 
@@ -90,24 +90,26 @@ class Delta:
         return terms, difference['escape_walled']
 
     def _crossing_change(self, changed):
-        def count(a, b):
-            return sum(segments_cross((e.a.x, e.a.y), (e.b.x, e.b.y), (f.a.x, f.a.y), (f.b.x, f.b.y))
-                       for e in a for f in b)
+        old_nm = self.__dict__.get('_old_nm')
+        if old_nm is None:          # the lifted board's airwires on whole nanometres, made once per snapshot
+            old_nm = self._old_nm = {net: [nm_segment(e) for e in edges] for net, edges in self.old.items()}
+        changed_nm = {net: tuple([nm_segment(e) for e in edges] for edges in lists) for net, lists in changed.items()}
         result = 0.0
         nets = sorted(changed)
         for index, net in enumerate(nets):
-            _, added, dropped = changed[net]
+            _, added, dropped = changed_nm[net]
             for other in sorted(self.old.keys() - changed.keys()):
                 price = crossing_price(self.kinds, self.partners, self.cross_prices, net, other)
                 if price:
-                    result += price * (count(added, self.old[other]) - count(dropped, self.old[other]))
+                    result += price * (count_crossings(added, old_nm[other]) - count_crossings(dropped, old_nm[other]))
             for other in nets[index + 1:]:
                 price = crossing_price(self.kinds, self.partners, self.cross_prices, net, other)
                 if price:
-                    new, a, d = changed[other]
+                    new, a, d = changed_nm[other]
+                    before = old_nm.get(net, [])
                     # Signed bilinear expansion counts simultaneous changes once.
-                    result += price * (count(added, new) - count(dropped, new)
-                                       + count(self.old.get(net, []), a) - count(self.old.get(net, []), d))
+                    result += price * (count_crossings(added, new) - count_crossings(dropped, new)
+                                       + count_crossings(before, a) - count_crossings(before, d))
         return result
 
     def _view(self, placement):

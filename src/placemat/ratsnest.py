@@ -200,6 +200,25 @@ def segments_cross(p1, p2, q1, q2) -> bool:
     return _cross_nm(_nm(p1[0]), _nm(p1[1]), _nm(p2[0]), _nm(p2[1]), _nm(q1[0]), _nm(q1[1]), _nm(q2[0]), _nm(q2[1]))
 
 
+def nm_segment(e) -> tuple:
+    """An airwire on whole nanometres, with its box: (ax, ay, bx, by, x min, x max, y min, y max), for `count_crossings`."""
+    ax, ay, bx, by = _nm(e.a.x), _nm(e.a.y), _nm(e.b.x), _nm(e.b.y)
+    return ax, ay, bx, by, min(ax, bx), max(ax, bx), min(ay, by), max(ay, by)
+
+
+def count_crossings(a, b) -> int:
+    """How many pairs of an airwire of `a` and one of `b` (each `nm_segment`) cross: `segments_cross` summed over
+    every pair, the box test taken first."""
+    n = 0
+    for ax, ay, bx, by, x0, x1, y0, y1 in a:
+        for cx, cy, dx, dy, u0, u1, v0, v1 in b:
+            if x1 < u0 or u1 < x0 or y1 < v0 or v1 < y0:
+                continue
+            if _cross_nm(ax, ay, bx, by, cx, cy, dx, dy):
+                n += 1
+    return n
+
+
 def _cross_nm(ax, ay, bx, by, cx, cy, dx, dy) -> bool:
     """segments_cross on whole nanometres already."""
     if max(ax, bx) < min(cx, dx) or max(cx, dx) < min(ax, bx) or max(ay, by) < min(cy, dy) or max(cy, dy) < min(ay, by):
@@ -410,8 +429,44 @@ class Ratsnest:
 
     def crossed_pairs(self, depth: float = 1.0) -> int:
         """How many pairs of airwires of different nets leave pads of one part
-        and cross within `depth` of that part's pads: crossed escapes."""
-        return len(self.crossed_pair_list(depth))
+        and cross within `depth` of that part's pads: crossed escapes. The count of `crossed_pair_list`, each pair
+        tested as it tests it. Only two airwires with a part in common can count, so the pairs are those of each part's
+        airwires, a pair taken at the first part it shares (the grid `crossed_pair_list` reads finds every pair that
+        crosses: two airwires that cross share a cell)."""
+        edges = self.edges()
+        nmends = self._nmends
+        by_part = {}
+        for i, e in enumerate(edges):
+            for ref in {e.a.ref, e.b.ref}:
+                if ref:
+                    by_part.setdefault(ref, []).append(i)
+        total = 0
+        for part, members in by_part.items():
+            for x, i in enumerate(members):
+                e = edges[i]
+                ea, eb = e.a, e.b
+                ex0, ey0, ex1, ey1 = nmends[id(e)]
+                elo, ehi, eblo, ebhi = min(ex0, ex1), max(ex0, ex1), min(ey0, ey1), max(ey0, ey1)
+                parts_e = {ea.ref, eb.ref} - {""}
+                for k in members[x + 1:]:
+                    f = edges[k]
+                    if f.net == e.net:
+                        continue
+                    fx0, fy0, fx1, fy1 = nmends[id(f)]
+                    if ehi < min(fx0, fx1) or max(fx0, fx1) < elo or ebhi < min(fy0, fy1) or max(fy0, fy1) < eblo:
+                        continue
+                    shared = sorted(parts_e & ({f.a.ref, f.b.ref} - {""}))
+                    if shared[0] != part or not _cross_nm(ex0, ey0, ex1, ey1, fx0, fy0, fx1, fy1):
+                        continue        # the pair is taken at the first part it shares
+                    at = _crossing_point(*_ends(e), *_ends(f))
+                    for n in shared:
+                        if ea.ref == eb.ref == n or f.a.ref == f.b.ref == n:
+                            continue
+                        ends = [(v.x, v.y) for v in (ea, eb, f.a, f.b) if v.ref == n]
+                        if at is not None and min(math.hypot(at[0] - px, at[1] - py) for px, py in ends) <= depth:
+                            total += 1
+                            break
+        return total
 
     def _later(self, e, i, index) -> list:
         """The airwires sharing a grid cell with `e` that come after it (`i` its place in `edges()`), each once, in
