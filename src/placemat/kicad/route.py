@@ -124,6 +124,10 @@ def refused_text(code: str, facts: dict) -> str:
                                                                   t["to"]["ref"], t["to"]["pad"], t["reason"])
                                            for t in facts["tasks"]))
 
+    elif code == "router_old":
+        facts = dict(facts, missing=", ".join(
+            "%s %s" % (m["module"], m["flag"] if "flag" in m else "task field %r" % m["field"])
+            for m in facts["missing"]))
     elif code == "router_owned":
         facts = dict(facts, where="[route]" if facts.get("phase") is None else "phase %r" % facts["phase"])
     elif code == "capture":
@@ -1155,14 +1159,14 @@ def _router_lacks(rpy, router_dir_path, phases) -> list:
 def pour_flags_lacking(caps) -> list:
     """The flags a pour net's calls give the router (pour_join.REPAIR_FLAGS on its plane repair, TASK_FLAGS on its
     tasks) and the task fields its tasks carry (TASK_FIELDS, the listing's `task_fields`) that its capability listing
-    (router_capabilities) does not have, as "module:--flag" or "route.py:connections.FIELD"; every one when it has no
-    listing."""
+    (router_capabilities) does not have, as {"module", "flag"} or {"module", "field"} records; every one when it has
+    no listing."""
     from .pour_join import REPAIR_FLAGS, TASK_FIELDS, TASK_FLAGS
     flags = (caps or {}).get("flags") or {}
     fields = ((caps or {}).get("task_fields") or {}).get("route.py") or ()
-    return ["%s:%s" % (mod, f) for mod, want in (("repair_planes.py", REPAIR_FLAGS), ("route.py", TASK_FLAGS))
+    return [{"module": mod, "flag": f} for mod, want in (("repair_planes.py", REPAIR_FLAGS), ("route.py", TASK_FLAGS))
             for f in want if f not in (flags.get(mod) or ())] + \
-        ["route.py:connections.%s" % f for f in TASK_FIELDS if f not in fields]
+        [{"module": "route.py", "field": f} for f in TASK_FIELDS if f not in fields]
 
 
 def new_error_count(before_json, after_json, is_real) -> int | None:
@@ -1326,7 +1330,8 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     route_py = Path(router_dir_path) / "py_router/route.py"
     missing = _router_lacks(rpy, router_dir_path, run_list)
     if missing:
-        raise RouteRefused("router_old", router=str(router_dir_path), missing=", ".join(missing))
+        raise RouteRefused("router_old", router=str(router_dir_path),
+                           missing=[dict(zip(("module", "flag"), m.split(":", 1))) for m in missing])
     caps = router_capabilities(rpy, router_dir_path)
     bad = pair_flags_refused(caps, run_list)
     if bad:
@@ -1375,7 +1380,7 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     chosen_pours = set().union(*(set(picked[p.name].pour_nets) for p in run_list))
     lacking = pour_flags_lacking(caps) if chosen_pours else []
     if lacking:                     # a phase names a pour net: its calls need the router's plane repair flags
-        raise RouteRefused("router_old", router=str(router_dir_path), missing=", ".join(lacking))
+        raise RouteRefused("router_old", router=str(router_dir_path), missing=lacking)
     counted = excluded | (pours - chosen_pours)          # what the closure leaves out
     before = run_drc(pcb_in, work / "drc_before.json")
     # ruling S6: each phase's asked set, fixed from the input board before anything routes (and before the guards
@@ -1575,6 +1580,19 @@ def _router_said(o: dict) -> str:
     return out + (" against " + "/".join(met) if met else "")
 
 
+def _pour_join_said(j) -> str:
+    """One pour_joins record (pour_join.join_pour) as the phase line says it."""
+    out = "%s: %d pad%s on the pour, %d of %d apart tapped (%d via%s in a pad, %d beside)" % (
+        j["net"], j["joined_before"], "" if j["joined_before"] == 1 else "s", j["tapped"], j["apart_before"],
+        j["vias"]["in_pad"], "" if j["vias"]["in_pad"] == 1 else "s", j["vias"]["beside"])
+    if j["vias"].get("joins"):
+        out += ", %d via%s in joins of the pour's pieces" % (j["vias"]["joins"], "" if j["vias"]["joins"] == 1 else "s")
+    if j["groups_left"]:
+        done = sum(1 for t in j["tasks"] if t.get("status") == "routed")
+        out += ", %d of %d groups left joined by a track" % (done, j["groups_left"])
+    return out
+
+
 def phase_lines(phases: list, without_copper=(), pour_routed_by=None) -> list:
     """Each phase's line. `pour_routed_by`: {pour net: the first phase that routes it in a pour call}
     (RouteReport.pour_routed_by); a net a phase left to its pour that a later phase routes says so."""
@@ -1618,12 +1636,9 @@ def phase_lines(phases: list, without_copper=(), pour_routed_by=None) -> list:
             line += "; not reached by the pour: " + ", ".join(
                 "%s %s-%s" % (o["net"], _phase_end(o["from"]), _phase_end(o["to"])) for o in unreached)
         for j in p.get("pour_joins") or ():
-            line += "; %s: %d pad%s on the pour, %d of %d apart tapped (%d via%s in a pad, %d beside)" % (
-                j["net"], j["joined_before"], "" if j["joined_before"] == 1 else "s", j["tapped"], j["apart_before"],
-                j["vias"]["in_pad"], "" if j["vias"]["in_pad"] == 1 else "s", j["vias"]["beside"])
-            if j["groups_left"]:
-                done = sum(1 for t in j["tasks"] if t.get("status") == "routed")
-                line += ", %d of %d groups left joined by a track" % (done, j["groups_left"])
+            line += "; " + _pour_join_said(j)
+            if j.get("rejoin"):
+                line += "; %s split by a later call, joined again: %s" % (j["net"], _pour_join_said(j["rejoin"]))
         out.append(line)
     if without_copper:
         out.append("earlier phases with no copper on this board: " + ", ".join(without_copper))

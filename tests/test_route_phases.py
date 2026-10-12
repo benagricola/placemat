@@ -724,7 +724,7 @@ def test_a_phase_naming_a_pour_net_drops_vias_first_then_routes_only_the_pads_st
     (joined,) = p["pour_joins"]
     assert {k: joined[k] for k in ("net", "pads", "joined_before", "apart_before", "tapped", "vias", "groups_left")} \
         == {"net": "VIN", "pads": 2, "joined_before": 1, "apart_before": 1, "tapped": 0,
-            "vias": {"in_pad": 0, "beside": 0}, "groups_left": 1}
+            "vias": {"in_pad": 0, "beside": 0, "joins": 0}, "groups_left": 1}
     assert [t["status"] for t in joined["tasks"]] == ["routed"]
     assert [o["outcome"] for o in p["open"]] == ["routed"]          # the stand-in lays no copper
 
@@ -740,8 +740,10 @@ def test_a_router_without_the_plane_repairs_flags_is_refused_only_when_a_phase_n
     rig.route(FB, pour_nets={"VIN"})                                  # a board with a pour, no phase naming it
     with pytest.raises(RouteRefused) as e:
         rig.route({"name": "pours", "nets": ["VIN"]}, pour_nets={"VIN"})
-    assert e.value.code == "router_old" and "repair_planes.py:--no-join-gate" in e.value.facts["missing"]
-    assert "route.py:connections.apart" in e.value.facts["missing"]
+    assert e.value.code == "router_old"
+    assert e.value.facts["missing"] == [{"module": "repair_planes.py", "flag": "--no-join-gate"},
+                                        {"module": "route.py", "field": "apart"}]
+    assert "repair_planes.py --no-join-gate, route.py task field 'apart'" in str(e.value)
 
 
 @needs_kicad
@@ -791,28 +793,101 @@ def test_a_pour_joins_record_is_said_on_its_phase_line():
 
 
 @needs_kicad
-def test_a_pour_net_a_later_pour_call_split_is_joined_again_once(rig, monkeypatch):
-    """Ruling S22 (b): after the phase's pour calls, FB (joined first) has more pad groups than its own call left, as
-    if VIN's call had cut its pour: FB gets one more join, recorded as its pour_joins entry's rejoin; VIN, the last,
-    is not re-checked."""
+def _fake_join(calls):
     import shutil
-    from placemat.kicad import pour_join
     from placemat.kicad.phase_run import TaskRun
     from placemat.kicad.route import _copy_project
-    calls = []
 
     def fake_join(ctx, board, out, net, width, layers, stem, phase, common):
         calls.append((net, stem))
         shutil.copy(board, out)
         _copy_project(board, out)
         return ({"net": net, "pads": 2, "joined_before": 1, "apart_before": 1, "tapped": 1,
-                 "vias": {"in_pad": 1, "beside": 0}, "groups_left": 0, "groups_after": 1, "tasks": []},
+                 "vias": {"in_pad": 1, "beside": 0, "joins": 0}, "groups_left": 0, "groups_after": 1, "tasks": []},
                 TaskRun(out))
-    end = pour_join.PadEnd("U1", "2", "u", 0.0, 0.0)
-    split = [pour_join.PadGroup((end,), True), pour_join.PadGroup((pour_join.PadEnd("J1", "1", "j", 9.0, 0.0),), True)]
-    monkeypatch.setattr(pour_join, "join_pour", fake_join)
+    return fake_join
+
+
+def _split_groups():
+    from placemat.kicad import pour_join
+    return [pour_join.PadGroup((pour_join.PadEnd("U1", "2", "u", 0.0, 0.0),), True),
+            pour_join.PadGroup((pour_join.PadEnd("J1", "1", "j", 9.0, 0.0),), True)]
+
+
+@needs_kicad
+def test_a_pour_net_a_later_call_split_is_joined_again_once(rig, monkeypatch):
+    """Ruling S22 (b), review N3/N4: after the phase's calls, every pour net is checked once: FB has more pad groups
+    than its own call left, as if VIN's call had cut its pour, and gets one more join, recorded as its entry's rejoin
+    and judged as a call of the phase; VIN, the last, is checked too and is whole. Each entry then records the groups
+    the phase leaves (groups_final), and nothing runs again."""
+    from placemat.kicad import pour_join
+    calls = []
+    split = _split_groups()
+    monkeypatch.setattr(pour_join, "join_pour", _fake_join(calls))
     monkeypatch.setattr(pour_join, "pad_groups", lambda pcb, net: split if net == "FB" else split[:1])
     report = rig.route({"name": "pours", "nets": ["FB", "VIN"]}, pour_nets={"FB", "VIN"})
     assert calls == [("FB", "p0_0"), ("VIN", "p0_1"), ("FB", "p0_0r")]
-    fb, vin = report.phases[0]["pour_joins"]
+    p = report.phases[0]
+    fb, vin = p["pour_joins"]
     assert fb["rejoin"]["net"] == "FB" and "rejoin" not in vin
+    assert (fb["groups_final"], vin["groups_final"]) == (2, 1)
+    assert p["calls"] == 3
+    from placemat.kicad.route import phase_lines
+    (line,) = phase_lines(report.phases, (), report.pour_routed_by)
+    assert "; FB split by a later call, joined again: FB: 1 pad on the pour" in line
+
+
+def test_the_phase_line_counts_the_vias_of_the_pours_joins_apart_from_the_taps():
+    """Review N6."""
+    from placemat.kicad.route import _pour_join_said
+    j = {"net": "GND", "joined_before": 3, "apart_before": 9, "tapped": 8,
+         "vias": {"in_pad": 5, "beside": 3, "joins": 2}, "groups_left": 0, "tasks": []}
+    assert _pour_join_said(j) == ("GND: 3 pads on the pour, 8 of 9 apart tapped (5 vias in a pad, 3 beside), "
+                                  "2 vias in joins of the pour's pieces")
+
+
+@needs_kicad
+def test_a_phase_with_one_pour_net_is_checked_too(rig, monkeypatch):
+    from placemat.kicad import pour_join
+    calls = []
+    split = _split_groups()
+    monkeypatch.setattr(pour_join, "join_pour", _fake_join(calls))
+    monkeypatch.setattr(pour_join, "pad_groups", lambda pcb, net: split)
+    report = rig.route({"name": "pours", "nets": ["VIN"]}, pour_nets={"VIN"})
+    assert calls == [("VIN", "p0_0"), ("VIN", "p0_0r")]
+    (vin,) = report.phases[0]["pour_joins"]
+    assert vin["rejoin"]["net"] == "VIN" and vin["groups_final"] == 2
+
+
+def test_the_latest_record_answers_an_obligation():
+    """Review N4: a pour net's rejoin answers a connection its first call answered; the later record stands, and
+    records of other tasks keep their order."""
+    from placemat.kicad.phase_run import records_of, superseded
+    ob = {"net": "GND", "from": {"ref": "C1", "pad": "1"}, "to": {"ref": "C2", "pad": "1"}}
+    other = {"net": "GND", "from": {"ref": "C3", "pad": "1"}, "to": {"ref": "C2", "pad": "1"}}
+    first, later, kept = dict(ob, status="routed"), dict(ob, status="failed"), dict(other, status="routed")
+    connections = superseded([first, kept], [later])
+    assert connections == [kept, later]
+    assert records_of([ob, other], connections) == [later, kept]
+
+
+@needs_kicad
+def test_a_net_of_one_group_with_no_copper_to_its_pour_gets_drops(rig, monkeypatch):
+    """Review N5: when KiCad's view gives the pour net one group and that group does not reach the pour, the drops
+    still run, for every pad of the group."""
+    from placemat.kicad import pour_join
+    real, seen = pour_join.pad_groups, []
+
+    def one_group(pcb, net):
+        groups = real(pcb, net)
+        seen.append(1)
+        if len(seen) > 1:
+            return groups
+        return [pour_join.PadGroup(tuple(p for g in groups for p in g.pads), False)]
+
+    monkeypatch.setattr(pour_join, "pad_groups", one_group)
+    _vin_pour(rig.pcb, 125.6, 127)
+    rig.route({"name": "pours", "nets": ["VIN"]}, pour_nets={"VIN"})
+    (drops,) = [c for c in rig.calls() if _drops(c)]
+    assert sorted(json.loads(open(drops[drops.index("--pads") + 1]).read()), key=lambda e: e["ref"]) == \
+        [{"ref": "J1", "pad": "2"}, {"ref": "U1", "pad": "3"}]

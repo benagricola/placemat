@@ -841,7 +841,8 @@ def records_of(obligations, connections) -> list:
     call). A record is matched by net and each end's ref and pad, and by the footprint uuid ("fp") on an end where the
     record names one: route_calls gives each record its task's own ends (`answered`), so tasks on a shared reference
     are told apart whatever call or order they were sent in. Records nothing else tells apart are the answers to one
-    task stated more than once, taken in order."""
+    task stated more than once, taken in order. A later call's answer to a task already answered replaces the earlier
+    record before it gets here (`superseded`), so the latest record is the one found."""
     connections = list(connections)
     seen, out = {}, []
     for o in obligations:
@@ -856,6 +857,18 @@ def records_of(obligations, connections) -> list:
         seen[key] = i + 1
         out.append(fits[i] if i < len(fits) else (fits[0] if fits else None))
     return out
+
+
+def _same_task(a, b) -> bool:
+    return _task_key(a) == _task_key(b) and all((a.get(e) or {}).get("fp") == (b.get(e) or {}).get("fp")
+                                               for e in ("from", "to"))
+
+
+def superseded(connections, later) -> list:
+    """`connections` with the records of a later call (`later`) in place of the earlier records of the same tasks:
+    a pour net's rejoin answers its tasks again, and its answer is the one that stands (review N4)."""
+    later = list(later)
+    return [r for r in connections if not any(_same_task(r, l) for l in later)] + later
 
 
 def open_entry(o, j, record, net_evidence) -> dict:
@@ -1139,27 +1152,33 @@ def route_calls(ctx, index, phase, sel, board) -> PhaseOutcome:
         if call.kind not in ("tasks", "bus_tasks"):
             out.calls.append((call, board, nxt))
         board = nxt
-    if len(pour_calls) > 1:
-        # ruling S22 (b): one re-check, in KiCad's view, of each pour net a later pour call of the phase may have split;
-        # a net with more pad groups than its own call left gets one more join (drops for the pads now apart, then
-        # tasks), recorded as its pour_joins entry's "rejoin"
+    rejoins = 0
+    if pour_calls:
+        # ruling S22 (b), as the review's N3 has it: one re-check, in KiCad's view, of every pour net the phase joined.
+        # A net with more pad groups than its own call left (a later call, or the phase's tasks and nets calls, split
+        # it) gets one more join (drops for the pads now apart, then tasks), recorded as its entry's "rejoin" and
+        # judged as a call of the phase. Then one record-only look sets each entry's "groups_final". No loop.
         from .pour_join import join_pour, pad_groups
-        for call, stem, joined in pour_calls[:-1]:
+        for call, stem, joined in pour_calls:
             if len(pad_groups(board, call.nets[0])) <= joined["groups_after"]:
                 continue
             nxt = ctx.work / (stem + "r.kicad_pcb")
             again, run = join_pour(ctx, board, nxt, call.nets[0], call.width, layers, stem + "r", phase.name, common)
             joined["rejoin"] = again
-            out.summaries += [(phase.name, len(calls), s) for s in run.summaries]
-            connections += run.records
+            out.summaries += [(phase.name, len(calls) + rejoins, s) for s in run.summaries]
+            connections = superseded(connections, run.records)      # the rejoin's answer stands
+            out.calls.append((call, board, nxt))
+            rejoins += 1
             board = nxt
+        for call, stem, joined in pour_calls:
+            joined["groups_final"] = len(pad_groups(board, call.nets[0]))
     if not calls:                                   # a phase that selected nothing open: its board is its input
         nxt = ctx.work / ("p%d_0.kicad_pcb" % index)
         shutil.copy(board, nxt)
         _copy_project(board, nxt)
         board = nxt
     out.board = board
-    out.routed = Routed(board, time.time() - t0, len(calls), pairs, connections, bus_groups,
+    out.routed = Routed(board, time.time() - t0, len(calls) + rejoins, pairs, connections, bus_groups,
                         [(n, k, str(sp)) for n, k, sp in out.summaries],
                         phase_widths(phase, out.calls, ctx.cfg)
                         + narrow_join_widths(phase, sel, connections, board, ctx.cfg)

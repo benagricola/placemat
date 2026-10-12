@@ -156,7 +156,40 @@ def test_the_vias_a_call_added_are_named_in_the_pad_or_beside_it(tmp_path):
     pcb = _two_part_board(tmp_path)
     after = tmp_path / "after.kicad_pcb"
     shutil.copy(pcb, after)
-    _via(after, "VIN", 113, 110)            # on U1.3
-    _via(after, "VIN", 118, 115)            # in the open
-    assert new_vias(pcb, after, "VIN") == [{"at": [113.0, 110.0], "in_pad": True},
-                                           {"at": [118.0, 115.0], "in_pad": False}]
+    _via(after, "VIN", 113, 110)            # on U1.3: a tap in its pad
+    _via(after, "VIN", 118, 115)            # in the open, no track to a pad: a join of the pour's pieces
+    _via(after, "VIN", 126, 113)            # beside J1.2, a short track to it: a tap beside its pad
+    _track(after, "VIN", (126, 113), (126, 110))
+    assert new_vias(pcb, after, "VIN", {("U1", "3"), ("J1", "2")}) == [
+        {"at": [113.0, 110.0], "in_pad": True, "tap": True},
+        {"at": [118.0, 115.0], "in_pad": False, "tap": False},
+        {"at": [126.0, 113.0], "in_pad": False, "tap": True}]
+
+
+def _track(pcb, net, a, b):
+    import pcbnew
+    brd = pcbnew.LoadBoard(str(pcb))
+    t = pcbnew.PCB_TRACK(brd)
+    t.SetStart(pcbnew.VECTOR2I(pcbnew.FromMM(a[0]), pcbnew.FromMM(a[1])))
+    t.SetEnd(pcbnew.VECTOR2I(pcbnew.FromMM(b[0]), pcbnew.FromMM(b[1])))
+    t.SetWidth(pcbnew.FromMM(0.2))
+    t.SetLayer(pcbnew.F_Cu)
+    t.SetNetCode(brd.GetNetcodeFromNetname(net))
+    brd.Add(t)
+    brd.Save(str(pcb))
+
+
+@needs_kicad
+def test_a_pad_in_the_cut_corner_of_an_l_shaped_board_is_in_no_group(tmp_path):
+    """Review N7: on the board's outline polygon, not its bounding box. The board is 100..135 x 100..120 with the
+    corner x > 120, y < 108 cut away; J1 at (125, 106) stands in the cut."""
+    pcb = _two_part_board(tmp_path)
+    text = pcb.read_text().replace('(footprint "t:p" (layer "F.Cu") (at 125 110)', '(footprint "t:p" (layer "F.Cu") (at 125 106)')
+    text = text.replace('\t(gr_rect (start 100 100) (end 135 120) (stroke (width 0.1) (type solid)) (fill no) (layer "Edge.Cuts"))\n',
+                        "".join('\t(gr_line (start %g %g) (end %g %g) (stroke (width 0.1) (type solid)) (layer "Edge.Cuts"))\n'
+                                % (a + b) for a, b in zip(L, L[1:] + L[:1])))
+    pcb.write_text(text)
+    assert sorted(p.ref for g in pad_groups(pcb, "VIN") for p in g.pads) == ["U1"]
+
+
+L = [(100, 100), (120, 100), (120, 108), (135, 108), (135, 120), (100, 120)]

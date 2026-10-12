@@ -4001,8 +4001,10 @@ Then the group of the net's pads holding the most pads among those on the pour s
 is routed to its nearest pad by one pad-to-pad task, at the phase's width or the net class's; the track may end on
 the pour's fill. Which pads are joined is KiCad's judgement (its connectivity with the zones refilled), and each task
 tells the router so: the router routes it even where its own model takes the pads for joined. After all of a phase's
-pour calls, each pour net is checked once more: one that a later pour call split (more pad groups than its own call
-left) is joined once more the same way, drops for the pads now apart and then tasks. A part outside the board's outline gets no task. Neither call crosses a footprint's own copper (an
+pour calls, every pour net the phase joined is checked once more: one that a later call of the phase split (more pad
+groups than its own call left) is joined once more the same way, drops for the pads now apart and then tasks, and
+that join is judged as a call of the phase. A last look records each net's pad groups as the phase leaves them. A
+part outside the board's outline polygon gets no drop and no task. A part outside the board's outline gets no task. Neither call crosses a footprint's own copper (an
 antenna) to reach a pad of that footprint. Both take the capture's stated net clearances; the plane repair takes no
 `[route] router_args` or phase `router_args`. The calls leave the board's rules as they were. The tasks run with
 the router's environment variable `KICAD_PLANE_FINALIZE=0`, its own switch for the plane repair it otherwise runs at the
@@ -4055,25 +4057,29 @@ last phase's board is `router_out.kicad_pcb`, and `routed.kicad_pcb` is made fro
   the copper is split into tracks does not change it.
 - `open`: each obligation not clean, with `outcome` (its task record's `status`; null for a whole-net call),
   `evidence` (the router's own record of why, as it gave it; null when it gave none), `violated: true` when joined
-  but its net has a real DRC error the phase's input board did not have, `under` (`{layer: mm}`) when joined narrower than asked, and `width_unknown: true`
-  when joined but no copper path between its pads could be measured (copper joined only partway along a curved
+  but its net has a real DRC error the phase's input board did not have, `under` (`{layer: mm}`) when joined
+  narrower than asked, and `width_unknown: true` when joined but no copper path between its pads could be measured (copper joined only partway along a curved
   track, which is measured end to end at its own length, or a net the router gave no width for, below).
 - `pour_joins`: one record per pour net the phase joined to its pour: `net`; `pads` (its pads inside the board's
   outline); `joined_before` (those on the pour before the call, left alone); `apart_before`; `tapped` (pads apart
-  before that the drops joined); `vias` (`in_pad`, `beside`: the vias the drops added); `groups_left` (the groups
-  still apart after the drops, one task each); `groups_after` (its pad groups when the call was done); `tasks` (the
-  router's record of each task, as in `connections`); and `rejoin`, a record of the same fields, when a later pour
-  call of the phase split the net and it was joined once more. The
-  phase line says the same: "GND: 3 pads on the pour, 82 of 90 apart tapped (47 vias in a pad, 10 beside), 1 of 3
-  groups left joined by a track".
+  before that the drops joined); `vias` (`in_pad`, `beside`: the drops' vias, in a pad or beside it; `joins`: the
+  vias the repair's joins of the pour's pieces added); `groups_left` (the groups still apart after the drops, one
+  task each); `groups_after` (its pad groups when the call was done); `tasks` (the
+  router's record of each task, as in `connections`); `rejoin`, a record of the same fields, when a later call of
+  the phase split the net and it was joined once more; and `groups_final`, its pad groups when the phase was done.
+  An open connection's `outcome` and `evidence` come from the latest task that answered it. The phase line says the
+  same: "GND: 3 pads on the pour, 82 of 90 apart tapped (47 vias in a pad, 10 beside), 4 vias in joins of the pour's
+  pieces, 1 of 3 groups left joined by a track", and names a net joined again: "; GND split by a later call, joined
+  again: ...".
 - `final_asked`, `final_closure_clean`, `final_open`: the same obligations as `asked`, judged again on the final
-  board, after the last phase and the clean-up, against the same input board's DRC. A short or a narrow join left by a later phase shows in the final
-  fields; a fault is not attributed to a phase.
+  board, after the last phase and the clean-up, against the same input board's DRC. A short or a narrow join left
+  by a later phase shows in the final fields; a fault is not attributed to a phase.
 
 The report also has `vias`, `track_mm` and `segments` (the copper the route added on the final board, as the router's
 own quality key counts a board's: vias, the straight segments' length end to end, and their count; arcs are left out
 as there), `drc_new` (errors in the DRC's `real` bucket on
-the final board that the unrouted board does not have, matched by type, nets and position within 0.05 mm; warnings and
+the final board that the unrouted board does not have, matched one to one on type and every item's description and
+position within 0.05 mm; warnings and
 the other buckets never count; null when a DRC wrote no report) and `widths_failed` (obligations joined on the final
 board narrower than asked along their path, reported `joined_narrow` by the router, or with a width that could not be
 measured (`width_unknown`)). The board-wide `closure`, `closure_clean` and `open_nets` are as before.

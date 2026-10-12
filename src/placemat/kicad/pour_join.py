@@ -24,7 +24,7 @@ import shutil
 
 REPAIR = "py_router/repair_planes.py"
 # the flags drop_command and join_pour give the router (each checked against its capability list: route.py
-# _router_lacks_pour_flags)
+# pour_flags_lacking)
 TASK_FIELDS = ("apart",)       # the task fields join_pour's tasks carry (route.py, krt_capabilities task_fields)
 REPAIR_FLAGS = ("--nets", "--layers", "--via-size", "--via-drill", "--track-width", "--min-track-width",
                 "--max-track-width", "--escalation", "--no-fix-drc-settings", "--no-kicad-recheck", "--pads",
@@ -118,7 +118,7 @@ def tasks_to_pour(groups, net: str, widths) -> list:
 
 
 def pad_groups(pcb_path, net: str) -> list:
-    """The copper pads of `net` on the board inside its outline (route_cleanup.connected_pad_groups: NPTH pads left
+    """The copper pads of `net` on the board inside its outline polygon (route_cleanup.connected_pad_groups: NPTH pads left
     out), grouped by KiCad's connectivity with every zone filled, each group with whether it reaches a zone of the
     net (the pours are zones on the boards this reads: join_pour's). A pad outside the outline (a part not placed)
     is left out; a pad with no reference or number too."""
@@ -130,9 +130,10 @@ def pad_groups(pcb_path, net: str) -> list:
         board = load_board(str(pcb_path))
         if any(not z.GetIsRuleArea() and z.GetNetname() == net for z in board.Zones()):
             pcbnew.ZONE_FILLER(board).Fill(board.Zones())
-    edge = board.GetBoardEdgesBoundingBox()
-    inside = (lambda p: edge.Contains(p.GetPosition())) if edge.GetWidth() > 0 and edge.GetHeight() > 0 else \
-        (lambda p: True)
+    outline = pcbnew.SHAPE_POLY_SET()
+    has_outline = board.GetBoardPolygonOutlines(outline, False) and outline.OutlineCount() > 0 \
+        and board.GetBoardEdgesBoundingBox().GetWidth() > 0
+    inside = (lambda p: outline.Contains(p.GetPosition())) if has_outline else (lambda p: True)
     refs = {}
     for fp in board.GetFootprints():
         refs[fp.GetReference()] = refs.get(fp.GetReference(), 0) + 1
@@ -155,12 +156,18 @@ def pad_groups(pcb_path, net: str) -> list:
     return out
 
 
-def new_vias(before_pcb, after_pcb, net: str) -> list:
+def new_vias(before_pcb, after_pcb, net: str, tapped=()) -> list:
     """The vias of `net` on `after_pcb` that `before_pcb` lacks (by position, to a micrometre), each {"at": [x, y]}
-    (mm) with "in_pad": whether its centre is on a pad of the net."""
+    (mm), "in_pad": its centre is on a pad of the net, and "tap": it is a drop for one of the pads `tapped` names
+    ((ref, pad number) pairs): in that pad, or reached from it along the call's new tracks with no other via between.
+    A new via that is no tap is the plane repair's region joins' (a join changing layer)."""
     from .quiet import import_pcbnew, quiet_stderr
     from .write import load_board
     pcbnew = import_pcbnew()
+
+    def key(item):
+        return (round(item.GetStart().x / 1000), round(item.GetStart().y / 1000), round(item.GetEnd().x / 1000),
+                round(item.GetEnd().y / 1000), item.GetLayer())
 
     def vias(board):
         return {(round(t.GetPosition().x / 1000), round(t.GetPosition().y / 1000)): t for t in board.GetTracks()
@@ -168,13 +175,40 @@ def new_vias(before_pcb, after_pcb, net: str) -> list:
     with quiet_stderr():
         before, after = load_board(str(before_pcb)), load_board(str(after_pcb))
     old = vias(before)
+    old_tracks = {key(t) for t in before.GetTracks() if t.Type() != pcbnew.PCB_VIA_T and t.GetNetname() == net}
+    tracks = [t for t in after.GetTracks()
+              if t.Type() != pcbnew.PCB_VIA_T and t.GetNetname() == net and key(t) not in old_tracks]
     pads = [p for p in after.GetPads() if p.GetNetname() == net]
+    targets = [p for p in pads if (p.GetParentFootprint().GetReference(), p.GetNumber()) in set(tapped)]
+
+    vias_new = [v for k, v in sorted(vias(after).items()) if k not in old]
+    via_pts = [(v.GetPosition().x, v.GetPosition().y) for v in vias_new]
+
+    def reaches_target(start) -> bool:
+        """Along the new tracks from `start`, on any layer, to a target pad; another new via ends the walk."""
+        seen, todo = set(), [start]
+        while todo:
+            q = todo.pop()
+            if any(p.HitTest(q) for p in targets):
+                return True
+            for i, t in enumerate(tracks):
+                if i in seen:
+                    continue
+                for a, b in ((t.GetStart(), t.GetEnd()), (t.GetEnd(), t.GetStart())):
+                    if abs(a.x - q.x) < 1000 and abs(a.y - q.y) < 1000:
+                        seen.add(i)
+                        if any(p.HitTest(b) for p in targets):
+                            return True
+                        if not any(abs(b.x - x) < 1000 and abs(b.y - y) < 1000 for x, y in via_pts):
+                            todo.append(b)
+                        break
+        return False
     out = []
-    for key, v in sorted(vias(after).items()):
-        if key in old:
-            continue
+    for v in vias_new:
         at = v.GetPosition()
-        out.append({"at": [round(at.x / 1e6, 4), round(at.y / 1e6, 4)], "in_pad": any(p.HitTest(at) for p in pads)})
+        in_pad = any(p.HitTest(at) for p in pads)
+        out.append({"at": [round(at.x / 1e6, 4), round(at.y / 1e6, 4)], "in_pad": in_pad,
+                    "tap": any(p.HitTest(at) for p in targets) or reaches_target(at)})
     return out
 
 
@@ -183,7 +217,7 @@ def join_pour(ctx, board: Path, out: Path, net: str, width, layers, stem: str, p
     the drops, then a task for each group still apart (module doc). Every pour net's partial inner-layer pours are
     guarded on the route's input board; this call takes its own net's guard off for itself and puts it back on
     `out`. The board's project files are copied back over each call's. Returns (record, phase_run.TaskRun):
-    {"net", "pads", "joined_before", "apart_before", "tapped", "vias": {"in_pad", "beside"}, "groups_left",
+    {"net", "pads", "joined_before", "apart_before", "tapped", "vias": {"in_pad", "beside", "joins"}, "groups_left",
     "groups_after", "tasks": [the router's record of each task]}; pads count those inside the board's outline, "tapped"
     the pads apart before that the drops joined, "groups_left" the groups the tasks were given, "groups_after" the
     net's pad groups on `out` (route_calls' re-check compares it after the phase's later pour calls, ruling S22).
@@ -202,7 +236,7 @@ def join_pour(ctx, board: Path, out: Path, net: str, width, layers, stem: str, p
     before = pad_groups(inp, net)
     apart = [p for g in before if not g.joined for p in g.pads]
     dropped, vias = inp, []
-    if len(before) > 1:
+    if apart or len(before) > 1:          # a pad apart from the pour, or pieces of the pour apart
         dropped = fresh_output(ctx.work / (stem + "_drops.kicad_pcb"))
         pads_file = ctx.work / (stem + "_drops_pads.json")
         pads_file.write_text(json.dumps([p.record() for p in apart], indent=1) + "\n")
@@ -219,7 +253,7 @@ def join_pour(ctx, board: Path, out: Path, net: str, width, layers, stem: str, p
             raise RouterFailed("the router exited %d dropping vias from pour net %s" % (rc, net), rc, log, tail)
         _copy_project(inp, dropped)         # the repair writes a project of its own beside its board
         lock_copper(str(dropped))
-        vias = new_vias(inp, dropped, net)
+        vias = new_vias(inp, dropped, net, {(p.ref, p.number) for p in apart})
     after = pad_groups(dropped, net) if dropped != inp else before
     pending = tasks_to_pour(after, net, widths)
     task_common = dict(common, extra_args=tuple(common.get("extra_args") or ()) + ("--no-own-pad-lift",))
@@ -238,6 +272,8 @@ def join_pour(ctx, board: Path, out: Path, net: str, width, layers, stem: str, p
     record = {"net": net, "pads": sum(len(g.pads) for g in before),
               "joined_before": sum(len(g.pads) for g in before if g.joined), "apart_before": len(apart),
               "tapped": sum(1 for p in apart if any(p in g.pads for g in after if g.joined)),
-              "vias": {"in_pad": sum(1 for v in vias if v["in_pad"]), "beside": sum(1 for v in vias if not v["in_pad"])},
+              "vias": {"in_pad": sum(1 for v in vias if v["tap"] and v["in_pad"]),
+                       "beside": sum(1 for v in vias if v["tap"] and not v["in_pad"]),
+                       "joins": sum(1 for v in vias if not v["tap"])},
               "groups_left": len(pending), "groups_after": groups_after, "tasks": list(run.records)}
     return record, run
