@@ -58,3 +58,13 @@ def test_a_whole_net_call_reads_net_evidence_and_the_preexisting_blockers():
 
 def test_a_pair_call_blocks_nothing():
     assert rr.blocked_of("pairs", [_rec("N", "failed", _pre("V"))], {"blockers": []}) == []
+
+
+def test_victims_are_named_nets_with_router_copper_laid_before_the_call():
+    unit = rr.Blocked("N", tuple(rr.Named(n, "preexisting") for n in ("N", "S", "L", "P", "D", "X", "V")))
+    victims, skipped = rr.victims_of(unit, router_nets={"L": 3, "P": 2, "D": 2, "X": 1, "V": 4}, laid_by_call={"L"},
+                                     pour_nets={"P"}, pair_nets={"D"}, excluded={"X"})
+    assert victims == ("V",)
+    assert skipped == ({"net": "N", "reason": "own_net"}, {"net": "S", "reason": "no_router_copper"},
+                       {"net": "L", "reason": "routed_by_call"}, {"net": "P", "reason": "pour_net"},
+                       {"net": "D", "reason": "pair_net"}, {"net": "X", "reason": "excluded"})

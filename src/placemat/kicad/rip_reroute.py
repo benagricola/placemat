@@ -79,3 +79,38 @@ def blocked_of(kind: str, records=(), summary: dict | None = None) -> list:
                 out.append(Blocked(n, named))
         return out
     return []
+
+
+def router_nets(board, script_keys) -> dict:
+    """{net: count} of the router copper on `board`: its tracks, arcs and vias that are not script copper (the route's
+    input board, `script_keys` = route.copper_items of it)."""
+    from .route import copper_items
+    out = {}
+    for k in copper_items(board) - set(script_keys):
+        out[k[1]] = out.get(k[1], 0) + 1
+    return out
+
+
+def laid_nets(before, after) -> set:
+    """The nets a call laid copper on: copper on its output board `after` that its input board `before` has not."""
+    from .route import copper_items
+    return {k[1] for k in copper_items(after) - copper_items(before)}
+
+
+def victims_of(unit, *, router_nets, laid_by_call, pour_nets, pair_nets, excluded) -> tuple:
+    """The named nets an attempt may move, and the others with why not, in the router's order (spec "What triggers an
+    attempt"): never the unit's own net, a net with no router copper (script copper only), a net the failing call laid
+    copper on, a pour net, a pair net or an excluded net."""
+    victims, skipped = [], []
+    for n in unit.named:
+        reason = ("own_net" if n.net == unit.net else
+                  "no_router_copper" if not router_nets.get(n.net) else
+                  "routed_by_call" if n.net in laid_by_call else
+                  "pour_net" if n.net in pour_nets else
+                  "pair_net" if n.net in pair_nets else
+                  "excluded" if n.net in excluded else None)
+        if reason:
+            skipped.append({"net": n.net, "reason": reason})
+        else:
+            victims.append(n.net)
+    return tuple(victims), tuple(skipped)

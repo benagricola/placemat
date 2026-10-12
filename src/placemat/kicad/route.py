@@ -1161,24 +1161,28 @@ def new_error_count(before_json, after_json, is_real) -> int | None:
                           real_errors(json.loads(Path(before_json).read_text()), is_real)))
 
 
+def copper_key(pcbnew, t) -> tuple:
+    """A track, arc or via as the route's copper comparisons key it: kind, net, layer and ends (mm, 4 places)."""
+    kind = "via" if t.Type() == pcbnew.PCB_VIA_T else "arc" if t.Type() == pcbnew.PCB_ARC_T else "segment"
+    ends = tuple(round(pcbnew.ToMM(v), 4) for p in (t.GetStart(), t.GetEnd()) for v in (p.x, p.y))
+    return (kind, t.GetNetname(), t.GetLayer(), ends)
+
+
+def copper_items(path) -> set:
+    """copper_key of every track, arc and via on the board at `path`."""
+    from .quiet import import_pcbnew, quiet_stderr
+    pcbnew = import_pcbnew()
+    with quiet_stderr():
+        board = _load_board(str(path))
+    return {copper_key(pcbnew, t) for t in board.GetTracks()}
+
+
 def routed_copper(given_pcb, routed_pcb) -> tuple:
     """(vias, track mm, straight segments) of the copper the route added: the final board's tracks and vias that the
     given board has not, keyed by kind, net, layer and ends. KRT's quality key counts a board's vias and its straight
     segments, and its copper_mm is those segments' lengths end to end (KRT-upstream c98d38eb py_tools/board_score.py:
     1048-1052, py_router/ledger_score.py:76-82): this counts the same over routed copper only, arcs left out as there."""
-    from .quiet import import_pcbnew, quiet_stderr
-    pcbnew = import_pcbnew()
-
-    def items(path):
-        with quiet_stderr():
-            board = _load_board(str(path))
-        out = set()
-        for t in board.GetTracks():
-            kind = "via" if t.Type() == pcbnew.PCB_VIA_T else "arc" if t.Type() == pcbnew.PCB_ARC_T else "segment"
-            ends = tuple(round(pcbnew.ToMM(v), 4) for p in (t.GetStart(), t.GetEnd()) for v in (p.x, p.y))
-            out.add((kind, t.GetNetname(), t.GetLayer(), ends))
-        return out
-    new = items(routed_pcb) - items(given_pcb)
+    new = copper_items(routed_pcb) - copper_items(given_pcb)
     segs = [k for k in new if k[0] == "segment"]
     mm = sum(((k[3][2] - k[3][0]) ** 2 + (k[3][3] - k[3][1]) ** 2) ** 0.5 for k in segs)
     return sum(1 for k in new if k[0] == "via"), round(mm, 3), len(segs)
