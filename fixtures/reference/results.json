@@ -6,20 +6,20 @@
         "closure_clean": 1.0,
         "detail": "",
         "failure": "",
-        "human_track_mm": 2629.8833862193933,
+        "human_track_mm": 2629.883386219394,
         "human_vias": 111,
         "new_violations": [],
         "open": 0,
         "open_nets": [],
         "passed": true,
-        "seconds": 20.6,
-        "track_mm": 2319.135003858159,
+        "seconds": 175.5,
+        "track_mm": 2808.2342632919044,
         "versions": {
-          "krt": "075c9166e6c3ff24dd3a7b1deaca71e5bdc26cc9",
-          "pcb": "pcbc 0.4.52",
-          "placemat": "608f64fe6c35019165660c2030669249ae41ef59"
+          "krt": "b602f7fe154178cdc988643f9c74d4d7309f0bd0",
+          "pcb": "318b4b0d19ce55bc032c70941a2559b9b7728404",
+          "placemat": "d30e9ebd7402d82cd9a262ee6ae04fb502aa8ce5"
         },
-        "vias": 118,
+        "vias": 217,
         "widths": "class"
       },
       "human": {
@@ -27,20 +27,20 @@
         "closure_clean": 1.0,
         "detail": "",
         "failure": "",
-        "human_track_mm": 2629.8833862193933,
+        "human_track_mm": 2629.883386219394,
         "human_vias": 111,
         "new_violations": [],
         "open": 0,
         "open_nets": [],
         "passed": true,
-        "seconds": 18.8,
-        "track_mm": 2285.566041102877,
+        "seconds": 137.4,
+        "track_mm": 2607.5702479308975,
         "versions": {
-          "krt": "075c9166e6c3ff24dd3a7b1deaca71e5bdc26cc9",
-          "pcb": "pcbc 0.4.52",
-          "placemat": "608f64fe6c35019165660c2030669249ae41ef59"
+          "krt": "b602f7fe154178cdc988643f9c74d4d7309f0bd0",
+          "pcb": "318b4b0d19ce55bc032c70941a2559b9b7728404",
+          "placemat": "d30e9ebd7402d82cd9a262ee6ae04fb502aa8ce5"
         },
-        "vias": 107,
+        "vias": 196,
         "widths": "human"
       }
     },
@@ -111,79 +111,48 @@
     "ir-irradiance-probe": {
       "class": {
         "board": "ir-irradiance-probe",
-        "closure_clean": 0.8861,
+        "closure_clean": 0.9882,
         "detail": "",
         "failure": "",
         "human_track_mm": 395.518257241467,
         "human_vias": 196,
-        "new_violations": [
-          {
-            "at_mm": [
-              77.2,
-              83.2
-            ],
-            "nets": [
-              "/SCL",
-              "/SDA"
-            ],
-            "type": "clearance"
-          },
-          {
-            "at_mm": [
-              77.075,
-              99.32
-            ],
-            "nets": [
-              "GND",
-              "Net-(D1-C)"
-            ],
-            "type": "clearance"
-          }
+        "new_violations": [],
+        "open": 1,
+        "open_nets": [
+          "GND"
         ],
-        "open": 0,
-        "open_nets": [],
         "passed": false,
-        "seconds": 50.1,
-        "track_mm": 325.3453192375623,
+        "seconds": 185.2,
+        "track_mm": 402.3510321632144,
         "versions": {
-          "krt": "075c9166e6c3ff24dd3a7b1deaca71e5bdc26cc9",
-          "pcb": "pcbc 0.4.52",
-          "placemat": "608f64fe6c35019165660c2030669249ae41ef59"
+          "krt": "b602f7fe154178cdc988643f9c74d4d7309f0bd0",
+          "pcb": "318b4b0d19ce55bc032c70941a2559b9b7728404",
+          "placemat": "d30e9ebd7402d82cd9a262ee6ae04fb502aa8ce5"
         },
-        "vias": 18,
+        "vias": 19,
         "widths": "class"
       },
       "human": {
         "board": "ir-irradiance-probe",
-        "closure_clean": 0.962,
+        "closure_clean": 0.9882,
         "detail": "",
         "failure": "",
         "human_track_mm": 395.518257241467,
         "human_vias": 196,
-        "new_violations": [
-          {
-            "at_mm": [
-              77.075,
-              99.32
-            ],
-            "nets": [
-              "GND",
-              "Net-(D1-C)"
-            ],
-            "type": "clearance"
-          }
+        "new_violations": [],
+        "open": 1,
+        "open_nets": [
+          "GND"
         ],
-        "open": 0,
-        "open_nets": [],
         "passed": false,
-        "seconds": 47.9,
-        "track_mm": 323.3766449899926,
+        "seconds": 197.2,
+        "track_mm": 405.1138024244813,
         "versions": {
-          "krt": "075c9166e6c3ff24dd3a7b1deaca71e5bdc26cc9",
-          "pcb": "pcbc 0.4.52",
-          "placemat": "608f64fe6c35019165660c2030669249ae41ef59"
+          "krt": "b602f7fe154178cdc988643f9c74d4d7309f0bd0",
+          "pcb": "318b4b0d19ce55bc032c70941a2559b9b7728404",
+          "placemat": "d30e9ebd7402d82cd9a262ee6ae04fb502aa8ce5"
         },
-        "vias": 17,
+        "vias": 20,
         "widths": "human"
       }
     },
@@ -301,39 +270,18 @@
         "failure": "",
         "human_track_mm": 1745.7030331706978,
         "human_vias": 6,
-        "new_violations": [
-          {
-            "at_mm": [
-              99.06,
-              70.26
-            ],
-            "nets": [
-              "GND"
-            ],
-            "type": "track_width"
-          },
-          {
-            "at_mm": [
-              100.12,
-              69.872422
-            ],
-            "nets": [
-              "GND"
-            ],
-            "type": "track_width"
-          }
-        ],
+        "new_violations": [],
         "open": 0,
         "open_nets": [],
-        "passed": false,
-        "seconds": 26.6,
-        "track_mm": 1687.4931085777773,
+        "passed": true,
+        "seconds": 30.6,
+        "track_mm": 1550.2739683415043,
         "versions": {
-          "krt": "075c9166e6c3ff24dd3a7b1deaca71e5bdc26cc9",
-          "pcb": "pcbc 0.4.52",
-          "placemat": "608f64fe6c35019165660c2030669249ae41ef59"
+          "krt": "b602f7fe154178cdc988643f9c74d4d7309f0bd0",
+          "pcb": "318b4b0d19ce55bc032c70941a2559b9b7728404",
+          "placemat": "d30e9ebd7402d82cd9a262ee6ae04fb502aa8ce5"
         },
-        "vias": 48,
+        "vias": 46,
         "widths": "class"
       },
       "human": {
@@ -343,39 +291,18 @@
         "failure": "",
         "human_track_mm": 1745.7030331706978,
         "human_vias": 6,
-        "new_violations": [
-          {
-            "at_mm": [
-              99.06,
-              70.26
-            ],
-            "nets": [
-              "GND"
-            ],
-            "type": "track_width"
-          },
-          {
-            "at_mm": [
-              100.12,
-              69.872422
-            ],
-            "nets": [
-              "GND"
-            ],
-            "type": "track_width"
-          }
-        ],
+        "new_violations": [],
         "open": 0,
         "open_nets": [],
-        "passed": false,
-        "seconds": 25.7,
-        "track_mm": 1722.9538300240215,
+        "passed": true,
+        "seconds": 32.9,
+        "track_mm": 1549.1899062981481,
         "versions": {
-          "krt": "075c9166e6c3ff24dd3a7b1deaca71e5bdc26cc9",
-          "pcb": "pcbc 0.4.52",
-          "placemat": "608f64fe6c35019165660c2030669249ae41ef59"
+          "krt": "b602f7fe154178cdc988643f9c74d4d7309f0bd0",
+          "pcb": "318b4b0d19ce55bc032c70941a2559b9b7728404",
+          "placemat": "d30e9ebd7402d82cd9a262ee6ae04fb502aa8ce5"
         },
-        "vias": 47,
+        "vias": 44,
         "widths": "human"
       }
     },
@@ -469,14 +396,14 @@
         "open": 0,
         "open_nets": [],
         "passed": true,
-        "seconds": 24.1,
-        "track_mm": 201.01982881479427,
+        "seconds": 575.5,
+        "track_mm": 539.3427517170148,
         "versions": {
-          "krt": "075c9166e6c3ff24dd3a7b1deaca71e5bdc26cc9",
-          "pcb": "pcbc 0.4.52",
-          "placemat": "608f64fe6c35019165660c2030669249ae41ef59"
+          "krt": "b602f7fe154178cdc988643f9c74d4d7309f0bd0",
+          "pcb": "318b4b0d19ce55bc032c70941a2559b9b7728404",
+          "placemat": "d30e9ebd7402d82cd9a262ee6ae04fb502aa8ce5"
         },
-        "vias": 23,
+        "vias": 95,
         "widths": "class"
       },
       "human": {
@@ -504,7 +431,56 @@
     "watchy": {
       "class": {
         "board": "watchy",
-        "closure_clean": 0.8582,
+        "closure_clean": 0.8958,
+        "detail": "",
+        "failure": "",
+        "human_track_mm": 917.7475659447364,
+        "human_vias": 108,
+        "new_violations": [
+          {
+            "at_mm": [
+              88.5,
+              80.2
+            ],
+            "nets": [
+              "Net-(AE1-FEED)"
+            ],
+            "type": "clearance"
+          }
+        ],
+        "open": 18,
+        "open_nets": [
+          "+3V3",
+          "/32K_N",
+          "/40M_N",
+          "ACC_INT_2",
+          "BTN1",
+          "BTN2",
+          "CS",
+          "EN",
+          "GND",
+          "Net-(U4-U0RXD/PROG/GPIO44)",
+          "RES",
+          "SCK",
+          "SCL",
+          "USB_D+"
+        ],
+        "passed": false,
+        "seconds": 109.8,
+        "track_mm": 732.6354604987764,
+        "versions": {
+          "krt": "b602f7fe154178cdc988643f9c74d4d7309f0bd0",
+          "pcb": "318b4b0d19ce55bc032c70941a2559b9b7728404",
+          "placemat": "d30e9ebd7402d82cd9a262ee6ae04fb502aa8ce5"
+        },
+        "vias": 85,
+        "widths": "class"
+      },
+      "human": {
+        "board": "watchy",
+        "closure_clean": 0.9167,
+        "detail": "",
+        "failure": "",
         "human_track_mm": 917.7475659447364,
         "human_vias": 108,
         "new_violations": [
@@ -517,149 +493,28 @@
               "Net-(AE1-FEED)"
             ],
             "type": "shorting_items"
-          },
-          {
-            "at_mm": [
-              76.8,
-              99.0
-            ],
-            "nets": [
-              "PREVGL"
-            ],
-            "type": "hole_clearance"
-          },
-          {
-            "at_mm": [
-              76.8,
-              99.0
-            ],
-            "nets": [
-              "PREVGL"
-            ],
-            "type": "hole_clearance"
           }
         ],
-        "open": 15,
+        "open": 14,
         "open_nets": [
-          "+3V3",
-          "/32K_N",
+          "/32K_P",
           "/40M_N",
-          "ACC_INT_2",
+          "ACC_INT_1",
           "ADC",
           "BTN1",
-          "BTN2",
-          "EN",
-          "Net-(U4-U0TXD/PROG/GPIO43)",
-          "RES",
-          "SCK",
+          "GND",
           "SCL",
-          "USB_D-"
+          "VIB_PWM"
         ],
         "passed": false,
-        "seconds": 35.2,
-        "track_mm": 613.6031023505358,
+        "seconds": 83.5,
+        "track_mm": 786.2176093022065,
         "versions": {
-          "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
-          "pcb": "pcbc 0.4.52",
-          "placemat": "a3e7b36e27eeabf822a9377719e909f025ff1d5c"
+          "krt": "b602f7fe154178cdc988643f9c74d4d7309f0bd0",
+          "pcb": "318b4b0d19ce55bc032c70941a2559b9b7728404",
+          "placemat": "d30e9ebd7402d82cd9a262ee6ae04fb502aa8ce5"
         },
-        "vias": 52,
-        "widths": "class"
-      },
-      "human": {
-        "board": "watchy",
-        "closure_clean": 0.903,
-        "human_track_mm": 917.7475659447364,
-        "human_vias": 108,
-        "new_violations": [
-          {
-            "at_mm": [
-              93.05,
-              100.27
-            ],
-            "nets": [
-              "GDR"
-            ],
-            "type": "hole_clearance"
-          },
-          {
-            "at_mm": [
-              93.05,
-              100.27
-            ],
-            "nets": [
-              "RESE"
-            ],
-            "type": "hole_clearance"
-          },
-          {
-            "at_mm": [
-              88.5,
-              80.2
-            ],
-            "nets": [
-              "Net-(AE1-FEED)"
-            ],
-            "type": "clearance"
-          },
-          {
-            "at_mm": [
-              76.8,
-              99.7
-            ],
-            "nets": [
-              "PREVGL"
-            ],
-            "type": "hole_clearance"
-          },
-          {
-            "at_mm": [
-              76.8,
-              99.7
-            ],
-            "nets": [
-              "PREVGL"
-            ],
-            "type": "hole_clearance"
-          },
-          {
-            "at_mm": [
-              93.05,
-              100.27
-            ],
-            "nets": [
-              "GDR"
-            ],
-            "type": "hole_clearance"
-          },
-          {
-            "at_mm": [
-              93.05,
-              100.27
-            ],
-            "nets": [
-              "RESE"
-            ],
-            "type": "hole_clearance"
-          }
-        ],
-        "open": 5,
-        "open_nets": [
-          "+3V3",
-          "/32K_P",
-          "BTN1",
-          "BTN4",
-          "SCL"
-        ],
-        "passed": false,
-        "seconds": 16.1,
-        "track_mm": 687.5441457146158,
-        "versions": {
-          "krt": "c98d38eb4fab1581bd3dde31ae5153ce25446e1a",
-          "pcb": "pcbc 0.4.52",
-          "placemat": "a3e7b36e27eeabf822a9377719e909f025ff1d5c"
-        },
-        "vias": 63,
+        "vias": 96,
         "widths": "human"
       }
     }
@@ -816,7 +671,6 @@
               "under": {
                 "F.Cu": 0.2
               },
-              "width_unknown": true,
               "widths": {
                 "B.Cu": 1.367,
                 "F.Cu": 1.367
@@ -851,9 +705,9 @@
         {
           "asked": 0,
           "closure_clean": 1.0,
-          "final_asked": 1,
+          "final_asked": 0,
           "final_closure_clean": 1.0,
-          "final_joined": 1,
+          "final_joined": 0,
           "final_open": [],
           "joined": 0,
           "name": "signals",
@@ -863,12 +717,12 @@
       "protocol": {
         "KICAD_NET_RESCUE": "0"
       },
-      "seconds": 15.0,
+      "seconds": 9.0,
       "track_mm": 24.994,
       "versions": {
-        "krt": "44dd47917f92535e2048197a8a1bb067d739bc29",
+        "krt": "b602f7fe154178cdc988643f9c74d4d7309f0bd0",
         "pcb": "318b4b0d19ce55bc032c70941a2559b9b7728404",
-        "placemat": "3cc6d2b996140835d891c10aff7c1785ee81a9e3"
+        "placemat": "d30e9ebd7402d82cd9a262ee6ae04fb502aa8ce5"
       },
       "vias": 0,
       "widths_failed": 1
