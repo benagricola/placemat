@@ -997,6 +997,21 @@ class Occupancy:
                             frozenset())
         return self._transform(read, self.items[ref].reference).apply_location(pad.airwire_end)
 
+    def pad_anchors(self, ref: str):
+        """`pad_anchor` for one part's pads as a function of the pad number, its footprint and its move read once."""
+        fp = self.geometry.footprint(ref)
+        pads = {}
+        for pad in fp.pads:
+            pads.setdefault(pad.number, pad)
+        read = ItemGeometry(frozenset([ref]), Placement(fp.location, fp.rotation, fp.face), (), fp.body_box,
+                            frozenset())
+        move = self._transform(read, self.items[ref].reference)
+
+        def anchor(number: str) -> Location:
+            pad = pads.get(number)
+            return self.pad_location(ref, number) if pad is None else move.apply_location(pad.airwire_end)
+        return anchor
+
     def courtyard_box(self, ref: str) -> Box:
         """The box round a part's courtyard where the part stands NOW: its courtyard box as read, moved and turned as the
         part has moved since (as `pad_anchor` moves a pad's anchor)."""
@@ -1469,9 +1484,11 @@ class Occupancy:
             g = self.items.get(ref)
             if g is None or ref in self.pending or not self.geometry.has_footprint(ref):
                 continue
+            anchor = None
             for s in g.shapes:
                 if s.kind in ("pad", "through") and s.net and s.owner == ref:
-                    a = self.pad_anchor(ref, s.label)
+                    anchor = anchor or self.pad_anchors(ref)
+                    a = anchor(s.label)
                     anchors.setdefault(s.net, {})[(ref, s.label)] = Anchor(ref, s.label, a.x, a.y)
                     touched.add(s.net)
         rn = self.__dict__["_ratsnest"]

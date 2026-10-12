@@ -285,9 +285,11 @@ def _signal_edges(board, occ):
     for ref, g in occ.items.items():
         if ref in occ.pending:
             continue
+        anchor = None
         for s in g.shapes:
             if s.kind in ("pad", "through") and s.net and s.owner == ref:      # not a via it carries
-                a = occ.pad_anchor(ref, s.label)
+                anchor = anchor or occ.pad_anchors(ref)
+                a = anchor(s.label)
                 by_net.setdefault(s.net, {})[(ref, s.label)] = Anchor(ref, s.label, a.x, a.y)
     edges = [e for net in sorted(by_net) for e in mst(net, list(by_net[net].values()))]
     kinds = net_kinds(board.geometry, quiet)

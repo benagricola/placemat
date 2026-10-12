@@ -737,21 +737,23 @@ class Escapes:
         track = nc.track_width / 2.0 + nc.clearance
         eps = geom.drc_epsilon
         cell = occ.settings.place_escape_cell
+        if self._pairs_of is None or self._pairs_of[0] is not occ.rules or self._pairs_of[1] is not occ.geometry:
+            self._pairs, self._pairs_of = {}, (occ.rules, occ.geometry)
+        pairs = self._pairs
+        hole = (max(track + geom.hole_clearance - nc.clearance - eps, 0.0) + cell, geom.hole_clearance - eps)
+        reach = max(track - eps, 0.0) + cell
         out = []
         for s in self._bgrid.near(box):
-            if s.kind == "npth":
-                lane, clr = track + geom.hole_clearance - nc.clearance, geom.hole_clearance
-            elif (s.kind in ("pad", "through", "copper") and (s.net != net or not net)
+            kind = s.kind
+            if kind == "npth":
+                out.append((s, *hole))
+            elif (kind in ("pad", "through", "copper") and (s.net != net or not net)
                   and not (s.owner == ref and s.label == number)):
-                if self._pairs_of is None or self._pairs_of[0] is not occ.rules or self._pairs_of[1] is not occ.geometry:
-                    self._pairs, self._pairs_of = {}, (occ.rules, occ.geometry)
                 key = net, s.net, s.owner, s.wire
-                if key not in self._pairs:
-                    self._pairs[key] = occ.pair_clearance(net, s.net, "", s.owner, True, s.wire)[0]
-                lane, clr = track, self._pairs[key]
-            else:
-                continue
-            out.append((s, max(lane - eps, 0.0) + cell, clr - eps))
+                clr = pairs.get(key)
+                if clr is None:
+                    clr = pairs[key] = occ.pair_clearance(net, s.net, "", s.owner, True, s.wire)[0]
+                out.append((s, reach, clr - eps))
         return out
 
     def _lane_blocked(self, lane: Lane, foes) -> list:
@@ -894,6 +896,8 @@ class Escapes:
             return b.left, b.top, b.right, b.bottom
         def shape(s):
             return _surface_shape(s, delta.get(id(s), 0.0))
+        if not delta:
+            shape = _surface_shape
         path = ([shape(s) for s in mine], [shape(s) for s in walls + holes], _layer_bits(layers),
                 bounds(win), track, via, aim, [shape(s) for s in path_bans],
                 occ.settings.place_escape_cell, occ.geometry.drc_epsilon, False)
