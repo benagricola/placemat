@@ -364,6 +364,7 @@ impl PreparedContacts {
 
 /// Named facts consumed by the native escape evaluator; inspection serializes
 /// its chain only at the explicit Python parity boundary.
+#[derive(Clone)]
 pub(crate) struct ContactFacts {
     pub(crate) joined: bool,
     pub(crate) on_pad: bool,

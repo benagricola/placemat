@@ -2,7 +2,7 @@
 //! clearances are frozen before candidates; geometry and nearest targets stay
 //! in Rust. This surface is not adopted until independent board parity gates.
 use crate::candidate::{Bounds, PlacedRecord, Point, PreparedCandidate};
-use crate::escape_contacts::{PreparedContacts, View};
+use crate::escape_contacts::{ContactFacts, PreparedContacts, View};
 use crate::surface::{self, Path, Shape};
 use crate::NativeDelta;
 use pyo3::exceptions::PyValueError;
@@ -142,6 +142,10 @@ pub struct PreparedSurface {
     // Per (field, turn): a rest field's lanes. Per (field, pad, turn): a rest pad's facts on the lifted board.
     field_lanes: HashMap<(usize, usize), Arc<FieldLanes>>,
     pad_facts: HashMap<(usize, usize, usize), PadFacts>,
+    // Per (field, pad): a rest pad's contacts on the lifted board, its copper chain, and the boxes of its contact
+    // shapes and chain. A candidate whose geometry overlaps none of those boxes touches none of those shapes, so its
+    // contacts are the same.
+    contact_cache: HashMap<(usize, usize), (ContactFacts, Vec<usize>, Vec<Bounds>)>,
 }
 
 // The rest shapes by the Python blocker grid's 2 mm buckets (`near`): a shape is in every bucket its box's
@@ -529,6 +533,7 @@ impl PreparedSurface {
             rest_index: None,
             field_lanes: HashMap::new(),
             pad_facts: HashMap::new(),
+            contact_cache: HashMap::new(),
         })
     }
 
@@ -581,6 +586,7 @@ impl PreparedSurface {
         for field in &mut self.fields { field.cached = None; }
         self.field_lanes.clear();
         self.pad_facts.clear();
+        self.contact_cache.clear();
         for (index, pads) in prepared { self.fields[index].cached = Some(pads); }
         Ok(())
     }
@@ -809,7 +815,7 @@ impl PreparedSurface {
                     let gathered = if self.pad_facts.get(&key).is_some_and(|f| f.valid) {
                         None
                     } else {
-                        let judged = self.judge_pad(py, candidate, delta, turn, fi, pi, lanes, index, true, profile)?;
+                        let judged = self.judge_pad(py, candidate, delta, turn, fi, pi, lanes, index, true, &physical, profile)?;
                         Some(judged.facts.unwrap())
                     };
                     let facts = gathered.as_ref().or_else(|| self.pad_facts.get(&key)).unwrap();
@@ -834,7 +840,7 @@ impl PreparedSurface {
                     }
                     judged
                 } else {
-                    self.judge_pad(py, candidate, delta, turn, fi, pi, lanes, index, false, profile)?
+                    self.judge_pad(py, candidate, delta, turn, fi, pi, lanes, index, false, &physical, profile)?
                 };
                 if judged.way == 1 {
                     vias += 1;
@@ -940,22 +946,43 @@ impl PreparedSurface {
     /// those facts.
     #[allow(clippy::too_many_arguments)]
     fn judge_pad(&mut self, py: Python<'_>, candidate: &PreparedCandidate, delta: &mut NativeDelta, turn: usize,
-                 fi: usize, pi: usize, lanes: &FieldLanes, index: &RestIndex, gather: bool,
+                 fi: usize, pi: usize, lanes: &FieldLanes, index: &RestIndex, gather: bool, physical: &[Bounds],
                  profile: &mut Option<Profile>) -> PyResult<Judged> {
         let (owner, number, net_name, unconnected) = {
             let pad = &self.fields[fi].pads[pi];
             (self.fields[fi].owner.clone(), pad.number.clone(), pad.net.clone(), pad.unconnected)
         };
         let (mine, b) = &lanes.mines[pi];
-        let facts = profiled!(profile, contacts, self.contacts.inspect_validated(
-            py,
-            candidate,
-            turn,
-            &owner,
-            &number,
-            &net_name,
-        ))?;
-        let own = self.contacts.chain().to_vec();
+        let rest = self.fields[fi].cached.is_some();
+        let reaches = |boxes: &[Bounds]| boxes.iter().any(|b| physical.iter().any(|p| overlaps(*b, *p)));
+        let kept = if rest {
+            self.contact_cache.get(&(fi, pi)).filter(|(_, _, boxes)| !reaches(boxes))
+                .map(|(facts, own, _)| (facts.clone(), own.clone()))
+        } else {
+            None
+        };
+        let (facts, own) = match kept {
+            Some(kept) => kept,
+            None => {
+                let facts = profiled!(profile, contacts, self.contacts.inspect_validated(
+                    py,
+                    candidate,
+                    turn,
+                    &owner,
+                    &number,
+                    &net_name,
+                ))?;
+                let own = self.contacts.chain().to_vec();
+                if rest {
+                    let boxes: Vec<Bounds> = mine.iter().chain(&own)
+                        .map(|&i| self.contacts.shape(candidate, turn, i).bounds).collect();
+                    if !reaches(&boxes) {
+                        self.contact_cache.insert((fi, pi), (facts.clone(), own.clone(), boxes));
+                    }
+                }
+                (facts, own)
+            }
+        };
         let net = self.nets.get(&net_name).unwrap();
         let field = &self.fields[fi];
         let pad = &field.pads[pi];
