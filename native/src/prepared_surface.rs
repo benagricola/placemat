@@ -63,6 +63,33 @@ type RestCacheRecord = (String, Vec<(String, String, bool, u8, Bounds, bool, boo
 struct CachedPad {
     number: String, way: u8, region: Bounds, wall: bool, handoff: bool,
 }
+// One field's lanes and via spots, and each pad's contact shapes and their box: all of a fixed field's own geometry,
+// so a rest field's are made once per turn.
+struct FieldLanes {
+    lanes: Vec<(String, surface::Lane, Point)>,
+    spots: Vec<(String, surface::Spot)>,
+    mines: Vec<(Vec<usize>, Bounds)>,
+}
+// What a rest pad's judgement is without its target's direction, on the lifted board, and the boxes that geometry
+// must stay out of for that to hold: the pad's blocker region, both search reaches and its own copper chain. Moving
+// geometry clear of every box is invisible to every test the judgement makes.
+struct PadFacts {
+    // The pad is judged (a signal net with a target, not joined or on another part's pad).
+    eligible: bool,
+    centre: Point,
+    surface: Option<surface::SurfaceFacts>,
+    wall: bool,
+    handoff: bool,
+    guard: Vec<Bounds>,
+}
+// One pad's judgement: its way, whether its own copper chain is walled in, whether it is an unanswered hand-off,
+// and, when its facts were gathered, those facts.
+struct Judged {
+    way: u8,
+    wall: bool,
+    handoff: bool,
+    facts: Option<PadFacts>,
+}
 struct Field {
     owner: String,
     pads: Vec<Pad>,
@@ -83,6 +110,8 @@ struct Search {
     path: Path,
     copper: Vec<Shape>,
     holes: Vec<Shape>,
+    // The box a shape must overlap to take part in the search.
+    reach: Bounds,
 }
 struct Settings {
     reach: f64,
@@ -105,7 +134,11 @@ pub struct PreparedSurface {
     nets: HashMap<String, Net>,
     settings: Settings,
     cache_usage: (usize, usize),
+    cache_reasons: (usize, usize, usize, usize, usize),
     rest_index: Option<RestIndex>,
+    // Per (field, turn): a rest field's lanes. Per (field, pad, turn): a rest pad's facts on the lifted board.
+    field_lanes: HashMap<(usize, usize), Arc<FieldLanes>>,
+    pad_facts: HashMap<(usize, usize, usize), PadFacts>,
 }
 
 // The rest shapes by the Python blocker grid's 2 mm buckets (`near`): a shape is in every bucket its box's
@@ -192,6 +225,9 @@ impl PreparedSurface {
         owner: &str,
         number: &str,
     ) -> Vec<usize> {
+        if let Some(found) = self.contacts.pad_shapes(turn, owner, number) {
+            return found;
+        }
         (0..self.contacts.shape_count(candidate, turn))
             .filter(|&i| {
                 let s = self.contacts.shape(candidate, turn, i);
@@ -279,6 +315,7 @@ impl PreparedSurface {
             ),
             copper,
             holes,
+            reach,
         }
     }
 }
@@ -485,7 +522,10 @@ impl PreparedSurface {
                 lane_via_exit,
             },
             cache_usage: (0, 0),
+            cache_reasons: (0, 0, 0, 0, 0),
             rest_index: None,
+            field_lanes: HashMap::new(),
+            pad_facts: HashMap::new(),
         })
     }
 
@@ -536,11 +576,18 @@ impl PreparedSurface {
         }
         // No partial cache publication after a later malformed record.
         for field in &mut self.fields { field.cached = None; }
+        self.field_lanes.clear();
+        self.pad_facts.clear();
         for (index, pads) in prepared { self.fields[index].cached = Some(pads); }
         Ok(())
     }
 
     fn cache_usage(&self) -> (usize, usize) { self.cache_usage }
+
+    /// Why the last evaluation judged fields again: (fields without a cache, cached fields with a pad on a net the
+    /// candidate touches but no region it reaches, cached fields whose region it reaches, pads judged again in full,
+    /// pads judged on their facts against a new aim).
+    fn cache_reasons(&self) -> (usize, usize, usize, usize, usize) { self.cache_reasons }
 
     /// Full native geometry, eligibility, aim and supplemental judgements.
     /// Counts are absolute except signed crossed-edge change. Returned ways
@@ -680,276 +727,128 @@ impl PreparedSurface {
             }).collect();
         // A quiet net's pad takes no target (it is judged for walled only), so a candidate on its net changes its
         // verdict only by standing on or near it, which the region test sees: quiet nets are not touched.
-        let touched: HashSet<_> = candidate.turn(turn).shapes.iter().enumerate()
+        let touched: HashSet<String> = candidate.turn(turn).shapes.iter().enumerate()
             .filter(|(i, shape)| self.moving_roles[turn][*i] != 0 && !shape.net.is_empty()
                     && !self.nets.get(shape.net.as_str()).is_some_and(|n| n.quiet))
-            .map(|(_, shape)| shape.net.as_str()).collect();
+            .map(|(_, shape)| shape.net.clone()).collect();
+        let reaches = |b: Bounds| physical.iter().any(|p| overlaps(b, *p));
         let mut reused = 0;
         let mut rejudged = 0;
+        let mut reasons = (0, 0, 0, 0, 0);
         let mut vias = 0;
         let mut away = 0;
         let mut walls = HashSet::new();
         let mut handoffs = Vec::new();
         let mut ways = Vec::new();
-        for field in &self.fields {
+        #[derive(Clone, Copy, PartialEq)]
+        enum Mode { Reuse, Aim, Full }
+        for fi in 0..self.fields.len() {
             py.check_signals()?;
-            if field.pads.len() < self.settings.minimum {
+            if self.fields[fi].pads.len() < self.settings.minimum {
                 continue;
             }
-            // The rest board was already lifted: only added physical geometry
-            // can alter contact/path obstacles. All touched signal nets are
-            // rejudged: nearest changes do not need an MST edge change.
-            if let Some(cached) = &field.cached {
-                let affected = field.pads.iter().any(|pad| touched.contains(pad.net.as_str()))
-                    || cached.iter().any(|pad| physical.iter().any(|bounds| overlaps(pad.region, *bounds)));
-                if !affected {
-                    reused += 1;
-                    for (pad, intent) in cached.iter().zip(&field.pads) {
-                        if !self.nets.contains_key(&intent.net) { continue; }
-                        if pad.way == 1 { vias += 1; }
-                        else if pad.way == 2 { away += 1; }
-                        if pad.wall { walls.insert((field.owner.clone(), pad.number.clone())); }
-                        if pad.handoff { handoffs.push((field.owner.clone(), pad.number.clone())); }
-                        if inspect { ways.push((field.owner.clone(), pad.number.clone(), pad.way)); }
-                    }
+            // The rest board was already lifted: only added physical geometry can alter a rest pad's contacts and
+            // paths. A pad the candidate's geometry reaches is judged again in full. A pad on a net it touches
+            // keeps its geometry but may aim elsewhere: its facts on the lifted board, gathered once, are judged
+            // against the new aim. Any other pad keeps its cached verdict.
+            let modes: Vec<Mode> = match &self.fields[fi].cached {
+                Some(cached) => {
+                    let field = &self.fields[fi];
+                    let by_net = field.pads.iter().any(|pad| touched.contains(&pad.net));
+                    let by_region = cached.iter().any(|pad| reaches(pad.region));
+                    if by_region { reasons.2 += 1; } else if by_net { reasons.1 += 1; }
+                    cached.iter().zip(&field.pads).enumerate().map(|(pi, (c, pad))| {
+                        let facts = self.pad_facts.get(&(fi, pi, turn));
+                        if reaches(c.region) || facts.is_some_and(|f| f.guard.iter().any(|g| reaches(*g))) {
+                            Mode::Full
+                        } else if touched.contains(&pad.net) {
+                            Mode::Aim
+                        } else {
+                            Mode::Reuse
+                        }
+                    }).collect()
+                }
+                None => {
+                    reasons.0 += 1;
+                    vec![Mode::Full; self.fields[fi].pads.len()]
+                }
+            };
+            if modes.iter().all(|m| *m == Mode::Reuse) {
+                reused += 1;
+            } else {
+                rejudged += 1;
+            }
+            let lanes = if modes.iter().any(|m| *m != Mode::Reuse) {
+                Some(self.lanes_of(py, candidate, turn, fi, profile)?)
+            } else {
+                None
+            };
+            for (pi, mode) in modes.iter().enumerate() {
+                let (owner, number, net) = {
+                    let pad = &self.fields[fi].pads[pi];
+                    (self.fields[fi].owner.clone(), pad.number.clone(), pad.net.clone())
+                };
+                if *mode == Mode::Reuse {
+                    if !self.nets.contains_key(&net) { continue; }
+                    let c = &self.fields[fi].cached.as_ref().unwrap()[pi];
+                    if c.way == 1 { vias += 1; }
+                    else if c.way == 2 { away += 1; }
+                    if c.wall { walls.insert((owner.clone(), number.clone())); }
+                    if c.handoff { handoffs.push((owner.clone(), number.clone())); }
+                    if inspect { ways.push((owner, number, c.way)); }
                     continue;
                 }
-            }
-            rejudged += 1;
-            let records_started = profile.as_ref().map(|_| std::time::Instant::now());
-            let mut records = Vec::new();
-            let mut pad_mines = Vec::new();
-            for pad in &field.pads {
-                let mine = self.mine(&candidate, turn, &field.owner, &pad.number);
-                if mine.is_empty() {
-                    return Err(PyValueError::new_err("prepared surface pad missing"));
-                }
-                let mut layers = 0;
-                let mut polys = Vec::new();
-                let mut boxes = Vec::new();
-                for &i in &mine {
-                    let s = self.contacts.shape(&candidate, turn, i);
-                    if s.net != pad.net {
-                        return Err(PyValueError::new_err("prepared surface pad intent changed"));
-                    }
-                    layers |= s.layers;
-                    polys.push(s.polygon.to_vec());
-                    boxes.push(s.bounds);
-                }
-                let net = self.nets.get(&pad.net);
-                let eligible = net.is_some_and(|n| n.size >= 2) && !pad.unconnected;
-                let (tr, vr, dr, clr) = if eligible {
-                    let n = net.unwrap();
-                    (
-                        n.track_width / 2.0 + n.clearance,
-                        n.diameter / 2.0,
-                        n.drill / 2.0,
-                        n.clearance,
-                    )
-                } else {
-                    (0.0, 0.0, 0.0, 0.0)
-                };
-                let b = bounds_union(boxes.into_iter());
-                records.push((
-                    pad.number.clone(),
-                    layers,
-                    b,
-                    Some(polys),
-                    eligible,
-                    tr,
-                    vr,
-                    dr,
-                    clr,
-                ));
-                pad_mines.push((mine, b));
-            }
-            if let (Some(timing), Some(started)) = (profile.as_mut(), records_started) {
-                timing.records += started.elapsed().as_secs_f64() * 1e6;
-            }
-            let (rotation, cos, sin) = field.turns[turn];
-            let (lanes, spots) = profiled!(profile, lanes, surface::surface_lanes(
-                py,
-                records,
-                rotation,
-                (cos, sin),
-                self.settings.reach,
-                self.settings.minimum,
-            ))?;
-            for (pad, (mine, b)) in field.pads.iter().zip(pad_mines) {
-                py.check_signals()?;
-                let Some(net) = self.nets.get(&pad.net) else {
-                    continue;
-                };
-                let facts = profiled!(profile, contacts, self.contacts.inspect_validated(
-                    py,
-                    &candidate,
-                    turn,
-                    &field.owner,
-                    &pad.number,
-                    &pad.net,
-                ))?;
-                let own = self.contacts.chain().to_vec();
-                let judge_started = profile.as_ref().map(|_| std::time::Instant::now());
-                let mut way = 4;
-                if net.size >= 2 && !pad.unconnected && !facts.joined && !facts.on_pad {
-                    let centre = ((b.0 + b.2) / 2.0, (b.1 + b.3) / 2.0);
-                    let aim_started = profile.as_ref().map(|_| std::time::Instant::now());
-                    let aim = if net.quiet {
+                if !self.nets.contains_key(&net) { continue; }
+                if *mode == Mode::Full { reasons.3 += 1; } else { reasons.4 += 1; }
+                let lanes = lanes.as_ref().unwrap();
+                let judged = if *mode == Mode::Aim {
+                    let key = (fi, pi, turn);
+                    let gathered = if self.pad_facts.contains_key(&key) {
                         None
                     } else {
-                        delta
-                            .inner
-                            .aim(turn, &pad.net, &field.owner, &pad.number, centre)
-                            .map_err(PyValueError::new_err)?
+                        let judged = self.judge_pad(py, candidate, delta, turn, fi, pi, lanes, index, true, profile)?;
+                        Some(judged.facts.unwrap())
                     };
-                    if let (Some(timing), Some(started)) = (profile.as_mut(), aim_started) {
-                        timing.aim += started.elapsed().as_secs_f64() * 1e6;
-                    }
-                    if net.quiet || aim.is_some() {
-                        let blockers_started = profile.as_ref().map(|_| std::time::Instant::now());
-                        let pad_lanes: Vec<_> = lanes
-                            .iter()
-                            .filter(|l| l.0 == pad.number)
-                            .map(|l| l.1.clone())
-                            .collect();
-                        let pad_spots: Vec<_> = spots
-                            .iter()
-                            .filter(|s| s.0 == pad.number)
-                            .map(|s| s.1.clone())
-                            .collect();
-                        let region = bounds_union(
-                            std::iter::once(b)
-                                .chain(pad_lanes.iter().map(|l| l.2))
-                                .chain(pad_spots.iter().map(|s| s.2)),
-                        );
-                        let region = inflate(region, net.foe_reach);
-                        let track = net.track_width / 2.0 + net.clearance;
-                        let mut foes = Vec::new();
-                        let mut bans = Vec::new();
-                        let shapes = index.near(region, &index.bans).into_iter()
-                            .chain(self.rest_roles.len()..self.contacts.shape_count(&candidate, turn));
-                        for i in shapes {
-                            let s = self.contacts.shape(&candidate, turn, i);
-                            let role = self.role(turn, i);
-                            if role & CONTACT != 0 && near(s.bounds, region) {
-                                let reach = if s.kind == "npth" {
-                                    Some((
-                                        track + self.settings.hole_clearance - net.clearance,
-                                        self.settings.hole_clearance,
-                                    ))
-                                } else if matches!(s.kind, "pad" | "through" | "copper")
-                                    && s.net != pad.net
-                                    && !(s.owner == field.owner && s.pad == pad.number)
-                                {
-                                    Some((track, net.pairs[i]))
-                                } else {
-                                    None
-                                };
-                                if let Some((lane, clr)) = reach {
-                                    foes.push((
-                                        record(&s, 0.0),
-                                        (lane - self.settings.epsilon).max(0.0)
-                                            + self.settings.cell,
-                                        clr - self.settings.epsilon,
-                                        s.kind == "npth",
-                                    ));
-                                }
-                            }
-                            if role & BAN != 0 && !s.net.split('\u{1f}').any(|n| n == pad.net) {
-                                bans.push(record(&s, 0.0));
-                            }
+                    let facts = gathered.as_ref().or_else(|| self.pad_facts.get(&key)).unwrap();
+                    let mut way = 4;
+                    if facts.eligible {
+                        let aim_started = profile.as_ref().map(|_| std::time::Instant::now());
+                        let aim = delta.inner.aim(turn, &net, &owner, &number, facts.centre)
+                            .map_err(PyValueError::new_err)?;
+                        if let (Some(timing), Some(started)) = (profile.as_mut(), aim_started) {
+                            timing.aim += started.elapsed().as_secs_f64() * 1e6;
                         }
-                        if let (Some(timing), Some(started)) = (profile.as_mut(), blockers_started) {
-                            timing.blockers += started.elapsed().as_secs_f64() * 1e6;
-                        }
-                        let path = profiled!(profile, path_setup, self.path(
-                            &candidate,
-                            turn,
-                            field,
-                            pad,
-                            &mine,
-                            &[],
-                            net,
-                            self.settings.reach,
-                            aim,
-                            false,
-                            false,
-                            index,
-                        ));
-                        way = profiled!(profile, judge, surface::surface_judge(
-                            py, pad_lanes, pad_spots, foes, bans, aim, centre, net.quiet, path.path,
-                        ))?;
-                        if way == 1 {
-                            vias += 1;
-                        } else if way == 2 {
-                            away += 1;
-                        } else if way == 3 {
-                            walls.insert((field.owner.clone(), pad.number.clone()));
+                        if let Some(d) = aim {
+                            way = facts.surface.as_ref().unwrap().way(d);
                         }
                     }
+                    let judged = Judged { way, wall: facts.wall, handoff: facts.handoff, facts: None };
+                    // Facts gathered while candidate geometry reaches the guard boxes describe this candidate,
+                    // not the lifted board: they answer it but are not kept.
+                    if let Some(facts) = gathered {
+                        if !facts.guard.iter().any(|g| reaches(*g)) {
+                            self.pad_facts.insert(key, facts);
+                        }
+                    }
+                    judged
+                } else {
+                    self.judge_pad(py, candidate, delta, turn, fi, pi, lanes, index, false, profile)?
+                };
+                if judged.way == 1 {
+                    vias += 1;
+                } else if judged.way == 2 {
+                    away += 1;
+                } else if judged.way == 3 {
+                    walls.insert((owner.clone(), number.clone()));
                 }
-                if let (Some(timing), Some(started)) = (profile.as_mut(), judge_started) {
-                    timing.classification += started.elapsed().as_secs_f64() * 1e6;
+                if judged.wall {
+                    walls.insert((owner.clone(), number.clone()));
+                }
+                if judged.handoff {
+                    handoffs.push((owner.clone(), number.clone()));
                 }
                 if inspect {
-                    ways.push((field.owner.clone(), pad.number.clone(), way));
-                }
-                let supplemental_started = profile.as_ref().map(|_| std::time::Instant::now());
-                let declared = net.size >= 2
-                    && !own.is_empty()
-                    && !facts.through
-                    && facts.declared
-                    && !facts.runs_on;
-                let handoff = net.size < 2 && !pad.unconnected && !facts.through;
-                if declared || handoff {
-                    let path = self.path(
-                        &candidate,
-                        turn,
-                        field,
-                        pad,
-                        &mine,
-                        &own,
-                        net,
-                        self.settings.depth,
-                        None,
-                        true,
-                        self.settings.lane_via_exit,
-                        index,
-                    );
-                    let search = path;
-                    let path = search.path;
-                    let coarse = if handoff && own.is_empty() {
-                        surface::surface_box_path_out(
-                            py,
-                            path.0.clone(),
-                            search.copper,
-                            search.holes,
-                            path.2,
-                            path.3,
-                            path.4,
-                            path.5,
-                            None,
-                            path.7.clone(),
-                            path.8,
-                        )?
-                    } else {
-                        false
-                    };
-                    if !coarse
-                        && !surface::surface_path_out(
-                            py, path.0, path.1, path.2, path.3, path.4, path.5, None, path.7,
-                            path.8, path.9, path.10,
-                        )?
-                    {
-                        if handoff {
-                            handoffs.push((field.owner.clone(), pad.number.clone()));
-                        } else {
-                            walls.insert((field.owner.clone(), pad.number.clone()));
-                        }
-                    }
-                }
-                if let (Some(timing), Some(started)) = (profile.as_mut(), supplemental_started) {
-                    timing.supplemental += started.elapsed().as_secs_f64() * 1e6;
+                    ways.push((owner, number, judged.way));
                 }
             }
         }
@@ -964,6 +863,274 @@ impl PreparedSurface {
         };
         identities.sort();
         self.cache_usage = (reused, rejudged);
+        self.cache_reasons = reasons;
         Ok((vias, away, walls.len() + handoffs.len(), ways, identities))
+    }
+
+    /// A field's lanes, via spots and pad contact shapes for `turn`, made once per turn for a rest field.
+    fn lanes_of(&mut self, py: Python<'_>, candidate: &PreparedCandidate, turn: usize, fi: usize,
+                profile: &mut Option<Profile>) -> PyResult<Arc<FieldLanes>> {
+        let rest = self.fields[fi].cached.is_some();
+        if rest {
+            if let Some(found) = self.field_lanes.get(&(fi, turn)) {
+                return Ok(found.clone());
+            }
+        }
+        let field = &self.fields[fi];
+        let records_started = profile.as_ref().map(|_| std::time::Instant::now());
+        let mut records = Vec::new();
+        let mut mines = Vec::new();
+        for pad in &field.pads {
+            let mine = self.mine(candidate, turn, &field.owner, &pad.number);
+            if mine.is_empty() {
+                return Err(PyValueError::new_err("prepared surface pad missing"));
+            }
+            let mut layers = 0;
+            let mut polys = Vec::new();
+            let mut boxes = Vec::new();
+            for &i in &mine {
+                let s = self.contacts.shape(candidate, turn, i);
+                if s.net != pad.net {
+                    return Err(PyValueError::new_err("prepared surface pad intent changed"));
+                }
+                layers |= s.layers;
+                polys.push(s.polygon.to_vec());
+                boxes.push(s.bounds);
+            }
+            let net = self.nets.get(&pad.net);
+            let eligible = net.is_some_and(|n| n.size >= 2) && !pad.unconnected;
+            let (tr, vr, dr, clr) = if eligible {
+                let n = net.unwrap();
+                (
+                    n.track_width / 2.0 + n.clearance,
+                    n.diameter / 2.0,
+                    n.drill / 2.0,
+                    n.clearance,
+                )
+            } else {
+                (0.0, 0.0, 0.0, 0.0)
+            };
+            let b = bounds_union(boxes.into_iter());
+            records.push((pad.number.clone(), layers, b, Some(polys), eligible, tr, vr, dr, clr));
+            mines.push((mine, b));
+        }
+        if let (Some(timing), Some(started)) = (profile.as_mut(), records_started) {
+            timing.records += started.elapsed().as_secs_f64() * 1e6;
+        }
+        let (rotation, cos, sin) = field.turns[turn];
+        let (lanes, spots) = profiled!(profile, lanes, surface::surface_lanes(
+            py,
+            records,
+            rotation,
+            (cos, sin),
+            self.settings.reach,
+            self.settings.minimum,
+        ))?;
+        let made = Arc::new(FieldLanes { lanes, spots, mines });
+        if rest {
+            self.field_lanes.insert((fi, turn), made.clone());
+        }
+        Ok(made)
+    }
+
+    /// One pad's full judgement on the candidate's board: its contacts, its way and its supplemental search. With
+    /// `gather`, the way's search runs to the end and the pad's facts are returned with it; the way then comes from
+    /// those facts.
+    #[allow(clippy::too_many_arguments)]
+    fn judge_pad(&mut self, py: Python<'_>, candidate: &PreparedCandidate, delta: &mut NativeDelta, turn: usize,
+                 fi: usize, pi: usize, lanes: &FieldLanes, index: &RestIndex, gather: bool,
+                 profile: &mut Option<Profile>) -> PyResult<Judged> {
+        let (owner, number, net_name, unconnected) = {
+            let pad = &self.fields[fi].pads[pi];
+            (self.fields[fi].owner.clone(), pad.number.clone(), pad.net.clone(), pad.unconnected)
+        };
+        let (mine, b) = &lanes.mines[pi];
+        let facts = profiled!(profile, contacts, self.contacts.inspect_validated(
+            py,
+            candidate,
+            turn,
+            &owner,
+            &number,
+            &net_name,
+        ))?;
+        let own = self.contacts.chain().to_vec();
+        let net = self.nets.get(&net_name).unwrap();
+        let field = &self.fields[fi];
+        let pad = &field.pads[pi];
+        let judge_started = profile.as_ref().map(|_| std::time::Instant::now());
+        let centre = ((b.0 + b.2) / 2.0, (b.1 + b.3) / 2.0);
+        let mut guard: Vec<Bounds> = own.iter().map(|&i| self.contacts.shape(candidate, turn, i).bounds).collect();
+        let mut way = 4;
+        let eligible = net.size >= 2 && !unconnected && !facts.joined && !facts.on_pad;
+        let mut gathered = None;
+        if eligible {
+            let aim_started = profile.as_ref().map(|_| std::time::Instant::now());
+            let aim = if net.quiet || gather {
+                None
+            } else {
+                delta
+                    .inner
+                    .aim(turn, &net_name, &owner, &number, centre)
+                    .map_err(PyValueError::new_err)?
+            };
+            if let (Some(timing), Some(started)) = (profile.as_mut(), aim_started) {
+                timing.aim += started.elapsed().as_secs_f64() * 1e6;
+            }
+            if net.quiet || aim.is_some() || gather {
+                let blockers_started = profile.as_ref().map(|_| std::time::Instant::now());
+                let pad_lanes: Vec<_> = lanes.lanes
+                    .iter()
+                    .filter(|l| l.0 == number)
+                    .map(|l| l.1.clone())
+                    .collect();
+                let pad_spots: Vec<_> = lanes.spots
+                    .iter()
+                    .filter(|s| s.0 == number)
+                    .map(|s| s.1.clone())
+                    .collect();
+                let region = bounds_union(
+                    std::iter::once(*b)
+                        .chain(pad_lanes.iter().map(|l| l.2))
+                        .chain(pad_spots.iter().map(|s| s.2)),
+                );
+                let region = inflate(region, net.foe_reach);
+                guard.push(inflate(region, self.settings.cell));
+                let track = net.track_width / 2.0 + net.clearance;
+                let mut foes = Vec::new();
+                let mut bans = Vec::new();
+                let shapes = index.near(region, &index.bans).into_iter()
+                    .chain(self.rest_roles.len()..self.contacts.shape_count(candidate, turn));
+                for i in shapes {
+                    let s = self.contacts.shape(candidate, turn, i);
+                    let role = self.role(turn, i);
+                    if role & CONTACT != 0 && near(s.bounds, region) {
+                        let reach = if s.kind == "npth" {
+                            Some((
+                                track + self.settings.hole_clearance - net.clearance,
+                                self.settings.hole_clearance,
+                            ))
+                        } else if matches!(s.kind, "pad" | "through" | "copper")
+                            && s.net != pad.net
+                            && !(s.owner == field.owner && s.pad == pad.number)
+                        {
+                            Some((track, net.pairs[i]))
+                        } else {
+                            None
+                        };
+                        if let Some((lane, clr)) = reach {
+                            foes.push((
+                                record(&s, 0.0),
+                                (lane - self.settings.epsilon).max(0.0)
+                                    + self.settings.cell,
+                                clr - self.settings.epsilon,
+                                s.kind == "npth",
+                            ));
+                        }
+                    }
+                    if role & BAN != 0 && !s.net.split('\u{1f}').any(|n| n == pad.net) {
+                        bans.push(record(&s, 0.0));
+                    }
+                }
+                if let (Some(timing), Some(started)) = (profile.as_mut(), blockers_started) {
+                    timing.blockers += started.elapsed().as_secs_f64() * 1e6;
+                }
+                let search = profiled!(profile, path_setup, self.path(
+                    candidate,
+                    turn,
+                    field,
+                    pad,
+                    mine,
+                    &[],
+                    net,
+                    self.settings.reach,
+                    aim,
+                    false,
+                    false,
+                    index,
+                ));
+                guard.push(search.reach);
+                if gather {
+                    let found = profiled!(profile, judge, surface::surface_facts(
+                        py, pad_lanes, pad_spots, foes, bans, centre, search.path,
+                    ))?;
+                    gathered = Some(found);
+                } else {
+                    way = profiled!(profile, judge, surface::surface_judge(
+                        py, pad_lanes, pad_spots, foes, bans, aim, centre, net.quiet, search.path,
+                    ))?;
+                }
+            }
+        }
+        if let (Some(timing), Some(started)) = (profile.as_mut(), judge_started) {
+            timing.classification += started.elapsed().as_secs_f64() * 1e6;
+        }
+        let supplemental_started = profile.as_ref().map(|_| std::time::Instant::now());
+        let declared = net.size >= 2
+            && !own.is_empty()
+            && !facts.through
+            && facts.declared
+            && !facts.runs_on;
+        let handoff = net.size < 2 && !unconnected && !facts.through;
+        let mut wall = false;
+        let mut unanswered = false;
+        if declared || handoff {
+            let search = self.path(
+                candidate,
+                turn,
+                field,
+                pad,
+                mine,
+                &own,
+                net,
+                self.settings.depth,
+                None,
+                true,
+                self.settings.lane_via_exit,
+                index,
+            );
+            guard.push(search.reach);
+            let path = search.path;
+            let coarse = if handoff && own.is_empty() {
+                surface::surface_box_path_out(
+                    py,
+                    path.0.clone(),
+                    search.copper,
+                    search.holes,
+                    path.2,
+                    path.3,
+                    path.4,
+                    path.5,
+                    None,
+                    path.7.clone(),
+                    path.8,
+                )?
+            } else {
+                false
+            };
+            if !coarse
+                && !surface::surface_path_out(
+                    py, path.0, path.1, path.2, path.3, path.4, path.5, None, path.7,
+                    path.8, path.9, path.10,
+                )?
+            {
+                if handoff {
+                    unanswered = true;
+                } else {
+                    wall = true;
+                }
+            }
+        }
+        if let (Some(timing), Some(started)) = (profile.as_mut(), supplemental_started) {
+            timing.supplemental += started.elapsed().as_secs_f64() * 1e6;
+        }
+        let facts = gather.then(|| PadFacts {
+            eligible: eligible && !net.quiet,
+            centre,
+            surface: gathered,
+            wall,
+            handoff: unanswered,
+            guard,
+        });
+        Ok(Judged { way, wall, handoff: unanswered, facts })
     }
 }

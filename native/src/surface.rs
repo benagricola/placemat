@@ -4,7 +4,7 @@
 use crate::geometry::{point_in_polygon, point_segment_distance, segments_intersect};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 type Point = (f64, f64);
 type Bounds = (f64, f64, f64, f64);
@@ -465,7 +465,119 @@ pub fn surface_judge(
     path: Path,
 ) -> PyResult<u8> {
     py.check_signals()?;
-    validate_search(
+    let grid = judge_inputs(&lanes, &spots, &foes, &bans, aim, centre, &path)?;
+    let open = open_lanes(&lanes, &foes);
+    let (start, walls, layers, window, track, via, _, path_bans, cell, epsilon, via_exit) = path;
+    let search = |toward| {
+        path_search(
+            py, &start, &walls, layers, window, grid, track, via, toward, &path_bans, cell, epsilon,
+            via_exit, None,
+        )
+    };
+    // The search toward the target, when there is one, also says whether there is a way out at all; a quiet pad
+    // searches without a direction, and only when the via spots leave it unanswered.
+    let mut any = None;
+    if !quiet {
+        let d = aim
+            .ok_or_else(|| PyValueError::new_err("signal surface escape lacks target direction"))?;
+        if open_toward(open.iter().map(|l| l.0.last().unwrap().1), centre, d, cell) {
+            return Ok(0);
+        }
+        let found = search(toward(d))?;
+        if found.toward {
+            return Ok(0);
+        }
+        any = Some(found.any);
+    }
+    if spot_free(&spots, &foes, &bans) {
+        return Ok(if quiet { 4 } else { 1 });
+    }
+    if !open.is_empty()
+        || match any {
+            Some(any) => any,
+            None => search(None)?.toward,
+        }
+    {
+        return Ok(if quiet { 4 } else { 2 });
+    }
+    Ok(3)
+}
+
+/// A signal pad's escape facts that do not depend on where its target is: the ends of its open lanes, whether a via
+/// spot is free, and every point where the exhaustive surface search reached its window's edge. `way` turns them and
+/// a target direction into the verdict `surface_judge` gives for the same inputs.
+pub(crate) struct SurfaceFacts {
+    centre: Point,
+    mid: Point,
+    cell: f64,
+    open_ends: Vec<Point>,
+    spot_free: bool,
+    exits: Vec<Point>,
+}
+
+impl SurfaceFacts {
+    /// `surface_judge`'s verdict for a signal pad aiming along `d`.
+    pub(crate) fn way(&self, d: Point) -> u8 {
+        if open_toward(self.open_ends.iter().copied(), self.centre, d, self.cell) {
+            return 0;
+        }
+        let found = match toward(d) {
+            None => !self.exits.is_empty(),
+            Some(d) => self.exits.iter().any(|&p| facing(p, self.mid, Some(d))),
+        };
+        if found {
+            0
+        } else if self.spot_free {
+            1
+        } else if !self.open_ends.is_empty() || !self.exits.is_empty() {
+            2
+        } else {
+            3
+        }
+    }
+}
+
+/// The facts `SurfaceFacts::way` judges a signal pad by, from `surface_judge`'s inputs less the aim. The search runs
+/// to the end instead of stopping at the first way out.
+pub(crate) fn surface_facts(
+    py: Python<'_>,
+    lanes: Vec<Lane>,
+    spots: Vec<Spot>,
+    foes: Vec<Foe>,
+    bans: Vec<Shape>,
+    centre: Point,
+    path: Path,
+) -> PyResult<SurfaceFacts> {
+    py.check_signals()?;
+    let grid = judge_inputs(&lanes, &spots, &foes, &bans, None, centre, &path)?;
+    let open_ends = open_lanes(&lanes, &foes).iter().map(|l| l.0.last().unwrap().1).collect();
+    let (start, walls, layers, window, track, via, _, path_bans, cell, epsilon, via_exit) = path;
+    let mut exits = Vec::new();
+    let found = path_search(
+        py, &start, &walls, layers, window, grid, track, via, None, &path_bans, cell, epsilon, via_exit,
+        Some(&mut exits),
+    )?;
+    Ok(SurfaceFacts {
+        centre,
+        mid: found.mid,
+        cell,
+        open_ends,
+        spot_free: spot_free(&spots, &foes, &bans),
+        exits,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn judge_inputs(
+    lanes: &[Lane],
+    spots: &[Spot],
+    foes: &[Foe],
+    bans: &[Shape],
+    aim: Option<Point>,
+    centre: Point,
+    path: &Path,
+) -> PyResult<(i64, i64)> {
+    let grid = validate_search(
         &path.0, &path.1, path.2, path.3, path.4, path.5, aim, &path.7, path.8, path.9,
     )?;
     if !valid_point(centre)
@@ -495,7 +607,12 @@ pub fn surface_judge(
             "invalid surface escape classification snapshot",
         ));
     }
-    let open: Vec<_> = lanes
+    Ok(grid)
+}
+
+/// The lanes no foe comes within its reach of.
+fn open_lanes<'a>(lanes: &'a [Lane], foes: &[Foe]) -> Vec<&'a Lane> {
+    lanes
         .iter()
         .filter(|l| {
             !foes.iter().any(|f| {
@@ -506,43 +623,27 @@ pub fn surface_judge(
                         .any(|&(a, b)| segment_distance(a, b, &f.0 .0) < f.1)
             })
         })
-        .collect();
-    let (start, walls, layers, window, track, via, _, path_bans, cell, epsilon, via_exit) = path;
-    if !quiet {
-        let d = aim
-            .ok_or_else(|| PyValueError::new_err("signal surface escape lacks target direction"))?;
-        let n = crate::exact::hypot(d.0, d.1);
-        if open.iter().any(|l| {
-            n < 1e-12 || {
-                let end = l.0.last().unwrap().1;
-                ((end.0 - centre.0) * d.0 + (end.1 - centre.1) * d.1) / n > cell
-            }
-        }) {
-            return Ok(0);
-        }
-        let toward = if d.0.abs() + d.1.abs() < 1e-12 {
-            None
-        } else {
-            Some(d)
-        };
-        if surface_path_out(
-            py,
-            start.clone(),
-            walls.clone(),
-            layers,
-            window,
-            track,
-            via,
-            toward,
-            path_bans.clone(),
-            cell,
-            epsilon,
-            via_exit,
-        )? {
-            return Ok(0);
-        }
+        .collect()
+}
+
+/// Whether an open lane ends more than one cell toward `d` from the pad's centre (any open lane, when `d` has no
+/// length).
+fn open_toward(mut ends: impl Iterator<Item = Point>, centre: Point, d: Point, cell: f64) -> bool {
+    let n = crate::exact::hypot(d.0, d.1);
+    ends.any(|end| n < 1e-12 || ((end.0 - centre.0) * d.0 + (end.1 - centre.1) * d.1) / n > cell)
+}
+
+fn toward(d: Point) -> Option<Point> {
+    if d.0.abs() + d.1.abs() < 1e-12 {
+        None
+    } else {
+        Some(d)
     }
-    if spots.iter().any(|s| {
+}
+
+/// Whether some via spot is clear of every foe and every via ban.
+fn spot_free(spots: &[Spot], foes: &[Foe], bans: &[Shape]) -> bool {
+    spots.iter().any(|s| {
         !foes
             .iter()
             .any(|f| box_gap(f.0 .1, s.2) < f.2 && point_distance(s.0, &f.0 .0) < s.1 + f.2)
@@ -553,29 +654,79 @@ pub fn surface_judge(
                     && s.2 .1 <= b.1 .3
                     && point_distance(s.0, &b.0) < s.1
             })
-    }) {
-        return Ok(if quiet { 4 } else { 1 });
-    }
-    if !open.is_empty()
-        || surface_path_out(
-            py, start, walls, layers, window, track, via, None, path_bans, cell, epsilon, via_exit,
-        )?
-    {
-        return Ok(if quiet { 4 } else { 2 });
-    }
-    Ok(3)
+    })
 }
 
-fn near(shapes: &[Shape], p: Point, radius: f64, epsilon: f64) -> bool {
-    shapes.iter().any(|(poly, b, _, _, delta)| {
-        let r = (radius + delta - epsilon).max(0.0);
-        if b.0 - r >= p.0 || p.0 >= b.2 + r || b.1 - r >= p.1 || p.1 >= b.3 + r {
-            return false;
+/// Whether `p` lies within `radius` (less `epsilon`, plus the shape's own adjustment) of one shape: the test every
+/// search cell makes.
+fn shape_near((poly, b, _, _, delta): &Shape, p: Point, radius: f64, epsilon: f64) -> bool {
+    let r = (radius + delta - epsilon).max(0.0);
+    if b.0 - r >= p.0 || p.0 >= b.2 + r || b.1 - r >= p.1 || p.1 >= b.3 + r {
+        return false;
+    }
+    point_in_polygon(p, poly)
+        || (0..poly.len()).any(|i| point_segment_distance(p, poly[i], poly[(i + 1) % poly.len()]) < r)
+}
+
+/// The shapes a search tests, bucketed by area so a cell tests only the shapes whose grown box can reach it. A shape
+/// is listed in every bucket its grown box (`shape_near`'s box test) covers, clamped to the grid, and a point reads
+/// the bucket its own coordinates fall in, clamped the same way. A point inside a grown box therefore always finds
+/// that shape listed, so `near` answers exactly what the plain scan over every shape answers.
+struct ShapeIndex<'a> {
+    shapes: Vec<&'a Shape>,
+    radius: f64,
+    epsilon: f64,
+    origin: Point,
+    size: f64,
+    nx: i64,
+    ny: i64,
+    buckets: Vec<Vec<u32>>,
+}
+
+impl<'a> ShapeIndex<'a> {
+    fn new(shapes: Vec<&'a Shape>, radius: f64, epsilon: f64, window: Bounds, cell: f64) -> Self {
+        let span = (window.2 - window.0).max(window.3 - window.1);
+        let size = (cell * 8.0).max(span / 64.0).max(1e-6);
+        let nx = (((window.2 - window.0) / size).floor() as i64 + 1).clamp(1, 256);
+        let ny = (((window.3 - window.1) / size).floor() as i64 + 1).clamp(1, 256);
+        let mut index = Self {
+            shapes,
+            radius,
+            epsilon,
+            origin: (window.0, window.1),
+            size,
+            nx,
+            ny,
+            buckets: vec![Vec::new(); (nx * ny) as usize],
+        };
+        for (k, (_, b, _, _, delta)) in index.shapes.iter().enumerate() {
+            let r = (radius + delta - epsilon).max(0.0);
+            let (i0, j0) = index.bucket((b.0 - r, b.1 - r));
+            let (i1, j1) = index.bucket((b.2 + r, b.3 + r));
+            for i in i0..=i1 {
+                for j in j0..=j1 {
+                    index.buckets[(i * ny + j) as usize].push(k as u32);
+                }
+            }
         }
-        point_in_polygon(p, poly)
-            || (0..poly.len())
-                .any(|i| point_segment_distance(p, poly[i], poly[(i + 1) % poly.len()]) < r)
-    })
+        index
+    }
+
+    fn bucket(&self, p: Point) -> (i64, i64) {
+        let i = ((p.0 - self.origin.0) / self.size).floor();
+        let j = ((p.1 - self.origin.1) / self.size).floor();
+        (
+            (i.clamp(0.0, (self.nx - 1) as f64)) as i64,
+            (j.clamp(0.0, (self.ny - 1) as f64)) as i64,
+        )
+    }
+
+    fn near(&self, p: Point) -> bool {
+        let (i, j) = self.bucket(p);
+        self.buckets[(i * self.ny + j) as usize]
+            .iter()
+            .any(|&k| shape_near(self.shapes[k as usize], p, self.radius, self.epsilon))
+    }
 }
 
 fn on_start(shapes: &[Shape], p: Point) -> bool {
@@ -800,7 +951,44 @@ pub fn surface_path_out(
     let (nx, ny) = validate_search(
         &start, &foes, layers, window, track, via, toward, &bans, cell, epsilon,
     )?;
+    Ok(path_search(
+        py, &start, &foes, layers, window, (nx, ny), track, via, toward, &bans, cell, epsilon, via_exit, None,
+    )?
+    .toward)
+}
+
+/// What one exhaustive search found: a way out facing `toward` (any way out when there is no direction, or a via
+/// spot when vias exit), a way out in any direction, and the centre of the start shapes' box that faces are judged
+/// from.
+struct Found {
+    toward: bool,
+    any: bool,
+    mid: Point,
+}
+
+/// The exact surface search: the rectangular-cell walk from the start shapes, then the octilinear lattice rooted on
+/// each anchor. It stops at the first way out facing `toward`. When there is none, both walks have run to the end,
+/// so `any` says whether either reached the window's edge in some other direction: what the same search without a
+/// direction answers, without a second walk.
+#[allow(clippy::too_many_arguments)]
+fn path_search(
+    py: Python<'_>,
+    start: &[Shape],
+    foes: &[Shape],
+    layers: u32,
+    window: Bounds,
+    (nx, ny): (i64, i64),
+    track: f64,
+    via: f64,
+    toward: Option<Point>,
+    bans: &[Shape],
+    cell: f64,
+    epsilon: f64,
+    via_exit: bool,
+    mut exits: Option<&mut Vec<Point>>,
+) -> PyResult<Found> {
     py.check_signals()?;
+    let mut any = false;
     let width = window.2 - window.0;
     let height = window.3 - window.1;
     let (cw, ch) = (width / nx as f64, height / ny as f64);
@@ -810,7 +998,24 @@ pub fn surface_path_out(
             window.1 + (j as f64 + 0.5) * ch,
         )
     };
-    let walls: Vec<Shape> = foes.iter().filter(|s| s.2 & layers != 0).cloned().collect();
+    let walls = ShapeIndex::new(
+        foes.iter().filter(|s| s.2 & layers != 0).collect(),
+        track,
+        epsilon,
+        window,
+        cell,
+    );
+    let via_walls = via_exit.then(|| {
+        (
+            ShapeIndex::new(foes.iter().collect(), via, epsilon, window, cell),
+            ShapeIndex::new(bans.iter().collect(), via, epsilon, window, cell),
+        )
+    });
+    let via_free = |p: Point| {
+        via_walls
+            .as_ref()
+            .is_some_and(|(foes, bans)| !on_start(start, p) && !foes.near(p) && !bans.near(p))
+    };
     let top = start.iter().fold(
         (
             f64::INFINITY,
@@ -828,6 +1033,10 @@ pub fn surface_path_out(
         },
     );
     let mid = ((top.0 + top.2) / 2.0, (top.1 + top.3) / 2.0);
+    let found = Found { toward: true, any: true, mid };
+    // Per cell: bit 1 seen, bit 2 wall judged, bit 4 blocked.
+    let slot = |i: i64, j: i64| (i * ny + j) as usize;
+    let mut state = vec![0u8; (nx * ny) as usize];
     let mut todo = Vec::new();
     for i in
         (((top.0 - window.0) / cw) as i64).max(0)..((((top.2 - window.0) / cw) as i64) + 1).min(nx)
@@ -835,13 +1044,12 @@ pub fn surface_path_out(
         for j in (((top.1 - window.1) / ch) as i64).max(0)
             ..((((top.3 - window.1) / ch) as i64) + 1).min(ny)
         {
-            if on_start(&start, centre(i, j)) {
+            if on_start(start, centre(i, j)) {
                 todo.push((i, j));
+                state[slot(i, j)] |= 1;
             }
         }
     }
-    let mut seen: HashSet<_> = todo.iter().copied().collect();
-    let mut memo = HashMap::new();
     let mut visits = 0usize;
     while let Some((i, j)) = todo.pop() {
         visits += 1;
@@ -852,33 +1060,35 @@ pub fn surface_path_out(
             py.check_signals()?;
         }
         let p = centre(i, j);
-        if (i == 0 || i == nx - 1 || j == 0 || j == ny - 1) && facing(p, mid, toward) {
-            return Ok(true);
+        if i == 0 || i == nx - 1 || j == 0 || j == ny - 1 {
+            if let Some(exits) = exits.as_mut() {
+                exits.push(p);
+            } else if facing(p, mid, toward) {
+                return Ok(found);
+            }
+            any = true;
         }
-        if via_exit
-            && !on_start(&start, p)
-            && !near(&foes, p, via, epsilon)
-            && !near(&bans, p, via, epsilon)
-        {
-            return Ok(true);
+        if via_free(p) {
+            return Ok(found);
         }
         for k in [(i + 1, j), (i - 1, j), (i, j + 1), (i, j - 1)] {
-            if 0 <= k.0
-                && k.0 < nx
-                && 0 <= k.1
-                && k.1 < ny
-                && !seen.contains(&k)
-                && !*memo
-                    .entry(k)
-                    .or_insert_with(|| near(&walls, centre(k.0, k.1), track, epsilon))
-            {
-                seen.insert(k);
-                todo.push(k);
+            if 0 <= k.0 && k.0 < nx && 0 <= k.1 && k.1 < ny {
+                let at = &mut state[slot(k.0, k.1)];
+                if *at & 1 != 0 {
+                    continue;
+                }
+                if *at & 2 == 0 {
+                    *at |= if walls.near(centre(k.0, k.1)) { 6 } else { 2 };
+                }
+                if *at & 4 == 0 {
+                    *at |= 1;
+                    todo.push(k);
+                }
             }
         }
     }
     let mut anchors = Vec::new();
-    for s in &start {
+    for s in start {
         let points = if s.3.is_empty() {
             vec![((s.1 .0 + s.1 .2) / 2.0, (s.1 .1 + s.1 .3) / 2.0)]
         } else {
@@ -891,7 +1101,16 @@ pub fn surface_path_out(
         }
     }
     for anchor in anchors {
-        let mut seen = HashSet::from([(0i64, 0i64)]);
+        // The lattice points inside the window, with two steps' margin for rounding: a point outside it is never
+        // queued, so leaving it out of the seen grid changes nothing.
+        let i0 = ((window.0 - anchor.0) / cell).floor() as i64 - 2;
+        let i1 = ((window.2 - anchor.0) / cell).ceil() as i64 + 2;
+        let j0 = ((window.1 - anchor.1) / cell).floor() as i64 - 2;
+        let j1 = ((window.3 - anchor.1) / cell).ceil() as i64 + 2;
+        let (w, h) = (i1 - i0 + 1, j1 - j0 + 1);
+        let mut seen = vec![false; (w * h) as usize];
+        let lattice = |i: i64, j: i64| ((i - i0) * h + (j - j0)) as usize;
+        seen[lattice(0, 0)] = true;
         let mut todo = vec![(0i64, 0i64)];
         while let Some((i, j)) = todo.pop() {
             visits += 1;
@@ -900,31 +1119,36 @@ pub fn surface_path_out(
                 py.check_signals()?;
             }
             let p = (anchor.0 + i as f64 * cell, anchor.1 + j as f64 * cell);
-            if (p.0 - window.0 <= cell
+            if p.0 - window.0 <= cell
                 || window.2 - p.0 <= cell
                 || p.1 - window.1 <= cell
-                || window.3 - p.1 <= cell)
-                && facing(p, mid, toward)
+                || window.3 - p.1 <= cell
             {
-                return Ok(true);
+                if let Some(exits) = exits.as_mut() {
+                    exits.push(p);
+                } else if facing(p, mid, toward) {
+                    return Ok(found);
+                }
+                any = true;
             }
-            if via_exit
-                && !on_start(&start, p)
-                && !near(&foes, p, via, epsilon)
-                && !near(&bans, p, via, epsilon)
-            {
-                return Ok(true);
+            if via_free(p) {
+                return Ok(found);
             }
             for di in -1..=1 {
                 for dj in -1..=1 {
                     let k = (i + di, j + dj);
-                    if (di != 0 || dj != 0) && seen.insert(k) {
+                    if (di == 0 && dj == 0) || k.0 < i0 || k.0 > i1 || k.1 < j0 || k.1 > j1 {
+                        continue;
+                    }
+                    let at = &mut seen[lattice(k.0, k.1)];
+                    if !*at {
+                        *at = true;
                         let q = (anchor.0 + k.0 as f64 * cell, anchor.1 + k.1 as f64 * cell);
                         if window.0 <= q.0
                             && q.0 <= window.2
                             && window.1 <= q.1
                             && q.1 <= window.3
-                            && !near(&walls, q, track, epsilon)
+                            && !walls.near(q)
                         {
                             todo.push(k);
                         }
@@ -933,5 +1157,5 @@ pub fn surface_path_out(
             }
         }
     }
-    Ok(false)
+    Ok(Found { toward: false, any, mid })
 }

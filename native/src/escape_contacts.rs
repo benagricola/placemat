@@ -324,6 +324,18 @@ impl PreparedContacts {
         }
     }
 
+    /// The contact pad shapes of one pad, rest then moving, each in shape order: what a scan of every shape for
+    /// contact shapes of kind pad or through with this owner and number lists. None before the roles are configured.
+    pub(crate) fn pad_shapes(&self, turn: usize, owner: &str, number: &str) -> Option<Vec<usize>> {
+        let indexes = self.turn_indexes.as_ref()?;
+        let key = (owner.to_owned(), number.to_owned());
+        let mut out = self.rest_index.by_pad.get(&key).cloned().unwrap_or_default();
+        if let Some(moving) = indexes[turn].by_pad.get(&key) {
+            out.extend(moving);
+        }
+        Some(out)
+    }
+
     pub(crate) fn shape_count(&self, candidate: &PreparedCandidate, turn: usize) -> usize {
         self.rest.len() + candidate.turn(turn).shapes.len()
     }
