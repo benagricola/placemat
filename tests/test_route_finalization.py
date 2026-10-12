@@ -53,7 +53,7 @@ def test_every_phase_is_judged_again_and_a_second_judging_starts_afresh(monkeypa
     monkeypatch.setattr(phase_run, 'phase_neck', lambda cfg, phase: None)
     monkeypatch.setattr(phase_run, 'phase_input_drc', lambda work, index: None)
     route.recheck_final_phases(report, obs, phases, {'policies': []}, 'routed', 'drc',
-                               SimpleNamespace(is_real=lambda _: True), None)
+                               SimpleNamespace(is_real=lambda _: True, is_real_kind=lambda _: True), None)
     assert seen == obs and report.asked == obs
     assert report.widths_failed == 1
     assert report.phases[0]['final_open'][0]['width_unknown'] is True
@@ -64,7 +64,7 @@ def test_every_phase_is_judged_again_and_a_second_judging_starts_afresh(monkeypa
     assert report.phases[1]['final_closure_clean'] == 1
     # judging again counts from zero, not on top of the first count
     route.recheck_final_phases(report, obs, phases, {'policies': []}, 'routed2', 'drc2',
-                               SimpleNamespace(is_real=lambda _: True), None)
+                               SimpleNamespace(is_real=lambda _: True, is_real_kind=lambda _: True), None)
     assert report.widths_failed == 1
 
 
@@ -79,7 +79,7 @@ def test_a_judgment_shorter_than_its_obligations_is_refused(monkeypatch):
     with pytest.raises(ValueError, match='judgment/obligation count mismatch'):
         route.recheck_final_phases(SimpleNamespace(phases=[{}]), [[{'net': 'N'}]],
                                   [SimpleNamespace(name='n')], {'policies': []}, None, None,
-                                  SimpleNamespace(is_real=lambda _: True), None)
+                                  SimpleNamespace(is_real=lambda _: True, is_real_kind=lambda _: True), None)
 
 
 def test_final_connected_and_width_evidence_counts_are_distinct_from_clean(monkeypatch):
@@ -94,7 +94,7 @@ def test_final_connected_and_width_evidence_counts_are_distinct_from_clean(monke
     monkeypatch.setattr(phase_run, 'phase_input_drc', lambda work, index: None)
     report = SimpleNamespace(phases=[{'name': 'signals', 'connections': []}], final_judged=[], widths_failed=0)
     route.recheck_final_phases(report, asked, [SimpleNamespace(name='signals')], {'policies': []},
-                              'routed', 'drc', SimpleNamespace(is_real=lambda _: True), None)
+                              'routed', 'drc', SimpleNamespace(is_real=lambda _: True, is_real_kind=lambda _: True), None)
     phase = report.phases[0]
     assert (phase['final_connected'], phase['final_joined']) == (2, 1)
     assert (phase['final_width_known_under'], phase['final_width_unknown']) == (1, 1)
