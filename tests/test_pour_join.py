@@ -193,3 +193,17 @@ def test_a_pad_in_the_cut_corner_of_an_l_shaped_board_is_in_no_group(tmp_path):
 
 
 L = [(100, 100), (120, 100), (120, 108), (135, 108), (135, 120), (100, 120)]
+
+
+@needs_kicad
+def test_a_pad_off_a_board_whose_outline_does_not_close_is_in_no_group(tmp_path):
+    """Review P1: with no closed outline the box of the Edge.Cuts items decides. The rectangle loses its top side;
+    J1 at (160, 110) is outside the remaining edges' box."""
+    pcb = _two_part_board(tmp_path)
+    text = pcb.read_text().replace('(footprint "t:p" (layer "F.Cu") (at 125 110)', '(footprint "t:p" (layer "F.Cu") (at 160 110)')
+    text = text.replace('\t(gr_rect (start 100 100) (end 135 120) (stroke (width 0.1) (type solid)) (fill no) (layer "Edge.Cuts"))\n',
+                        "".join('\t(gr_line (start %g %g) (end %g %g) (stroke (width 0.1) (type solid)) (layer "Edge.Cuts"))\n'
+                                % (a + b) for a, b in [((135, 100), (135, 120)), ((135, 120), (100, 120)),
+                                                       ((100, 120), (100, 100))]))
+    pcb.write_text(text)
+    assert sorted(p.ref for g in pad_groups(pcb, "VIN") for p in g.pads) == ["U1"]

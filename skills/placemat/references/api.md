@@ -3998,13 +3998,17 @@ width, never below the board's own rules; its via's hole keeps the board's hole 
 joined (by a cell's via, a track, the pour itself) is left as it is. The repair also joins split pieces of the pour
 with tracks no wider than the phase's width or the net class's, and leaves anything still split to the next step.
 Then the group of the net's pads holding the most pads among those on the pour stands for it, and every other group
-is routed to its nearest pad by one pad-to-pad task, at the phase's width or the net class's; the track may end on
-the pour's fill. Which pads are joined is KiCad's judgement (its connectivity with the zones refilled), and each task
-tells the router so: the router routes it even where its own model takes the pads for joined. After all of a phase's
+is routed to its nearest pad by one pad-to-pad task, at the phase's width or the net class's; the track reaches the other
+group's pad copper, never only the pour's fill. Which pads are joined is KiCad's judgement (its connectivity with the zones refilled), and each task
+tells the router so: the router routes it even where its own model takes the pads for joined, and answers `routed`
+only when its copper joins the task's ends; otherwise the task is `failed`, its `evidence.diagnosis`
+`joined_by_pour_only` (the router counted the ends joined through a pour KiCad does not) or
+`reverted_by_improvement_gate` (the router laid the track and took it out again). After all of a phase's
 pour calls, every pour net the phase joined is checked once more: one that a later call of the phase split (more pad
 groups than its own call left) is joined once more the same way, drops for the pads now apart and then tasks, and
 that join is judged as a call of the phase. A last look records each net's pad groups as the phase leaves them. A
-part outside the board's outline polygon gets no drop and no task. A part outside the board's outline gets no task. Neither call crosses a footprint's own copper (an
+part outside the board's outline polygon (the box of its Edge.Cuts items when the outline does not close) gets no
+drop and no task. Neither call crosses a footprint's own copper (an
 antenna) to reach a pad of that footprint. Both take the capture's stated net clearances; the plane repair takes no
 `[route] router_args` or phase `router_args`. The calls leave the board's rules as they were. The tasks run with
 the router's environment variable `KICAD_PLANE_FINALIZE=0`, its own switch for the plane repair it otherwise runs at the
@@ -4061,7 +4065,7 @@ last phase's board is `router_out.kicad_pcb`, and `routed.kicad_pcb` is made fro
   narrower than asked, and `width_unknown: true` when joined but no copper path between its pads could be measured (copper joined only partway along a curved
   track, which is measured end to end at its own length, or a net the router gave no width for, below).
 - `pour_joins`: one record per pour net the phase joined to its pour: `net`; `pads` (its pads inside the board's
-  outline); `joined_before` (those on the pour before the call, left alone); `apart_before`; `tapped` (pads apart
+  outline polygon); `joined_before` (those on the pour before the call, left alone); `apart_before`; `tapped` (pads apart
   before that the drops joined); `vias` (`in_pad`, `beside`: the drops' vias, in a pad or beside it; `joins`: the
   vias the repair's joins of the pour's pieces added); `groups_left` (the groups still apart after the drops, one
   task each); `groups_after` (its pad groups when the call was done); `tasks` (the

@@ -121,7 +121,8 @@ def pad_groups(pcb_path, net: str) -> list:
     """The copper pads of `net` on the board inside its outline polygon (route_cleanup.connected_pad_groups: NPTH pads left
     out), grouped by KiCad's connectivity with every zone filled, each group with whether it reaches a zone of the
     net (the pours are zones on the boards this reads: join_pour's). A pad outside the outline (a part not placed)
-    is left out; a pad with no reference or number too."""
+    is left out, judged by the box of the Edge.Cuts items when the outline does not close; a pad with no reference
+    or number too."""
     from .quiet import import_pcbnew, quiet_stderr
     from .route_cleanup import connected_pad_groups
     from .write import load_board
@@ -131,9 +132,13 @@ def pad_groups(pcb_path, net: str) -> list:
         if any(not z.GetIsRuleArea() and z.GetNetname() == net for z in board.Zones()):
             pcbnew.ZONE_FILLER(board).Fill(board.Zones())
     outline = pcbnew.SHAPE_POLY_SET()
-    has_outline = board.GetBoardPolygonOutlines(outline, False) and outline.OutlineCount() > 0 \
-        and board.GetBoardEdgesBoundingBox().GetWidth() > 0
-    inside = (lambda p: outline.Contains(p.GetPosition())) if has_outline else (lambda p: True)
+    edges = board.GetBoardEdgesBoundingBox()
+    if board.GetBoardPolygonOutlines(outline, False) and outline.OutlineCount() > 0 and edges.GetWidth() > 0:
+        inside = lambda p: outline.Contains(p.GetPosition())
+    elif edges.GetWidth() > 0:       # an outline that does not close: its edges' box
+        inside = lambda p: edges.Contains(p.GetPosition())
+    else:
+        inside = lambda p: True
     refs = {}
     for fp in board.GetFootprints():
         refs[fp.GetReference()] = refs.get(fp.GetReference(), 0) + 1
