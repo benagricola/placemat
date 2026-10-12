@@ -1566,7 +1566,7 @@ def path_out(occ, ref: str, number: str, depth: float | None = None, toward=None
     delta = {id(h): occ.geometry.hole_clearance - nc.clearance for h in holes}
     delta.update({id(b): -nc.clearance for b in bans})
     if exact:
-        if native:
+        if native and _native_fits(win, occ.settings.place_escape_cell):
             return _path_out_native(occ, mine + list(own), foes + holes, layers, win, track, via,
                                     toward, bans, delta, via_exit)
         return _path_out_exact(occ, mine + list(own), foes + holes, layers, win, track, via, toward, bans, delta, via_exit)
@@ -1619,6 +1619,17 @@ def extra_walls(occ, box: Box, net: str) -> tuple:
     bans = [s for pool in ([occ.copper] + [g.shapes for r, g in occ.items.items() if r not in occ.pending])
             for s in pool if s.kind == "viaban" and s.box.overlaps(box) and net not in s.net.split(ALLOW_SEP)]
     return holes, bans
+
+
+_NATIVE_CELLS = 1_000_000    # the most cells the Rust search takes (native/src/surface.rs, `validate_search`)
+
+
+def _native_fits(win: Box, cell: float) -> bool:
+    """Whether the Rust search takes a window this size: a larger one (a pad whose own copper runs across the board) is
+    searched in Python, as it was before the search had a native twin."""
+    nx = max(1, math.ceil(win.width / cell))
+    ny = max(1, math.ceil(win.height / cell))
+    return nx * ny <= _NATIVE_CELLS
 
 
 def _path_out_native(occ, start_shapes, foes, layers, win, track, via, toward, bans=(), delta=None, via_exit=True):

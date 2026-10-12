@@ -210,6 +210,26 @@ def test_native_surface_path_refuses_malformed_or_unbounded_search():
             module.surface_path_out([invalid], *args[1:])
 
 
+def test_a_window_the_native_search_refuses_is_searched_in_python():
+    """The Rust search's cell cap and `_native_fits` agree: a window one cell over it is refused natively and left to
+    the Python search, one at the cap is taken."""
+    from placemat import geometry
+    from placemat.escapes import _native_fits
+    from placemat.geometry import Box
+    module = geometry._native
+    if module is None or not hasattr(module, 'surface_path_out'):
+        pytest.skip('native surface path kernel not built')
+    start = ([(-0.5, -0.5), (0.5, -0.5), (0.5, 0.5), (-0.5, 0.5)], (-0.5, -0.5, 0.5, 0.5), 1, [], 0.0)
+    cell = 0.05
+    at_cap, over = Box(-25.0, -25.0, 25.0, 25.0), Box(-25.0, -25.0, 25.05, 25.0)     # 1000 x 1000 cells, and one column more
+    assert _native_fits(at_cap, cell) and not _native_fits(over, cell)
+    module.surface_path_out([start], [], 1, (at_cap.left, at_cap.top, at_cap.right, at_cap.bottom), 0.2, 0.4, None,
+                            [], cell, 0.0005)
+    with pytest.raises(ValueError, match='one million cells'):
+        module.surface_path_out([start], [], 1, (over.left, over.top, over.right, over.bottom), 0.2, 0.4, None, [],
+                                cell, 0.0005)
+
+
 def test_native_surface_judge_matches_python_for_signal_quiet_and_unconnected_pads(monkeypatch):
     from placemat import geometry
     from placemat.escapes import judging
