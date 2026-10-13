@@ -41,6 +41,7 @@ NOT_RUN = 0.0           # the closure of a run that did not reach a route
 LINT = "lint"           # failure kinds of the runner's own; a refused run carries placemat's (run.json's failure kind)
 NO_RECORD = "no run record"
 NO_ROUTE = "no route"
+NO_DRC = "no routed DRC"
 TIMEOUT = "timeout"
 WORKSPACE_DIRS = ("modules", "parts", "adapted")   # what a module needs of its family folder besides its own
 DIGEST_CHARS = 16
@@ -276,7 +277,10 @@ def run_b(board: fetch.Board, ref_dir: pathlib.Path, work: pathlib.Path, *, prep
     drc_path = pathlib.Path(route["routed_pcb"]).with_name("drc_after.json")
     after = prepare.violations(drc_path) if drc_path.is_file() else (
         prepare.violations_of(route["drc_after"]) if isinstance(route.get("drc_after", {}).get("violations"), list) else None)
-    new = route_ref.new_violations(after, prepared.baseline) if after is not None else None
+    if after is None:
+        return result(failure=NO_DRC, detail="the routed board has no readable final DRC report",
+                      seconds=round(seconds, 1), versions=versions, placement=placement)
+    new = route_ref.new_violations(after, prepared.baseline)
     opened = route.get("open_after", 0)
     pour, other = route_ref.open_split(route.get("open_nets") or {}, opened, route_ref.pour_nets(pathlib.Path(route["routed_pcb"])))
     return result(closure_clean=route.get("closure_clean", NOT_RUN), open=opened, open_pour=pour, open_other=other,
@@ -376,6 +380,8 @@ def _ranked(old: dict, new) -> str | None:
 
 def b_by_value(old: dict, new: BResult) -> route_ref.Comparison:
     """Keep every routed no-worse guard, then compare recorded shared scores."""
+    if not new.failure and new.new_violations is None:
+        return route_ref.Comparison("worse", [], worse=["routed DRC unavailable"])
     values = route_ref.routing_values(old, new)
     if values.status == "worse":
         return values

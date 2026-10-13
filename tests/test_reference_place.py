@@ -478,17 +478,18 @@ def test_routed_cli_applies_settings_only_to_copy_and_scores_with_them(tmp_path,
         monkeypatch.setattr(place_ref.fetch, 'fetch', lambda board: tmp_path / 'human.kicad_pcb')
         monkeypatch.setattr(place_ref.prepare, 'prepare', lambda *args, **kwargs: PREPARED)
         monkeypatch.setattr(place_ref.prepare, 'measure', lambda pcb: (0, prepare.HumanCopper(0, 0.0)))
+        monkeypatch.setattr(route_ref, 'pour_nets', lambda pcb: set())
         selection = ['x']
         result_kind, result_name = 'b', 'x'
     original = script.parent / 'placemat.toml'
-    original.write_text('[score]\narea = 0.25\n[place]\nsearch_wire = "clique"\n')
+    original.write_text('[score]\narea = 0.25\n')
     source_bytes = {path: path.read_bytes() for path in (script, original)}
     seen = []
 
     def run(copied, *args, **kwargs):
         cfg = load(copied.parent, script=copied)
         assert copied != script and copied.read_bytes() == source_bytes[script]
-        assert cfg.place_search_wire == 'mst' and cfg.score_area == 1.0
+        assert cfg.score_area == 1.0
         assert kwargs.get('route', True) is True
         seen.append(copied)
         return {'status': 'ok', 'metrics': {'closure_clean': 0.75, 'placed': 2,
@@ -501,9 +502,30 @@ def test_routed_cli_applies_settings_only_to_copy_and_scores_with_them(tmp_path,
     monkeypatch.setattr(route_ref, 'current_versions', lambda: VERSIONS)
     monkeypatch.setattr(place_ref, 'krt_version', lambda folder: '0')
     results = tmp_path / 'results.json'
-    assert place_ref.main([*selection, '--set', 'place.search_wire=mst', '--set', 'score.area=1.0',
+    assert place_ref.main([*selection, '--set', 'score.area=1.0',
                            '--results', str(results), '--work', str(tmp_path / 'work'), '--update']) == 0
     assert len(seen) == 1
     row = json.loads(results.read_text())[result_kind][result_name]
     assert row['run_score'] == 55.0 and row['placement']['run_score'] == 55.0
     assert all(path.read_bytes() == data for path, data in source_bytes.items())
+
+
+def test_closed_but_unjudged_routed_board_cannot_replace_legal_baseline():
+    old = place_ref.asdict(_b(closure_clean=0.9, new_violations=[]))
+    unjudged = _b(closure_clean=1.0, new_violations=None,
+                 measures={"v": score.MEASURES_VERSION, "airwire_mm": 0.0})
+    comparison = place_ref.compare_b(old, unjudged, {"placemat"})
+    assert comparison.status == "worse"
+    assert comparison.worse == ["routed DRC unavailable"]
+
+
+def test_routed_board_without_drc_is_failed_not_completed(tmp_path, monkeypatch):
+    folder = _folder(tmp_path, 'board.place(Part("J1"), at=Location(1, 2), why="mechanical: connector")\n')
+    record = {"status": "ok", "metrics": {"route": {"routed_pcb": str(tmp_path / "r.kicad_pcb"),
+                                                       "closure_clean": 1.0}}}
+    monkeypatch.setattr(place_ref, "placemat_run", lambda *a, **k: (record, 1.0))
+    monkeypatch.setattr(place_ref.prepare, "measure", lambda pcb: (0, prepare.HumanCopper(0, 0.0)))
+    monkeypatch.setattr(place_ref, "krt_version", lambda folder: "k")
+    result = place_ref.run_b(BOARD, folder, tmp_path / "work", prepared=PREPARED, versions=VERSIONS)
+    assert result.failure == place_ref.NO_DRC
+    assert result.new_violations is None and result.closure_clean == place_ref.NOT_RUN
