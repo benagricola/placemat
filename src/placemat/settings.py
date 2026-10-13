@@ -505,7 +505,7 @@ class Settings:
     cleanup_enabled: bool = S(True, "bool",
         "after the searched tier, move and swap plain searched parts where that shortens their wire and declared links")
     cleanup_passes: int = S(2, "count",
-        "passes over the movable parts; one that changes nothing ends it")
+        "passes over the movable parts; one that changes nothing ends it. Under the one-score search, which makes the best change first, at most this many times the movable parts' count of changes")
     cleanup_search_radius: float = S(3.0, "mm",
         "how far round its optimal region, and round where it stands, a part is searched")
     cleanup_search_step: float = S(0.5, "mm",
