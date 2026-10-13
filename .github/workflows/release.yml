@@ -1,41 +1,71 @@
 # A tagged release (v0.31.0, ...): the suite with and without the native
 # module, then prebuilt native wheels for Linux (x86_64, aarch64) and Apple
 # Silicon, placemat's own wheel and sdist, all attached to the tag's GitHub
-# Release. Nothing runs on a plain push.
+# Release. An existing tag can also be rebuilt with workflow_dispatch.
 name: release
 
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing release tag to build and publish (v0.100.0, ...)
+        required: true
+        type: string
 
 permissions:
   contents: read
 
+env:
+  RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+  CARGO_BUILD_JOBS: "2"
+  RAYON_NUM_THREADS: "1"
+  OMP_NUM_THREADS: "1"
+  OPENBLAS_NUM_THREADS: "1"
+  MKL_NUM_THREADS: "1"
+  NUMEXPR_NUM_THREADS: "1"
+  VECLIB_MAXIMUM_THREADS: "1"
+  BLIS_NUM_THREADS: "1"
+
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: refs/tags/${{ env.RELEASE_TAG }}
           fetch-depth: 0             # the tags: every version is read from them
+      - name: Verify the source is the requested release tag
+        run: |
+          case "$RELEASE_TAG" in v[0-9]*) ;; *) echo "not a release tag: $RELEASE_TAG"; exit 1;; esac
+          test "$(git rev-parse HEAD)" = "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")"
       - uses: astral-sh/setup-uv@v5
+      - name: KiCad and its system Python bindings
+        run: |
+          sudo add-apt-repository --yes ppa:kicad/kicad-10.0-releases
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends kicad kicad-footprints kicad-symbols
+          kicad-cli version
+      - name: Install both paths before comparing them
+        run: |
+          uv venv --python /usr/bin/python3 --system-site-packages
+          uv pip install -e ".[dev,native]"
+          .venv/bin/python -c "import pcbnew; print(pcbnew.GetBuildVersion()); import placemat.geometry as g; assert g.native_status().in_use, g.native_status().facts()"
       - name: Suite, pure Python
         run: |
-          uv venv --python 3.12
-          uv pip install -e ".[dev]"
           PLACEMAT_NATIVE=0 .venv/bin/python -m pytest --full -n 2
           .venv/bin/python -m vulture src/placemat tools/release/vulture_allow.py --min-confidence 80
       - name: The version is the tag, and the plugin manifests say so too
         run: |
-          want="${GITHUB_REF_NAME#v}"
+          want="${RELEASE_TAG#v}"
           got=$(.venv/bin/python -c "import placemat; print(placemat.__version__)")
-          test "$got" = "$want" || { echo "tag $GITHUB_REF_NAME but placemat reports $got"; exit 1; }
+          test "$got" = "$want" || { echo "tag $RELEASE_TAG but placemat reports $got"; exit 1; }
           for f in .claude-plugin/plugin.json .claude-plugin/marketplace.json; do
             grep -q "\"version\": \"$want\"" "$f" || { echo "$f does not say $want"; exit 1; }
           done
       - name: Suite, native (built from native/ on install)
         run: |
-          uv pip install -e ".[dev,native]"
           .venv/bin/python -c "import placemat.geometry as g; assert g._native is not None"
           .venv/bin/python -m pytest --full -n 2
           RUSTFLAGS="-D dead_code" cargo build --manifest-path native/Cargo.toml
@@ -52,12 +82,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: refs/tags/${{ env.RELEASE_TAG }}
           fetch-depth: 0             # the tags: every version is read from them
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - name: The wheel's version is the tag's
-        run: sed -i.bak "s/^version = \"0.0.0\"/version = \"${GITHUB_REF_NAME#v}\"/" native/Cargo.toml
+        run: sed -i.bak "s/^version = \"0.0.0\"/version = \"${RELEASE_TAG#v}\"/" native/Cargo.toml
       - uses: PyO3/maturin-action@v1
         with:
           working-directory: native
@@ -75,6 +106,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: refs/tags/${{ env.RELEASE_TAG }}
           fetch-depth: 0             # the tags: every version is read from them
       - uses: astral-sh/setup-uv@v5
       - run: uv build --out-dir dist
@@ -95,4 +127,5 @@ jobs:
           merge-multiple: true
       - uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ env.RELEASE_TAG }}
           files: dist/*
