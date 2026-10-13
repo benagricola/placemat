@@ -2,24 +2,10 @@
 the best would move reported, and with accept the lock written."""
 from placemat import lock
 from placemat.explore import search
-from placemat.layout import Board
-from placemat.values import Location, Part
-from tests.fixtures import board_geometry, footprint
+from tests.explore_boards import KEYS, make as _make
 
-KEYS = tuple("r%d" % k for k in range(6))
-NETS = [("A", "N1"), ("B", "N1"), ("A", "N2"), ("B", "N2"), ("N1", "N3"), ("N2", "N3")]
-
-
-def _make():
-    """Six passives round a part on a small board: the plain placement leaves
-    a crowded cell that some variants avoid."""
-    fps = [footprint("U1", 10, 10, w=8, h=4, inst="mcu", nets=("A", "B"))]
-    fps += [footprint("R%d" % k, 60, 60 + 2 * k, w=2, h=1, inst="r%d" % k, nets=NETS[k]) for k in range(6)]
-    b = Board(board_geometry(fps, width=30, height=30), edge_margin=1.0)
-    b.place(Part("mcu"), at=Location(15, 15))
-    for k in KEYS:
-        b.place(Part(k))
-    return b
+# This factory explores the real common objective before local cleanup;
+# its deterministic improving seeds are shared with the worker/route controls.
 
 
 def _where(plan):
@@ -39,6 +25,7 @@ def test_accepting_writes_a_lock_that_reproduces_the_best(tmp_path):
     script = tmp_path / "Board_layout.py"
     report, entries = search(_make, script, seconds=60, jobs=2, seeds=range(0, 24), accept=True)
     assert report["best_seed"] != 0, "the fixture should have something better than the plain run"
+    assert report["best"] < report["baseline"]
     assert lock.path_for(script).exists() and {e.key for e in lock.read(lock.path_for(script))} == set(KEYS)
     from placemat.explore import Explore
     best = _make().resolve(explore=Explore(report["best_seed"], frozenset(KEYS)))
