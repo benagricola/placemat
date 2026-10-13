@@ -93,3 +93,71 @@ def test_a_swap_is_judged_by_the_one_score_change_in_two_lifts():
         occ.lift([ref_of[k]])
         occ.commit(movable[k], spot[k])
     assert not _one_score_swap(occ, movable, ref_of, "r1", "r2", moved, spot, one_score)
+
+
+class _Scanned:
+    def __init__(self, walled, score, chosen):
+        self.walled, self.score, self.chosen = walled, score, chosen
+
+
+def _move(monkeypatch, now, found):
+    """`_one_score_move` with the part's own spot standing at `now` and each hint's scan finding one of `found`
+    ((walled, change, spot) each)."""
+    from placemat import cleanup as c
+    results = iter(_Scanned(*f) for f in found)
+    monkeypatch.setattr(c, '_in_full', lambda scorer, placements, rotations=None: [now])
+    monkeypatch.setattr(c, 'scan', lambda *a, **k: next(results))
+    hints = list(range(len(found)))
+    yes = lambda *a: True
+    return c._one_score_move(None, None, 'k', 'cur', lambda fp: object(), hints, 1.0, 1.0, (0.0,), 0.1,
+                             type('L', (), {'of': lambda self, k: False, '__call__': lambda self, *a: True})(), yes)
+
+
+def test_a_move_that_walls_fewer_pads_is_taken_whatever_its_change(monkeypatch):
+    # The part walls one pad beyond the board's floor where it stands. One spot walls none but costs 5 more; another
+    # walls as many and costs 10 less. Validity ranks first (score.rank): the unwalling spot is the move.
+    assert _move(monkeypatch, (1, 100.0), [(0, 105.0, 'unwalls'), (1, 90.0, 'cheaper')])[0] == 'unwalls'
+
+
+def test_a_move_at_an_equal_walled_count_is_taken_only_when_it_lowers_the_score(monkeypatch):
+    assert _move(monkeypatch, (1, 100.0), [(1, 90.0, 'cheaper')])[0] == 'cheaper'
+    assert _move(monkeypatch, (1, 100.0), [(1, 100.0, 'same')]) is None
+
+
+def test_a_move_that_walls_more_is_refused_whatever_its_change(monkeypatch):
+    assert _move(monkeypatch, (1, 100.0), [(2, 10.0, 'walls')]) is None
+
+
+def test_a_swap_that_walls_fewer_pads_is_taken_whatever_its_change(monkeypatch):
+    from placemat import cleanup as c
+
+    class Occ:
+        pending = set()
+
+        def lift(self, refs):
+            pass
+
+        def commit(self, fp, at):
+            pass
+    scores = iter([[(1, 0.0), (1, 2.0)], [(1, 2.0), (0, 9.0)]])      # a: spot, moved; b: spot, moved
+    monkeypatch.setattr(c, '_in_full', lambda scorer, placements, rotations=None: next(scores))
+    refs = {'a': 'A', 'b': 'B'}
+    assert c._one_score_swap(Occ(), refs, refs, 'a', 'b', refs, refs, lambda fp: object())
+    scores = iter([[(1, 0.0), (1, 2.0)], [(1, 2.0), (2, -50.0)]])
+    assert not c._one_score_swap(Occ(), refs, refs, 'a', 'b', refs, refs, lambda fp: object())
+
+
+def test_metrics_cleanup_reports_the_board_run_score_under_the_one_score_search():
+    fps = [footprint("A1", 8, 18, w=2, h=1, inst="a1", nets=("S", "G1")),
+           footprint("A2", 14, 26, w=2, h=1, inst="a2", nets=("S", "G2")),
+           footprint("M", 50, 22, w=2, h=1, inst="m", nets=("S", "G3"))]
+    cfg = dataclasses.replace(Settings(), score_congestion=0.0)
+    board = Board(board_geometry(fps, width=60, height=44), edge_margin=0.5, settings=cfg)
+    board.rect(width=60, height=44)
+    board.place(Part("a1"), at=fps[0].location)
+    board.place(Part("a2"), at=fps[1].location)
+    board.place(Part("m"))
+    plan = board.resolve()
+    assert plan.cleanup and plan.cleanup["passes"] >= 1, plan.cleanup
+    assert plan.cleanup["cost_after"] == round(sum(score.whole(board, plan.occupancy, plan).values()), 3)
+    assert plan.cleanup["cost_after"] <= plan.cleanup["cost_before"]

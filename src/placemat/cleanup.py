@@ -21,8 +21,9 @@ sorted order, no randomness.
 With `one_score` (the one-score search, `place.search_wire` "mst", D26) the
 moves and swaps are the same, but each is judged by the run score's change, as
 the search computes it (score_search.MSTScorer, score_delta.Delta, exact escape
-grades), and walled by the one score's check: one is taken only when that change
-is below zero and it walls no pad beyond what the board walls before it."""
+grades), and ranked as `score.rank` ranks boards, validity first: one is taken
+when it walls fewer pads than the board before it, whatever its change, or as
+many and its change is below zero. One that walls more is refused."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -475,8 +476,12 @@ class _Limits:
 
 
 def _one_score_move(occ, fp, k, cur, one_score, hints, radius, step, rotations, clearance, limits_ok, satellite_ok):
-    """(where part `k`, lifted, goes, the change at `cur`, the change there) when a move lowers the run score, as the
-    one-score search computes the change, and walls no pad beyond what the board walls with it at `cur`; else None."""
+    """(where part `k`, lifted, goes, the change at `cur`, the change there) when the move ranks the board above where
+    it stands (`score.rank`: validity first): it walls fewer pads, whatever its change, or as many and lowers the run
+    score, as the one-score search computes the change. A move that walls more is refused. Else None.
+
+    Each hint's scan gives its best (walled, change), fewest walled first, and the best of them is the move: a costlier
+    move that walls fewer pads ranks above a cheaper one that walls as many."""
     from .score_search import ScoreDomainError
     scorer = one_score(fp)
     try:
@@ -489,7 +494,7 @@ def _one_score_move(occ, fp, k, cur, one_score, hints, radius, step, rotations, 
                 best = ((r.walled, r.score), r.chosen)
     except ScoreDomainError:
         return None
-    if best is None or best[0][0] > now[0] or not best[0][1] < now[1] - _EPS:
+    if best is None or best[0][0] > now[0] or (best[0][0] == now[0] and not best[0][1] < now[1] - _EPS):
         return None
     if not (limits_ok([k], {k: best[1]}) and satellite_ok(k, best[1])):
         return None
@@ -497,8 +502,9 @@ def _one_score_move(occ, fp, k, cur, one_score, hints, radius, step, rotations, 
 
 
 def _one_score_swap(occ, movable, ref_of, a, b, spot, moved, one_score) -> bool:
-    """Whether swapping parts `a` and `b` (both committed at `moved` now) from `spot` lowers the run score, as the
-    one-score search computes the change, and walls no pad beyond what the board walls with both at `spot`. The change
+    """Whether swapping parts `a` and `b` (both committed at `moved` now) from `spot` ranks the board above it
+    (`score.rank`: validity first): it walls fewer pads than the board with both at `spot`, whatever its change, or as
+    many and lowers the run score, as the one-score search computes the change. The change
     is taken in two lifts, each the search's own: `a` from its spot to its new one with `b` at its spot, then `b` from
     its spot to its new one with `a` at its new one. Leaves both committed at `moved`."""
     from .score_search import ScoreDomainError
@@ -519,7 +525,7 @@ def _one_score_swap(occ, movable, ref_of, a, b, spot, moved, one_score) -> bool:
                 occ.commit(movable[k], moved[k])
         return False
     change = (a_moved[1] - before[1]) + (after[1] - b_still[1])
-    return after[0] <= before[0] and change < -_EPS
+    return after[0] < before[0] or (after[0] == before[0] and change < -_EPS)
 
 
 def _in_full(scorer, placements, rotations=None):

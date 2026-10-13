@@ -8804,10 +8804,15 @@ class Board:
         # estimate's keeps its own objective.
         one_score = (lambda fp: self._scorer(fp, occ, [], prune=True, plan=plan)) \
             if s.place_search_wire == 'mst' else None
+        from . import score
+        before = sum(score.whole(self, occ, plan).values()) if one_score is not None else None
         r = cleanup(occ, movable, pins, list(self._links), self.clearance, s.cleanup_passes,
                     s.cleanup_search_radius, s.cleanup_search_step,
                     turns={k: self._turns(intents[k]) if k in intents else every for k in movable},
                     limits=limits, settings=s, one_score=one_score)
+        if one_score is not None:
+            # The cost cleanup judged by: the board's one score (`score.whole`), before and after.
+            r.cost_before, r.cost_after = before, sum(score.whole(self, occ, plan).values())
         swapped = {}
         for a, b in r.swaps:
             swapped.setdefault(a, []).append(b)
