@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import json
+import math
 import os
 import pathlib
 import shutil
@@ -62,6 +63,13 @@ class AResult:
     detail: str = ""    # what the exception said
     open_pour: int = 0    # open connections on the nets the routed board serves by a pour; open_other is the rest
     open_other: int = 0
+    routed: bool | None = None   # None is a historical record without route evidence; False is intentionally un-routed
+    route_valid: bool | None = None
+    route_drc_new: int | None = None
+    widths_failed: int | None = None
+    phases: list | None = None   # exact final-board phase records; None is unmeasured, [] is measured no phases
+    segments: int | None = None
+    invalid_reason: str = ""
 
 
 @dataclasses.dataclass(frozen=True)
@@ -87,6 +95,7 @@ class Comparison:
     value: str = ""     # with "not comparable": what the values alone say (same, better or worse), versions ignored
     worse: list[str] = dataclasses.field(default_factory=list)   # the values that made it worse, as routing_values names them
     split_unrecorded: bool = False   # the recorded entry has no open split: its total was compared with the new total
+    evidence_missing: bool = False   # an unknown route contract cannot authorize baseline replacement
 
 
 def lower(c: Comparison) -> bool:
@@ -116,10 +125,107 @@ def open_split(open_nets: dict, open_after: int, pours: set[str]) -> tuple[int, 
     return pour, open_after - pour
 
 
+
+def route_facts(report: dict | None) -> dict:
+    """Retain actual routed facts, with unavailable evidence explicitly nullable."""
+    if report is None:
+        return dict(routed=False)
+    def count(value):
+        return value if type(value) is int and value >= 0 else None
+    phases = report.get("phases")
+    if not isinstance(phases, list) or any(
+            not isinstance(p, dict) or not isinstance(p.get("name"), str)
+            or type(p.get("final_asked")) is not int or p["final_asked"] < 0
+            or type(p.get("final_joined")) is not int or not 0 <= p["final_joined"] <= p["final_asked"]
+            or type(p.get("final_closure_clean")) not in (int, float)
+            or not math.isfinite(p["final_closure_clean"]) or not 0 <= p["final_closure_clean"] <= 1
+            for p in phases):
+        phases = None
+    return dict(routed=True, route_valid=report.get("valid") if type(report.get("valid")) is bool else None,
+                widths_failed=count(report.get("widths_failed")), route_drc_new=count(report.get("drc_new")), phases=phases,
+                segments=count(report.get("segments")), invalid_reason=report.get("invalid_reason", ""))
+
+
+def evidence_difference(old: dict, new: dict) -> str | None:
+    """A compatible, measured route domain is required before comparing routed standings."""
+    if old.get("failure") or new.get("failure"):
+        return None                         # real execution failures remain comparable as failures
+    if old.get("routed") is False and new.get("routed") is False:
+        return None                         # an intentionally un-routed module has no route requirements
+    for result in (old, new):
+        if result.get("routed") is not True or type(result.get("route_valid")) is not bool \
+                or type(result.get("widths_failed")) is not int or result["widths_failed"] < 0 \
+                or result.get("phases") is None or type(result.get("segments")) is not int or result["segments"] < 0:
+            return "route evidence unavailable"
+        if "new_violations" in result and result["new_violations"] is None:
+            return "route evidence unavailable"
+        if "new_violations" not in result and type(result.get("route_drc_new")) is not int:
+            return "route evidence unavailable"
+        # Validate deserialized historical records by the same rules as a fresh report.
+        if route_facts(dict(valid=result["route_valid"], widths_failed=result["widths_failed"],
+                            phases=result["phases"], segments=result["segments"]))["phases"] is None:
+            return "route evidence unavailable"
+    def domain(result):
+        return [{k: p.get(k) for k in ("name", "selector", "index", "width", "layers", "neckdown", "width_policy", "final_asked")}
+                for p in result["phases"]]
+    return None if domain(old) == domain(new) else "route phase domain differs"
+
+
+def evidence_comparison(old: dict, new: dict, legacy: Comparison) -> Comparison:
+    if legacy.status == "worse" and "routed DRC unavailable" in legacy.worse:
+        return dataclasses.replace(legacy, evidence_missing=True)
+    why = evidence_difference(old, new)
+    return dataclasses.replace(legacy, status="not comparable", differ=legacy.differ + [why],
+                               value=legacy.value or legacy.status, evidence_missing=True) if why else legacy
+
+
+def route_standing(result: dict, measures: dict):
+    """The common comparator's routed inputs, never inferred from initial connectivity."""
+    from placemat import score
+    if result.get("routed") is False:
+        return score.Standing(measures, score.Validity.of(measures, drc_new=measures.get("drc")))
+    drc = len(result["new_violations"]) if result.get("new_violations") is not None else result["route_drc_new"]
+    m = dict(measures, vias=result.get("vias", measures.get("vias")),
+             copper_mm=result.get("track_mm", measures.get("copper_mm")), segments=result["segments"])
+    return score.Standing(m, score.Validity.of(m, drc_new=drc, widths_failed=result["widths_failed"]),
+                          tuple(p["final_closure_clean"] for p in result["phases"]), result["closure_clean"])
+
+
+def evidence_line(result) -> str:
+    if result.routed is False:
+        return "un-routed"
+    widths = "unknown" if result.widths_failed is None else str(result.widths_failed)
+    phases = "unknown" if result.phases is None else "; ".join(
+        "%s %d/%d %.1f%%" % (p["name"], p["final_joined"], p["final_asked"], 100 * p["final_closure_clean"])
+        for p in result.phases) or "none"
+    valid = "unknown" if result.route_valid is None else str(result.route_valid)
+    return "route valid %s widths failed %s final phases [%s]" % (valid, widths, phases)
+
+
+def augment_result(result: AResult, route_json: dict) -> AResult:
+    """Attach retained route evidence without remeasuring or changing reference DRC/open splits."""
+    for key, retained in (("closure_clean", result.closure_clean), ("open_after", result.open)):
+        if key not in route_json or route_json[key] != retained:
+            raise ValueError("retained route report differs: " + key)
+    facts = route_facts(route_json)
+    passed = result.closure_clean == CLEAN and result.new_violations == [] \
+        and not route_json.get("keepout_breaches") and facts["widths_failed"] == 0 \
+        and facts["phases"] is not None and all(
+            p["final_joined"] == p["final_asked"] and p["final_closure_clean"] == CLEAN for p in facts["phases"])
+    return dataclasses.replace(result, passed=passed, **facts)
+
+
+def held_message(name: str, comparison: Comparison) -> str:
+    if comparison.evidence_missing:
+        return "held back, route evidence unavailable or incompatible: %s (--accept-worse cannot supply evidence)" % name
+    return "held back, worse than the recorded result: %s (--accept-worse writes it)" % name
+
+
 def judge(route_json: dict, new: list[prepare.Violation], template: AResult, pours: set[str] = frozenset()) -> AResult:
     """The result of a route: `template` (board, widths, the human's copper, versions) with what route.json says, and `new`.
     vias and track_mm are the routed board's, which the caller measures and puts in the report. `pours`: the nets the
     routed board serves by a pour (kicad.route.plane_nets_of), which split the open count."""
+    facts = route_facts(route_json)
     closure = route_json.get("closure_clean", template.closure_clean)
     opened = route_json.get("open_after", 0)
     pour, other = open_split(route_json.get("open_nets") or {}, opened, set(pours))
@@ -127,7 +233,10 @@ def judge(route_json: dict, new: list[prepare.Violation], template: AResult, pou
         template, closure_clean=closure, open=opened, open_pour=pour, open_other=other,
         open_nets=sorted(route_json.get("open_nets", ())), new_violations=list(new),
         vias=route_json.get("vias", template.vias), track_mm=route_json.get("track_mm", template.track_mm),
-        passed=closure == CLEAN and not new,
+        passed=closure == CLEAN and not new and not route_json.get("keepout_breaches")
+        and facts["widths_failed"] == 0 and facts["phases"] is not None
+        and all(p["final_joined"] == p["final_asked"] and p["final_closure_clean"] == CLEAN for p in facts["phases"]),
+        **facts,
         seconds=route_json.get("seconds", template.seconds))
 
 
@@ -168,14 +277,22 @@ def routing_values(old: dict, new, *, counts: bool = True) -> Comparison:
 
 
 def by_value(old: dict, new: AResult) -> Comparison:
-    return routing_values(old, new)
+    values = routing_values(old, new)
+    if values.status == "worse" or new.failure or old.get("failure"):
+        return values
+    if evidence_difference(old, asdict(new)) is None:
+        from placemat import score
+        from placemat.settings import Settings
+        ranked = score.rank(route_standing(asdict(new), {}), route_standing(old, {}), Settings())
+        return dataclasses.replace(values, status={-1: "better", 0: values.status, 1: "worse"}[ranked])
+    return values
 
 
 def compare(old: dict | None, new: AResult, changing: set[str]) -> Comparison:
     """A result against the recorded one (its dict): new, same, better, worse, or not comparable."""
     if old is None:
         return Comparison("new", [])
-    return with_versions(old, new, changing, by_value(old, new))
+    return evidence_comparison(old, asdict(new), with_versions(old, new, changing, by_value(old, new)))
 
 
 def with_versions(old: dict, new, changing: set[str], values: Comparison) -> Comparison:
@@ -191,10 +308,8 @@ def ratchet(results: list, comparisons: list[Comparison], accept_worse: bool) ->
     """(what --update writes, what it holds back): a result that is `lower` than the recorded one is held back unless
     `accept_worse`, so a baseline is never lowered without the user's approval. Other "not comparable" results are
     written (a re-baseline)."""
-    if accept_worse:
-        return list(results), []
-    held = [r for r, c in zip(results, comparisons) if lower(c)]
-    return [r for r, c in zip(results, comparisons) if not lower(c)], held
+    held = [r for r, c in zip(results, comparisons) if c.evidence_missing or (not accept_worse and lower(c))]
+    return [r for r, c in zip(results, comparisons) if not c.evidence_missing and (accept_worse or not lower(c))], held
 
 
 def _violation_key(v) -> tuple:
@@ -490,7 +605,7 @@ def line(r: AResult, c: Comparison) -> str:
             r.board, r.widths, said(c), r.failure, r.detail[:200])
     return "%-22s %-5s %s closure_clean %.1f%% open non-pour %d pour %d new DRC %d vias %d/%d track %.0f/%.0f mm %.0fs  %s" % (
         r.board, r.widths, "pass" if r.passed else "FAIL", 100 * r.closure_clean, r.open_other, r.open_pour,
-        len(r.new_violations), r.vias, r.human_vias, r.track_mm, r.human_track_mm, r.seconds, said(c))
+        len(r.new_violations), r.vias, r.human_vias, r.track_mm, r.human_track_mm, r.seconds, said(c)) + "  " + evidence_line(r)
 
 
 def main(argv=None) -> int:
@@ -533,7 +648,7 @@ def main(argv=None) -> int:
         if not args.work:   # a --work folder is the caller's, to inspect
             shutil.rmtree(root, ignore_errors=True)
     for r in held:
-        print("held back, worse than the recorded result: %s %s (--accept-worse writes it)" % (r.board, r.widths))
+        print(held_message("%s %s" % (r.board, r.widths), comparisons[results.index(r)]))
     return 1 if worse or held else 0
 
 

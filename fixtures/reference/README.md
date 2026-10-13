@@ -11,7 +11,7 @@ commit in its upstream repository, and each file to a sha256, in `manifest.json`
 2. Record the stripped board's DRC as the baseline: several originals already fail DRC once stripped.
 3. Route with the board's own layer count, net-class rules and via sizes.
 
-Pass is 100% clean closure, with no copper DRC error beyond the baseline. Closure is also recorded at the widths the
+Pass requires 100% clean closure, measured required widths with zero failures, complete final phase closure, and no copper DRC error beyond the baseline. The existing inherited and silkscreen DRC filters remain in force; raw route validity and its reason are retained separately for inspection. Closure is also recorded at the widths the
 human actually used (`human_track_mm` in the manifest). `placemat route` exits 1 when the input board already has DRC
 errors; the runner takes that exit with a fresh `route.json` (`valid: false`, no `error`) as a completed route and judges
 it the same way. A board or width whose route did not complete records its new DRC as unknown.
@@ -99,12 +99,11 @@ A board (tests a and b) is worse than its recorded entry if the route failed, cl
 non-pour nets rose, open connections on pour nets rose, or new DRC errors rose, even when closure_clean improved; the line
 names the values. It is better only if none of those is worse and one improved. A pour net is a net with a copper zone on
 the routed board. An entry recorded without the split compares its total open count with the new total, and the line says
-"split not recorded". A module is compared on failure and closure_clean, then area; it records no open count or DRC.
+"split not recorded". For compatible complete routed evidence, the shared `score.rank` comparator uses measured width validity, ordered final phase closures and routing quality. The protected board no-worse checks above remain mandatory. Intentionally un-routed modules retain placement-only comparison semantics.
 
-The ratchet: no board or module may get worse without the user's approval. `--update` writes the entries that are
-new, same, better or not comparable, and holds back an entry that is worse, and one that is not comparable but worse
-on its values. `--accept-worse` writes them anyway and records that the user approved the loss; it is never passed
-without that approval. `--update` writes after each board or module, so a run that stops keeps the ones it finished.
+Historical entries without measured widths, final phases or route quality remain displayable as legacy values, but those values are not a comparable routed standing. Different phase request domains are also incomparable. Missing evidence is never interpreted as zero failures.
+
+The ratchet holds incomplete or incompatible route evidence even with `--accept-worse`; that flag cannot supply missing measurements. For complete evidence, worse entries require the user's approval before `--accept-worse` writes them. `--update` writes eligible results after each board or module. Retain an explicit `--work` directory to inspect raw reports for held results; no historical baseline is refreshed automatically.
 
 ## The script lint
 

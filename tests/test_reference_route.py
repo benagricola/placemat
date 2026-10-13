@@ -8,7 +8,7 @@ VERSIONS = {"placemat": "0", "krt": "0", "pcb": "0"}
 
 def _result(**over):
     fields = dict(board="x", widths="class", closure_clean=1.0, open=0, open_nets=[], new_violations=[], vias=3,
-                  track_mm=10.0, human_vias=2, human_track_mm=9.0, passed=True, seconds=1.0, versions=VERSIONS)
+                  track_mm=10.0, human_vias=2, human_track_mm=9.0, passed=True, seconds=1.0, versions=VERSIONS, routed=True, route_valid=True, widths_failed=0, phases=[], segments=8)
     return route_ref.AResult(**dict(fields, **over))
 
 
@@ -29,7 +29,8 @@ def test_passed_needs_full_clean_closure_and_nothing_new():
     assert r.passed
     assert not route_ref.judge(dict(closure_clean=0.98), [], r).passed
     assert not route_ref.judge(dict(closure_clean=1.0), [V("short", ("A", "C"), (5.0, 5.0))], r).passed
-    assert route_ref.judge(dict(closure_clean=1.0), [], r).passed
+    assert not route_ref.judge(dict(closure_clean=1.0), [], r).passed
+    assert route_ref.judge(dict(closure_clean=1.0, valid=True, widths_failed=0, phases=[], segments=8), [], r).passed
 
 
 def test_judge_reads_the_route_report():
@@ -367,3 +368,69 @@ def test_an_entry_without_the_split_compares_its_total_and_says_so():
 def test_judge_splits_the_open_count_by_pour_nets():
     r = route_ref.judge(dict(open_after=3, open_nets={"GND": 2, "A": 1}), [], _result(), {"GND"})
     assert (r.open, r.open_pour, r.open_other) == (3, 2, 1)
+
+
+def test_required_widths_and_final_phases_prevent_a_false_connectivity_pass():
+    report = dict(closure_clean=1.0, valid=True, widths_failed=1, segments=8,
+                  phases=[dict(name="pours", final_asked=2, final_joined=1, final_closure_clean=.5)])
+    got = route_ref.judge(report, [], _result())
+    assert not got.passed and got.widths_failed == 1
+    assert got.phases == report["phases"]
+    assert not route_ref.judge(dict(report, widths_failed=0), [], _result()).passed
+    assert not route_ref.judge(dict(report, phases=None), [], _result()).passed
+    inherited = route_ref.judge(dict(report, phases=[], widths_failed=0, valid=False,
+                                     invalid_reason="placement DRC not clean before routing: inherited"), [], _result())
+    assert inherited.passed and inherited.route_valid is False
+    assert not route_ref.judge(dict(report, phases=[], widths_failed=0, keepout_breaches=["physical breach"]), [], _result()).passed
+
+
+def test_historical_width_and_phase_gaps_are_incomparable_and_never_ratchet():
+    old = route_ref.asdict(_result())
+    del old["widths_failed"]
+    del old["phases"]
+    now = _result()
+    compared = route_ref.compare(old, now, {"placemat"})
+    assert compared.status == "not comparable" and compared.evidence_missing
+    assert "route evidence unavailable" in compared.differ
+    assert route_ref.ratchet([now], [compared], False) == ([], [now])
+    assert route_ref.ratchet([now], [compared], True) == ([], [now])
+
+
+def test_human_route_comparison_carries_width_validity_before_closure():
+    old = route_ref.asdict(_result(closure_clean=.9, passed=False))
+    bad = _result(widths_failed=1, passed=False)
+    assert route_ref.compare(old, bad, {"placemat"}).status == "worse"
+
+
+def test_final_phase_order_is_compared_before_copper_quality():
+    phases = [dict(name="signal", final_asked=10, final_joined=9, final_closure_clean=.9)]
+    old = route_ref.asdict(_result(phases=phases))
+    new = _result(phases=[dict(phases[0], final_joined=8, final_closure_clean=.8)], vias=0)
+    assert route_ref.compare(old, new, {"placemat"}).status == "worse"
+    changed = _result(phases=[dict(phases[0], name="other")])
+    assert route_ref.compare(old, changed, {"placemat"}).evidence_missing
+
+
+def test_malformed_historical_phase_evidence_is_incomparable():
+    old = route_ref.asdict(_result())
+    for phases in ({"name": "bad"}, "bad", [dict(name="bad")]):
+        compared = route_ref.compare(dict(old, phases=phases), _result(), {"placemat"})
+        assert compared.status == "not comparable" and compared.evidence_missing
+
+
+def test_retained_route_augmentation_preserves_measured_reference_fields():
+    from dataclasses import asdict
+    original = _result(open=3, open_pour=2, open_other=1, vias=7, track_mm=42, seconds=99)
+    report = dict(closure_clean=1.0, open_after=3, valid=False, invalid_reason="inherited DRC", widths_failed=2, phases=[], segments=8)
+    updated = route_ref.augment_result(original, report)
+    assert not updated.passed and updated.widths_failed == 2 and updated.route_valid is False
+    before, after = asdict(original), asdict(updated)
+    for key in ("open", "open_pour", "open_other", "vias", "track_mm", "seconds", "new_violations"):
+        assert after[key] == before[key]
+    assert "cannot supply evidence" in route_ref.held_message("x", route_ref.Comparison("not comparable", [], evidence_missing=True))
+
+
+def test_retained_route_augmentation_refuses_mismatched_report():
+    import pytest
+    with pytest.raises(ValueError, match="closure_clean"):
+        route_ref.augment_result(_result(), dict(closure_clean=.5, open_after=0))

@@ -71,6 +71,13 @@ class BResult:
     open_pour: int = 0      # open connections on the nets the routed board serves by a pour; open_other is the rest
     open_other: int = 0
     measures: dict = dataclasses.field(default_factory=dict)    # the run's measures (score.py), routed quality included
+    routed: bool | None = None   # None is a historical record without route evidence; False is intentionally un-routed
+    route_valid: bool | None = None
+    route_drc_new: int | None = None
+    widths_failed: int | None = None
+    phases: list | None = None   # exact final-board phase records; None is unmeasured, [] is measured no phases
+    segments: int | None = None
+    invalid_reason: str = ""
 
 
 @dataclasses.dataclass(frozen=True)
@@ -88,6 +95,13 @@ class MResult:
     hand: dict = dataclasses.field(default_factory=dict)
     placed_area_mm2: float | None = None
     measures: dict = dataclasses.field(default_factory=dict)    # the run's measures (score.py), routed quality included
+    routed: bool | None = None   # None is a historical record without route evidence; False is intentionally un-routed
+    route_valid: bool | None = None
+    route_drc_new: int | None = None
+    widths_failed: int | None = None
+    phases: list | None = None   # exact final-board phase records; None is unmeasured, [] is measured no phases
+    segments: int | None = None
+    invalid_reason: str = ""
 
 
 def asdict(result) -> dict:
@@ -286,7 +300,8 @@ def run_b(board: fetch.Board, ref_dir: pathlib.Path, work: pathlib.Path, *, prep
     return result(closure_clean=route.get("closure_clean", NOT_RUN), open=opened, open_pour=pour, open_other=other,
                   new_violations=new,
                   vias=routed.vias, track_mm=routed.track_mm, run_score=run_score(record, folder, script=copied), seconds=round(seconds, 1),
-                  versions=versions, placement=placement, measures=record["metrics"].get("measures") or {})
+                  versions=versions, placement=placement, measures=record["metrics"].get("measures") or {},
+                  **route_ref.route_facts(route))
 
 
 def _area(metrics: dict) -> float:
@@ -341,7 +356,8 @@ def run_module(name: str, script: pathlib.Path, work: pathlib.Path, *, versions:
                        placement, **extra)
     metrics = record["metrics"]
     return MResult(name, metrics.get("closure_clean", NOT_RUN), _area(metrics), run_score(record, copy.parent, script=copy), round(seconds, 1),
-                   versions, inputs_digest=digest, placement=placement, measures=metrics.get("measures") or {}, **extra)
+                   versions, inputs_digest=digest, placement=placement, measures=metrics.get("measures") or {},
+                   **route_ref.route_facts(metrics.get("route")), **extra)
 
 
 def _differ(old: dict, new, changing: set[str]) -> list[str]:
@@ -358,24 +374,23 @@ def _compared(old: dict | None, new, changing: set[str], value) -> route_ref.Com
     differ = _differ(old, new, changing)
     values = value(old, new)
     if differ:
-        return dataclasses.replace(values, status="not comparable", differ=differ, value=values.status)
-    return values
+        values = dataclasses.replace(values, status="not comparable", differ=differ, value=values.status)
+    return route_ref.evidence_comparison(old, asdict(new), values)
 
 
 def _ranked(old: dict, new) -> str | None:
     """same, better or worse by `score.rank` when both runs recorded their measures and neither failed: the new
-    violations as the DRC errors beyond the baseline (a board's; None for a module) and the clean closure, closures ()
-    as a run records no phases yet. None otherwise: a record from before the measures is judged as it was."""
+    violations as DRC beyond the baseline, required widths and ordered final phase closures.
+    None otherwise: legacy values remain displayable, but incomplete route evidence is held incomparable."""
     if new.failure or old.get("failure") or not new.measures or not old.get("measures"):
         return None
     from placemat import score
     from placemat.settings import Settings
 
-    def standing(r: dict):
-        m = r["measures"]
-        drc = len(r["new_violations"] or ()) if "new_violations" in r else m.get("drc")
-        return score.Standing(m, score.Validity.of(m, drc_new=drc), (), r["closure_clean"])
-    return {-1: "better", 0: "same", 1: "worse"}[score.rank(standing(asdict(new)), standing(old), Settings())]
+    if route_ref.evidence_difference(old, asdict(new)) is not None:
+        return None
+    return {-1: "better", 0: "same", 1: "worse"}[score.rank(
+        route_ref.route_standing(asdict(new), new.measures), route_ref.route_standing(old, old["measures"]), Settings())]
 
 
 def b_by_value(old: dict, new: BResult) -> route_ref.Comparison:
@@ -433,7 +448,7 @@ def line_b(r: BResult, c: route_ref.Comparison) -> str:
     head = "%-22s b     closure_clean %.1f%% (a %s) open non-pour %d pour %d new DRC %s vias %d/%d track %.0f/%.0f mm score %.1f %.0fs" % (
         r.board, 100 * r.closure_clean, a, r.open_other, r.open_pour, "unknown" if r.new_violations is None else len(r.new_violations), r.vias, r.ref_vias, r.track_mm, r.ref_track_mm,
         r.run_score, r.seconds)
-    return "%s  %s" % (head, route_ref.said(c))
+    return "%s  %s  %s" % (head, route_ref.evidence_line(r), route_ref.said(c))
 
 
 def line_module(r: MResult, c: route_ref.Comparison) -> str:
@@ -447,7 +462,7 @@ def line_module(r: MResult, c: route_ref.Comparison) -> str:
             p.get("crossings", "n/a"), "n/a" if p.get("airwire_mm") is None else "%.0f mm" % p["airwire_mm"])
         if h.get("failure"):
             head += "  hand FAILED %s: %s" % (h["failure"], h.get("detail", "")[:200])
-    return "%s  %s%s" % (head, route_ref.said(c), "  FAILED %s: %s" % (r.failure, r.detail[:200]) if r.failure else "")
+    return "%s  %s%s" % (head + "  " + route_ref.evidence_line(r), route_ref.said(c), "  FAILED %s: %s" % (r.failure, r.detail[:200]) if r.failure else "")
 
 
 def _apply_overrides(copied, overrides):
@@ -612,7 +627,7 @@ def main(argv=None) -> int:
             shutil.rmtree(root, ignore_errors=True)
     for r in held:
         name = getattr(r, "board", None) or r.script
-        print("held back, worse than the recorded result: %s (--accept-worse writes it)" % name)
+        print(route_ref.held_message(name, comparisons[(boards + modules).index(r)]))
     return 1 if worse or held else 0
 
 

@@ -19,13 +19,13 @@ def _digest(monkeypatch):
 
 
 def _m(**over):
-    fields = dict(script="fam/X", closure_clean=1.0, area_mm2=100.0, run_score=5.0, seconds=1.0, versions=VERSIONS, failure="", inputs_digest="d1")
+    fields = dict(script="fam/X", closure_clean=1.0, area_mm2=100.0, run_score=5.0, seconds=1.0, versions=VERSIONS, failure="", inputs_digest="d1", routed=False)
     return place_ref.MResult(**dict(fields, **over))
 
 
 def _b(**over):
     fields = dict(board="x", closure_clean=1.0, open=0, new_violations=[], vias=3, track_mm=10.0, run_score=5.0, ref_vias=4,
-                  ref_track_mm=20.0, a_closure_clean=1.0, seconds=1.0, versions=VERSIONS, failure="", inputs_digest="d1")
+                  ref_track_mm=20.0, a_closure_clean=1.0, seconds=1.0, versions=VERSIONS, failure="", inputs_digest="d1", routed=True, route_valid=True, route_drc_new=0, widths_failed=0, phases=[], segments=20)
     return place_ref.BResult(**dict(fields, **over))
 
 
@@ -117,7 +117,7 @@ def test_results_with_measures_are_ranked_by_score_rank():
     m = {"v": score.MEASURES_VERSION, "airwire_mm": 100.0, "crossings": {}, "area_mm2": 100.0, "vias": 5, "copper_mm": 50.0, "segments": 20}
     old = place_ref.asdict(_b(measures=m))
     assert place_ref.compare_b(old, _b(measures=m, closure_clean=0.9), {"placemat"}).status == "worse"
-    assert place_ref.compare_b(old, _b(measures=dict(m, vias=4)), {"placemat"}).status == "better"
+    assert place_ref.compare_b(old, _b(measures=dict(m, vias=4), vias=2), {"placemat"}).status == "better"
     assert place_ref.compare_b(place_ref.asdict(_b(measures=m, closure_clean=0.9)),
                                _b(measures=dict(m, vias=1), new_violations=[prepare.Violation("clearance", ("A", "B"), (1.0, 2.0))]), {"placemat"}).status == "worse"
     small = place_ref.asdict(_m(measures=m))
@@ -529,3 +529,29 @@ def test_routed_board_without_drc_is_failed_not_completed(tmp_path, monkeypatch)
     result = place_ref.run_b(BOARD, folder, tmp_path / "work", prepared=PREPARED, versions=VERSIONS)
     assert result.failure == place_ref.NO_DRC
     assert result.new_violations is None and result.closure_clean == place_ref.NOT_RUN
+
+
+def test_board_width_validity_precedes_a_better_closure_and_score():
+    measures = {"v": score.MEASURES_VERSION, "airwire_mm": 100.0, "area_mm2": 100.0}
+    old = place_ref.asdict(_b(measures=measures, closure_clean=.9))
+    invalid = _b(measures=dict(measures, airwire_mm=0), widths_failed=2)
+    assert place_ref.compare_b(old, invalid, {"placemat"}).status == "worse"
+
+
+def test_board_final_phase_closure_precedes_routed_quality():
+    measures = {"v": score.MEASURES_VERSION, "airwire_mm": 100.0, "area_mm2": 100.0}
+    phases = [dict(name="first", final_asked=10, final_joined=9, final_closure_clean=.9)]
+    old = place_ref.asdict(_b(measures=measures, phases=phases))
+    new = _b(measures=dict(measures, airwire_mm=0), vias=0,
+             phases=[dict(phases[0], final_joined=8, final_closure_clean=.8)])
+    assert place_ref.compare_b(old, new, {"placemat"}).status == "worse"
+
+
+def test_routed_module_and_board_unknown_baselines_are_not_legality_proofs():
+    for old, new, compare in ((place_ref.asdict(_b()), _b(), place_ref.compare_b),
+                              (place_ref.asdict(_m(routed=True, route_valid=True, route_drc_new=0, widths_failed=0, phases=[], segments=2)),
+                               _m(routed=True, route_valid=True, route_drc_new=0, widths_failed=0, phases=[], segments=2), place_ref.compare_module)):
+        del old["widths_failed"]
+        got = compare(old, new, {"placemat"})
+        assert got.status == "not comparable" and got.evidence_missing
+        assert route_ref.ratchet([new], [got], False) == ([], [new])
