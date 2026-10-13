@@ -392,6 +392,13 @@ class Settings:
         "mm, a pair's track width; 0 is the net class's diff pair width")
     route_adopt_tolerance: float = S(0.001, "mm",
         "mm any kept pad may lie from where the parts' common motion puts it before the kept routes joining them are dropped")
+    route_rip_attempts: int = S(4, "count",
+        "attempts per router call to move an earlier call's copper that blocks a connection the call left open: the "
+        "blocking nets' routed copper is taken off, the blocked connection routed, and the moved connections routed "
+        "again at their own phase's widths, layers and clearance; kept only when no connection judged before is "
+        "worse. 0 is off")
+    route_rip_max_nets: int = S(3, "count",
+        "the most nets one such attempt moves; a blocked connection whose router names more is not attempted")
     run_max_time_s: float = S(0.0, "seconds",
         "stop a `run` or `preview` after this many seconds of placing, at the next point it can be resumed from (its finished steps are kept and replayed by the rerun); 0 is no cap. `--max-time`. Wall-clock, so it depends on machine load")
     run_step_warn_s: float = S(0.0, "seconds",
@@ -764,7 +771,7 @@ _AT_LEAST_ZERO = frozenset((
     "score_crossing_plane", "score_crossing_pair_net", "score_impedance", "score_escape_crossed", "score_escape_closed", "score_escape_lane", "score_escape_via", "score_congestion",
     "score_congestion_step", "score_link", "score_area",
     "copper_pair_chamfer", "copper_pair_via_offset", "copper_plane_inset", "copper_straight_tolerance",
-    "copper_plane_clearance", "label_gap", "check_keep_out_mm", "route_diff_pair_gap", "route_diff_pair_width",
+    "copper_plane_clearance", "label_gap", "check_keep_out_mm", "route_diff_pair_gap", "route_diff_pair_width", "route_rip_attempts", "route_rip_max_nets",
     "score_pair_crossing", "copper_tap_overlap", "solve_spread_pull", "place_via_share_distance", "place_via_move_distance", "place_via_leave_distance", "place_via_route_distance", "score_via_route", "score_via_share", "score_via_leave",
     "score_via_move", "score_via_drop", "score_via_shorten", "score_push", "score_back_face", "score_arrangement", "place_extent_notice_mm", "place_arrangement_margin",
     "score_via_relay", "score_via_relay_moved", "score_via_relay_gap", "score_via_relay_pitch",

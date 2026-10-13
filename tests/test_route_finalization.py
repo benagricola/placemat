@@ -41,7 +41,8 @@ def test_the_routed_board_takes_the_source_rules_then_guards_fill_cleanup_and_dr
 
 
 def test_every_phase_is_judged_again_and_a_second_judging_starts_afresh(monkeypatch):
-    report = SimpleNamespace(phases=[{'connections': []}, {'connections': []}], widths_failed=0)
+    rip = {'attempts': [], 'skipped': []}
+    report = SimpleNamespace(phases=[{'connections': [], 'rip': rip}, {'connections': [], 'rip': rip}], widths_failed=0)
     phases = [SimpleNamespace(name='earlier'), SimpleNamespace(name='last')]
     obs = [[{'net': 'EARLIER', 'from': {'ref': 'U1'}, 'to': {'ref': 'U2'}}],
            [{'net': 'LAST', 'from': {'ref': 'U3'}, 'to': {'ref': 'U4'}}]]

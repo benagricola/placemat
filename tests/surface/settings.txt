@@ -156,6 +156,8 @@ route.pair_router_args
 route.phase
 route.plane_share
 route.quick
+route.rip_attempts
+route.rip_max_nets
 route.router_args
 route.router_dir
 route.smoothing

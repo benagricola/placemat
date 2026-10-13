@@ -21,7 +21,8 @@ On the fairing core this has two costs:
 ## Goal
 
 The project states its routing as named phases in `placemat.toml`. Each phase routes a chosen set at its own width,
-layers and router settings; its copper is fixed for the phases after it. Closure is reported per phase, and explore can
+layers and router settings; its copper is fixed for the phases after it, for the router; placemat may move it when it blocks a later call
+(docs/superpowers/specs/2026-10-12-rip-reroute-design.md). Closure is reported per phase, and explore can
 rank variants by named phases, so placement serves the legs and the buses by being judged on them rather than by
 reserving their lanes.
 
@@ -224,7 +225,8 @@ geometric filter), the fork gains a flag that takes the bus's nets as one group 
 
   It is the stage digest chain of `route_state.py`, with the phases as the stages. A phase whose key changed is routed
   again, and every phase after it is dropped.
-- A phase's copper is locked (`lock_copper`) before the next phase runs, as stages are today.
+- A call's copper is locked (`lock_copper`) before the next call runs; rip and reroute may move it (the 2026-10-12
+  spec).
 
 ## What is reported
 

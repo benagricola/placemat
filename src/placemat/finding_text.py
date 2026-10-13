@@ -1065,6 +1065,11 @@ def _route_width(f):
                           for d in f["layers"])
         return "net %s: %s.%s-%s.%s in phase %s is under its width: %s" % (
             f["net"], f["from"]["ref"], f["from"]["pad"], f["to"]["ref"], f["to"]["pad"], f["stage"], needs)
+    if f.get("source") == "judged":     # one connection, measured on the path that joins it (phase_run.judged_widths)
+        needs = "; ".join("%s needs %g mm, narrowest %g mm" % (d["layer"], d["need_mm"], d["min_mm"])
+                          for d in f["layers"])
+        return "net %s: %s.%s-%s.%s, asked by phase %s, is joined under its width on the routed board: %s" % (
+            f["net"], f["from"]["ref"], f["from"]["pad"], f["to"]["ref"], f["to"]["pad"], f["stage"], needs)
     of = " of %.1f mm (%.0f%%)" % (f["length_mm"], 100 * (f.get("share") or 0.0)) if f.get("length_mm") is not None else " mm"
     if f.get("layers"):         # judged on the routed board, per layer (route_widths.board_widths)
         text = "net %s: %.1f%s of its routed copper is under what it needs: %s" % (f["net"], f["length_under_mm"], of, "; ".join(

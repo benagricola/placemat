@@ -126,6 +126,9 @@ class PhaseContext:
     events: object
     class_clearances: dict = field(default_factory=dict)
     stated_clearances: dict = field(default_factory=dict)
+    pour_currents: dict = field(default_factory=dict)   # {pour net: {pad end: amps}}: the connections a current_paths
+                                                        # phase leaves to their pour (pour_join.join_widths)
+    history: object = None              # rip_reroute.History of the route; None: no rip and reroute
 
 
 @dataclass
@@ -152,18 +155,23 @@ class Routed:
 
     widths: list = field(default_factory=list)
     pour_joins: list = field(default_factory=list)      # pour_join.join_pour's record of each pour call
+    rip: dict = field(default_factory=lambda: {"attempts": [], "skipped": []})     # rip_reroute's record
+    stale: list = field(default_factory=list)   # (n, nets): a kept attempt's victims, whose rows in the first n
+                                                # summaries describe copper it took off
 
     def record(self) -> dict:
         return {"widths": list(self.widths), "board": Path(self.board).name, "seconds": round(self.seconds, 1), "ncalls": self.ncalls,
                 "pairs": self.pairs, "connections": list(self.connections), "bus_groups": list(self.bus_groups),
-                "summaries": [list(s) for s in self.summaries], "pour_joins": list(self.pour_joins)}
+                "summaries": [list(s) for s in self.summaries], "pour_joins": list(self.pour_joins),
+                "rip": dict(self.rip), "stale": [[n, list(v)] for n, v in self.stale]}
 
     @staticmethod
     def of(doc: dict, work) -> "Routed":
         return Routed(Path(work) / doc["board"], doc["seconds"], doc["ncalls"], doc.get("pairs"),
                       list(doc.get("connections") or ()), list(doc.get("bus_groups") or ()),
                       [tuple(s) for s in doc.get("summaries") or ()], list(doc.get("widths") or ()),
-                      list(doc.get("pour_joins") or ()))
+                      list(doc.get("pour_joins") or ()), dict(doc.get("rip") or {"attempts": [], "skipped": []}),
+                      [(n, list(v)) for n, v in doc.get("stale") or ()])
 
 
 def _run(cmd, log: Path, ctx) -> int:
@@ -259,9 +267,10 @@ def obligations_of(selections, input_open, skip) -> list:
         if sel.tasks or sel.pour_served:
             obs = [dict({k: v for k, v in t.record().items() if k in ("net", "from", "to")}, widths=dict(t.widths))
                    for t in sel.tasks]
-            # ruling S13: a current_paths phase's connections on pour nets are asked of the pour, joined or not, with
-            # no width (the pour carries the current)
-            obs += [dict({k: v for k, v in t.record().items() if k in ("net", "from", "to")}, widths=None,
+            # ruling S13: a current_paths phase's connections on pour nets are asked of the pour, joined or not, at
+            # the current width the phase would route them at (the user's decision of 2026-10-13): a join narrower
+            # than it is under its width
+            obs += [dict({k: v for k, v in t.record().items() if k in ("net", "from", "to")}, widths=dict(t.widths),
                          pour_served=True) for t in sel.pour_served]
         elif sel.rest:
             obs = [dict(o, widths={layer: sel.width for layer in sel.layers} if sel.width else None) for o in input_open if o["net"] not in skip and o["net"] not in named]
@@ -311,11 +320,7 @@ def judge_obligations(pcb_path, obligations, drc_json, neck_mm=0.0, is_real=None
         j = joined[_ob_key(o)] if _ob_key(o) in joined else o["net"] not in open_nets
         under, spans = {}, None
         if j and o.get("widths") and geometry is not None:
-            spans = joining_spans(geometry, o, full_width=True, cache=rasters)
-            if spans is None and neck_mm > 0:
-                spans = joining_spans(geometry, o, full_width=True, neck_mm=neck_mm, cache=rasters)
-            if spans is None:
-                spans = joining_spans(geometry, o, cache=rasters)
+            spans = measured_spans(geometry, o, neck_mm, rasters)
             under = width_shortfall(spans, o["widths"], neck_mm) if spans is not None else {}
         # unknown only where no joining path could be measured; a measured shortfall is `under` alone
         unknown = bool(j and (o.get("width_policy_unknown") or
@@ -324,10 +329,22 @@ def judge_obligations(pcb_path, obligations, drc_json, neck_mm=0.0, is_real=None
     return out
 
 
-def is_clean(j: dict, outcome) -> bool:
-    """Joined, not violated, not under its width, and not a `joined_narrow` outcome (ruling S6): a short a later phase
-    laid, or a join narrower than asked, never reads clean."""
-    return bool(j["joined"]) and not j["violated"] and not j["under"] and not j.get("width_unknown", False) and outcome != "joined_narrow"
+def measured_spans(geometry, o, neck_mm, rasters):
+    """The joining path judge_obligations measures an obligation with widths on: a path at full width, else one at
+    full width past the neck allowance, else the shortest (joining_spans' pieces); None when none joins its pads."""
+    spans = joining_spans(geometry, o, full_width=True, cache=rasters)
+    if spans is None and neck_mm > 0:
+        spans = joining_spans(geometry, o, full_width=True, neck_mm=neck_mm, cache=rasters)
+    if spans is None:
+        spans = joining_spans(geometry, o, cache=rasters)
+    return spans
+
+
+def is_clean(j: dict) -> bool:
+    """Joined, not violated, not under its width and not width-unknown (ruling S6): a short a later phase laid, or a
+    join narrower than asked, never reads clean. The width is placemat's measure on the joining path (S8): the
+    router's `joined_narrow`, which KRT measures on the shortest path between the pads, does not decide it."""
+    return bool(j["joined"]) and not j["violated"] and not j["under"] and not j.get("width_unknown", False)
 
 
 def joining_path(geometry, o):
@@ -887,20 +904,24 @@ def open_entry(o, j, record, net_evidence) -> dict:
 
 
 def phase_record(phase, index, sel, obligations, judged, seconds, calls, pairs=None, connections=(), bus_groups=(),
-                 net_evidence=None, pour_joins=()) -> dict:
+                 net_evidence=None, pour_joins=(), rip=None) -> dict:
     """What one phase did: its definition, `asked` (its obligations), `joined` (those clean on the board after it),
     `closure_clean` (joined / asked, 1.0 when nothing is asked), `open` (open_entry of each one not clean), its time,
     router calls, pair outcome, --connections records and bus groups, and `pour_served`: each connection a
     current_paths phase left to its pour (ruling S13), {"net", "from", "to", "joined"}, joined as judged after the
-    phase; one the pour does not join is also open. `pour_joins`: each pour call's record (pour_join.join_pour: its
-    pads, the drops' vias, the tasks for the groups still apart). `reused` is set by the route."""
+    phase, with "under" ({layer: narrowest mm}) when it joins under its current width; one the pour does not join,
+    or joins under that width, is also open. `pour_joins`: each pour call's record (pour_join.join_pour: its pads, the
+    widths its joins were laid at, the drops' vias, the tasks for the groups still apart). `rip`: rip and reroute's
+    attempts and skipped units (rip_reroute.after_call). `reused` is set by the route."""
     connections = list(connections)
     rec = dict(phase.record(), index=index, seconds=round(seconds, 1), reused=False, calls=calls, pairs=pairs,
                connections=connections, bus_groups=list(bus_groups), widths=[], pour_joins=list(pour_joins),
-               pour_served=[dict({k: o[k] for k in ("net", "from", "to")}, joined=bool(j["joined"]))
-                            for o, j in zip(obligations, judged) if o.get("pour_served")])
+               pour_served=[dict({k: o[k] for k in ("net", "from", "to")}, joined=bool(j["joined"]),
+                                 **({"under": dict(j["under"])} if j["joined"] and j["under"] else {}))
+                            for o, j in zip(obligations, judged) if o.get("pour_served")],
+               rip=dict(rip or {"attempts": [], "skipped": []}))
     records = records_of(obligations, connections)
-    clean = [is_clean(j, r.get("status") if r else None) for j, r in zip(judged, records)]
+    clean = [is_clean(j) for j in judged]
     rec.update(asked=len(obligations), joined=sum(clean),
                closure_clean=round(sum(clean) / len(obligations), 4) if obligations else 1.0,
                open=[open_entry(o, j, r, net_evidence or {})
@@ -1070,28 +1091,55 @@ def route_tasks(ctx, pending, src, stem, layers, common, phase, bus_nets=None) -
     return out
 
 
+@dataclass(frozen=True)
+class PhaseSettings:
+    clearance_map: dict
+    base_clearance: float
+    clearances_file: Path | None
+    common: dict
+    layers: tuple
+
+
+def phase_settings(ctx, phase, sel, stem: str) -> PhaseSettings:
+    """What one phase's calls are routed with: its clearance map (the net classes', the capture's stated clearances
+    and the ceiling from `[route] router_args` plus its own, net_clearance.merged), written to `<stem>_net_clearances.json`
+    when the capture states clearances; its base clearance (route.routing_clearance); its router keywords (neck-down,
+    its own router flags); and its layers. route_calls uses it for the phase, rip and reroute for each owner phase."""
+    from . import net_clearance
+    from .route import routing_clearance
+    args = tuple(ctx.cfg.route_router_args) + tuple(phase.router_args)
+    phase_map = net_clearance.merged(ctx.class_clearances, ctx.stated_clearances, net_clearance.ceiling(args, ctx.env))
+    phase_file = None
+    if ctx.stated_clearances:
+        phase_file = ctx.work / ("%s_net_clearances.json" % stem)
+        phase_file.write_text(json.dumps(phase_map, sort_keys=True) + "\n")
+    common = dict(iterations=ctx.iterations, probe=ctx.probe, quick=ctx.quick, clearances=phase_file,
+                  neckdown=phase.neckdown, extra_args=tuple(phase.router_args))
+    return PhaseSettings(phase_map, routing_clearance(ctx.geometry.default_clearance, args, ctx.env), phase_file,
+                         common, tuple(sel.layers))
+
+
+def own_width(phase, call):
+    """A pour call's width when its phase sets one of its own (a numeric width, or "current" on its tasks); None
+    when the phase sets none, so the call's width from its tasks' class widths does not hide the current width of
+    a net a current_paths phase leaves to its pour (pour_join.join_widths)."""
+    return call.width if phase.width is not None else None
+
+
 def route_calls(ctx, index, phase, sel, board) -> PhaseOutcome:
     """Route one phase's calls (plan_calls) on `board`, in order, each on the board the one before left, its copper
     locked. The outcome's `routed` is what judge_phase needs. A task the router refuses stops the route (RouteRefused
     "router_refused"); a call that fails raises RouterFailed."""
     t0 = time.time()
-    from . import net_clearance
-    from .route import routing_clearance
-    args = tuple(ctx.cfg.route_router_args) + tuple(phase.router_args)
-    phase_map = net_clearance.merged(ctx.class_clearances, ctx.stated_clearances,
-                                    net_clearance.ceiling(args, ctx.env))
-    phase_file = None
-    if ctx.stated_clearances:
-        phase_file = ctx.work / ("p%d_net_clearances.json" % index)
-        phase_file.write_text(json.dumps(phase_map, sort_keys=True) + "\n")
-    ctx = replace(ctx, clearance_map=phase_map, clearances_file=phase_file,
-                  base_clearance=routing_clearance(ctx.geometry.default_clearance, args, ctx.env))
+    st = phase_settings(ctx, phase, sel, "p%d" % index)
+    ctx = replace(ctx, clearance_map=st.clearance_map, clearances_file=st.clearances_file,
+                  base_clearance=st.base_clearance)
     calls = plan_calls(sel, ctx.clearance_map, ctx.base_clearance, set(ctx.excluded) | set(ctx.pour_nets))
-    layers = list(sel.layers)
+    layers = list(st.layers)
     out = PhaseOutcome(board, {}, {})
     pairs, connections, bus_groups, pour_joins, pour_calls = None, [], [], [], []
-    common = dict(iterations=ctx.iterations, probe=ctx.probe, quick=ctx.quick, clearances=ctx.clearances_file,
-                  neckdown=phase.neckdown, extra_args=tuple(phase.router_args))
+    rip, extra_widths, trims, stale = {"attempts": [], "skipped": []}, [], [], []
+    common = st.common
     what = "phase %s" % phase.name
     for k, call in enumerate(calls):
         stem = "p%d_%d" % (index, k)
@@ -1110,7 +1158,8 @@ def route_calls(ctx, index, phase, sel, board) -> PhaseOutcome:
                 _copy_project(got, nxt)
         elif call.kind == "pour":
             from .pour_join import join_pour
-            joined, run = join_pour(ctx, board, nxt, call.nets[0], call.width, layers, stem, phase.name, common)
+            joined, run = join_pour(ctx, board, nxt, call.nets[0], own_width(phase, call), layers, stem, phase.name,
+                                    common)
             pour_joins.append(joined)
             pour_calls.append((call, stem, joined))
             out.summaries += [(phase.name, k, s) for s in run.summaries]
@@ -1151,6 +1200,25 @@ def route_calls(ctx, index, phase, sel, board) -> PhaseOutcome:
         lock_copper(str(nxt))
         if call.kind not in ("tasks", "bus_tasks"):
             out.calls.append((call, board, nxt))
+        if call.kind != "pairs" and ctx.history is not None:
+            # after the failing call is in out.calls with its own output (pre-flight M1): the attempts' copper is
+            # judged under their own calls' asks
+            from . import rip_reroute
+            recs = run.records if call.kind in rip_reroute.TASK_CALLS else []
+            doc = _summary_doc(summary) if call.kind in rip_reroute.NET_CALLS else {}
+            got = rip_reroute.after_call(ctx, index, phase, sel, k, call, board, nxt, recs, doc, rip)
+            if got.trim:
+                trims.append((len(out.calls), set(got.trim)))     # the calls made so far laid the moved copper
+            nxt = got.board
+            if got.pour_join is not None:
+                # the kept attempt's join stands: the entry (shared with pour_calls, for the S22 re-check) says it
+                joined.clear()
+                joined.update(got.pour_join)
+            connections = superseded(connections, got.records)
+            out.calls += got.calls
+            stale += [(len(out.summaries) + n, sorted(v)) for n, v in got.stale]
+            out.summaries += [(name, k, s) for name, s in got.summaries]
+            extra_widths = [w for w in extra_widths if w.get("net") not in got.trim] + got.widths
         board = nxt
     rejoins = 0
     if pour_calls:
@@ -1163,7 +1231,8 @@ def route_calls(ctx, index, phase, sel, board) -> PhaseOutcome:
             if len(pad_groups(board, call.nets[0])) <= joined["groups_after"]:
                 continue
             nxt = ctx.work / (stem + "r.kicad_pcb")
-            again, run = join_pour(ctx, board, nxt, call.nets[0], call.width, layers, stem + "r", phase.name, common)
+            again, run = join_pour(ctx, board, nxt, call.nets[0], own_width(phase, call), layers, stem + "r",
+                                   phase.name, common)
             joined["rejoin"] = again
             out.summaries += [(phase.name, len(calls) + rejoins, s) for s in run.summaries]
             connections = superseded(connections, run.records)      # the rejoin's answer stands
@@ -1178,25 +1247,50 @@ def route_calls(ctx, index, phase, sel, board) -> PhaseOutcome:
         _copy_project(board, nxt)
         board = nxt
     out.board = board
+    # each call made before a kept attempt loses the moved nets from its asks: their copper there is gone
+    out.calls = [(_without(c, set().union(*[n for at, n in trims if at > j])), a, b)
+                 for j, (c, a, b) in enumerate(out.calls)]
     out.routed = Routed(board, time.time() - t0, len(calls) + rejoins, pairs, connections, bus_groups,
                         [(n, k, str(sp)) for n, k, sp in out.summaries],
-                        phase_widths(phase, out.calls, ctx.cfg)
-                        + narrow_join_widths(phase, sel, connections, board, ctx.cfg)
-                        + task_widths(phase, sel, connections), pour_joins).record()
+                        phase_widths(phase, out.calls, ctx.cfg) + task_widths(phase, sel, connections)
+                        + extra_widths, pour_joins, rip, stale).record()
     return out
+
+
+def _without(call, nets) -> Call:
+    """`call` without the nets in `nets`, in its nets and its tasks."""
+    return replace(call, nets=tuple(n for n in call.nets if n not in nets),
+                   tasks=tuple(t for t in call.tasks if t.net not in nets))
+
+
+def _summary_doc(path) -> dict:
+    """A whole-net call's summary as read, {} when it has none or it does not parse."""
+    path = Path(path)
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text())
+    except ValueError:
+        return {}
+
+
+def judging_drc(work, board, stem) -> tuple:
+    """The DRC a board is judged by: a copy at `<stem>.kicad_pcb` in `work` with its project files, guards off and
+    zones filled, and kicad-cli's DRC of it at `<stem>.json`. Returns (copy, drc_json, DrcReport)."""
+    copy = Path(work) / (stem + ".kicad_pcb")
+    drc_json = Path(work) / (stem + ".json")
+    shutil.copy(board, copy)
+    _copy_project(board, copy)
+    remove_guards(str(copy))
+    fill_zones(str(copy))
+    return copy, drc_json, run_drc(copy, drc_json, refill_zones=False)
 
 
 def judge_phase(ctx, index, phase, sel, routed: Routed, obligations) -> tuple:
     """A phase's judgement on the board its calls left: a DRC of a copy (guards off, zones filled), then each obligation
     judged on it. Returns (phase_record, {net: open items} from that DRC)."""
     t0 = time.time()
-    judged = ctx.work / ("p%d_drc.kicad_pcb" % index)
-    drc_json = ctx.work / ("p%d_drc.json" % index)
-    shutil.copy(routed.board, judged)
-    _copy_project(routed.board, judged)
-    remove_guards(str(judged))
-    fill_zones(str(judged))
-    drc = run_drc(judged, drc_json, refill_zones=False)
+    judged, drc_json, drc = judging_drc(ctx.work, routed.board, "p%d_drc" % index)
     net_evidence = {}
     for _, _, path in routed.summaries:             # a later call's record of a net wins
         if Path(path).exists():
@@ -1209,7 +1303,7 @@ def judge_phase(ctx, index, phase, sel, routed: Routed, obligations) -> tuple:
                           judge_obligations(judged, obligations, drc_json, neck, drc.is_real_kind,
                                             phase_input_drc(ctx.work, index)),
                           routed.seconds + time.time() - t0, routed.ncalls, routed.pairs, routed.connections,
-                          routed.bus_groups, net_evidence, routed.pour_joins)
+                          routed.bus_groups, net_evidence, routed.pour_joins, routed.rip)
     record["widths"] = list(routed.widths)
     return record, dict(drc.open_nets)
 
@@ -1241,7 +1335,9 @@ def run_phase(ctx, index, phase, sel, board, obligations) -> PhaseOutcome:
 
 def phase_widths(phase, calls, cfg) -> list:
     """The width judgement of one phase (D17): for each call that asked a width, the copper it added (its board out
-    against its board in) judged against what it asked, per layer."""
+    against its board in) judged against what it asked, per layer. A task call's record names the call's
+    connections on its net (`connections`: [{"from", "to"}]), so a judged record of one of them replaces it
+    (one_line_per_connection)."""
     from ..board_geometry import added_copper
     from ..values import CopperLayer
     from .read import read_board
@@ -1265,39 +1361,14 @@ def phase_widths(phase, calls, cfg) -> list:
         given, routed = read_board(str(before)), read_board(str(after))
         new = added_copper(given.copper, routed.copper)
         asks = {n: a or {l: call.width for l in routed.layers} for n, a in asks.items()}
-        out += board_widths(routed, asks, phase.name, cfg.check_rise_c, None, neck, only=new, by=by)
+        got = board_widths(routed, asks, phase.name, cfg.check_rise_c, None, neck, only=new, by=by)
+        if call.kind in ("tasks", "bus_tasks"):
+            from .phase_select import end_record
+            for r in got:
+                r["connections"] = [{"from": end_record(t.start), "to": end_record(t.end)}
+                                    for t in call.tasks if t.net == r["net"]]
+        out += got
     return out
-
-
-def narrow_join_widths(phase, sel, connections, routed_pcb, cfg) -> list:
-    """A task KRT reported `joined_narrow` and left unrouted (D3's fallback): the joining path its record names is
-    judged against the task's asked widths, so the phase raises route.width on it. The path is matched to the routed
-    board's tracks of the net by layer and both ends (to the micrometre)."""
-    from ..values import CopperLayer
-    from .read import read_board
-    from .route_widths import board_widths, neck_allowance
-    narrow = [r for r in connections if r.get("status") == "joined_narrow" and r.get("path")]
-    if not narrow:
-        return []
-    tasks = {(t.net, tuple(t.start[:2]), tuple(t.end[:2])): t for t in sel.tasks}
-    routed = read_board(str(routed_pcb))
-    neck = neck_allowance(tuple(cfg.route_router_args) + tuple(phase.router_args)) if phase.neckdown else 0.0
-    out = []
-    for r in narrow:
-        t = tasks.get((r["net"], (r["from"]["ref"], r["from"]["pad"]), (r["to"]["ref"], r["to"]["pad"])))
-        if t is None:
-            continue
-        path = {(CopperLayer.of(s["layer"]), _ends(s["start"], s["end"])) for s in r["path"]}
-        only = [c for c in routed.copper if c.kind == "track" and c.net == t.net and len(c.anchors) == 2
-                and any((layer, _ends(*c.anchors)) in path for layer in c.layers)]
-        asks = {t.net: {CopperLayer.of(layer): w for layer, w in t.widths}}
-        out += board_widths(routed, asks, phase.name, cfg.check_rise_c, None, neck, only=only,
-                            by="current" if t.amps is not None else "asked")
-    return out
-
-
-def _ends(a, b) -> frozenset:
-    return frozenset((round(p[0], 3), round(p[1], 3)) for p in (a, b))
 
 
 def task_widths(phase, sel, connections) -> list:
@@ -1328,11 +1399,99 @@ def task_widths(phase, sel, connections) -> list:
     return out
 
 
-def widths_failed(records, asked, final_judged) -> int:
-    """Obligations joined on the final board under their width on their joining path, and joined_narrow outcomes."""
-    n = 0
-    for rec, obs, got in zip(records, asked, final_judged):
-        for j, r in zip(got, records_of(obs, rec.get("connections") or [])):
-            if j["joined"] and (j["under"] or j.get("width_unknown", False) or (r or {}).get("status") == "joined_narrow"):
-                n += 1
-    return n
+def widths_failed(final_judged) -> int:
+    """Obligations joined on the final board under their width on their joining path, or whose width could not be
+    measured (ruling S6; S8: placemat's measure decides, not the router's `joined_narrow`)."""
+    return sum(1 for got in final_judged for j in got
+               if j["joined"] and (j["under"] or j.get("width_unknown", False)))
+
+
+def judged_widths(phases, asked, final_judged) -> list:
+    """A width line for each connection the final board joins under the width a phase asked of it
+    (judge_obligations' `under`, measured on its joining path), whichever call laid the copper: a phase's own calls
+    are judged on the copper they added (phase_widths), and a later call that asked no width, such as the rest
+    phase's, is judged nowhere else. One per pad pair: when two phases ask the same pair, the line of the larger need
+    (`requested_mm`; the first phase of equals) stands, and `stages` names every phase that asked it under its width,
+    in phase order. A line is {"net", "stage", "stages", "from", "to", "source": "judged", "layers": [{"layer",
+    "need_mm", "min_mm", "by"}], ...} with route_widths' record fields; "by" is "current" for a phase sized from
+    currents (current_paths, or width = "current"), else "asked"."""
+    from ..route_phase import CURRENT
+    lines, stages = {}, {}
+    for phase, obs, got in zip(phases, asked, final_judged):
+        by = "current" if phase.selector == "current_paths" or phase.width == CURRENT else "asked"
+        for o, j in zip(obs, got):
+            if not (j["joined"] and j["under"] and o.get("widths")):
+                continue
+            rows = [{"layer": layer, "need_mm": o["widths"][layer], "min_mm": mm, "by": by}
+                    for layer, mm in sorted(j["under"].items()) if layer in o["widths"]]
+            if not rows:
+                continue
+            low = min(r["min_mm"] for r in rows)
+            line = {"net": o["net"], "stage": phase.name, "from": dict(o["from"]), "to": dict(o["to"]),
+                    "widths": dict(o["widths"]), "requested_mm": max(o["widths"].values()), "delivered_min_mm": low,
+                    "length_under_mm": None, "length_mm": None, "share": None, "declared": True, "max_a": None,
+                    "bottleneck_mm": low, "layers": rows, "source": "judged"}
+            key = _pair_key(o)
+            if phase.name not in stages.setdefault(key, []):
+                stages[key].append(phase.name)
+            if key not in lines or line["requested_mm"] > lines[key]["requested_mm"]:
+                lines[key] = line
+    return [dict(line, stages=list(stages[k])) for k, line in lines.items()]
+
+
+def path_tracks(pcb_path, judged, necks) -> list:
+    """For each judged line (judged_widths), the tracks of the joining path its judgement measured on the board at
+    `pcb_path` (measured_spans, the line's `widths`, `necks`: {phase name: neck_mm} by its `stage`), each (layer
+    name, (x, y), (x, y)) once; [] when no path joins its pads."""
+    from .read import read_board
+    if not judged:
+        return []
+    geometry, rasters, out = read_board(str(pcb_path)), {}, []
+    for line in judged:
+        spans = measured_spans(geometry, line, necks.get(line["stage"], 0.0), rasters) or ()
+        tracks = []
+        for t, _ in spans:
+            if t.kind == "track":
+                seg = (next(iter(t.layers)).value, tuple(t.anchors[0]), tuple(t.anchors[1]))
+                if seg not in tracks:
+                    tracks.append(seg)
+        out.append(tracks)
+    return out
+
+
+def on_path(stretch, path, tolerance_mm=1e-3) -> bool:
+    """Whether a record's stretch ({"layer", "from", "to"}) lies on a path (path_tracks'): both its ends on the
+    centreline of one track of the path on its layer, within `tolerance_mm`. A track the clean-up merged with its
+    collinear neighbours still holds each piece it was made of."""
+    from ..geometry import point_segment_distance
+    a, b = tuple(stretch["from"]), tuple(stretch["to"])
+    return any(layer == stretch["layer"] and point_segment_distance(a, p, q) <= tolerance_mm
+               and point_segment_distance(b, p, q) <= tolerance_mm for layer, p, q in path)
+
+
+def one_line_per_connection(records, judged, paths) -> list:
+    """`records` (the route's width records) without those a judged line (judged_widths) stands for, in a phase that
+    asked its connection: a router record of the same connection (task_widths: its `from` and `to`); a per-call
+    record (phase_widths) of the same net that names that connection among its `connections`; and a whole-net
+    call's record of the same net when every stretch it counts lies on the joining path of such a line (`paths`,
+    path_tracks' for each line, on_path). A whole-net record with a stretch on no such path is kept: it reports
+    under-width copper no judged line stands for. Other records are kept as they are."""
+    said = [(set(j["stages"]), j["net"], frozenset((_ref_pad(j["from"]), _ref_pad(j["to"]))), path)
+            for j, path in zip(judged, paths)]
+
+    def covered(r):
+        if r.get("source") == "judged" or "stage" not in r:
+            return False
+        mine = [(pair, path) for st, net, pair, path in said if r["stage"] in st and r["net"] == net]
+        if not mine:
+            return False
+        if r.get("from") is not None:
+            return frozenset((_ref_pad(r["from"]), _ref_pad(r["to"]))) in {pair for pair, _ in mine}
+        if r.get("connections"):
+            return bool({frozenset((_ref_pad(c["from"]), _ref_pad(c["to"]))) for c in r["connections"]}
+                        & {pair for pair, _ in mine})
+        if "layers" in r and r.get("stretches"):
+            return all(any(on_path(st, path) for _, path in mine) for st in r["stretches"])
+        return False
+    return [r for r in records if not covered(r)]
+

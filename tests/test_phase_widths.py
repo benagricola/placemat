@@ -28,43 +28,121 @@ def test_copper_at_its_width_is_not_recorded():
     assert board_widths(board_geometry([j1], copper=[wide]), {"VB": {F: 1.0}}, "legs", only=[wide]) == []
 
 
-def test_a_task_left_joined_narrow_is_judged_on_its_joining_path(monkeypatch):
-    """D3's fallback: KRT reports a task joined by narrower copper and does not route it; the phase judges the
-    path the record names, and only that path, against the task's widths."""
-    from types import SimpleNamespace as N
+def test_widths_failed_counts_joins_under_width_on_their_path():
+    """Ruling S8: placemat's measure on the joining path decides, whatever the router answered."""
     from placemat.kicad import phase_run
-    from placemat.route_phase import parse_phases
-    from placemat.settings import Settings
-    j1 = footprint("J1", 5, 10, nets=("VB", "GND"))
-    q1 = footprint("Q1", 25, 10, nets=("VB", "OUT"))
-    stub = track("VB", 8, 10, 20, 10, w=0.2)
-    sense = track("VB", 8, 14, 20, 14, w=0.15)               # the same net, not on the path: not judged
-    g = board_geometry([j1, q1], copper=[stub, sense])
-    monkeypatch.setattr("placemat.kicad.read.read_board", lambda path: g)
-    (phase,) = parse_phases(({"name": "legs", "width": 1.0, "connections": [
-        {"from": {"part": "J1", "pad": "1"}, "to": {"part": "Q1", "pad": "1"}}]},))
-    task = N(net="VB", start=("J1", "1"), end=("Q1", "1"), widths=(("F.Cu", 1.0),), amps=None)
-    rec = {"net": "VB", "from": {"ref": "J1", "pad": "1"}, "to": {"ref": "Q1", "pad": "1"}, "status": "joined_narrow",
-           "joined": True, "min_width_mm": {"F.Cu": 0.2},
-           "path": [{"layer": "F.Cu", "start": [8, 10], "end": [20, 10], "width": 0.2}]}
-    (r,) = phase_run.narrow_join_widths(phase, N(tasks=(task,)), [rec], "routed.kicad_pcb", Settings())
-    assert r["stage"] == "legs" and r["net"] == "VB" and r["length_under_mm"] == 12.0
-    assert phase_run.narrow_join_widths(phase, N(tasks=(task,)), [dict(rec, path=None)], "x", Settings()) == []
-
-
-def test_widths_failed_counts_joins_under_width_on_their_path_and_joined_narrow():
-    from placemat.kicad import phase_run
-    a = {"net": "VB", "from": {"ref": "J1", "pad": "1"}, "to": {"ref": "Q1", "pad": "1"}, "widths": {"F.Cu": 1.0}}
-    b = dict(a, to={"ref": "Q1", "pad": "2"})
-    c = {"net": "SW", "from": {"ref": "U1", "pad": "1"}, "to": {"ref": "L1", "pad": "1"}, "widths": {"F.Cu": 0.5}}
-    legs = {"name": "legs", "connections": []}
-    sw = {"name": "sw", "connections": [dict(c, status="joined_narrow")]}
     judged = [[{"joined": True, "violated": False, "under": {"F.Cu": 0.3}},
                {"joined": True, "violated": False, "under": {}}],
               [{"joined": True, "violated": False, "under": {"F.Cu": 0.2}}]]
-    assert phase_run.widths_failed([legs, sw], [[a, b], [c]], judged) == 2
+    assert phase_run.widths_failed(judged) == 2
     judged[0][0] = {"joined": False, "violated": False, "under": {}}       # open: closure's, not a width failure
-    assert phase_run.widths_failed([legs, sw], [[a, b], [c]], judged) == 1
+    assert phase_run.widths_failed(judged) == 1
+
+
+def test_every_final_join_under_its_width_gets_a_width_line_whichever_call_laid_it():
+    """A connection a phase asked at a width and the final board joins narrower is a width line of that phase, named
+    by its two pads, though a later call that asked no width laid the narrow copper."""
+    from placemat.finding_text import render
+    from placemat.findings import FindingCause
+    from placemat.kicad import phase_run
+    from placemat.kicad.route_widths import brief
+    from placemat.route_phase import parse_phases
+    legs, signals = parse_phases(({"name": "legs", "current_paths": True}, {"name": "signals"}))
+    a = {"net": "VB", "from": {"ref": "J1", "pad": "1"}, "to": {"ref": "Q1", "pad": "1"},
+         "widths": {"F.Cu": 2.4651, "In2.Cu": 6.4127}}
+    b = dict(a, to={"ref": "Q1", "pad": "2"})
+    c = {"net": "SDA", "from": {"ref": "U1", "pad": "1"}, "to": {"ref": "R1", "pad": "1"}, "widths": {"F.Cu": 0.127}}
+    judged = [[{"joined": True, "violated": False, "under": {"In2.Cu": 0.127, "F.Cu": 0.127}},
+               {"joined": False, "violated": False, "under": {}}],
+              [{"joined": True, "violated": False, "under": {}}]]
+    (r,) = phase_run.judged_widths([legs, signals], [[a, b], [c]], judged)
+    assert (r["net"], r["stage"], r["from"], r["to"], r["source"]) == ("VB", "legs", a["from"], a["to"], "judged")
+    assert r["stages"] == ["legs"]
+    assert r["layers"] == [{"layer": "F.Cu", "need_mm": 2.4651, "min_mm": 0.127, "by": "current"},
+                           {"layer": "In2.Cu", "need_mm": 6.4127, "min_mm": 0.127, "by": "current"}]
+    assert r["delivered_min_mm"] == 0.127 and r["requested_mm"] == 6.4127 and r["declared"]
+    assert brief(r) == "VB J1.1-Q1.1 under F.Cu 2.47, In2.Cu 6.41 (min 0.127)"
+    (f,) = findings_of([r])
+    assert f.severity == "critical"
+    assert render(FindingCause.ROUTE_WIDTH, f.facts) == (
+        "net VB: J1.1-Q1.1, asked by phase legs, is joined under its width on the routed board: "
+        "F.Cu needs 2.4651 mm, narrowest 0.127 mm; In2.Cu needs 6.4127 mm, narrowest 0.127 mm")
+    (s,) = phase_run.judged_widths([signals, signals], [[dict(a, widths={"F.Cu": 0.2})], []],
+                                   [[{"joined": True, "violated": False, "under": {"F.Cu": 0.127}}], []])
+    assert s["layers"][0]["by"] == "asked"
+
+
+def test_one_width_line_per_connection():
+    """A connection two phases ask under its width has one judged line, the larger need's, naming both phases; the
+    per-call records of the phases that asked it (task_widths' of the same pads, phase_widths' of a call that names
+    it or of a whole-net call on its net) give way to it; records of other connections, nets or phases stay."""
+    from placemat.kicad import phase_run
+    from placemat.route_phase import parse_phases
+    legs, cur = parse_phases(({"name": "legs", "width": 1.0, "connections": [
+        {"from": {"part": "J1", "pad": "1"}, "to": {"part": "Q1", "pad": "1"}}]},
+                              {"name": "cur", "current_paths": True}))
+    a = {"net": "VB", "from": {"ref": "J1", "pad": "1"}, "to": {"ref": "Q1", "pad": "1"}, "widths": {"F.Cu": 1.0}}
+    under = {"joined": True, "violated": False, "under": {"F.Cu": 0.3}}
+    judged = phase_run.judged_widths([legs, cur], [[a], [dict(a, widths={"F.Cu": 2.0})]], [[under], [under]])
+    assert [(j["stage"], j["stages"], j["requested_mm"]) for j in judged] == [("cur", ["legs", "cur"], 2.0)]
+    pads = {"from": a["from"], "to": a["to"]}
+    other = {"from": {"ref": "J1", "pad": "2"}, "to": {"ref": "Q1", "pad": "2"}}
+    call = {"net": "VB", "stage": "legs", "layers": [], "connections": [pads]}
+    on_path = [{"layer": "F.Cu", "from": [5.0, 10.0], "to": [12.0, 10.0], "width_mm": 0.3}]
+    whole = {"net": "VB", "stage": "cur", "layers": [], "stretches": on_path}
+    stub = dict(whole, stretches=on_path + [{"layer": "F.Cu", "from": [8.0, 10.0], "to": [8.0, 14.0],
+                                             "width_mm": 0.2}])
+    router = dict(pads, net="VB", stage="legs", layers=[], source="router")
+    kept = [dict(call, connections=[other]), dict(call, stage="signals"), dict(whole, net="SW"),
+            dict(router, **other), {"net": "VB", "stage": "legs", "requested_mm": 1.0},
+            stub, dict(whole, stretches=[dict(on_path[0], layer="B.Cu")])]
+    # the judged connection's path: F.Cu (5, 10) - (20, 10), a whole track of which the call's stretch is a piece
+    paths = [[("F.Cu", (5.0, 10.0), (20.0, 10.0))]]
+    assert phase_run.one_line_per_connection([call, whole, router] + kept, judged, paths) == kept
+
+
+def test_a_whole_net_record_gives_way_when_its_stretches_lie_on_the_paths_of_two_judged_lines():
+    """The record's stretches split between two connections' joining paths: every stretch is on one of them, so the
+    judged lines stand for it."""
+    from placemat.kicad import phase_run
+    from placemat.route_phase import parse_phases
+    (vin,) = parse_phases(({"name": "vin", "nets": ["VB"], "width": 1.0},))
+    a = {"net": "VB", "from": {"ref": "J1", "pad": "1"}, "to": {"ref": "Q1", "pad": "1"}, "widths": {"F.Cu": 1.0}}
+    b = dict(a, to={"ref": "Q2", "pad": "1"})
+    under = {"joined": True, "violated": False, "under": {"F.Cu": 0.3}}
+    judged = phase_run.judged_widths([vin], [[a, b]], [[under, under]])
+    paths = [[("F.Cu", (0.0, 0.0), (10.0, 0.0))], [("F.Cu", (10.0, 0.0), (10.0, 8.0))]]
+    stretch = {"layer": "F.Cu", "width_mm": 0.3}
+    record = {"net": "VB", "stage": "vin", "layers": [],
+              "stretches": [dict(stretch, **{"from": [0.0, 0.0], "to": [10.0, 0.0]}),
+                            dict(stretch, **{"from": [10.0, 0.0], "to": [10.0, 8.0]})]}
+    assert phase_run.one_line_per_connection([record], judged, paths) == []
+    off = dict(record, stretches=record["stretches"] + [dict(stretch, **{"from": [0.0, 0.0], "to": [0.0, 8.0]})])
+    assert phase_run.one_line_per_connection([off], judged, paths) == [off]
+
+
+def test_path_tracks_names_a_merged_track_whole_and_a_call_stretch_on_it_is_on_the_path(monkeypatch):
+    """The clean-up merges the router's collinear pieces: the final board's path has the merged track, and the
+    call's record still counts its pieces, each of which lies on it."""
+    from placemat.kicad import phase_run
+    from tests.test_route_widths_board import _board, _track
+    geometry = _board(_track((5, 10), (40, 10), 0.2))               # one track, merged from (5-20) and (20-40)
+    monkeypatch.setattr("placemat.kicad.read.read_board", lambda _: geometry)
+    line = {"net": "V", "stage": "p", "from": {"ref": "U1", "pad": "1"}, "to": {"ref": "U2", "pad": "1"},
+            "widths": {"F.Cu": 1.0}}
+    (path,) = phase_run.path_tracks("board.kicad_pcb", [line], {"p": 0.0})
+    assert path == [("F.Cu", (5, 10), (40, 10))]
+    for a, b in (([5, 10], [20, 10]), ([20, 10], [40, 10])):
+        assert phase_run.on_path({"layer": "F.Cu", "from": a, "to": b}, path)
+    assert phase_run.path_tracks("board.kicad_pcb", [], {}) == []
+
+
+def test_a_stretch_lies_on_a_path_when_both_its_ends_are_on_one_track_of_it():
+    from placemat.kicad.phase_run import on_path
+    path = [("F.Cu", (0.0, 0.0), (10.0, 0.0)), ("F.Cu", (10.0, 0.0), (10.0, 5.0))]
+    assert on_path({"layer": "F.Cu", "from": [2.0, 0.0], "to": [10.0, 0.0]}, path)
+    assert not on_path({"layer": "F.Cu", "from": [2.0, 0.0], "to": [10.0, 5.0]}, path)       # a short cut
+    assert not on_path({"layer": "B.Cu", "from": [2.0, 0.0], "to": [10.0, 0.0]}, path)
 
 
 def test_without_neckdown_the_routers_own_minimum_per_task_is_judged():
@@ -100,9 +178,8 @@ def test_numeric_rest_keeps_width_obligations():
 def test_an_unmeasured_width_is_not_clean_and_counts_as_failed():
     from placemat.kicad.phase_run import is_clean, widths_failed
     result = {"joined": True, "violated": False, "under": {}, "width_unknown": True}
-    obligation = {"net": "V", "from": {}, "to": {}}
-    assert not is_clean(result, None)
-    assert widths_failed([{}], [[obligation]], [[result]]) == 1
+    assert not is_clean(result)
+    assert widths_failed([[result]]) == 1
 
 
 def test_pair_width_is_refused_instead_of_ignored():
@@ -193,8 +270,8 @@ def test_a_pour_neck_narrower_than_asked_fails_on_its_measured_width(monkeypatch
     from tests.test_route_widths_board import _board
     judged = _judge(monkeypatch, tmp_path, _board(_zone(_HOURGLASS)))
     assert set(judged) == {"joined", "violated", "under"} and 0.1 <= judged["under"]["F.Cu"] <= 0.25
-    assert not phase_run.is_clean(judged, None)
-    assert phase_run.widths_failed([{}], [[_OB]], [[judged]]) == 1
+    assert not phase_run.is_clean(judged)
+    assert phase_run.widths_failed([[judged]]) == 1
 
 
 def test_a_pour_wider_than_asked_passes(monkeypatch, tmp_path):
@@ -202,7 +279,7 @@ def test_a_pour_wider_than_asked_passes(monkeypatch, tmp_path):
     from tests.test_route_widths_board import _board
     judged = _judge(monkeypatch, tmp_path, _board(_zone(_WIDE)))
     assert judged == {"joined": True, "violated": False, "under": {}}
-    assert phase_run.is_clean(judged, None)
+    assert phase_run.is_clean(judged)
     drawn = _judge(monkeypatch, tmp_path, _board(_zone(_WIDE, kind="poly")))
     assert drawn == {"joined": True, "violated": False, "under": {}}
 
