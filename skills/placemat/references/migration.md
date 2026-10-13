@@ -9,6 +9,11 @@ section for each hand-written pattern a newer form replaces.
 
 ### New
 
+- **Routing phases.** A later router call may move an earlier call's routed copper that blocks a connection it left
+  open, routing the moved connections again at their own phase's widths, layers and clearance, and keeping the
+  result only when nothing judged before is worse. On by default; `[route] rip_attempts = 0` turns it off. Nothing
+  in a script changes.
+
 - **Routing phases.** Routing phases expose `route --phase NAME [--only]`, per-phase reports in the console, watch and studio,
   and `run --route-rank PHASE[,PHASE...]` for routed explore variants.
 

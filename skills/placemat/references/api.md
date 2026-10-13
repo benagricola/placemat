@@ -4002,6 +4002,16 @@ bound and cannot be reduced by either override. Pad-to-pad tasks of one
 net at different widths route one call per width, widest first. A phase's pairs, buses, pour nets, tasks and nets route
 in that order.
 
+A call's copper is locked for the router in every later call. When a later call leaves a connection open and the
+router names another net's routed copper as blocking it, placemat may move that copper: it takes the net's routed
+copper off (never copper the script declares, a pour net's or a pair's), routes the blocked connection, then routes
+the moved net's connections again as pad-to-pad tasks, each at the width, layers, clearance and router flags of the
+phase that asked it. It keeps the result only when the blocked connection joins clean, no connection of the phases
+so far ranks lower (clean, joined, open, by placemat's own judgement), no net has more open items, the DRC has no new
+error and every new track lies on its phase's layers; otherwise the board is as the call left it. A pair call starts
+no attempt. `[route] rip_attempts` (4 per call; 0 is off) and `[route] rip_max_nets` (3) bound it. Each phase's record
+in route.json lists its attempts and skipped nets (`rip`), and its line says what moved, what was restored and why.
+
 A pour net (a net with a zone or filled pour on the board: the plan's plane nets for `run --route`) that a phase names
 is joined to its pours alone, in calls of its own, its pours handed to the router as zones. Via drops come first:
 the router's plane repair gives each pad of the net that KiCad's connectivity finds apart from every pour of the net
