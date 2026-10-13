@@ -1,7 +1,9 @@
 # After 0.100: refine and the automatic loop
 
-Status inspected 2026-10-13. Release integration is on
-`release/0.100-integration`, outside the active implementation worktrees.
+Status inspected 2026-10-13. Steps 1 and 2 are merged into main, with source
+tag `v0.100.0` at `f74edd7a`. The
+[qualification record](0.100-qualification.md) tracks asset publication.
+The active implementation worktrees are preserved.
 The user chose to ship steps 1 and 2 first and test them on a working board.
 Do not restart the superseded October 8 scratch qualification programme.
 
