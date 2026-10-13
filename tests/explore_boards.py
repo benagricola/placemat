@@ -15,15 +15,18 @@ FOCUS = frozenset(KEYS)
 
 
 def make(**settings):
-    """Six passives round a part on a small board. `settings` replace the board's own."""
+    """Six passives round a part on a small board; seeded scans retain their placement diversity.
+
+    Cleanup is intentionally off: these factories test exploration of the real
+    common objective, not convergence of its subsequent local cleanup. An
+    explicit cleanup_enabled setting still overrides that fixture default.
+    """
     fps = [footprint("U1", 10, 10, w=8, h=4, inst="mcu", nets=("A", "B"))]
     fps += [footprint("R%d" % k, 60, 60 + 2 * k, w=2, h=1, inst="r%d" % k, nets=NETS[k]) for k in range(6)]
-    kw = {}
-    if settings:
-        import dataclasses
-        from placemat.settings import Settings
-        kw["settings"] = dataclasses.replace(Settings(), **settings)
-    b = Board(board_geometry(fps, width=30, height=30), edge_margin=1.0, **kw)
+    import dataclasses
+    from placemat.settings import Settings
+    cfg = dataclasses.replace(Settings(), **dict({"cleanup_enabled": False}, **settings))
+    b = Board(board_geometry(fps, width=30, height=30), edge_margin=1.0, settings=cfg)
     b.place(Part("mcu"), at=Location(15, 15))
     for k in KEYS:
         b.place(Part(k))
@@ -109,7 +112,8 @@ class StandInRouter:
         if isinstance(got, str):
             raise RuntimeError(got)
         # This stand-in deliberately models a verified router with no phases.
-        return SimpleNamespace(closure_clean=got[0], closure=got[1], open_before=10, open_after=3, valid=True, phases=[])
+        return SimpleNamespace(closure_clean=got[0], closure=got[1], open_before=10, open_after=3, valid=True, phases=[],
+                               drc_new=0, widths_failed=0, vias=0, track_mm=0.0, segments=0)
 
 
 def improving(n: int, top: int = 40) -> list:

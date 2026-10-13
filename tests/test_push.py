@@ -166,7 +166,8 @@ def test_two_pushes_add_and_push_the_item_farther_than_one():
 
 
 def test_native_scoring_is_bypassed_for_a_pushed_item():
-    from placemat.layout import Push, Scorer
+    from placemat.layout import Push, Plan
+    from placemat.score_search import MSTScorer
     from placemat.occupancy import Occupancy
     fps = [footprint("M1", 10, 30, w=4, h=4, inst="m1", nets=("A", "GND")),
            footprint("U2", 15, 30, w=2, h=2, inst="u2", nets=("SIG", "GND"))]
@@ -174,7 +175,8 @@ def test_native_scoring_is_bypassed_for_a_pushed_item():
     occ = Occupancy(g, edge_margin=1.0)
     u2 = g.footprint("U2")
     push = Push(Location(10, 30), 3.0, 2.0, 3.2, 0.3)
-    scorer = Scorer(occ.settings, u2, occ, [], False, pushes=[(Location(10, 30), push)])
+    scorer = MSTScorer(Board(g, settings=occ.settings), occ, u2, plan=Plan(g, occ), prune=False,
+                       pushes=[(Location(10, 30), push)])
     assert scorer.native((0.0,), Face.FRONT) is None
 
 

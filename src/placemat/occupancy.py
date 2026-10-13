@@ -1450,6 +1450,7 @@ class Occupancy:
     # (ref, pad number) of the pads the script's declared tracks and vias not yet laid will join at the pad: the escape
     # judgement counts their way out as made, as it does once the copper is laid (escapes._planned, D28)
     planned_joins: frozenset = frozenset()
+    planned_join_layers: dict = {}  # immutable replacement per copper batch: pad -> admitted spans
 
     def ratsnest(self):
         """placemat's ratsnest (ratsnest.py) of every item placed so far, kept
@@ -3475,7 +3476,7 @@ class NativeSweeper:
         """(indexes of the legal candidates, their scores, refusals) for
         (x, y, turn) triples; each refusal (bucket, count, first index,
         reason, blocker key), in the order first met. With `scoring` (a
-        NativeScoring for these turns) each legal candidate is scored as the
+        the scorer for these turns) each legal candidate is scored as the
         scan's scorer would score it; else its score is 0."""
         legal, scores, refused = self._sweep(self.index, triples, stop_at_first, scoring)
         out = []

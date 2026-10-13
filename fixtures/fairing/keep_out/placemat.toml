@@ -2,7 +2,6 @@
 # clearance rule's figure by hand: a part's keep-out must be enough by itself.
 [place]
 envelope = "physical"
-escape_depth = 1.5
 
 [cleanup]
 enabled = false
@@ -15,6 +14,7 @@ real_kinds = ["clearance", "shorting_items", "track_width", "annular_width",
 courtyards_overlap = "ignore"
 
 [score]
+escape_depth = 1.5
 crossing = 8.0
 
 [route]

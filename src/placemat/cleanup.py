@@ -2,28 +2,16 @@
 optimal region (FastPlace-DP, Pan, Viswanathan and Chu, ICCAD 2005), and
 swaps of any two neighbouring parts, at the size of a board.
 
-A part's cost is the HPWL of its nets that pull, plus each declared link on
-one of its pads times its weight and length, plus the ratsnest crossings its
-airwires make and the escapes it crosses, closes or walls off, weighed as
-the search weighs them (`score.crossing`, `score.escape_*`). A part is judged
-lifted off the board, so where it stands and where it might go are weighed
-alike.
+Moves and swaps use the required one_score factory and the common run
+score's incremental change (score_search.MSTScorer). They follow score.rank:
+fewer walled pads comes first, then a lower score at equal validity. Each
+candidate is judged with the moved parts lifted, and is legal by occ.legal.
 
-Each move is legal by `occ.legal` - a scored `scan()` finds it - and is taken
-only when it lowers the part's cost. A swap lifts both parts, searches the
-larger (by body area) round the smaller's old spot, then the smaller round
-the larger's, and is kept only when the pair's cost falls. No move or swap
-leaves a limited link over its limit and longer than it was, nor a block's
-satellite further from its pin than its limit. A move may turn a part to any
-rotation it is given in `turns`; the face does not change. Deterministic:
-sorted order, no randomness.
-
-With `one_score` (the one-score search, `place.search_wire` "mst", D26) the
-moves and swaps are the same, but each is judged by the run score's change, as
-the search computes it (score_search.MSTScorer, score_delta.Delta, exact escape
-grades), and ranked as `score.rank` ranks boards, validity first: one is taken
-when it walls fewer pads than the board before it, whatever its change, or as
-many and its change is below zero. One that walls more is refused."""
+A swap lifts both parts, searches the larger around the smaller's old spot,
+then the smaller around the larger's. No move or swap lengthens a limited
+link beyond its limit or takes a satellite further from its pin than its
+limit. Turns follow the declaration; faces stay. Visits are deterministic,
+in sorted order, without randomness."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -79,7 +67,8 @@ def cleanup(occ, movable: dict, pins: dict, links, clearance, passes: int, radiu
     offsets = {}
     crossing = s.score_crossing
     rn = occ.ratsnest()
-    esc = occ.escapes()             # walled pads are counted whatever the escape weights are
+    if one_score is None:
+        raise ValueError("cleanup requires the common run-score factory (one_score)")
 
     def pads_at(k, pl):
         # keyed by the part's geometry as it stands, as the occupancy's own
@@ -119,14 +108,6 @@ def cleanup(occ, movable: dict, pins: dict, links, clearance, passes: int, radiu
                     total += int(l.weight) * link_len(l, override)
         return total
 
-    def terms(k, pl):
-        """(the pads it walls off, the cost of its crossings and the escapes it crosses and closes) of part `k` at `pl`,
-        with `k` lifted."""
-        own = frozenset([ref_of[k]])
-        added, crossed = rn.leaf_costs(occ.candidate_anchors(movable[k], pl), own, s.place_escape_depth)
-        crossed, closed, walled = esc.closed(movable[k], pl, crossed)
-        return walled, crossing * added + s.score_escape_crossed * crossed + s.score_escape_closed * closed
-
     def limits_ok(ks, override, before=None):
         """Whether no limited link of `ks` ends over its limit and longer than it was. `before` places the items as they
         were where the board no longer holds that (a swap's two parts, committed at their new spots). `limits_ok.of(k)`:
@@ -157,86 +138,6 @@ def cleanup(occ, movable: dict, pins: dict, links, clearance, passes: int, radiu
         dx = max(mine.left - theirs.right, theirs.left - mine.right, 0.0)
         dy = max(mine.top - theirs.bottom, theirs.top - mine.bottom, 0.0)
         return math.hypot(dx, dy) <= mm + 1e-9
-
-    class PartScore:
-        """Part `k`'s standing at a candidate, as the scans of a move or a swap
-        weigh it, (pads walled off, cost), compared in that order: over a limit,
-        (UNWEIGHED, `_OVER`); wire reaching the lowest cost seen of a spot that
-        walls no pad (`best[0]`), (UNWEIGHED, its wire plus `_OVER`), below any
-        spot weighed in full; else the pads it walls
-        off and the wire, links, crossings and escapes. Called, it is the
-        Python reference; `native(rots, face)` gives the native sweep the same
-        standing (NativeCleanupScoring)."""
-
-        def __init__(self, k, nets, floor):
-            self.k, self.nets, self.best = k, nets, [floor]
-            self._native = {}
-
-        def __call__(self, pl):
-            k, nets, floor = self.k, self.nets, self.best
-            if not (limits_ok([k], {k: pl}) and satellite_ok(k, pl)):
-                return UNWEIGHED, _OVER
-            wire = cost([k], nets, {k: pl})
-            if wire >= floor[0]:
-                return UNWEIGHED, wire + _OVER  # its crossings and escapes only add: no better than staying
-            walled, more = terms(k, pl)
-            total = wire + more
-            if not walled:
-                floor[0] = min(floor[0], total)
-            return walled, total
-
-        def native(self, rots, face):
-            if rn.mirror is None or esc.mirror is None:
-                return None
-            key = (tuple(rots), face)
-            hit = self._native.get(key)
-            if hit is None:
-                hit = self._build(rots, face)
-                self._native[key] = hit
-            hit.floor = self.best[0]
-            return hit
-
-        def _build(self, rots, face):
-            from .values import Box
-            k = self.k
-            fp, ref = movable[k], ref_of[k]
-            origin = [Placement(Location(0.0, 0.0), r, face) for r in rots]
-            turned = [pads_at(k, pl) for pl in origin]      # the same offsets the Python cost uses
-            order = list(turned[0])
-            index = {key: i for i, key in enumerate(order)}
-            pads = [[(d[key].x, d[key].y) for key in order] for d in turned]
-            nets = []
-            for n in self.nets:
-                fixed = [occ.pad_location(r, m) for r, m in pins[n] if key_of_ref.get(r) != k]
-                mine = [index[(r, m)] for r, m in pins[n] if key_of_ref.get(r) == k]
-                ext = (min(q.x for q in fixed), max(q.x for q in fixed), min(q.y for q in fixed),
-                       max(q.y for q in fixed)) if fixed else None
-                nets.append((ext, mine))
-
-            def end(r, m):
-                if key_of_ref.get(r) == k:
-                    return (index[(r, m)], 0.0, 0.0)
-                at = occ.pad_location(r, m)
-                return (-1, at.x, at.y)
-            links_ = [(float(int(l.weight)), end(*l.a), end(*l.b), l.limit_mm, link_len(l, {})) for l in links_of[k]]
-            satellite = None
-            if k in limits:
-                pin, own_pad, mm = limits[k]
-                mine = []
-                for pl in origin:
-                    b = Box.union([sh.box for sh in occ.shifted_shapes(fp, pl)
-                                   if sh.kind in ("pad", "through") and sh.label == own_pad[1]])
-                    mine.append((b.left, b.top, b.right, b.bottom))
-                t = Box.union([sh.box for sh in occ.items[pin[0]].shapes
-                               if sh.kind in ("pad", "through") and sh.label == pin[1]])
-                satellite = (mine, (t.left, t.top, t.right, t.bottom), mm)
-            return occ.native_module().NativeCleanupScoring(
-                pads, nets, links_, satellite, rn.mirror,
-                [occ.candidate_anchors(fp, pl) for pl in origin],
-                [esc._native_turn(fp, pl) for pl in origin],
-                [ref], crossing, True,
-                (s.score_escape_crossed, s.score_escape_closed), s.place_escape_depth,
-                _OVER, self.best[0])
 
     def total_cost():
         nets = sorted({n for k in keys for n in nets_of[k]})
@@ -269,41 +170,21 @@ def cleanup(occ, movable: dict, pins: dict, links, clearance, passes: int, radiu
                 continue
             cur = placement[k]
             occ.lift([ref_of[k]])
-            if one_score is not None:
-                chosen = _one_score_move(occ, movable[k], k, cur, one_score, hints_for(k, cur, nets), radius, step,
-                                         turns.get(k, (cur.rotation,)), clearance, limits_ok, satellite_ok)
-                if chosen is not None:
-                    first = result.moves.get(k, (cur, None, chosen[1], None))
-                    occ.commit(movable[k], chosen[0])
-                    placement[k] = chosen[0]
-                    result.moves[k] = (first[0], chosen[0], first[2], chosen[2])
-                    changed = True
-                else:
-                    occ.unlift([ref_of[k]])
-                continue
-            walled, more = terms(k, cur)
-            now = (walled, cost([k], nets, {}) + more)
-
-            # staying prunes the scans only when it walls no pad: a spot that walls none beats it at any cost
-            score = PartScore(k, nets, math.inf if walled else now[1])
-            best = None
-            for h in hints_for(k, cur, nets):
-                r = scan(occ, movable[k], h, radius, step, turns.get(k, (cur.rotation,)), clearance, score=score)
-                if r.chosen is not None and (best is None or _below((r.walled, r.score), best[0], 1e-9)):
-                    best = ((r.walled, r.score), r.chosen)
-            if best is not None and _below(best[0], now, _EPS) and limits_ok([k], {k: best[1]}) \
-                    and satellite_ok(k, best[1]):
-                first = result.moves.get(k, (cur, None, now[1], None))
-                occ.commit(movable[k], best[1])
-                placement[k] = best[1]
-                result.moves[k] = (first[0], best[1], first[2], best[0][1])
+            chosen = _one_score_move(occ, movable[k], k, cur, one_score, hints_for(k, cur, nets), radius, step,
+                                     turns.get(k, (cur.rotation,)), clearance, limits_ok, satellite_ok)
+            if chosen is not None:
+                first = result.moves.get(k, (cur, None, chosen[1], None))
+                occ.commit(movable[k], chosen[0])
+                placement[k] = chosen[0]
+                result.moves[k] = (first[0], chosen[0], first[2], chosen[2])
                 changed = True
             else:
                 occ.unlift([ref_of[k]])
+            continue
         # ---------------------------------------------------------------- swaps
-        if _swaps(occ, movable, keys, placement, ref_of, nets_of, links_of, cost, terms, limits_ok, satellite_ok,
+        if _swaps(occ, movable, keys, placement, ref_of, nets_of, links_of, cost, limits_ok, satellite_ok,
                   turns, s.cleanup_swap_radius, step, clearance, s.cleanup_swap_neighbours, result, rn, crossing,
-                  PartScore, one_score):
+                  one_score):
             changed = True
         if not changed:
             break
@@ -311,9 +192,9 @@ def cleanup(occ, movable: dict, pins: dict, links, clearance, passes: int, radiu
     return result
 
 
-def _swaps(occ, movable, keys, placement, ref_of, nets_of, links_of, cost, terms, limits_ok, satellite_ok,
+def _swaps(occ, movable, keys, placement, ref_of, nets_of, links_of, cost, limits_ok, satellite_ok,
            turns, radius, step, clearance, neighbours: int, result, rn=None, crossing: float = 0.0,
-           part_score=None, one_score=None) -> bool:
+           one_score=None) -> bool:
     """Offer each part a swap with its nearest movable neighbours, and with
     every part identical to it: lift both, search the larger round the
     smaller's old spot, then the smaller round the larger's; keep it when
@@ -365,17 +246,14 @@ def _swaps(occ, movable, keys, placement, ref_of, nets_of, links_of, cost, terms
         if rough({a: ca, b: cb}) >= rough({}) - _EPS:
             continue
         occ.lift([ref_of[a], ref_of[b]])
-        if one_score is None:
-            now = _pair(cost([a, b], nets, {}), terms(a, pa), terms(b, pb))
         big, small = (a, b) if size[a].area >= size[b].area else (b, a)
         spot = {a: pa, b: pb}
 
         def search(k, around):
             target = occ.body_box(movable[around], spot[around]).center
 
-            score = part_score(k, nets_of[k], math.inf) if one_score is None else \
-                _limited(one_score(movable[k]), k, limits_ok, satellite_ok)
-            if one_score is not None and hasattr(score, 'delta'):
+            score = _limited(one_score(movable[k]), k, limits_ok, satellite_ok)
+            if hasattr(score, 'delta'):
                 # one surface for every turn's scan (score_search.MSTScorer.native maps each scan's turn to it)
                 score.native(tuple(sorted({r % 360 for r in turns.get(k, (spot[k].rotation,))})), spot[k].face)
             best = None
@@ -400,13 +278,8 @@ def _swaps(occ, movable, keys, placement, ref_of, nets_of, links_of, cost, terms
             continue
         occ.commit(movable[small], second[1])
         moved = {big: first[1], small: second[1]}
-        if one_score is not None:
-            taken = _one_score_swap(occ, movable, ref_of, a, b, spot, moved, one_score)
-            occ.lift([ref_of[a], ref_of[b]])
-        else:
-            occ.lift([ref_of[a], ref_of[b]])
-            after = _pair(cost([a, b], nets, {}), terms(a, moved[a]), terms(b, moved[b]))
-            taken = _below(after, now, _EPS)
+        taken = _one_score_swap(occ, movable, ref_of, a, b, spot, moved, one_score)
+        occ.lift([ref_of[a], ref_of[b]])
         if taken and limits_ok([a, b], moved, {a: pa, b: pb}) and satellite_ok(a, None) and satellite_ok(b, None):
             occ.commit(movable[a], moved[a])
             occ.commit(movable[b], moved[b])
@@ -423,11 +296,6 @@ def _below(a: tuple, b: tuple, eps: float) -> bool:
     """Whether standing `a` (pads walled off, cost) is below `b`: fewer pads walled off, or as many at a cost more than
     `eps` lower."""
     return a[0] < b[0] or (a[0] == b[0] and a[1] < b[1] - eps)
-
-
-def _pair(wire: float, ta: tuple, tb: tuple) -> tuple:
-    """Two parts' standing: (the pads both wall off, the wire plus both their terms)."""
-    return ta[0] + tb[0], wire + ta[1] + tb[1]
 
 
 def _centred(occ, fp, centre, rotation, face) -> Placement:

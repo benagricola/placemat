@@ -38,7 +38,7 @@ def _walled(plan):
 
 def _board(fps, copper=(), cells=()):
     # the search and the report at one depth, as a board's escape_depth sets them: the report reads the escapes the search kept
-    cfg = dataclasses.replace(Settings(), cleanup_enabled=False, place_escape_depth=Settings().score_escape_depth)
+    cfg = dataclasses.replace(Settings(), cleanup_enabled=False, score_escape_depth=Settings().score_escape_depth)
     b = Board(board_geometry(fps, cells=cells, copper=copper, width=60, height=60), edge_margin=1.0, settings=cfg,
               keep_going=True)
     b.plane(Net("GND"), layers=(B,))

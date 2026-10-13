@@ -22,7 +22,7 @@ def triangle(crossing=False):
         parts[-1:-1] = [footprint('X', 25, 5, nets=('V', 'Q'), inst='x'),
                        footprint('Y', 25, 15, nets=('V', 'Q'), inst='y')]
     board = Board(board_geometry(parts, width=60, height=60), keep_going=True,
-                  settings=replace(Settings(), place_search_wire='mst', cleanup_enabled=False))
+                  settings=replace(Settings(), cleanup_enabled=False))
     board.rect(width=60, height=60)
     board.plane(Net('Q'), [CopperLayer.B])
     for part in parts:
@@ -128,7 +128,7 @@ def test_actual_scan_spreads_dense_net_on_common_congestion_objective(monkeypatc
     parts = [_part_of(ref, ref.lower(), [pad(ref, ref.lower(), 1, 'S', x, 10, 0.01, 0.01)], x, 10)
              for ref, x in [('P1', 10), ('P2', 10.21), ('M', 10.42)]]
     board = Board(board_geometry(parts, width=60, height=60), keep_going=True,
-                  settings=replace(Settings(), place_search_wire='mst', cleanup_enabled=False,
+                  settings=replace(Settings(), cleanup_enabled=False,
                                    score_congestion_box=0.5))     # a one-cell box: three pads 0.2 mm apart crowd it
     board.rect(width=60, height=60)
     for part in parts:
@@ -161,22 +161,22 @@ def test_actual_scan_spreads_dense_net_on_common_congestion_objective(monkeypatc
     assert negative, 'spreading must exercise a negative signed congestion term'
 
 
-def test_mst_default_scores_linkless_area_while_the_pull_estimate_stays_nearest():
+def test_common_search_scores_linkless_area_against_the_fixed_hint():
     from tests.test_score_measures import _two_part_board
     plans = {}
-    for mode in ('clique', 'mst'):
-        board = _two_part_board(settings=replace(Settings(), place_search_wire=mode, cleanup_enabled=False))
+    for searched in (False, True):
+        board = _two_part_board(settings=replace(Settings(), cleanup_enabled=False))
         board.rect(fit=True)
         for net in ('VIN', 'GND'):
             board.plane(Net(net), [CopperLayer.B])
         board.place(Part('u1'), at=Location(10, 10))
-        board.place(Part('c1'), at=Near(Location(20, 20)), radius=1.0, rotations=(0,))
+        board.place(Part('c1'), at=Near(Location(20, 20)) if searched else Location(20, 20),
+                    radius=1.0, rotations=(0,))
         plan = board.resolve()
-        plans[mode] = plan.placement('c1'), score.whole(board, plan.occupancy, plan)
-    assert Settings().place_search_wire == 'mst'
-    assert plans['clique'][0].location == Location(20, 20)
-    assert plans['mst'][1]['airwire'] == plans['clique'][1]['airwire'] == 0.0
-    assert plans['mst'][1]['area'] < plans['clique'][1]['area']
+        plans[searched] = plan.placement('c1'), score.whole(board, plan.occupancy, plan)
+    assert plans[False][0].location == Location(20, 20)
+    assert plans[True][1]['airwire'] == plans[False][1]['airwire'] == 0.0
+    assert plans[True][1]['area'] < plans[False][1]['area']
 
 
 @pytest.mark.parametrize('native', [False, True])
@@ -296,7 +296,7 @@ def test_mst_back_face_action_is_preserved_in_actual_resolve(monkeypatch, native
     from tests.test_score_measures import _either_board
     monkeypatch.setattr(placer, 'NATIVE_SWEEP', native)
     board = _either_board(Face.EITHER)
-    board.settings = replace(board.settings, place_search_wire='mst', cleanup_enabled=False)
+    board.settings = replace(board.settings, cleanup_enabled=False)
     plan = board.resolve()
     assert plan.placement('r1').face is Face.BACK
     assert next(step for step in plan.steps if step.item == 'r1').back_face
@@ -327,7 +327,7 @@ def test_mst_snapshot_refuses_reuse_after_commit_and_rebuilds_for_next_lift():
 def test_fitted_board_search_expands_content_within_source_search_domain(monkeypatch, native):
     from tests.test_score_measures import _two_part_board
     monkeypatch.setattr(placer, 'NATIVE_SWEEP', native)
-    board = _two_part_board(settings=replace(Settings(), place_search_wire='mst', cleanup_enabled=False))
+    board = _two_part_board(settings=replace(Settings(), cleanup_enabled=False))
     board.rect(fit=True)
     for net in ('VIN', 'GND'):
         board.plane(Net(net), [CopperLayer.B])
@@ -370,7 +370,7 @@ def test_mst_actual_giveway_scan_prices_action_on_top_of_common_objective(monkey
     from placemat.occupancy import Occupancy
     from placemat.placement import Placement
     board = _moving_board((39.1, 42.2), True, (19.5, 23.0))
-    board.settings = replace(board.settings, place_search_wire='mst', cleanup_enabled=False)
+    board.settings = replace(board.settings, cleanup_enabled=False)
     plan = board.resolve()
     occ = Occupancy(board.geometry, 0.5, settings=board.settings)
     item = board.geometry.cells['m']
@@ -395,7 +395,7 @@ def test_backface_action_weight_changes_actual_mst_winner(monkeypatch, native):
         parts = [footprint('B1', 20, 20, w=12, h=12, inst='b1', nets=('S', 'M')),
                  footprint('R1', 5, 5, inst='r1', nets=('S', 'Y'))]
         board = Board(board_geometry(parts, width=40, height=40), edge_margin=0.5,
-                      settings=replace(Settings(), place_search_wire='mst', place_step=2,
+                      settings=replace(Settings(), place_step=2,
                                        score_back_face=cost, cleanup_enabled=False))
         for net in ('M', 'Y'):
             board.plane(Net(net), [CopperLayer.B])
@@ -437,8 +437,7 @@ def test_giveway_action_weight_changes_actual_mst_winner(monkeypatch, native):
     chosen = []
     for cost in (0, 100):
         board = _moving_board((39.1, 42.2), True, (19.5, 23.0),
-                             settings=replace(Settings(), place_search_wire='mst',
-                                              score_via_move=cost, cleanup_enabled=False))
+                             settings=replace(Settings(), score_via_move=cost, cleanup_enabled=False))
         plan = board.resolve()
         occ = Occupancy(board.geometry, 0.5, settings=board.settings)
         item = board.geometry.cells['m']
@@ -489,8 +488,7 @@ def test_arrangement_action_cost_changes_mst_winner_without_pruning_signed_objec
     monkeypatch.setattr(placer, 'NATIVE_SWEEP', native)
     arrangements = []
     for cost in (0, 100):
-        board = arrangement_board((60, 30), replace(Settings(), place_search_wire='mst',
-                                                   score_arrangement=cost, cleanup_enabled=False))
+        board = arrangement_board((60, 30), replace(Settings(), score_arrangement=cost, cleanup_enabled=False))
         board.place(Cell('mod'), at=Near(Location(40, 30), radius=0.5, step=0.5))
         plan = board.resolve()
         arrangements.append(plan.placement('mod').arrangement)
@@ -517,7 +515,7 @@ def test_shared_pair_net_price_changes_actual_scan_winner(monkeypatch, native):
         pair = NetClass('Pair', 0.2, 0.2, 0.6, 0.3, 0.2, 0.2)
         physical.netclasses.update({'S': pair, 'OTHER': pair})
         board = Board(physical, keep_going=True, settings=replace(
-            Settings(), place_search_wire='mst', cleanup_enabled=False,
+            Settings(), cleanup_enabled=False,
             score_crossing_pair_net=price, score_crossing=0.01, score_congestion=0.0,
             score_escape_crossed=0.0, score_escape_closed=0.0, score_escape_via=0.0))
         board.rect(width=60, height=60)
@@ -540,7 +538,7 @@ def test_shared_pair_net_price_changes_actual_scan_winner(monkeypatch, native):
 def test_actual_area_prices_trade_fitted_size_for_wire_length():
     rows = []
     for weight in (0, .1, .25):
-        cfg = replace(Settings(), place_search_wire='mst', cleanup_enabled=False,
+        cfg = replace(Settings(), cleanup_enabled=False,
                       score_area=weight, score_congestion=0)
         parts = (footprint('H', 3, 20, nets=('Q', 'Q')),
                  footprint('A', 20, 20, nets=('S', 'Q')),

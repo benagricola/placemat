@@ -478,6 +478,8 @@ class CopperIntent:
     form: str = field(default="", metadata={"omit_default": True})      # the declaration's arguments in canonical form (_declares_copper): what `plan` reads, which reuse.canonical cannot see into
     joins: tuple = field(default=(), metadata={"reuse": False, "omit_default": True})  # (ref, pad number) of each pad it is drawn onto at the pad (Board._pad_joins), from its points
 
+    join_layers: tuple = field(default=(), metadata={"reuse": False, "omit_default": True})
+
     def applies_in(self, held: frozenset) -> bool:
         """Whether it exists in an arrangement holding the choice ids `held` (arrangements.Spec.held): `only=` matches by the
         choices an arrangement holds (arrangements.only_holds)."""
@@ -830,91 +832,6 @@ class CriticalUnplaced(Exception):
 # What a candidate the scorer did not finish weighing scores on top of its
 # wire: more than any real cost, so it is never chosen over one weighed in full.
 PRUNED = 1e6
-
-
-class Scorer:
-    """A searched item's standing at a candidate placement, as (pads it walls off, cost), compared in that order (D13):
-    a candidate that walls a pad (escapes.py, `Escapes.closed`) loses to any that walls none, then the cost decides.
-    The cost is each connection's weight times its length, `score.crossing` for each ratsnest crossing its airwires
-    would add, and the escape weights for each escape it would cross or close. `best[0]` is the lowest cost weighed so
-    far of a candidate that walls no pad: with `prune`, a candidate whose wire alone reaches it is not weighed further
-    (its crossings and escapes can only add, and walling a pad only loses) and stands at (placer.UNWEIGHED, its wire plus
-    PRUNED), below every candidate weighed in full.
-    Explore draws among candidates near the best and needs every one weighed.
-
-    Called, it is the Python reference; `native(rots, face)` hands a scan
-    the same standing, worked out in the native sweep (placemat_native.NativeScoring),
-    sharing `best` with it."""
-
-    def __init__(self, settings, item, occ: Occupancy, targets: list, prune: bool, pushes=(), lanes=None):
-        s = settings
-        self.s, self.item, self.occ, self.targets, self.prune = s, item, occ, targets, prune
-        self.pushes = tuple(pushes)
-        self.lanes = lanes          # placement -> how many of the item's declared escape lanes it would block
-        self.crossing = s.score_crossing
-        self.rn = occ.ratsnest() if self.crossing > 0 else None
-        self.esc = occ.escapes()        # walled pads are counted whatever the escape weights are
-        self.own = frozenset(fp.ref for fp in members_of(item))
-        self.depth = s.place_escape_depth
-        self.best = [math.inf]
-        self._native = {}
-
-    def __call__(self, placement: Placement) -> tuple:
-        occ, s = self.occ, self.s
-        pads = occ.candidate_pad_locations(self.item, placement)
-        cost = sum(w * pads[key].distance(target) for key, target, w in self.targets if key in pads)
-        if self.pushes:
-            points = {}
-            for source_point, push in self.pushes:
-                point = _push_at(occ, self.item, placement, push, pads, points)
-                if point is None:
-                    continue
-                value, _ = _push_value(source_point, point, push)
-                cost += s.score_push * value / push.limit
-        if self.prune and cost >= self.best[0]:
-            return UNWEIGHED, cost + PRUNED     # its crossings and escapes can only add: it cannot be the best
-        crossed = None
-        if self.rn is not None:
-            added, crossed = self.rn.leaf_costs(occ.candidate_anchors(self.item, placement), self.own, self.depth)
-            cost += self.crossing * added
-        crossed, closed, walled = self.esc.closed(self.item, placement, crossed)
-        cost += s.score_escape_crossed * crossed + s.score_escape_closed * closed
-        if self.lanes is not None:
-            cost += s.score_escape_lane * self.lanes(placement)
-        if not walled:
-            self.best[0] = min(self.best[0], cost)
-        return walled, cost
-
-    def native(self, rots, face):
-        """The same cost for the native sweep over these turns, or None when
-        the native mirrors it needs are not there, or the item carries a
-        push or a declared escape (the Rust NativeScoring module has no
-        formula for either)."""
-        if self.pushes or self.lanes is not None:
-            return None
-        occ, s = self.occ, self.s
-        rn = occ.ratsnest()
-        mirror = rn.mirror
-        if mirror is None or self.esc.mirror is None:
-            return None
-        key = (tuple(rots), face)
-        hit = self._native.get(key)
-        if hit is None:
-            geom = occ._geometry(self.item)
-            centres = occ.reference_pad_centres(self.item)
-            targets = [((centres[k].x, centres[k].y), (t.x, t.y), w) for k, t, w in self.targets if k in centres]
-            origin = [Placement(Location(0.0, 0.0), r, face) for r in rots]
-            esc = self.esc
-            hit = occ.native_module().NativeScoring(
-                mirror, targets, [occ.turn_transform(geom, r, face) for r in rots],
-                [occ.candidate_anchors(self.item, pl) for pl in origin],
-                [esc._native_turn(self.item, pl) for pl in origin],
-                sorted(self.own), self.crossing, True,
-                (s.score_escape_crossed, s.score_escape_closed), self.depth,
-                self.prune, PRUNED, self.best[0])
-            self._native[key] = hit
-        hit.floor = self.best[0]
-        return hit
 
 
 class Board:
@@ -4395,13 +4312,16 @@ class Board:
         decl = self._escapes[lane.index]
         return self.geometry.footprint(decl.part).pad(int(lane.number) if lane.number.isdigit() else lane.number)
 
-    def _pad_joins(self, nets, points) -> tuple:
+    def _pad_joins(self, nets, points, *, layers=None) -> tuple:
         """(ref, pad number) of each pad of one of `nets` that copper declared through `points` is drawn onto at the
         pad: a pad reference with no offset (its centre, or a tap on its side), a lane or a point of one (its pad, whose
         own copper the lane is), a FreeSpot whose via stands in its pad or is joined to it by its tail. Before the copper
-        is laid the escape judgement counts these pads' way out as made (`Occupancy.planned_joins`, D28)."""
+        is laid the escape judgement counts these pads' way out as made (`Occupancy.planned_joins`, D28).
+        `layers` is the copper span: a direct pad end must share a copper layer. A lane includes its own
+        pad-side riser (and possibly a via), so the continuation's layer does not restrict its join."""
         out = set()
         for p in points:
+            lane_join = isinstance(p, (Lane, LanePoint))
             if isinstance(p, FreeSpot):
                 if not (p.in_pad or p.tail):
                     continue
@@ -4415,13 +4335,26 @@ class Board:
                 pad = self.geometry.pad(p.part, p.key)
             elif isinstance(p, CellPadRef) and not (p.dx or p.dy):
                 pad = self.geometry.cell_pad(p.cell, net=p.net, number=p.number, ref_prefix=p.ref_prefix)
-            if pad is not None and pad.net in nets:
+            if pad is not None and pad.net in nets and (lane_join or layers is None or pad.layers.intersection(layers)):
                 out.add((pad.owner, pad.number))
         return tuple(sorted(out))
 
+    def _set_pad_joins(self, intent, nets, points, *, layers=None) -> None:
+        """Bind each promised join to its declared copper span, for candidate face changes."""
+        intent.joins = self._pad_joins(nets, points, layers=layers)
+        lanes = self._pad_joins(nets, [p for p in points if isinstance(p, (Lane, LanePoint))])
+        intent.join_layers = tuple((ref, number, None if (ref, number) in lanes or layers is None
+                                    else tuple(layers)) for ref, number in intent.joins)
+
     def _set_planned_joins(self, occ: Occupancy, intents) -> None:
         """The pads `intents` (declared copper not yet laid) will join, for the escape judgement (D28)."""
+        intents = tuple(intents)
         occ.planned_joins = frozenset(j for c in intents for j in c.joins)
+        spans = {}
+        for c in intents:
+            for ref, number, layers in c.join_layers:
+                spans.setdefault((ref, number), set()).add(None if layers is None else frozenset(layers))
+        occ.planned_join_layers = {key: frozenset(value) for key, value in spans.items()}
 
     def _escape_pin(self, esc: Escape, pin) -> str:
         decl = self._escapes[esc.index]
@@ -4453,7 +4386,7 @@ class Board:
                 return [via]
             intent = self._copper_intent("via %s" % net, net, Priority.DEFAULT, plan, [decl.part], decl.why,
                                          form="lane %s %s" % (decl.key, n))     # the escape itself is in the context
-            intent.joins = self._pad_joins({net}, [lane])
+            self._set_pad_joins(intent, {net}, [lane])
             decl.via_intents[n] = intent
         return intent
 
@@ -5031,15 +4964,10 @@ class Board:
         return Placement(Location(round(cx - ox, 3), round(cy - oy, 3)), rotation, face)
 
     def _scorer(self, item, occ: Occupancy, targets: list, prune: bool = True, pushes=(), lanes=None, *, plan):
-        """A candidate's cost: each connection's weight times its length,
-        `score.crossing` for each ratsnest crossing its airwires would add,
-        the escape weights, score.push times each push's modelled
-        value over its limit, and `score.escape_lane` for each declared
-        escape lane it would block (`lanes`). See `Scorer`."""
-        if self.settings.place_search_wire == 'mst':
-            from .score_search import MSTScorer
-            return MSTScorer(self, occ, item, plan=plan, pushes=pushes, lanes=lanes, prune=prune)
-        return Scorer(self.settings, item, occ, targets, prune, pushes, lanes)
+        """Signed common run-score change on one lifted occupancy, with complete escape grading on finalists.
+        Validity is ranked before cost; action, arrangement and face charges remain with their callers."""
+        from .score_search import MSTScorer
+        return MSTScorer(self, occ, item, plan=plan, pushes=pushes, lanes=lanes, prune=prune)
 
     def _push_source_point(self, occ: Occupancy, plan: Plan, source) -> Location:
         """Where a push's source sits, once it is placed: a keepout's own
@@ -6208,7 +6136,7 @@ class Board:
                 return []
             return ops
         intent = self._copper_intent("track %s" % name, net, priority, plan, refs, why, bridge, only=self._only(only, "track"))
-        intent.joins = self._pad_joins({name}, ([begins] if begins is not None else []) + list(points))
+        self._set_pad_joins(intent, {name}, ([begins] if begins is not None else []) + list(points), layers=(layer,))
         if any(isinstance(it, LabelKey) for p in points if isinstance(p, Past) for it in p.items):
             self._late_copper.add(intent.index)     # a label gives way to every part placed after it: planned after the search
         self._copper_uses[intent.index] = tuple(p.index for p in points if isinstance(p, CopperIntent))
@@ -6388,7 +6316,7 @@ class Board:
             return pair_ops(p_name, n_name, layer, w, g, start, centre, end, self.via_drill, self.via_size,
                             via_step, chamfer, self._clearance(p_name, n_name), sfaces, efaces)
         intent = self._copper_intent("pair %s/%s" % (p_name, n_name), net_p, priority, plan, refs, why, bridge, only=self._only(only, "pair"))
-        intent.joins = self._pad_joins({p_name, n_name}, [sp, sn, ep, en])
+        self._set_pad_joins(intent, {p_name, n_name}, [sp, sn, ep, en])
         return intent
 
     def vias(self, net, pad=None, *, along=None, count: int | None = None, pitch: float | None = None,
@@ -6478,7 +6406,7 @@ class Board:
                 return vias + [tail]
             # "via row": a track may end on it, as on one via()
             intent = self._copper_intent("via row %s" % name, net, priority, plan, _refs_in([along]), why, only=self._only(only, "vias"))
-            intent.joins = self._pad_joins({name}, [along])      # its tail joins the pad
+            self._set_pad_joins(intent, {name}, [along], layers=span or None)      # its tail joins the pad
             return intent
         owner, number, _, _ = self._pad_ref(pad)
         k = len(self._pad_fields)
@@ -6513,7 +6441,7 @@ class Board:
                     ops.append(a.tail)
             return ops
         intent = self._copper_intent("vias %s" % name, net, priority, plan, _refs_in([pad]), why, only=self._only(only, "vias"))
-        intent.joins = self._pad_joins({name}, [pad])
+        self._set_pad_joins(intent, {name}, [pad], layers=span or None)
         self._late_copper.add(intent.index)         # planned after the search: its part's grid gives way as items are placed
         return intent
 
@@ -6613,7 +6541,7 @@ class Board:
             ctx.via_at[intent.index] = where    # a track may end on it
             return [via] + ops
         intent = self._copper_intent("via %s" % name, net, priority, plan, refs, why, only=self._only(only, "via"))
-        intent.joins = self._pad_joins({name}, [at])
+        self._set_pad_joins(intent, {name}, [at], layers=span or None)
         if isinstance(at, Past) and any(isinstance(it, LabelKey) for it in at.items):
             self._late_copper.add(intent.index)     # a label gives way to every part placed after it: planned after the search
         if isinstance(at, FreeSpot):
@@ -8385,7 +8313,7 @@ class Board:
         # be the most important thing on a board, and it does not wait behind a
         # tier of cells for being a single part. What it needs decides.
         place_ranked(RANK_CELL, RANK_LOOSE)
-        if self.settings.place_search_wire == "mst" and self.settings.place_retry_rounds > 0:
+        if self.settings.place_retry_rounds > 0:
             self._retry_unplaced(occ, plan, placed, progress, on_step)     # D27: room for what the search left unplaced, before cleanup
         if self.settings.cleanup_enabled:
             before = reuse.get("cleanup") if (reuse and chain["replaying"]) else None
@@ -8849,8 +8777,7 @@ class Board:
         every = (0.0, 90.0, 180.0, 270.0)
         # The one-score search's cleanup judges each move and swap by the run score's change (D26); the pull
         # estimate's keeps its own objective.
-        one_score = (lambda fp: self._scorer(fp, occ, [], prune=True, plan=plan)) \
-            if s.place_search_wire == 'mst' else None
+        one_score = lambda fp: self._scorer(fp, occ, [], prune=True, plan=plan)
         from . import score
         before = sum(score.whole(self, occ, plan).values()) if one_score is not None else None
         r = cleanup(occ, movable, pins, list(self._links), self.clearance, s.cleanup_passes,
@@ -10481,12 +10408,10 @@ class Board:
                 hint = Placement(self._outline.center, i.rotation, i.face)
             else:
                 hint = Placement(current.location, i.rotation, i.face)
-            score = None
-            if targets or self.settings.place_search_wire == 'mst':
-                anchor_score = self._scorer(spec.anchor, occ, targets, prune=self._pick(i) is None, plan=plan)
+            anchor_score = self._scorer(spec.anchor, occ, targets, prune=self._pick(i) is None, plan=plan)
 
-                def score(members):
-                    return anchor_score(members[spec.anchor.inst])
+            def score(members):
+                return anchor_score(members[spec.anchor.inst])
             body = occ._geometry(spec.anchor).body
             radius = i.radius if i.near is not None else max(i.radius, body.width, body.height)
             alone = self._block_alone(spec, i.rotations or (i.rotation,), i.face, clr)
@@ -11107,7 +11032,7 @@ class Board:
             self._tight.pop(i.key, None)
             if before is not None:
                 self._tight[i.key] = before
-        priced = self.settings.place_search_wire == 'mst' or bool(targets or push_sources or any(x[6] for x in laid))
+        priced = True
         out = []
         for ident, j, p, chose, why, resolution, lanes, tight in laid:
             score, walled = None, 0
@@ -11491,8 +11416,7 @@ class Board:
             accept = ahead if accept is None else (lambda c, a=accept, b=ahead: a(c) or b(c))
         lanes = self._lane_pricer(occ, plan, j)
         score = self._scorer(j.item, occ, targets, prune=self._pick(j) is None and accept is None,
-                             pushes=push_sources, lanes=lanes, plan=plan) \
-            if targets or push_sources or lanes or self.settings.place_search_wire == 'mst' else None
+                             pushes=push_sources, lanes=lanes, plan=plan)
         if score is not None and floor is not None and hasattr(score, "best"):
             score.best[0] = min(score.best[0], floor - cost)
         # A seeded item lands on the pads that pull it; it must be free to step at least its own size clear of them.
@@ -11675,7 +11599,7 @@ class Board:
             lanes = self._lane_pricer(occ, plan, j)
             score = self._scorer(j.item, occ, targets, prune=exposed is None and accept is None, pushes=push_sources,
                                  lanes=lanes, plan=plan) \
-                if targets or push_sources or lanes or self.settings.place_search_wire == 'mst' else None
+
             scored = scored or score is not None
             extra = arr_cost if ident else 0.0
             best = None

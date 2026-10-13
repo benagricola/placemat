@@ -116,8 +116,7 @@ native and Python answers directly; they skip themselves (not fail) when
   `Escapes.closed`, the escapes a candidate closes or walls off.
 - `sweep()` (in `src/lib.rs`): one pass of `placer.scan` judged whole -
   the edge, the reservations and the obstacles for each candidate, then,
-  for the legal ones, the scan's cost (`NativeScoring` for the search,
-  `NativeCleanupScoring` for the cleanup pass). Python keeps the grid, the
+  for the legal ones, the scan's cost (`NativeDeltaScoring` for both search and cleanup). Python keeps the grid, the
   tallies, every sentence and every decision; `Occupancy.native_sweeper`
   and the scorers' `native()` build what a scan hands over. See
   docs/superpowers/specs/2026-09-25-native-sweep-design.md.

@@ -154,8 +154,6 @@ class Settings:
         "the step a part placed Beside is moved out at, when something already placed is in its way, until the collision rule lets it stand, then bisected back to the first spot that stands")
     place_beside_reach: float = S(2.0, "mm",
         "how far past its standoff from the item a part placed Beside may be moved out to clear what is in its way; past it the part stays at the standoff and the collision is reported")
-    place_escape_depth: float = S(1.0, "mm",
-        "how far each corridor out of a pad runs in the search: it weighs a candidate that crosses or closes a pad's corridors (`score.escape_*`), and one that walls a pad off loses to any that does not; the run score measures them at `score.escape_depth`")
     place_escape_min_pads: int = S(1, "count",
         "a part's pads keep escapes when it has at least this many (3 leaves two-pad parts out)")
     place_escape_via_step: float = S(0.05, "mm",
@@ -214,8 +212,6 @@ class Settings:
         "how far to either side of that airwire a track may go round such a gap, on the pad's layer and crossing no other net's airwire, and still count as a way: a pinch with a way round within it is no `escape.pinched` finding")
     place_turn_gain_mm: float = S(2.0, "mm",
         "the least reduction of the common run score for another legal turn at the same body centre to produce a `turn.better` finding")
-    place_search_wire: str = S("mst", "choice",
-        "temporary measured search comparison: mst is the one-score search (the run score's terms, the escape grades on the best `place.escape_spots`); clique is the pull estimate")
     place_turn_gain_share: float = S(0.05, "share",
         "the least share of the item's wire and declared-link contribution the common run-score gain must reach for a `turn.better` finding")
     place_turn_held_words: tuple = S(("turn", "turned", "turns", "rotation", "rotated", "rotate", "facing", "faces", "degrees"), "list",
@@ -440,7 +436,7 @@ class Settings:
     score_escape_crossed: float = S(20.0, "mm",
         "mm two escapes from one part's pins crossing near its pin row cost")
     score_escape_depth: float = S(1.5, "mm",
-        "how near a part's pads two escapes' airwires that cross count as crossed (`escape_crossed`), and how far round a hand-off pin or the end of a declared lane the path search looks for a way out, whatever `place.escape_depth` the search used, so runs at different search depths compare")
+        "how near a part's pads two escapes' airwires that cross count as crossed (`escape_crossed`), and how far round a hand-off pin or the end of a declared lane the path search looks for a way out, consistently in placement search and run judgment")
     score_escape_closed: float = S(50.0, "mm",
         "mm a pad costs that has no surface route toward what it connects to and no via beside it, but a surface route another way (`score.escape_reach`)")
     score_escape_reach: float = S(3.0, "mm",
@@ -746,7 +742,6 @@ class SettingsError(ValueError):
 
 # Keys with a fixed set of values.
 _CHOICES = {"place_envelope": ("courtyard", "physical", "union"), "place_rotations": ("all", "declared"), "place_order": ("freedoms", "room"),
-            "place_search_wire": ("clique", "mst"),
             "copper_cell_zones_under_planes": ("drop", "keep"), "write_split_groups": ("lift", "split", "keep"),
             "write_keepout_drawings": ("admitting", "all", "none")}
 
@@ -755,7 +750,7 @@ _CHOICES = {"place_envelope": ("courtyard", "physical", "union"), "place_rotatio
 # from this table because weighting a dimension at nothing is a real choice.
 _ABOVE_ZERO = frozenset((
     "place_radius", "place_step", "place_bearing_step", "place_tangent_bin", "place_lookahead_step", "place_room_pitch", "place_coarse_min_radius_steps", "place_coarse_stride",
-    "place_refine_spots", "place_escape_spots", "place_retry_lift", "place_step_budget", "place_arrangement_options_max", "place_arrangements_max", "place_arrangement_note_chars", "place_block_gap_step", "place_block_gap_reach", "place_beside_step", "place_beside_reach", "place_firm_passes", "place_copper_room_tolerance", "place_escape_depth", "place_escape_via_step", "place_escape_via_reach", "place_edge_step", "place_pocket_step", "place_freedom_min_step", "place_cutout_step", "place_cutout_angle_step", "place_escape_cell", "place_approach_reach", "place_approach_detour", "geometry_cap_steps", "solve_spread_growth", "solve_centre_pull", "score_escape_depth", "score_escape_reach", "score_congestion_box", "place_via_move_step", "place_via_search_chunk", "place_via_clear_cache",
+    "place_refine_spots", "place_escape_spots", "place_retry_lift", "place_step_budget", "place_arrangement_options_max", "place_arrangements_max", "place_arrangement_note_chars", "place_block_gap_step", "place_block_gap_reach", "place_beside_step", "place_beside_reach", "place_firm_passes", "place_copper_room_tolerance", "place_escape_via_step", "place_escape_via_reach", "place_edge_step", "place_pocket_step", "place_freedom_min_step", "place_cutout_step", "place_cutout_angle_step", "place_escape_cell", "place_approach_reach", "place_approach_detour", "geometry_cap_steps", "solve_spread_growth", "solve_centre_pull", "score_escape_depth", "score_escape_reach", "score_congestion_box", "place_via_move_step", "place_via_search_chunk", "place_via_clear_cache",
     "place_conflict_reach", "place_fit_room", "copper_arc_radius_track_widths", "copper_bridge_half_gap", "copper_finger_bridge_width", "copper_finger_min_piece",
     "copper_plane_min_width", "copper_pour_outline_width", "copper_pour_reach_step", "copper_pour_reach_max", "copper_microvia_drill", "label_text_height",
     "label_thickness", "label_slide_step", "geometry_arc_sag", "geometry_index_cells",
@@ -889,6 +884,8 @@ _REPLACED = {
     "route_pair_layers": 'a phase with `pairs = true` and `layers` ([[route.phase]], api.md "Routing phases")',
     "route_net_halos": "the clearance field of the net's type in the capture",
 
+    "place_search_wire": "the placement search now uses the common run score; remove this temporary comparison setting",
+    "place_escape_depth": "set score.escape_depth; placement and run judgment use the same depth",
     "pins_pair_weight": "set score.crossing_pair_net; pin candidates use the common pair crossing price",
     "pins_impedance_weight": "set score.impedance; pin candidates use the common impedance price",
     "pins_length_weight": "the generator uses 1 / score.crossing (or 0 when crossing is 0); finalists use the common run score",

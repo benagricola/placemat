@@ -1555,22 +1555,19 @@ when the board then ranks above the board before it, as boards are ranked (the v
 priority first, then the run score within its noise band); else the board is put back exactly. An item gets at most
 `place.retry_rounds` tries, a room once; one a kept try left unplaced gets its own turn. Each try is a `retry` step
 of the run, saying what it lifted and placed and whether it was kept, and `metrics.retry` counts the tries, the kept
-ones and the items they placed. `place.retry_rounds = 0` turns it off. The pull estimate
-(`place.search_wire = "clique"`) does not retry.
+ones and the items they placed. `place.retry_rounds = 0` turns it off.
 
 **The cleanup pass.** Once every searched item is down, and before the copper
 that joins them is planned, a cleanup pass revisits the plain searched parts:
 each is tried near the middle of what it connects to and round where it
 stands, identical parts (one courtyard, pad count and face) are tried in
 each other's places, and so are two neighbouring two-pad parts of any size (in
-any rotation each may take). Under the one-score search (the default) a change
+any rotation each may take). A change
 is judged as a board is ranked: it is kept when it walls fewer pads than the
 board before it, whatever else it costs, or walls as many and lowers the run
 score, its change worked out as the search works out a candidate's (wire,
 crossings, links, push, area, congestion and the escape grades); one that walls
-more is refused. Under the pull estimate (`place.search_wire = "clique"`) it is
-kept only when the part's wire (the half-perimeter of its nets that pull) plus
-each declared link's weight times its length gets shorter. No change leaves a limited link over its limit and
+more is refused. No change leaves a limited link over its limit and
 longer, a part turns only to rotations its declaration allows (all four when
 it gave none), faces stay, and every placement is legal as a search's is. It leaves alone any part with a place of its own (`Near`, an edge, a row,
 a ring, a line), a block or cell member, a labelled part, and a part another
@@ -5354,7 +5351,7 @@ end of the run when no track or via gets out of it, from the end of its own net'
 where it has any: "no other pad is on the net, so it leaves the board here, and it is walled off by ...". Such a pin
 keeps no corridor in the placement search; `board.escape` names the pins whose routes out are to be kept.
 `escape_walled` is critical: it has no price in the run score and counts in the validity tier. The placement search
-compares a candidate the same way: one that walls off a pad (by its corridors, `place.escape_depth`) loses to any that
+compares a candidate the same way: one that walls off a pad loses to any that
 walls none, then the soft cost decides; so do a cell's arrangements, an either-face item's two faces and the cleanup's
 moves and swaps.
 
@@ -5662,7 +5659,6 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `place.copper_room_tolerance` | `0.001` | mm | how far a declared track or via may move between two passes and count as settled |
 | `place.beside_step` | `0.01` | mm | the step a part placed Beside is moved out at, when something already placed is in its way, until the collision rule lets it stand, then bisected back to the first spot that stands |
 | `place.beside_reach` | `2.0` | mm | how far past its standoff from the item a part placed Beside may be moved out to clear what is in its way; past it the part stays at the standoff and the collision is reported |
-| `place.escape_depth` | `1.0` | mm | how far each corridor out of a pad runs in the search: it weighs a candidate that crosses or closes a pad's corridors (`score.escape_*`), and one that walls a pad off loses to any that does not; the run score measures them at `score.escape_depth` |
 | `place.escape_min_pads` | `1` | count | a part's pads keep escapes when it has at least this many (3 leaves two-pad parts out) |
 | `place.escape_via_step` | `0.05` | mm | the step a `board.escape` lane's via is searched along its lane at, from the row's end, before it is bisected back to the nearest nanometre |
 | `place.escape_via_reach` | `5.0` | mm | how far along its lane, or its axis, a `board.escape` via is searched before it has no legal spot |
@@ -5690,7 +5686,6 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `place.approach_reach` | `8.0` | mm | how far along a pad's airwire toward its nearest target the `escape.pinched` check looks for a gap between two other parts' copper that the pad's track does not fit through |
 | `place.approach_detour` | `2.0` | mm | how far to either side of that airwire a track may go round such a gap, on the pad's layer and crossing no other net's airwire, and still count as a way: a pinch with a way round within it is no `escape.pinched` finding |
 | `place.turn_gain_mm` | `2.0` | mm | the least reduction of the common run score for another legal turn at the same body centre to produce a `turn.better` finding |
-| `place.search_wire` | `"mst"` | choice | temporary measured search comparison: mst is the one-score search (the run score's terms, the escape grades on the best `place.escape_spots`); clique is the pull estimate. One of: clique, mst. |
 | `place.turn_gain_share` | `0.05` | share | the least share of the item's wire and declared-link contribution the common run-score gain must reach for a `turn.better` finding |
 | `place.turn_held_words` | `["turn", "turned", "turns", "rotation", "rotated", "rotate", "facing", "faces", "degrees"]` | list | words that, in the `why=` of an item whose turn the script fixes, say the turn was chosen: a better turn is then a `turn.better` notice with `held_by` "why" and no edit |
 | `place.split_min_group` | `2` | count | the least members a group needs to count as one, in a cell's `split` finding |
@@ -5801,7 +5796,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `score.crossing_pair_net` | `5.0` | share | what a ratsnest crossing counts, in crossings, where either airwire is a differential pair's half (and not its partner's) |
 | `score.impedance` | `3.0` | share | a net whose class names a tuning profile (a controlled impedance): what its ratsnest crossings count, in crossings, and how many times over its airwire length counts |
 | `score.escape_crossed` | `20.0` | mm | mm two escapes from one part's pins crossing near its pin row cost |
-| `score.escape_depth` | `1.5` | mm | how near a part's pads two escapes' airwires that cross count as crossed (`escape_crossed`), and how far round a hand-off pin or the end of a declared lane the path search looks for a way out, whatever `place.escape_depth` the search used, so runs at different search depths compare |
+| `score.escape_depth` | `1.5` | mm | how near a part's pads two escapes' airwires that cross count as crossed (`escape_crossed`), and how far round a hand-off pin or the end of a declared lane the path search looks for a way out, consistently in placement search and run judgment |
 | `score.escape_closed` | `50.0` | mm | mm a pad costs that has no surface route toward what it connects to and no via beside it, but a surface route another way (`score.escape_reach`) |
 | `score.escape_reach` | `3.0` | mm | how far round a pad its way out is looked for (the exact path search's window, and the reach of the straight lanes tried first): placemat's own rule, not KiCad's |
 | `score.escape_via` | `10.0` | mm | mm a pad costs whose only way out toward what it joins is a via beside it: no surface route toward its target, but a via of its class fits at the pad's edge or where its track leaves the pin field |

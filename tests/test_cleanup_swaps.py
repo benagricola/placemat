@@ -75,7 +75,7 @@ def test_the_briefs_crossing_is_gone_after_cleanup_and_the_satellite_stays_withi
     limits = {"c_en": (("U2", "4"), ("C2", "2"), 2.0)}
     s = b.settings
     r = cleanup(occ, movable, _pins(b, plan), list(b._links), None, 2, 3.0, 0.25,
-                turns={"c_en": (0, 90, 180, 270), "l_rf": (0, 90, 180, 270)}, limits=limits, settings=s)
+                turns={"c_en": (0, 90, 180, 270), "l_rf": (0, 90, 180, 270)}, limits=limits, settings=s, one_score=lambda fp: b._scorer(fp, occ, [], plan=plan))
     assert _crossed(occ, "VDD_RF", "MCU_EN") == 0, r
     assert _gap(occ, ("U2", "4"), ("C2", "2")) <= 2.0 + 1e-9
     link = next(l for l in b._links)
@@ -88,7 +88,7 @@ def test_a_satellite_never_leaves_its_limit_even_for_a_better_cost():
     movable = {"c_en": b.geometry.footprint("C2"), "l_rf": b.geometry.footprint("L2")}
     limits = {"c_en": (("U2", "4"), ("C2", "2"), 0.4)}                  # tight: it may barely move
     cleanup(occ, movable, _pins(b, plan), list(b._links), None, 2, 3.0, 0.25,
-            turns={"c_en": (0,), "l_rf": (0, 90, 180, 270)}, limits=limits, settings=b.settings)
+            turns={"c_en": (0,), "l_rf": (0, 90, 180, 270)}, limits=limits, settings=b.settings, one_score=lambda fp: b._scorer(fp, occ, [], plan=plan))
     assert _gap(occ, ("U2", "4"), ("C2", "2")) <= 0.4 + 1e-9
 
 
@@ -125,17 +125,52 @@ def _channel():
     return b, b.resolve()
 
 
-def test_a_swap_that_walls_a_pad_is_refused_however_much_wire_it_saves():
-    """Each part wants the other's spot, and the swap saves wire, but in the channel it walls a pad off that neither
-    walls where it stands: a spot that walls a pad loses to any that does not (D13), so the parts stay."""
+def test_a_swap_that_walls_a_pad_is_refused_however_much_wire_it_saves(record_property):
+    """Cleanup respects actual common escape validity, rather than the retired corridor estimate."""
+    from placemat import score
+    from placemat.escapes import judging
+    from placemat.cleanup import _one_score_swap
+    from placemat.placement import Placement
+    from tests.test_escape_planned_joins import _board, _fp
+
     b, plan = _channel()
     occ = plan.occupancy
     movable = {"big": b.geometry.footprint("B1"), "small": b.geometry.footprint("S1")}
-    wire = dataclasses.replace(b.settings, score_escape_crossed=0.0, score_escape_closed=0.0)
+    before_walls = judging(occ).counts()['escape_walled']
+    before_cost = sum(score.whole(b, occ, plan).values())
     r = cleanup(occ, movable, _pins(b, plan), [], None, 1, 1.0, 0.25,
-                turns={"big": (0,), "small": (0,)}, settings=wire)
-    assert r.swaps == []
-    assert occ.items["B1"].reference.location.x < 30 and occ.items["S1"].reference.location.x > 30
+                turns={"big": (0,), "small": (0,)}, settings=b.settings,
+                one_score=lambda fp: b._scorer(fp, occ, [], plan=plan))
+    after_walls = judging(occ).counts()['escape_walled']
+    after_cost = sum(score.whole(b, occ, plan).values())
+    record_property('channel_common_before_after', repr((before_walls, before_cost, after_walls, after_cost, r.swaps)))
+    assert after_walls <= before_walls
+    if r.swaps and after_walls == before_walls:
+        assert after_cost < before_cost
+
+    # A genuine negative control: N1's ring at its original spot walls U9; away, it does not.
+    # Returning the ring saves wire, but must be refused because the actual global wall count rises.
+    board = _board(False, score_congestion=0.0)
+    current = board.resolve()
+    occupancy = current.occupancy
+    ring, other = _fp(board, 'N1'), _fp(board, 'T1')
+    original = occupancy.items['N1'].reference
+    away = Placement(Location(50, 30), original.rotation, original.face)
+    occupancy.lift({'N1'})
+    occupancy.commit(ring, away)
+    spots = {'ring': away, 'other': occupancy.items['T1'].reference}
+    moved = {'ring': original, 'other': spots['other']}
+    baseline_walls = judging(occupancy).counts()['escape_walled']
+    baseline_cost = sum(score.whole(board, occupancy, current).values())
+    occupancy.lift({'N1'})
+    occupancy.commit(ring, original)
+    candidate_walls = judging(occupancy).counts()['escape_walled']
+    candidate_cost = sum(score.whole(board, occupancy, current).values())
+    assert candidate_walls > baseline_walls, 'negative control must genuinely wall an original pad'
+    assert candidate_cost < baseline_cost, 'negative control must genuinely save common cost'
+    assert not _one_score_swap(occupancy, {'ring': ring, 'other': other},
+                               {'ring': 'N1', 'other': 'T1'}, 'ring', 'other', spots, moved,
+                               lambda fp: board._scorer(fp, occupancy, [], plan=current))
 
 
 def test_fixed_parts_are_never_offered_to_the_cleanup():

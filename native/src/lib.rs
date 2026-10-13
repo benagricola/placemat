@@ -867,300 +867,6 @@ impl NativeDelta {
 /// full, as `placer.UNWEIGHED`.
 pub(crate) const UNWEIGHED: i64 = i64::MAX;
 
-/// A searched item's cost, as `Board._scorer` weighs a candidate: the wire
-/// (each target's weight times its distance, the item's pads moved as
-/// `Occupancy.candidate_pad_locations` moves them), `crossing` times the
-/// ratsnest crossings its leaf airwires add, and the escape weights times
-/// the escapes it crosses and closes; beside it, how many pads it walls off,
-/// compared before the cost (a candidate that walls a pad loses to any that
-/// does not). `floor` is the best cost weighed so far of a candidate that
-/// walls none: with `prune`, a candidate whose wire alone reaches it is not
-/// weighed further and scores its wire plus `pruned`, at `UNWEIGHED` pads.
-#[pyclass]
-struct NativeScoring {
-    /// (pad centre at the item's reference, target, weight), in order.
-    targets: Vec<((f64, f64), (f64, f64), f64)>,
-    /// Per turn: the transform to the origin placement, (a, b, c, d, tx, ty).
-    transforms: Vec<(f64, f64, f64, f64, f64, f64)>,
-    /// Per turn: the item's pads (net, x, y) at the origin, nets interned.
-    anchors: Vec<Vec<(u32, f64, f64)>>,
-    turns: Vec<Py<NativeEscTurn>>,
-    rn: Py<NativeRatsnest>,
-    own: Vec<u32>,
-    crossing: f64,
-    escaping: bool,
-    weights: (f64, f64), // escape crossed, closed
-    depth: f64,
-    prune: bool,
-    pruned: f64,
-    #[pyo3(get, set)]
-    floor: f64,
-}
-
-#[pymethods]
-impl NativeScoring {
-    /// Inspection/timing entry point for the exact score used by sweep.
-    fn evaluate(&mut self, py: Python<'_>, x: f64, y: f64, turn: usize) -> PyResult<(f64, i64)> {
-        if !x.is_finite() || !y.is_finite() || x.abs() > 1e9 || y.abs() > 1e9
-            || turn >= self.transforms.len() || turn >= self.anchors.len() || turn >= self.turns.len() {
-            return Err(pyo3::exceptions::PyValueError::new_err("invalid scoring candidate or turn"));
-        }
-        let (a, b, c, d, tx, ty) = self.transforms[turn];
-        let bounded = |v: f64| v.is_finite() && v.abs() <= 1e9;
-        if self.targets.iter().any(|&((px, py), (gx, gy), w)|
-            !bounded(a * px + b * py + (tx + x)) || !bounded(c * px + d * py + (ty + y))
-                || !bounded(gx) || !bounded(gy) || !w.is_finite())
-            || self.anchors[turn].iter().any(|&(_, px, py)| !bounded(px + x) || !bounded(py + y)) {
-            return Err(pyo3::exceptions::PyValueError::new_err("scoring geometry exceeds coordinate domain"));
-        }
-        let rn_handle = self.rn.clone_ref(py);
-        let turn_handles: Vec<_> = self.turns.iter().map(|t| t.clone_ref(py)).collect();
-        let rn = rn_handle.borrow(py);
-        let turns: Vec<_> = turn_handles.iter().map(|t| t.borrow(py)).collect();
-        Ok(self.score(&rn, &turns, x, y, turn))
-    }
-
-    #[new]
-    #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature = (rn, targets, transforms, anchors, turns, own, crossing, escaping, weights, depth, prune, pruned, floor))]
-    fn new(
-        py: Python<'_>,
-        rn: Py<NativeRatsnest>,
-        targets: Vec<((f64, f64), (f64, f64), f64)>,
-        transforms: Vec<(f64, f64, f64, f64, f64, f64)>,
-        anchors: Vec<Vec<(String, f64, f64)>>,
-        turns: Vec<Py<NativeEscTurn>>,
-        own: Vec<String>,
-        crossing: f64,
-        escaping: bool,
-        weights: (f64, f64),
-        depth: f64,
-        prune: bool,
-        pruned: f64,
-        floor: f64,
-    ) -> Self {
-        let (anchors, own) = {
-            let mut r = rn.borrow_mut(py);
-            let anchors = anchors
-                .iter()
-                .map(|turn| turn.iter().map(|(n, x, y)| (r.inner.intern(n), *x, *y)).collect())
-                .collect();
-            let own = own.iter().map(|o| r.inner.intern(o)).collect();
-            (anchors, own)
-        };
-        NativeScoring { targets, transforms, anchors, turns, rn, own, crossing, escaping, weights, depth, prune, pruned, floor }
-    }
-}
-
-impl NativeScoring {
-    /// (the cost, the pads walled off) of the candidate at (x, y) on turn `turn`.
-    fn score(&mut self, rn: &NativeRatsnest, turns: &[PyRef<'_, NativeEscTurn>], x: f64, y: f64, turn: usize) -> (f64, i64) {
-        // Transform.then(translate(x, y)), then apply: as geometry.py does it
-        let (a0, b0, c0, d0, tx0, ty0) = self.transforms[turn];
-        let a = 1.0 * a0 + 0.0 * c0;
-        let b = 1.0 * b0 + 0.0 * d0;
-        let c = 0.0 * a0 + 1.0 * c0;
-        let d = 0.0 * b0 + 1.0 * d0;
-        let tx = 1.0 * tx0 + 0.0 * ty0 + x;
-        let ty = 0.0 * tx0 + 1.0 * ty0 + y;
-        let mut wire = exact::PySum::new(); // Python's sum(): compensated
-        for &((px, py), (gx, gy), w) in &self.targets {
-            let qx = exact::clean9(a * px + b * py + tx);
-            let qy = exact::clean9(c * px + d * py + ty);
-            wire.add(w * exact::hypot(qx - gx, qy - gy));
-        }
-        let mut cost = wire.total();
-        if self.prune && cost >= self.floor {
-            return (cost + self.pruned, UNWEIGHED);
-        }
-        let pads: Vec<(u32, f64, f64)> = self.anchors[turn].iter().map(|&(n, px, py)| (n, px + x, py + y)).collect();
-        let (added, crossed) = rn.inner.leaf_costs(&pads, &self.own, self.depth);
-        if self.crossing > 0.0 {
-            cost += self.crossing * added;
-        }
-        let mut walls = 0i64;
-        if self.escaping {
-            let (closed, walled) = rn.esc.closed(&rn.inner, &turns[turn].turn, x, y, &self.own);
-            let (wc, wo) = self.weights;
-            cost += wc * crossed as f64 + wo * closed as f64;
-            walls = walled;
-        }
-        if walls == 0 && cost < self.floor {
-            self.floor = cost;
-        }
-        (cost, walls)
-    }
-}
-
-/// One end of a link in a cleanup scan: a pad of the moving part (its
-/// index), or a point that stays put.
-#[derive(Clone, Copy)]
-enum End {
-    Pad(usize),
-    Fixed(f64, f64),
-}
-
-/// A part's cost as `cleanup.cleanup` weighs a move or a swap of it
-/// (`cost`, `limits_ok`, `satellite_ok`, `terms`), for the native sweep:
-/// the HPWL of its nets with every other pin where it stands, each link's
-/// weight times its length, the crossings and the escapes it crosses and
-/// closes at the escape weights, and beside it the pads it walls off; a
-/// candidate past a limit scores `over`, one whose wire reaches the best cost
-/// seen of a candidate that walls none (`floor`) its wire plus `over`.
-#[pyclass]
-struct NativeCleanupScoring {
-    /// Per turn: the part's pads at the origin, as `pads_at` offsets.
-    pads: Vec<Vec<(f64, f64)>>,
-    /// Per net: the other pins' extents (min x, max x, min y, max y), if
-    /// any, and which of the part's pads are on it.
-    nets: Vec<(Option<(f64, f64, f64, f64)>, Vec<usize>)>,
-    /// (weight, end, end, limit, its length now).
-    links: Vec<(f64, End, End, Option<f64>, f64)>,
-    /// A satellite's limit: per turn its own pad's box at the origin, its
-    /// pin's box, and how far apart they may be.
-    satellite: Option<(Vec<PyBox>, PyBox, f64)>,
-    anchors: Vec<Vec<(u32, f64, f64)>>,
-    turns: Vec<Py<NativeEscTurn>>,
-    rn: Option<Py<NativeRatsnest>>,
-    own: Vec<u32>,
-    crossing: f64,
-    escaping: bool,
-    weights: (f64, f64),
-    depth: f64,
-    over: f64,
-    #[pyo3(get, set)]
-    floor: f64,
-}
-
-#[pymethods]
-impl NativeCleanupScoring {
-    #[new]
-    #[allow(clippy::too_many_arguments, clippy::type_complexity)]
-    #[pyo3(signature = (pads, nets, links, satellite, rn, anchors, turns, own, crossing, escaping, weights, depth, over, floor))]
-    fn new(
-        py: Python<'_>,
-        pads: Vec<Vec<(f64, f64)>>,
-        nets: Vec<(Option<(f64, f64, f64, f64)>, Vec<usize>)>,
-        links: Vec<(f64, (i64, f64, f64), (i64, f64, f64), Option<f64>, f64)>,
-        satellite: Option<(Vec<PyBox>, PyBox, f64)>,
-        rn: Option<Py<NativeRatsnest>>,
-        anchors: Vec<Vec<(String, f64, f64)>>,
-        turns: Vec<Py<NativeEscTurn>>,
-        own: Vec<String>,
-        crossing: f64,
-        escaping: bool,
-        weights: (f64, f64),
-        depth: f64,
-        over: f64,
-        floor: f64,
-    ) -> Self {
-        // an end is (pad index, x, y): a pad of the part when the index is 0 or more
-        let end = |e: (i64, f64, f64)| if e.0 >= 0 { End::Pad(e.0 as usize) } else { End::Fixed(e.1, e.2) };
-        let links = links.into_iter().map(|(w, a, b, lim, now)| (w, end(a), end(b), lim, now)).collect();
-        let (anchors, own) = match &rn {
-            Some(r) => {
-                let mut r = r.borrow_mut(py);
-                let anchors = anchors.iter()
-                    .map(|turn| turn.iter().map(|(n, x, y)| (r.inner.intern(n), *x, *y)).collect())
-                    .collect();
-                (anchors, own.iter().map(|o| r.inner.intern(o)).collect())
-            }
-            None => (Vec::new(), Vec::new()),
-        };
-        NativeCleanupScoring { pads, nets, links, satellite, anchors, turns, rn, own, crossing, escaping, weights,
-                               depth, over, floor }
-    }
-}
-
-impl NativeCleanupScoring {
-    fn pad(&self, turn: usize, i: usize, x: f64, y: f64) -> (f64, f64) {
-        let (px, py) = self.pads[turn][i];
-        (px + x, py + y)
-    }
-
-    fn end(&self, e: End, turn: usize, x: f64, y: f64) -> (f64, f64) {
-        match e {
-            End::Pad(i) => self.pad(turn, i, x, y),
-            End::Fixed(fx, fy) => (fx, fy),
-        }
-    }
-
-    fn score(&mut self, rn: Option<&NativeRatsnest>, turns: &[PyRef<'_, NativeEscTurn>], x: f64, y: f64, turn: usize) -> (f64, i64) {
-        // limits_ok, then satellite_ok
-        for &(_, a, b, lim, now) in &self.links {
-            if let Some(lim) = lim {
-                let (pa, pb) = (self.end(a, turn, x, y), self.end(b, turn, x, y));
-                let after = exact::hypot(pa.0 - pb.0, pa.1 - pb.1);
-                if after > lim + 1e-9 && after > now + 1e-9 {
-                    return (self.over, UNWEIGHED);
-                }
-            }
-        }
-        if let Some((mine, theirs, mm)) = &self.satellite {
-            let m = mine[turn];
-            let (ml, mt, mr, mb) = (m.0 + x, m.1 + y, m.2 + x, m.3 + y);
-            let (tl, tt, tr, tb) = *theirs;
-            let dx = pymax3(ml - tr, tl - mr, 0.0);
-            let dy = pymax3(mt - tb, tt - mb, 0.0);
-            if !(exact::hypot(dx, dy) <= mm + 1e-9) {
-                return (self.over, UNWEIGHED);
-            }
-        }
-        // cost: the HPWL of its nets, then its links
-        let mut wire = 0.0f64;
-        for (fixed, mine) in &self.nets {
-            let (mut x0, mut x1, mut y0, mut y1) = match fixed {
-                Some(e) => *e,
-                None => (f64::INFINITY, f64::NEG_INFINITY, f64::INFINITY, f64::NEG_INFINITY),
-            };
-            for &i in mine {
-                let (px, py) = self.pad(turn, i, x, y);
-                if px < x0 { x0 = px; }
-                if px > x1 { x1 = px; }
-                if py < y0 { y0 = py; }
-                if py > y1 { y1 = py; }
-            }
-            wire += x1 - x0 + y1 - y0;
-        }
-        for &(w, a, b, _, _) in &self.links {
-            if w > 0.0 {
-                let (pa, pb) = (self.end(a, turn, x, y), self.end(b, turn, x, y));
-                wire += w * exact::hypot(pa.0 - pb.0, pa.1 - pb.1);
-            }
-        }
-        if wire >= self.floor {
-            return (wire + self.over, UNWEIGHED);
-        }
-        // terms: its crossings and escapes
-        let mut terms = 0.0f64;
-        let mut walls = 0i64;
-        if let Some(rn) = rn {
-            let pads: Vec<(u32, f64, f64)> = self.anchors[turn].iter().map(|&(n, px, py)| (n, px + x, py + y)).collect();
-            let (added, crossed) = rn.inner.leaf_costs(&pads, &self.own, self.depth);
-            terms = self.crossing * added;
-            if self.escaping {
-                let (closed, walled) = rn.esc.closed(&rn.inner, &turns[turn].turn, x, y, &self.own);
-                let (wc, wo) = self.weights;
-                terms += wc * crossed as f64 + wo * closed as f64;
-                walls = walled;
-            }
-        }
-        let total = wire + terms;
-        if walls == 0 && total < self.floor {
-            self.floor = total;
-        }
-        (total, walls)
-    }
-}
-
-/// Python's `max(a, b, c)`: the first, replaced by each later one that is larger.
-fn pymax3(a: f64, b: f64, c: f64) -> f64 {
-    let mut m = a;
-    if b > m { m = b; }
-    if c > m { m = c; }
-    m
-}
-
 /// One sweep pass of `placer.scan`, judged natively: for each
 /// (x, y, turn) the body box shifted and rounded as `shifted_body_box`
 /// does, then the edge, then the reservations in `reservations` order, then
@@ -1209,30 +915,10 @@ fn sweep(
     let silk_edges = silk_edges.unwrap_or_default();
     let parts = parts.unwrap_or_default();
     let edge_parts = edge_parts.unwrap_or_default();
-    let mut search: Option<PyRefMut<'_, NativeScoring>> = None;
-    let mut tidy: Option<PyRefMut<'_, NativeCleanupScoring>> = None;
     let mut common: Option<PyRefMut<'_, prepared_scoring::NativeDeltaScoring>> = None;
     if let Some(sc) = scoring.as_ref() {
-        if let Ok(s) = sc.cast::<NativeScoring>() {
-            search = Some(s.borrow_mut());
-        } else if let Ok(s) = sc.cast::<prepared_scoring::NativeDeltaScoring>() {
-            common = Some(s.borrow_mut());
-        } else {
-            tidy = Some(sc.cast::<NativeCleanupScoring>()?.borrow_mut());
-        }
+        common = Some(sc.cast::<prepared_scoring::NativeDeltaScoring>()?.borrow_mut());
     }
-    let rn_ref: Option<Py<NativeRatsnest>> = match (&search, &tidy) {
-        (Some(s), _) => Some(s.rn.clone_ref(py)),
-        (_, Some(t)) => t.rn.as_ref().map(|r| r.clone_ref(py)),
-        _ => None,
-    };
-    let rn = rn_ref.as_ref().map(|r| r.borrow(py));
-    let turn_handles: Vec<Py<NativeEscTurn>> = match (&search, &tidy) {
-        (Some(s), _) => s.turns.iter().map(|t| t.clone_ref(py)).collect(),
-        (_, Some(t)) => t.turns.iter().map(|t| t.clone_ref(py)).collect(),
-        _ => Vec::new(),
-    };
-    let esc_turns: Vec<PyRef<'_, NativeEscTurn>> = turn_handles.iter().map(|t| t.borrow(py)).collect();
     // Complete composition handles stay borrowed throughout the production
     // pass: no Python callback or per-candidate handle cloning.
     let common_handles = common.as_ref().map(|s| (s.candidate.clone_ref(py), s.delta.clone_ref(py), s.surface.clone_ref(py)));
@@ -1356,11 +1042,7 @@ fn sweep(
                 legal.push(idx);
                 let scored = if let (Some(sc), Some((candidate, delta, surface))) = (common.as_mut(), common_borrows.as_mut()) {
                     sc.score(py, candidate, delta, surface, x, y, turn)?
-                } else { match (search.as_mut(), tidy.as_mut(), rn.as_ref()) {
-                    (Some(sc), _, Some(rn)) => sc.score(rn, &esc_turns, x, y, turn),
-                    (_, Some(tc), rn) => tc.score(rn.map(|r| &**r), &esc_turns, x, y, turn),
-                    _ => (0.0, 0),
-                }};
+                } else { (0.0, 0) };
                 scores.push(scored);
                 if stop_at_first {
                     break;
@@ -1649,7 +1331,6 @@ fn placemat_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<NativeRatsnest>()?;
     m.add_function(wrap_pyfunction!(pinmap_search, m)?)?;
     m.add_class::<NativeEscTurn>()?;
-    m.add_class::<NativeScoring>()?;
     m.add_class::<NativeDelta>()?;
     m.add_class::<candidate::PreparedCandidate>()?;
     m.add_class::<escape_contacts::PreparedContacts>()?;
@@ -1657,7 +1338,6 @@ fn placemat_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<prepared_surface::EscapeMemo>()?;
     m.add_class::<rudy::RudyCells>()?;
     m.add_class::<prepared_scoring::NativeDeltaScoring>()?;
-    m.add_class::<NativeCleanupScoring>()?;
     m.add_function(wrap_pyfunction!(sweep, m)?)?;
     Ok(())
 }

@@ -216,7 +216,7 @@ def split_medians(rows):
 
 def measure(board, plan, step, *, count, repeats):
     from placemat.board_geometry import Footprint, members_of
-    from placemat.layout import Scorer
+    from fixtures.legacy_pull_score import Scorer
     from placemat.score_search import MSTScorer
     occ, item = plan.occupancy, plan._items[step.item]
     original = occ._geometry(item).reference
@@ -308,7 +308,7 @@ def resolve_measure(board):
     Wrappers observe existing calls and restore their class methods even on
     failure. Resolve wall time includes the observer overhead in both modes.
     """
-    from placemat.layout import Scorer
+    from fixtures.legacy_pull_score import Scorer
     from placemat.score_search import MSTScorer
     from placemat.occupancy import Occupancy, NativeSweeper
     stats = {'commit_calls': 0, 'commit_us': 0.0, 'commit_events': [],
@@ -417,7 +417,7 @@ def resolve_measure(board):
     full_calls = stats['python_score_calls'].get('MSTScorer.full', 0)
     scanned = native_common + stats['python_score_calls'].get('MSTScorer.scan', 0)
     stats['escape_graded_share'] = full_calls / scanned if scanned else None
-    stats['evaluation_share_scope'] = 'common objective evaluation calls; repeated giveway candidates count again; clique pruning is not inferred from legal counts'
+    stats['evaluation_share_scope'] = 'common objective evaluation calls; repeated giveway candidates count again; historical pull-estimate pruning is not inferred from legal counts'
     stats['throughput_scope'] = 'native pass only; legality_only excludes later Python scoring; giveway phases can repeat candidates'
     return plan, stats
 
@@ -425,7 +425,6 @@ def resolve_measure(board):
 def run_fixture(label, make, args, mode):
     from placemat import score
     board = make()
-    board.settings = replace(board.settings, place_search_wire=mode)
     start = time.perf_counter()
     plain = board.resolve()
     print(json.dumps({'type': 'resolve', 'fixture': label, 'search': mode,
@@ -433,9 +432,8 @@ def run_fixture(label, make, args, mode):
                       'score': score.total(score.plan_measures(board, plain), board.settings),
                       'effective_settings': asdict(board.settings)}), flush=True)
     board = make()
-    board.settings = replace(board.settings, place_search_wire=mode)
     plan, production = resolve_measure(board)
-    print(json.dumps({'type': 'resolve', 'fixture': label, 'search': board.settings.place_search_wire,
+    print(json.dumps({'type': 'resolve', 'fixture': label, 'search': 'mst',
                       'instrumented': True, **production,
                       'score': score.total(score.plan_measures(board, plan), board.settings),
                       'effective_settings': asdict(board.settings)}), flush=True)
@@ -458,7 +456,7 @@ def main(argv=None):
     parser.add_argument('--items', type=int, default=0, help='limit per fixture, zero means all')
     parser.add_argument('--candidates', type=int, default=2000)
     parser.add_argument('--repeats', type=int, default=3)
-    parser.add_argument('--search', choices=('clique', 'mst', 'both'), default='both')
+    parser.add_argument('--search', choices=('mst',), default='mst')
     parser.add_argument('--core', action='store_true', help='also time actual generated-core search')
     parser.add_argument('--core-fixed', action='store_true', help='also measure written-core fixed poses separately')
     parser.add_argument('--no-modules', action='store_true', help='measure no bench module (only --core or --board)')
@@ -477,7 +475,7 @@ def main(argv=None):
     with realboard():
         from placemat import geometry
         from placemat.kicad.read import read_board
-        if geometry._native is None or not hasattr(geometry._native.NativeScoring, 'evaluate'):
+        if geometry._native is None or not hasattr(geometry._native, 'NativeDeltaScoring'):
             parser.error('build native timing entry point before running')
         native_path = pathlib.Path(importlib.import_module('placemat_native.placemat_native').__file__)
         inputs = [f for p in paths for f in p.parent.glob('*') if f.is_file()]
@@ -488,10 +486,10 @@ def main(argv=None):
         before = runtime_identity(inputs, native_path)
         print(json.dumps({'type': 'provenance_start', 'identity': before,
                           'candidates': args.candidates, 'repeats': args.repeats,
-                          'timing': 'complete one-boundary calls; old inspection validates inputs and borrows mirrors'}), flush=True)
+                          'timing': 'complete one-boundary calls; historical comparator is Python-only; the production one-score path includes native setup'}), flush=True)
         for path in paths:
             g = read_board(path)
-            for mode in ('clique', 'mst') if args.search == 'both' else (args.search,):
+            for mode in (args.search,):
                 make = bench.ModuleBoard(g, {}, bench._planes(g), bench._size(g, False))
                 rows.extend(run_fixture(bench._name(path), make, args, mode))
         if args.core or args.core_fixed:
@@ -506,19 +504,19 @@ def main(argv=None):
             if args.core_fixed:
                 cases.append(('written-core-fixed-poses', core_make(written, True)))
             for label, make in cases:
-                for mode in ('clique', 'mst') if args.search == 'both' else (args.search,):
+                for mode in (args.search,):
                     rows.extend(run_fixture(label, make, args, mode))
         for script in args.board:
             make, cfg = script_board(script)
             from placemat import settings
             with settings.bind(cfg):
-                for mode in ('clique', 'mst') if args.search == 'both' else (args.search,):
+                for mode in (args.search,):
                     rows.extend(run_fixture(pathlib.Path(script).parent.name, make, args, mode))
         after = runtime_identity(inputs, native_path)
         print(json.dumps({'type': 'provenance_end', 'identity': after, 'unchanged': before == after}), flush=True)
         if before != after:
             raise RuntimeError('runtime or input bytes changed during timing; results are uncertified')
-    for mode in ('clique', 'mst'):
+    for mode in ('mst',):
         for kind in ('part', 'cell'):
             found = [r for r in rows if r['kind'] == kind and r['legal'] and r['measurement_board_search'] == mode]
             if found:

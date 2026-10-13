@@ -16,12 +16,12 @@ def test_nudge_corpus_has_exact_count_four_turns_and_bounded_offsets():
     assert all(p.rotation == rotations[turn] for p, turn in rows)
 
 
-def test_old_native_inspection_matches_exact_python_score_and_refuses_bad_candidates():
+def test_common_native_inspection_matches_exact_python_score_and_refuses_bad_candidates():
     from placemat import geometry
-    from placemat.layout import Scorer
+    from fixtures.legacy_pull_score import Scorer
     from placemat.values import Location, Part
     from tests.test_score_measures import _two_part_board
-    if geometry._native is None or not hasattr(geometry._native.NativeScoring, 'evaluate'):
+    if geometry._native is None or not hasattr(geometry._native, 'NativeDeltaScoring'):
         pytest.skip('native timing entry point unavailable')
     board = _two_part_board()
     board.place(Part('u1'), at=Location(10, 10))
@@ -31,7 +31,8 @@ def test_old_native_inspection_matches_exact_python_score_and_refuses_bad_candid
     original = plan.placement('c1')
     occ.lift({'C1'})
     try:
-        scorer = Scorer(board.settings, item, occ, board._targets(item, occ, set(occ.items) - occ.pending), False)
+        from placemat.score_search import MSTScorer
+        scorer = MSTScorer(board, occ, item, plan=plan, prune=False)
         native = scorer.native([original.rotation], original.face)
         assert native is not None
         cost, walls = native.evaluate(original.location.x, original.location.y, 0)
@@ -51,7 +52,7 @@ def test_timing_rotated_cell_restores_geometry_copper_and_score():
     from placemat.layout import Board
     from placemat.values import Cell, Location
     from tests.test_cell_drops import _geom
-    if geometry._native is None or not hasattr(geometry._native.NativeScoring, 'evaluate'):
+    if geometry._native is None or not hasattr(geometry._native, 'NativeDeltaScoring'):
         pytest.skip('native timing entry point unavailable')
     b = Board(_geom(), keep_going=True)
     b.rect(width=80, height=80)
@@ -67,7 +68,8 @@ def test_timing_rotated_cell_restores_geometry_copper_and_score():
 
 def test_actual_resolve_timing_records_commits_and_restores_observers():
     from fixtures.score_speed import resolve_measure
-    from placemat.layout import Board, Scorer
+    from placemat.layout import Board
+    from fixtures.legacy_pull_score import Scorer
     from placemat.occupancy import Occupancy, NativeSweeper
     from placemat.score_search import MSTScorer
     from placemat.values import Location, Near, Part
@@ -76,7 +78,7 @@ def test_actual_resolve_timing_records_commits_and_restores_observers():
     methods = (Occupancy.commit, NativeSweeper.run, Board._scorer, Scorer.native, MSTScorer.native)
     for mode in ('clique', 'mst'):
         board = _two_part_board()
-        board.settings = replace(board.settings, place_search_wire=mode, cleanup_enabled=False)
+        board.settings = replace(board.settings, cleanup_enabled=False)
         board.place(Part('u1'), at=Location(10, 10))
         board.place(Part('c1'), at=Near(Location(20, 20)), radius=0.4, rotations=(0,))
         plan, stats = resolve_measure(board)
@@ -89,7 +91,8 @@ def test_actual_resolve_timing_records_commits_and_restores_observers():
 
 def test_failed_resolve_timing_restores_all_observers(monkeypatch):
     from fixtures.score_speed import resolve_measure
-    from placemat.layout import Board, Scorer
+    from placemat.layout import Board
+    from fixtures.legacy_pull_score import Scorer
     from placemat.occupancy import Occupancy, NativeSweeper
     from placemat.score_search import MSTScorer
     from placemat.values import Location, Part
@@ -131,7 +134,7 @@ def test_paired_resolve_timing_uses_fresh_boards_and_labels_nudge_origin(capsys)
 def test_first_after_setup_precedes_warm_corpus_without_extra_cold_calls(monkeypatch):
     import fixtures.score_speed as speed
     from placemat import geometry
-    from placemat.layout import Scorer
+    from fixtures.legacy_pull_score import Scorer
     from placemat.score_search import MSTScorer
     from placemat.values import Location, Part
     from tests.test_score_measures import _two_part_board
@@ -158,7 +161,11 @@ def test_first_after_setup_precedes_warm_corpus_without_extra_cold_calls(monkeyp
                     return getattr(value, attribute)
             return Proxy()
         monkeypatch.setattr(cls, 'native', native)
-    instrument_native(Scorer, 'old')
+    old_call = Scorer.__call__
+    def historical_call(self, *args, **kwargs):
+        events.append(('call', 'old'))
+        return old_call(self, *args, **kwargs)
+    monkeypatch.setattr(Scorer, '__call__', historical_call)
     instrument_native(MSTScorer, 'complete')
     original_timed = speed.timed
     def timed(call, rows, repeats):

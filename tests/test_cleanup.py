@@ -1,10 +1,19 @@
 """The cleanup pass on its own: moves and swaps that lower wire and link cost."""
-from placemat.cleanup import cleanup
-from placemat.layout import Link
+from placemat.cleanup import cleanup as _cleanup
+from placemat.layout import Board, Link, Plan
 from placemat.occupancy import Occupancy
 from placemat.placement import Placement
 from placemat.values import Face, Location
 from tests.fixtures import board_geometry, footprint
+
+
+def cleanup(occ, movable, pins, links, *args, **kwargs):
+    """Exercise the released common objective on the same committed physical fixture."""
+    from placemat.score_search import MSTScorer
+    board = Board(occ.geometry, settings=occ.settings)
+    plan = Plan(occ.geometry, occ, links=list(links))
+    kwargs['one_score'] = lambda fp: MSTScorer(board, occ, fp, plan=plan, prune=True)
+    return _cleanup(occ, movable, pins, links, *args, **kwargs)
 
 
 def _occ(fps, at, width=60, height=30):

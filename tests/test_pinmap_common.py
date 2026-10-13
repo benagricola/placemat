@@ -77,7 +77,7 @@ def test_fixed_copper_is_not_retagged_to_make_remap_safe():
     assert any(shape.net == 'A' for shape in mapped.copper)
 
 
-@pytest.mark.parametrize('key,value', [('score_crossing', 50.0), ('place_escape_depth', 3.0)])
+@pytest.mark.parametrize('key,value', [('score_crossing', 50.0), ('score_escape_depth', 3.0)])
 def test_effective_settings_bound_to_detached_board_and_occupancy(key, value):
     board, plan, inp, group = scene()
     effective = replace(board.settings, **{key: value})

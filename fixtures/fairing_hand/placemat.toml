@@ -6,7 +6,6 @@ envelope = "physical"
 # Escape corridors 1.5 mm out from each pad: of the depths tried, the one that
 # routes both the MCU cell (100%) and the core (84.2%) best on a full route
 # (tuning sweep, 2026-09-24).
-escape_depth = 1.5
 
 # Preserve routed endpoints in fixed blocks. Cleanup currently moves block
 # satellites after fixed copper is planned (reported to placemat).
@@ -28,6 +27,7 @@ courtyards_overlap = "ignore"
 # Crossings weigh twice the default in the search and the ranking: with
 # escape_depth 1.5 it routed best of the 25 settings tried (2026-09-24).
 [score]
+escape_depth = 1.5
 crossing = 8.0
 
 # The rise the current-path widths are sized for: 10 C, IPC-2221's usual

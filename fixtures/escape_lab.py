@@ -295,7 +295,7 @@ def placemat_view(path: Path, depth: float) -> dict:
     from placemat.settings import Settings
     from placemat.values import Net, Part
     g = read_board(path)
-    cfg = dataclasses.replace(Settings(), cleanup_enabled=False, place_escape_depth=depth)
+    cfg = dataclasses.replace(Settings(), cleanup_enabled=False, score_escape_depth=depth)
     b = Board(g, edge_margin=0.3, settings=cfg, keep_going=True)
     for fp in g.footprints:
         b.place(Part(fp.inst), at=fp.location, rotation=fp.rotation)

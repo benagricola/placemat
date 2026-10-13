@@ -1,7 +1,6 @@
 # The search and the report's escape depth are one, as a board's escape_depth sets them.
 [place]
 envelope = "physical"
-escape_depth = 1.5
 
 [cleanup]
 enabled = false
@@ -12,3 +11,6 @@ real_kinds = ["clearance", "shorting_items", "track_width", "annular_width",
 
 [drc.severities]
 courtyards_overlap = "ignore"
+
+[score]
+escape_depth = 1.5

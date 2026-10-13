@@ -114,7 +114,14 @@ def _unconnected(occ, ref: str, number: str, net: str) -> bool:
 def _planned(occ, ref: str, number: str) -> bool:
     """Whether the script's planned copper not yet laid (its declared tracks and vias, `Occupancy.planned_joins`) will
     join the pad at the pad: its way out is made, as it is once that copper is laid (D28)."""
-    return (ref, number) in occ.planned_joins
+    if (ref, number) not in occ.planned_joins:
+        return False
+    spans = occ.planned_join_layers.get((ref, number))
+    if spans is None:  # explicitly supplied legacy/test promise without a layer restriction
+        return True
+    layers = {layer for shape in occ.items[ref].shapes
+              if shape.kind in ('pad', 'through') and shape.label == number for layer in shape.layers}
+    return any(span is None or layers.intersection(span) for span in spans)
 
 
 def pad_corridors(occ, ref: str, pads: dict, rotation: float, depth: float) -> list:
@@ -479,7 +486,7 @@ def _pads_of(shapes, ref) -> dict:
 def corridors(occ, ref: str, depth: float | None = None) -> list:
     """A placed part's corridors where it stands."""
     g = occ.items[ref]
-    depth = occ.settings.place_escape_depth if depth is None else depth
+    depth = occ.settings.score_escape_depth if depth is None else depth
     return pad_corridors(occ, ref, _pads_of(g.shapes, ref), g.reference.rotation, depth)
 
 
@@ -525,7 +532,7 @@ class Escapes:
 
     def __init__(self, occ, mirror: bool = True, depth: float | None = None, corridors: bool = True):
         self.occ = occ
-        self.depth = occ.settings.place_escape_depth if depth is None else depth
+        self.depth = occ.settings.score_escape_depth if depth is None else depth
         # Without corridors the index holds only the blockers and the lanes: what the surface judgement, its
         # supplemental lane and hand-off checks and the findings read. `confirmed`, `count` and `closed` need them.
         self.corridors = corridors
@@ -1608,7 +1615,7 @@ class _BaselineMemo:
 
     def sync(self, occ, native) -> None:
         key = (occ.settings, occ.geometry, occ.rules, frozenset(occ.quiet_nets), occ.board_box,
-               occ.settings.score_escape_depth, bool(native), frozenset(occ.planned_joins))
+               occ.settings.score_escape_depth, bool(native), frozenset(occ.planned_joins), frozenset(occ.planned_join_layers.items()))
         # The board as a verdict reads it: the placed items' shapes, the planned copper and vias whose owner is not
         # lifted (`search_near`, the blocker grid), and every rule area that bans vias (`_bans`, `extra_walls`). A lifted
         # cell's copper stays in `occ.copper` but is read by no verdict, so it is not on the board here either: when the
@@ -1753,7 +1760,7 @@ def path_out(occ, ref: str, number: str, depth: float | None = None, toward=None
     mostly empty): a cell is blocked by a track's own width and clearance, and the window is judged cell by cell as the
     search reaches it. `via_exit` off: a spot a via fits at is no way out, only a track reaching the window's edge is.
     `window` is the window itself, in place of the one `depth` round the pad: a module's frame, whose edge a lane reaches."""
-    depth = occ.settings.place_escape_depth if depth is None else depth
+    depth = occ.settings.score_escape_depth if depth is None else depth
     g = occ.items[ref]
     mine = [s for s in g.shapes if s.kind in ("pad", "through") and s.owner == ref and s.label == number]
     if not mine:

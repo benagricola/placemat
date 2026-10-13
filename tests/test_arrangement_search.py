@@ -5,30 +5,25 @@ import pytest
 from placemat import arrangement_note as N
 from placemat.arranged_geometry import attach
 from placemat.layout import Board
-from placemat.settings import Settings as _Settings
+from placemat.settings import Settings
 from placemat.values import Cell, Location, Near, Part
 from tests.arrangement_support import OBSTACLE, east_doc, stamped_geometry, with_arrangement
 from tests.fixtures import unturned_findings
 
 
-def Settings():
-    """These tests pin the pull estimate (`place.search_wire` "clique"): their unscored cases ("nothing to score") and
-    margins were written for it, and the one-score search scores every candidate. Task 16 removes the pull estimate and
-    revisits them."""
-    return dataclasses.replace(_Settings(), place_search_wire="clique")
-
-
 NEAR = dict(radius=8.0, step=0.5)
 
 
-def board(partner=None, settings=None, doc=None, obstacle=None, geometry=None):
-    g = geometry or with_arrangement(stamped_geometry(partner=partner, obstacle=obstacle), doc)
+def board(partner=None, settings=None, doc=None, obstacle=None, geometry=None, out_partner=None):
+    g = geometry or with_arrangement(stamped_geometry(partner=partner, obstacle=obstacle, out_partner=out_partner), doc)
     b = Board(g, edge_margin=0.0, keep_going=True, settings=settings or Settings())
     b.rect(width=80, height=60)
     if obstacle is not None:
         b.place(Part("obst"), at=Location(obstacle[0], obstacle[1]))
     if partner is not None:
         b.place(Part("r8"), at=Location(*partner))
+    if out_partner is not None:
+        b.place(Part("r10"), at=Location(*out_partner))
     return b
 
 
@@ -50,10 +45,24 @@ def test_with_the_default_at_least_as_good_the_cell_stays_default():
     assert run((18.0, 30.0)).placement("mod").arrangement == ""             # the pull is west: the module's own layout has VIN west
 
 
-def test_with_no_pulls_the_cell_takes_the_default_and_scans_nothing_else():
-    plan = run(None)
+def zero_objective_board(**kwargs):
+    """No physical net pull or optional score term: every legal candidate has the same common objective."""
+    cfg = dataclasses.replace(Settings(), **{f.name: 0.0 for f in dataclasses.fields(Settings())
+                                            if f.name.startswith("score_")})
+    b = board(settings=cfg, **kwargs)
+    for net in b.geometry.nets:
+        b.free_net(net)
+    return b
+
+
+def test_with_a_zero_objective_the_default_wins_the_legal_tie():
+    b = zero_objective_board()
+    b.place(Cell("mod"), at=Near(Location(40.0, 30.0), **NEAR))
+    plan = b.resolve()
     assert plan.placement("mod").arrangement == ""
-    assert not [n for n in plan.step("mod").notes if n["kind"] == "arrangement"]       # one scan: nothing to tell
+    note = next(n for n in plan.step("mod").notes if n["kind"] == "arrangement")
+    assert all(t["score"] == 0.0 for t in note["tried"])
+    _consistent(note)
 
 
 def test_the_cost_flips_a_close_call():
@@ -157,7 +166,9 @@ def test_a_default_that_stands_is_said_as_the_lowest_of_those_tried():
     from placemat import step_text
     note = next(n for n in run((18.0, 30.0)).step("mod").notes if n["kind"] == "arrangement")
     beaten = next(t for t in note["tried"] if t["id"] == "c_in.east")
-    assert note["id"] == "default" and beaten == {"id": "c_in.east", "score": None, "legal": True, "beaten": True}
+    assert note["id"] == "default" and beaten["legal"]
+    assert beaten["score"] > note["score"]
+    _consistent(note)
     assert step_text.render(note) == "arrangement default: %.2f and 0.00 for it, the lowest of it and c_in.east" % note["score"]
 
 
@@ -568,24 +579,26 @@ def test_each_form_with_one_freedom_lays_the_arrangement_it_takes(form, ids):
     assert p is not None and p.arrangement == ("" if ids is None else "c_in.east")
 
 
-def test_a_point_with_turns_and_nothing_to_score_keeps_the_default_and_says_nothing_of_arrangements():
-    b = board()
+def test_a_point_with_turns_and_a_zero_objective_keeps_the_default():
+    b = zero_objective_board()
     b.place(Cell("mod"), at=Location(45.0, 30.0), rotations=(0, 90))
     step = b.resolve().step("mod")
     assert step.placement.arrangement == ""
-    assert not [n for n in step.notes if n["kind"] == "arrangement"] and "arrangement" not in next(
-        n for n in step.notes if n["kind"] == "turned")
+    note = next(n for n in step.notes if n["kind"] == "arrangement")
+    assert all(t["score"] == 0.0 for t in note["tried"])
+    assert "arrangement" not in next(n for n in step.notes if n["kind"] == "turned")
+    _consistent(note)
 
 
-def test_a_point_with_turns_and_nothing_to_score_takes_the_first_arrangement_with_a_legal_turn():
-    b = board(obstacle=OBSTACLE)
+def test_a_point_with_turns_and_a_zero_objective_takes_the_first_legal_arrangement():
+    b = zero_objective_board(obstacle=OBSTACLE)
     b.place(Cell("mod"), at=Location(40.0, 30.0), rotations=(0,))
     step = b.resolve().step("mod")
     assert step.placement.arrangement == "c_in.east"
     note = next(n for n in step.notes if n["kind"] == "arrangement")
     assert note == {"kind": "arrangement", "id": "c_in.east", "tried": [{"id": "default", "score": None, "legal": False},
-                                                                         {"id": "c_in.east", "score": None, "legal": True}],
-                    "default_blame": [{"form": "counts", "counts": [["courtyard", 1]]}]}
+                                                                         {"id": "c_in.east", "score": 0.0, "legal": True}],
+                    "score": 0.0, "cost": 0.0, "default_blame": [{"form": "counts", "counts": [["courtyard", 1]]}]}
 
 
 # ------------------------------------------------------------------ fix round 1: what the notes of slides and points say
@@ -654,7 +667,7 @@ from placemat.values import Beside, Centre, PadRef, X, Y  # noqa: E402
 
 def test_a_rider_is_judged_against_the_arranged_cell_at_each_arrangements_scan():
     """A part placed Beside the cell rides it: it is judged with the cell at each candidate of each arrangement's scan."""
-    b = board(partner=(60.0, 30.0))
+    b = board(partner=(60.0, 30.0), out_partner=(18.0, 30.0))
     b.place(Cell("mod"), at=Near(Location(40.0, 30.0), **NEAR))
     b.place(Part("r9"), at=Beside(Cell("mod"), Edge.EAST))
     plan = b.resolve()
@@ -675,7 +688,7 @@ def far_doc():
 def test_a_rider_beside_an_arranged_cell_is_laid_beside_the_arrangements_edge():
     """The rider is laid against the cell as the arrangement stands it, in the search and when it commits: beside c_in.far's east
     edge, clear of the c_in it moved there."""
-    b = board(partner=(70.0, 30.0), doc=far_doc())
+    b = board(partner=(70.0, 30.0), out_partner=(18.0, 30.0), doc=far_doc())
     b.place(Cell("mod"), at=Near(Location(40.0, 30.0), **NEAR))
     b.place(Part("r9"), at=Beside(Cell("mod"), Edge.EAST))
     plan = b.resolve()
@@ -773,7 +786,8 @@ def test_a_carried_via_of_an_arrangement_gives_way_where_the_cell_stands_in_it()
 def solved_board(cleanup):
     """`mod` and a loose r9 both searched with no place given, the global solve on: the solve seeds both, the cell's scan chooses
     c_in.east, and (with `cleanup`) the cleanup pass moves r9."""
-    b = board(partner=(60.0, 30.0), settings=dataclasses.replace(Settings(), solve_enabled=True, cleanup_enabled=cleanup))
+    b = board(partner=(60.0, 30.0), settings=dataclasses.replace(Settings(), solve_enabled=True, cleanup_enabled=cleanup),
+              out_partner=(18.0, 30.0))
     b.place(Cell("mod"))
     b.place(Part("r9"))
     return b.resolve()
@@ -867,23 +881,26 @@ def test_riders_alone_in_every_arrangement_say_each_arrangements_refusals():
 
 
 # ------------------------------------------------------------------ the margin a non-default arrangement must beat the default by
-# With the partner east at (60, 30), c_in.east scores 4.15 below the default, both free (Near) and on a point.
+# With the VIN partner east, the complete objective gives the alternative a gain between 2 and 3 mm.
+# It includes the internal VIN tree and fitted area, rather than the retired external-pull clique cost.
 def margin(mm):
     return dataclasses.replace(Settings(), place_arrangement_margin=mm)
 
 
 def test_an_arrangement_better_by_the_margin_or_more_is_taken():
-    assert run((60.0, 30.0), margin(4.0)).placement("mod").arrangement == "c_in.east"
+    assert run((60.0, 30.0), margin(2.0)).placement("mod").arrangement == "c_in.east"
 
 
 def test_an_arrangement_better_by_less_than_the_margin_leaves_the_default_and_the_note_says_so():
     from placemat import step_text
-    plan = run((60.0, 30.0), margin(4.5))
+    plan = run((60.0, 30.0), margin(3.0))
     assert plan.placement("mod").arrangement == ""
     note = next(n for n in plan.step("mod").notes if n["kind"] == "arrangement")
-    assert note["id"] == "default" and note["within"] == {"id": "c_in.east", "by": pytest.approx(4.15, abs=0.01), "margin": 4.5}
+    assert note["id"] == "default" and note["within"] == {"id": "c_in.east", "by": pytest.approx(note["default_score"] - next(t["score"] for t in note["tried"] if t["id"] == "c_in.east"), abs=0.001), "margin": 3.0}
     _consistent(note)
-    assert step_text.RENDER["arrangement"](note).endswith("; c_in.east 4.15 mm better, within the 4.50 mm margin; the default stands")
+    assert 2.0 < note["within"]["by"] < 3.0
+    assert step_text.RENDER["arrangement"](note).endswith(
+        "; c_in.east %.2f mm better, within the 3.00 mm margin; the default stands" % note["within"]["by"])
 
 
 def test_the_margin_does_not_apply_when_the_default_has_no_legal_spot():
@@ -902,11 +919,64 @@ def test_a_point_with_turns_takes_an_arrangement_only_by_the_margin():
         b = board(partner=(60.0, 30.0), settings=margin(mm))
         b.place(Cell("mod"), at=Location(45.0, 30.0), rotations=(0,))
         return b.resolve()
-    assert point(4.0).placement("mod").arrangement == "c_in.east"
-    plan = point(4.5)
+    assert point(2.0).placement("mod").arrangement == "c_in.east"
+    plan = point(3.0)
     assert plan.placement("mod").arrangement == ""
     note = next(n for n in plan.step("mod").notes if n["kind"] == "arrangement")
-    assert note["id"] == "default" and note["within"]["id"] == "c_in.east" and note["within"]["margin"] == 4.5
+    assert note["id"] == "default" and note["within"]["id"] == "c_in.east" and note["within"]["margin"] == 3.0
     _consistent(note)
     turned = next(n for n in plan.step("mod").notes if n["kind"] == "turned")
     assert turned.get("arrangement") is None
+
+
+@pytest.mark.parametrize("point", [False, True])
+def test_arrangement_scan_scores_match_the_whole_board_common_objective(monkeypatch, point):
+    """Independently price each selected candidate's complete board, including internal links and fitted area."""
+    from placemat import layout, score
+    from placemat.board_geometry import CellGeom
+    real = layout.scan
+    seen = {}
+
+    def observed(occ, item, hint, *args, **kwargs):
+        scorer = kwargs.get("score")
+        result = real(occ, item, hint, *args, **kwargs)
+        if isinstance(item, CellGeom) and item.name == "mod" and result.chosen is not None:
+            delta = scorer.delta
+            before = score.whole(delta.board, occ, delta.plan)
+            view, _, _ = delta._view(result.chosen)
+            after = score.whole(delta.board, view, delta.plan)
+            expected = sum(after[k] - before[k] for k in after)
+            assert result.score == pytest.approx(expected, abs=1e-7)
+            seen[item.arrangement or "default"] = expected
+        return result
+
+    if point:
+        from placemat.score_search import MSTScorer
+        original_score = MSTScorer.__call__
+
+        def observed_point(scorer, placement):
+            result = original_score(scorer, placement)
+            if isinstance(scorer.delta.item, CellGeom) and scorer.delta.item.name == "mod":
+                delta = scorer.delta
+                before = score.whole(delta.board, delta.occ, delta.plan)
+                view, _, _ = delta._view(placement)
+                after = score.whole(delta.board, view, delta.plan)
+                expected = sum(after[k] - before[k] for k in after)
+                assert result[1] == pytest.approx(expected, abs=1e-7)
+                seen[delta.item.arrangement or "default"] = expected
+            return result
+
+        monkeypatch.setattr(MSTScorer, "__call__", observed_point)
+
+    monkeypatch.setattr(layout, "scan", observed)
+    b = board(partner=(60.0, 30.0), settings=margin(3.0))
+    if point:
+        b.place(Cell("mod"), at=Location(45.0, 30.0), rotations=(0,))
+    else:
+        b.place(Cell("mod"), at=Near(Location(40.0, 30.0), **NEAR))
+    plan = b.resolve()
+    note = next(n for n in plan.step("mod").notes if n["kind"] == "arrangement")
+    gain = seen["default"] - seen["c_in.east"]
+    assert 2.0 < gain < 3.0
+    assert note["within"]["by"] == pytest.approx(gain, abs=0.001)
+    assert note["id"] == "default"

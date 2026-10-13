@@ -1494,4 +1494,3 @@ def one_line_per_connection(records, judged, paths) -> list:
             return all(any(on_path(st, path) for _, path in mine) for st in r["stretches"])
         return False
     return [r for r in records if not covered(r)]
-

@@ -132,7 +132,6 @@ def test_partial_cost_is_the_full_cost_less_the_escape_grades(crossing):
 
 def test_escape_spots_is_a_count_of_at_least_one():
     assert S.Settings().place_escape_spots == 8
-    assert S.Settings().place_search_wire == 'mst'
     with pytest.raises(S.SettingsError):
         S._validate('place_escape_spots', 0, 'test')
     S._validate('place_escape_spots', 1, 'test')
@@ -184,7 +183,7 @@ def test_give_way_resolved_only_when_the_walk_reaches_it(monkeypatch, native):
     resolved = {}
     for mode in ('walk', 'draw'):
         board = _moving_board((39.1, 42.2), True, (19.5, 23.0))
-        board.settings = replace(board.settings, place_search_wire='mst', cleanup_enabled=False, place_escape_spots=1)
+        board.settings = replace(board.settings, cleanup_enabled=False, place_escape_spots=1)
         plan = board.resolve()
         occ = Occupancy(board.geometry, 0.5, settings=board.settings)
         item = board.geometry.cells['m']

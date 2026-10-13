@@ -20,7 +20,7 @@ def walled():
     from placemat.kicad.read import read_board
     from placemat.occupancy import Occupancy
     from placemat.settings import Settings
-    occ = Occupancy(read_board(str(BOARD)), 1.0, settings=dataclasses.replace(Settings(), place_escape_depth=1.5))
+    occ = Occupancy(read_board(str(BOARD)), 1.0, settings=dataclasses.replace(Settings(), score_escape_depth=1.5))
     return Escapes(occ, mirror=False, depth=1.5).confirmed()[1]
 
 
@@ -42,7 +42,7 @@ def test_with_a_via_counted_as_a_way_out_only_the_stub_with_no_via_spot_is_walle
     from placemat.kicad.read import read_board
     from placemat.occupancy import Occupancy
     from placemat.settings import Settings
-    st = dc.replace(Settings(), place_escape_depth=1.5, place_escape_lane_via_exit=True)
+    st = dc.replace(Settings(), score_escape_depth=1.5, place_escape_lane_via_exit=True)
     occ = Occupancy(read_board(str(BOARD)), 1.0, settings=st)
     fan = {w[1] for w in Escapes(occ, mirror=False, depth=1.5).confirmed()[1] if w[0] == "U21"}
     assert {"13"} <= fan and not fan & {"9", "10", "11", "12", "14"}

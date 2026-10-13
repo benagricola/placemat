@@ -147,3 +147,83 @@ def test_cleanup_pays_no_run_score_to_unwall_a_pad_planned_copper_will_join(plan
         # fixture: with the pad counted walled, the move that unwalls it is taken at a higher run score
         assert occ.items["N1"].reference != spot and after > before
         assert _walled(occ) == []
+
+
+@pytest.mark.parametrize("layer,joined", [(CopperLayer.F, True), (CopperLayer.B, False)])
+def test_a_planned_track_on_the_other_face_does_not_unwall_a_front_pad(monkeypatch, layer, joined):
+    board = _board(False)
+    intent = board.track(Net("GND"), [PadRef(Part("u9"), "GND"), PadRef(Part("n1"), "GND")], layer=layer)
+    assert (U9 in intent.joins) is joined
+    seen = {}
+    real = Board._plan_copper
+
+    def plan_copper(self, occ, ctx, intents, plan, progress, slot=None):
+        if slot == "fixed":
+            seen["before_laying"] = _walled(occ)
+        return real(self, occ, ctx, intents, plan, progress, slot=slot)
+
+    monkeypatch.setattr(Board, "_plan_copper", plan_copper)
+    plan = board.resolve()
+    expected = [] if joined else [U9]
+    assert seen["before_laying"] == expected
+    assert _walled(plan.occupancy) == expected
+    assert plan.occupancy.planned_joins == frozenset()
+
+
+def test_a_through_pad_can_be_joined_by_a_planned_back_track():
+    fps = _parts()
+    fp = fps[0]
+    fps[0] = dataclasses.replace(fp, pads=tuple(
+        dataclasses.replace(p, layers=frozenset((CopperLayer.F, CopperLayer.B)), through=True)
+        for p in fp.pads))
+    board = Board(board_geometry(fps, width=60, height=60), settings=Settings())
+    intent = board.track(Net("GND"), [PadRef(Part("u9"), "GND"), PadRef(Part("n1"), "GND")], layer=CopperLayer.B)
+    assert U9 in intent.joins
+    assert ("N1", "GND") not in intent.joins
+
+
+@pytest.mark.parametrize("face,joined", [(Face.FRONT, True), (Face.BACK, False)])
+def test_a_planned_front_track_does_not_join_a_pad_flipped_to_the_back(face, joined):
+    from placemat.placement import Placement
+    from placemat.values import Location
+    board = _board(False)
+    intent = board.track(Net("GND"), [PadRef(Part("u9"), "GND"), PadRef(Part("n1"), "GND")], layer=F)
+    plan = board.resolve()
+    occ = plan.occupancy
+    board._set_planned_joins(occ, [intent])
+    fp = _fp(board, "U9")
+    original = occ.items["U9"].reference
+    try:
+        occ.lift({"U9"})
+        placed, _ = occ.placed_geometries(fp, Placement(Location(30, 30), 37, face))
+        field, _ = prepared_escape._field(occ, "U9", placed["U9"])
+        assert next(p[3] for p in field if p[0] == "GND") is joined
+        occ.commit(fp, Placement(Location(30, 30), 37, face))
+        assert escapes._planned(occ, "U9", "GND") is joined
+    finally:
+        occ.lift({"U9"})
+        occ.commit(fp, original)
+        board._set_planned_joins(occ, ())
+
+
+def test_a_through_via_span_keeps_its_planned_join_when_the_pad_flips():
+    from placemat.placement import Placement
+    from placemat.values import Location
+    board = _board(False)
+    intent = board.via(Net("GND"), PadRef(Part("u9"), "GND"))
+    plan = board.resolve()
+    occ = plan.occupancy
+    board._set_planned_joins(occ, [intent])
+    fp = _fp(board, "U9")
+    original = occ.items["U9"].reference
+    try:
+        occ.lift({"U9"})
+        placed, _ = occ.placed_geometries(fp, Placement(Location(30, 30), 0, Face.BACK))
+        field, _ = prepared_escape._field(occ, "U9", placed["U9"])
+        assert next(p[3] for p in field if p[0] == "GND") is True
+        occ.commit(fp, Placement(Location(30, 30), 0, Face.BACK))
+        assert escapes._planned(occ, "U9", "GND")
+    finally:
+        occ.lift({"U9"})
+        occ.commit(fp, original)
+        board._set_planned_joins(occ, ())

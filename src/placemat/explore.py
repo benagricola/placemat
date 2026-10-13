@@ -1061,7 +1061,8 @@ def _taken(routes: list, measures: dict, cfg, rank=()):
     the earlier seed of a tie; None when every route failed. Named phase priorities precede whole closure within the validity tier."""
     import functools
     from . import score as _score
-    closed = sorted((r for r in routes if not r.get("error")), key=lambda r: r["seed"])
+    closed = sorted((r for r in routes if not r.get("error") and r.get("drc_new") is not None),
+                    key=lambda r: r["seed"])
     if not closed:
         return None
     cfg = _exact(cfg)

@@ -71,8 +71,12 @@ def _field(occ, ref, g):
     (number, net, unconnected, joined by planned copper not yet laid (`escapes._planned`))."""
     pads = _pads_of(g.shapes, ref)
     planned = occ.planned_joins
-    intent = [(number, net, _unconnected(occ, ref, number, net), (ref, number) in planned)
-              for number, (net, _, _) in pads.items()]
+    def joined(number, layers):
+        spans = occ.planned_join_layers.get((ref, number))
+        return (ref, number) in planned and (spans is None or any(
+            span is None or layers.intersection(span) for span in spans))
+    intent = [(number, net, _unconnected(occ, ref, number, net), joined(number, layers))
+              for number, (net, layers, _) in pads.items()]
     radians = math.radians(g.reference.rotation)
     return intent, (g.reference.rotation, math.cos(radians), math.sin(radians))
 

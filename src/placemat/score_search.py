@@ -1,4 +1,4 @@
-"""The one-score search's scorer (`place.search_wire` "mst", the default): the run score's change for a lifted item.
+"""The placement search's common scorer: the run score's change for a lifted item.
 
 Each candidate is scored on every term but the escape grades; the best `place.escape_spots` by that get them
 (D25). Pruning is on proved bounds only (R13).

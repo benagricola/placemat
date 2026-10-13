@@ -6,9 +6,9 @@ from placemat.settings import Settings
 
 
 def routes():
-    return [{"seed": 1, "closure_clean": 0.95, "score": 10.0, "error": None, "phases": {"legs": 0.5, "signals": 0.97}},
-            {"seed": 2, "closure_clean": 0.90, "score": 12.0, "error": None, "phases": {"legs": 1.0, "signals": 0.9}},
-            {"seed": 3, "closure_clean": 0.90, "score": 11.0, "error": None, "phases": {"legs": 1.0, "signals": 0.9}}]
+    return [{"seed": 1, "drc_new": 0, "closure_clean": 0.95, "score": 10.0, "error": None, "phases": {"legs": 0.5, "signals": 0.97}},
+            {"seed": 2, "drc_new": 0, "closure_clean": 0.90, "score": 12.0, "error": None, "phases": {"legs": 1.0, "signals": 0.9}},
+            {"seed": 3, "drc_new": 0, "closure_clean": 0.90, "score": 11.0, "error": None, "phases": {"legs": 1.0, "signals": 0.9}}]
 
 
 def test_without_a_rank_the_board_wide_closure_decides():
@@ -42,3 +42,12 @@ def test_complete_route_quality_precedes_run_score():
         r.update(closure_clean=1.0, vias=2, copper_mm=100.0, segments=10)
     rows[2]["vias"] = 1
     assert _taken(rows, measures(), Settings()) == 3
+
+
+def test_unjudged_route_cannot_be_accepted():
+    rows = routes()
+    rows[0]["drc_new"] = None
+    assert _taken(rows, measures(), Settings()) == 3
+    for row in rows:
+        row["drc_new"] = None
+    assert _taken(rows, measures(), Settings()) is None

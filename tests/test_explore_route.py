@@ -310,3 +310,20 @@ def test_a_search_that_ends_with_nothing_left_to_route_says_nothing_of_it(tmp_pa
     _search(tmp_path, seeds, route_best=False)
     assert not [e for e in events if e["ev"] == "explore_search_done"]
     assert [e for e in events if e["ev"] == "explore"][0]["route"] is False
+
+
+def test_improving_factory_retains_real_common_score_placement_diversity():
+    from placemat import score
+    seeds = eb.improving(3, top=11)
+    scores, placements = [], []
+    for seed in [0, *seeds]:
+        board = eb.make()
+        assert board.settings.cleanup_enabled is False
+        plan = board.resolve(explore=explore.Explore(seed, eb.FOCUS) if seed else None)
+        measured = score.total(score.plan_measures(board, plan), board.settings)
+        assert explore.score(board, plan) == pytest.approx(measured, abs=1e-6)
+        scores.append(measured)
+        placements.append(tuple(plan.placement(key) for key in eb.KEYS))
+    assert all(after < before - 1e-6 for before, after in zip(scores, scores[1:]))
+    assert len(set(placements)) == 4
+    assert eb.make(cleanup_enabled=True).settings.cleanup_enabled is True

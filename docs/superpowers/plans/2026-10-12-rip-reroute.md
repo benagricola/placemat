@@ -146,7 +146,7 @@ reverses them with the spec:
 
 - Create `src/placemat/kicad/rip_reroute.py`: everything new.
 - Modify `src/placemat/kicad/route.py`: `copper_key` and `copper_items` taken out of `routed_copper` (:1164-1184);
-  `_route_board` builds the history (:1368-1470), reads the moved rows into `report.widths` (:1501); 
+  `_route_board` builds the history (:1368-1470), reads the moved rows into `report.widths` (:1501);
   `recheck_final_phases` supersedes outcomes with reroute records (:1230-1262); the kept-result digest to
   `phase-judgement-v10` (:1416); `phase_lines` renders `rip` (:1576-1625).
 - Modify `src/placemat/kicad/phase_run.py`: `PhaseSettings` and `phase_settings` taken out of `route_calls`
