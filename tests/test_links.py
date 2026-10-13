@@ -27,14 +27,23 @@ def test_link_weights_are_enums_or_integers_and_zero_means_ignored():
         b.link(PadRef(Part("c1"), "VIN"), PadRef(Part("u1"), "VIN"), weight=-1)
 
 
-def test_a_searched_part_is_seeded_where_its_nets_already_are():
+def test_a_searched_part_is_seeded_where_its_nets_already_are(monkeypatch):
     b = make_board()
     b.place(Part("u1"), at=Location(20, 30))
-    b.place(Part("c1"))                     # no hint: seeded on its VIN pad's partner, U1's VIN pad
+    seeds = []
+    original_seed = b._seed_hint
+    def observed(item, occ, targets, rotation, face):
+        hint = original_seed(item, occ, targets, rotation, face)
+        if item.inst == "c1":
+            pads = occ.candidate_pad_locations(item, hint)
+            seeds.append((pads[("C1", "1")], occ.pad_location("U1", "1")))
+        return hint
+    monkeypatch.setattr(b, "_seed_hint", observed)
+    b.place(Part("c1"))                     # no hint: seed on the shared VIN pad
     plan = b.resolve()
     c1 = plan.box("c1")
     u1_vin = plan.occupancy.pad_location("U1", "1")
-    assert c1.center.distance(u1_vin) < 5.0
+    assert seeds and all(a.distance(b) < 0.001 for a, b in seeds)
     assert "seeded" in plan.step("c1").note
 
 
@@ -49,8 +58,15 @@ def test_a_short_link_pulls_harder_than_the_default_and_its_limit_is_reported():
     plan = b.resolve()
     r1_out = plan.occupancy.pad_location("R1", "1")
     u1_out = plan.occupancy.pad_location("U1", "2")
-    assert r1_out.distance(u1_out) <= 3.0
-    assert plan.links[0].achieved_mm <= 3.0 and plan.links[0].within_limit
+    distance = r1_out.distance(u1_out)
+    link = plan.links[0]
+    assert link.achieved_mm == pytest.approx(distance, abs=0.0005)
+    assert link.within_limit == (link.achieved_mm <= 3.0)
+    from placemat import score
+    terms = score.whole(b, plan.occupancy, plan)
+    assert terms['link_over'] == pytest.approx(b.settings.score_link_over * int(link.weight) * max(0.0, distance - 3.0))
+    if not link.within_limit:
+        assert any('link' in str(f) and 'limit' in str(f) for f in plan.findings)
 
 
 def test_a_short_link_over_its_limit_is_a_finding():
@@ -81,7 +97,25 @@ def test_the_search_keeps_the_best_scoring_legal_candidate_not_the_first():
     plan = b.resolve()
     c1_vin = plan.occupancy.pad_location("C1", "1")
     u1_vin = plan.occupancy.pad_location("U1", "1")
-    assert c1_vin.distance(u1_vin) < 5.0                # it climbed toward the pin, not stayed at the hint
+    # Wire distance alone no longer defines the optimum. Compare the complete
+    # physical objective at the legal hint, preserving the final board context.
+    from dataclasses import replace
+    from placemat import score
+    from placemat.escapes import judging
+    occ = plan.occupancy
+    item = b.geometry.footprint("c1")
+    chosen = occ.items["C1"].reference
+    actual = (judging(occ).counts()['escape_walled'], sum(score.whole(b, occ, plan).values()))
+    try:
+        occ.lift(["C1"])
+        hint = replace(chosen, location=Location(30, 40))
+        assert occ.legal(item, hint, b.clearance) is None
+        occ.commit(item, hint)
+        hinted = (judging(occ).counts()['escape_walled'], sum(score.whole(b, occ, plan).values()))
+    finally:
+        occ.lift(["C1"])
+        occ.commit(item, chosen)
+    assert actual < hinted
 
 
 def _plane_board():

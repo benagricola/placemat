@@ -1036,7 +1036,7 @@ def _variant(make_board, entries, focus, seed: int, have: dict) -> tuple:
     if seed not in have:
         with _context_of(make_board):
             board = make_board()
-            have[seed] = (board, board.resolve(explore=Explore(seed, frozenset(focus)), lock=entries))
+            have[seed] = (board, board.resolve(reuse=have[0][1].reuse, explore=Explore(seed, frozenset(focus)), lock=entries))
     return have[seed]
 
 

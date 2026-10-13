@@ -87,7 +87,31 @@ def test_a_stamped_cell_joins_the_pad_to_a_plane_drop_by_a_track_so_it_is_not_wa
 def test_the_switch_cells_of_a_real_board_are_not_walled_off_at_their_ground_pins(tmp_path):
     """fixtures/fairing/usb_cells: the source and sink switch cells stamped from a real generation, each with a track from the
     switch's ground pin to its resistor's ground pad, a pad that holds a via to the ground planes (a board's session, 2026-10-02)."""
-    result, _, _ = rm.run(tmp_path, "usbcells", keep_going=True)
+    def captured_scene(_script):
+        # Contact judgement needs the real owned copper, not an unrelated
+        # search of two cells across every face and turn of a 40 mm disc.
+        return '''from placemat import board, Cell, CopperLayer, Net
+from placemat.occupancy import Occupancy
+cells = [board.cell(key) for key in ("usbpd.esd", "usbpd.sink", "usbpd.source")]
+# Plane drawing needs an explicit frame. Enclose the captured absolute
+# poses without translating any of their copper or contact geometry.
+board.rect(width=max(fp.body.x1 for cell in cells for fp in cell.members) + 2,
+           height=max(fp.body.y1 for cell in cells for fp in cell.members) + 2)
+board.plane(Net("GND"), layers=(CopperLayer.IN1, CopperLayer.IN4))
+board.plane(Net("V3V3"), layers=(CopperLayer.IN3,))
+occ = Occupancy(board.geometry)
+for key in ("usbpd.esd", "usbpd.sink", "usbpd.source"):
+    cell = board.cell(key)
+    assert cell.members
+    if key != "usbpd.esd":
+        own = [c for c in board.geometry.copper if c.owner == key and c.net == "GND"]
+        assert any(c.kind == "track" for c in own)
+        assert any(c.kind == "via" for c in own)
+    pose = occ._geometry(cell).reference
+    board.place(Cell(key), at=pose.location, face=pose.face, rotation=pose.rotation)
+'''
+
+    result, _, _ = rm.run(tmp_path, "usbcells", keep_going=True, edit=captured_scene)
     walled = [str(f) for f in json.loads((result.run_dir / "run.json").read_text())["findings"] if "walled off" in str(f)]
     assert not [w for w in walled if "(GND)" in w], walled
 

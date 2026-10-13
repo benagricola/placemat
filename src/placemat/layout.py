@@ -7802,12 +7802,37 @@ class Board:
         self.finish_declarations()
         if self._laid == DEFAULT_SPEC.id:
             self.lay_arrangement(DEFAULT_SPEC)      # a board laid as another arrangement resolves as that one
+        # A focused variant keeps the plain run's final standing, including
+        # cleanup, outside its focus. Workers already supply this reuse snapshot.
+        from . import reuse as _reuse
+        authority = _reuse.context_key(self, self.reuse_extra + _reuse.canonical((
+            list(self._placements()), self._links, lock or (), self.copper_inputs, routes)))
+        if explore is not None and explore.seed and not (
+                (reuse or {}).get("version") == _reuse.VERSION
+                and (reuse or {}).get("explore_baseline_authority") == authority
+                and (reuse or {}).get("explore_baseline_plain") is True):
+            saved = self._snapshot()
+            previous_suppression = getattr(self, "_suppress_suggestion_binding", False)
+            try:
+                self._suppress_suggestion_binding = True
+                baseline = self._resolve(None, None, None, lock, routes, None, None)
+                reuse = baseline.reuse
+                reuse["explore_baseline_authority"] = authority
+                reuse["explore_baseline_plain"] = True
+            finally:
+                self._restore(saved)
+                self._suppress_suggestion_binding = previous_suppression
         from . import channel
         rep = channel.reporter(getattr(self, "_script", None))
         if rep is None:
-            return self._resolve(progress, reuse, explore, lock, routes, on_step, on_begin, partial)
+            plan = self._resolve(progress, reuse, explore, lock, routes, on_step, on_begin, partial)
+            plan.reuse["explore_baseline_authority"] = authority
+            plan.reuse["explore_baseline_plain"] = explore is None or not explore.seed
+            return plan
         on_step, on_begin = rep.hooks(self, on_step, on_begin)
         plan = self._resolve(progress, reuse, explore, lock, routes, on_step, on_begin, partial)
+        plan.reuse["explore_baseline_authority"] = authority
+        plan.reuse["explore_baseline_plain"] = explore is None or not explore.seed
         rep.plan(self, plan)
         return plan
 
@@ -7865,6 +7890,10 @@ class Board:
         self._find_riders()                 # before anything asks what is searched
         # An explore variant (explore.py): seed 0, or none, is the plain placement.
         self._explore = explore if (explore is not None and explore.seed) else None
+        from .reuse import placement_from_json
+        self._explore_standing = ({key: placement_from_json(p) for key, p in
+                                  (reuse or {}).get("explore_standing", {}).items()
+                                  if key not in self._explore.focus} if self._explore is not None else {})
         # Accepted decisions (lock.py): tried first at each locked item's turn.
         self._lock = {e.key: e for e in (lock or ())}
         self._lock_notes = {}
@@ -8134,6 +8163,9 @@ class Board:
             found_from = len(plan.findings)
             if chain["replaying"]:
                 step = self._replay_settle(occ, plan, previous[position], obj)
+                if obj.key in self._explore_standing and obj.kind in ("part", "cell"):
+                    occ.lift([fp.ref for fp in members_of(obj.item)])
+                    step = self._explore_held_step(occ, obj, plan)
                 record["steps"].append(dict(previous[position]))     # a copy: this resolve may record its rooms in it
                 record["reused"] += 1
                 self._step_t0 = None
@@ -8372,8 +8404,15 @@ class Board:
             except Exception:                       # a suggestion is best-effort: no sides measured, the rest still offered
                 pass
         self._late_suggestions = []
-        if self._explore is None:                   # a variant of an explore is scored and compared, never shown or applied
+        if self._explore is None and not getattr(self, "_suppress_suggestion_binding", False):
             suggestions.bind(plan.findings, self)   # each suggestion to the lines of the script it edits
+        from .reuse import placement_to_json
+        from .explore import explorable
+        independent = {i.key for i in self._placements() if isinstance(i, PlaceIntent)
+                       and i.kind in ("part", "cell") and explorable(i) and not i.needs
+                       and i.key not in self._rider_of and i.key not in self._ride_groups}
+        record["explore_standing"] = {s.item: placement_to_json(s.placement) for s in plan.steps
+                                      if s.item in independent}
         plan.seconds = time.perf_counter() - started
         return plan
 
@@ -8701,7 +8740,7 @@ class Board:
         held = self._positioned_against()
         # A locked item keeps its spot, and inside an explore variant a focused
         # item keeps the spot it drew: that spot is what a lock records.
-        kept = set(self._lock_held) | (set(self._explore.focus) if self._explore is not None else set())
+        kept = set(self._lock_held) | (set(self._explore.focus) if self._explore is not None else set()) | set(self._explore_standing)
         out = {}
         for s in plan.steps:
             i = intents.get(s.item)
@@ -8851,7 +8890,7 @@ class Board:
         for i in self._placements():
             if not isinstance(i, PlaceIntent) or not self._solvable(i):
                 continue
-            if i.key in self._rider_of or i.key in self._ride_groups or i.key in self._lock or i.key in focus \
+            if i.key in self._rider_of or i.key in self._ride_groups or i.key in self._lock or i.key in focus or i.key in self._explore_standing \
                     or getattr(i, "pushes", ()):
                 continue
             if {fp.ref for fp in members_of(i.item)} & held:
@@ -10851,6 +10890,20 @@ class Board:
             within = lambda x, y, c=band[0], lo=band[1] - slack, hi=band[2] + slack: lo <= math.hypot(x - c.x, y - c.y) <= hi
         return hint, band, bt, within
 
+    def _explore_held_step(self, occ, i, plan):
+        """Keep an unfocused baseline pose, with normal physical refusal evidence."""
+        p = self._explore_standing[i.key]
+        self._reserve_pushes(occ, plan, i)
+        if p is None:
+            return self._step(i, None, 0.0, unplaced=[{"form": "no_spot"}])
+        i = self._arranged(i, p.arrangement)
+        self._labels_give_way(occ, plan, i.item, p)
+        why = self._firm_judged(occ, i, p, self.clearance)[0]
+        if why:
+            from . import suggest_facts
+            plan.findings.append(self._finding(C.FIXED_PART, dict(suggest_facts.fixed_part(self, i), why=why.to_json())))
+        return self._step(i, p, 0.0, [step_text.record("refused", why=why.to_json())] if why else [])
+
     def _settle(self, occ: Occupancy, i: PlaceIntent, plan: Plan, placed: set = frozenset(),
                 solve: bool = True, look: bool = True) -> Step:
         if i.kind == "block":
@@ -10858,6 +10911,8 @@ class Board:
         i, gone = self._gate(occ, i, plan)
         if gone is not None:
             return gone
+        if i.key in self._explore_standing:
+            return self._explore_held_step(occ, i, plan)
         clr = self.clearance
         push_sources = self._reserve_pushes(occ, plan, i)
         if i.freedom.decided:
