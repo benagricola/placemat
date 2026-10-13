@@ -93,7 +93,8 @@ A unit with no victim is skipped (`no_victim`). A unit with more victims than `[
 Every track, arc and via of each victim net that is router copper on the failing call's output board. Script copper
 on the same net stays, and the reroute may use it. Copper of other nets, pads, zones, fills and graphics are not
 touched. Items are taken off with `board.Delete(item)`, after `group.RemoveItem(item)` when grouped (CLAUDE.md). The
-removal writes a new board (`p<i>_<k>_rip<a>_ripped.kicad_pcb`); the failing call's output is left as it was.
+removal writes a new board (`p<i>_<k>_rip<a>_ripped.kicad_pcb`); the failing call's output is left as it was. A
+restored attempt's files are deleted once its verdict is in, all but its router logs.
 
 Since the failing call laid no copper on a victim, all of the victim's router copper was laid by earlier calls.
 
@@ -111,7 +112,9 @@ The removed connections are of two sorts. Each is rerouted as one `--connections
    of an asked one. These are joins a call made that no phase asks, such as the rest call's joins of a net an earlier
    `current_paths` phase named. Its owner is the first phase whose output board joins its two ends (phase i: the
    failing call's output board). Its widths are the owner's width answer for the net (the receipt's entry for that
-   phase and net); with none, the unit is skipped (`victim_width_unknown`).
+   phase and net); with none, the unit is skipped (`victim_width_unknown`). One with an end that is not a pad
+   cannot be a task: when the failing call's output board joins it (its net has no open item there), the unit is
+   skipped (`victim_end_not_pad`).
 
 Each owner's settings are the ones its own calls used:
 
@@ -226,7 +229,9 @@ Every field is a value or a record; no field is a sentence.
 A kept attempt also changes:
 
 - Phase i's `connections`: the blocked unit's records and phase i's own rerouted records supersede the earlier ones
-  (`phase_run.superseded`).
+  (`phase_run.superseded`), an earlier kept attempt's of the same call included.
+- After a pour call, phase i's `pour_joins` entry for the net is the attempt's `join_pour` record, with
+  `"rip": {"call", "attempt"}`.
 - An earlier phase k's records are not rewritten (its kept result stays as it was routed). The final re-judgement
   (`recheck_final_phases`) judges every obligation on the final board by placemat's measure (S8), so a moved
   connection's standing comes from the board, not from a record.

@@ -4113,10 +4113,33 @@ last phase's board is `router_out.kicad_pcb`, and `routed.kicad_pcb` is made fro
   `width` (mm, its tap's width), `by`}); `tasks` (the
   router's record of each task, as in `connections`); `rejoin`, a record of the same fields, when a later call of
   the phase split the net and it was joined once more; and `groups_final`, its pad groups when the phase was done.
+  When an attempt to move earlier copper (`rip`, below) after the net's call is kept, the record is that attempt's
+  join, with `rip` ({`call`, `attempt`}) naming it.
   An open connection's `outcome` and `evidence` come from the latest task that answered it. The phase line says the
   same: "GND: 3 pads on the pour, 82 of 90 apart tapped (47 vias in a pad, 10 beside), 4 vias in joins of the pour's
   pieces, 1 of 3 groups left joined by a track", and names a net joined again: "; GND split by a later call, joined
   again: ...".
+- `rip`: the phase's attempts to move earlier copper, `{"attempts": [...], "skipped": [...]}`. Each attempt: `call`
+  (the index of the phase's call that left the connection open) and `attempt` (its number in that call); `blocked`
+  (the blocked connections, each {`net`, `from`, `to`, `widths`}); `named` (the nets the router named as blocking,
+  each {`net`, `found_by`: `preexisting` or `static`}); `victims` (the nets whose routed copper was taken off);
+  `not_ripped` (named nets left alone, each {`net`, `reason`}: `own_net`, `no_router_copper` (script copper only),
+  `routed_by_call` (the failing call laid copper on it), `pour_net`, `pair_net`, `excluded`); `removed` (`tracks`,
+  `arcs`, `vias`, `track_mm` taken off); `rerouted` (the router's record of each moved connection routed again, as in
+  `connections`, with `phase` and `index`, the phase whose settings it was routed at, and `asked`, false for a join
+  no phase asks for); `blocked_records` (the router's records of the blocked connections); `kept`; `reason` (null
+  when kept, else the first check that failed: `blocked_not_clean`, `obligation_worse`, `net_open_rose`, `drc_new`,
+  `off_layer`, or the router's `router_failed`, `router_refused`, `router_timeout`); `worse` (each connection of the
+  phases so far that would rank lower: {`phase`, `net`, `from`, `to`, `before`, `after`}, levels `clean`, `joined`,
+  `open`); `open_rose` ({net: [open items before, after]}); `drc_new` (new real DRC errors); `off_layer` (new tracks
+  off their phase's layers); `router` (null, or the failure: `code` and its facts, such as `exit_code` and `log`);
+  `widths` (the `route.width` rows of the rerouted copper); `seconds`. A restored attempt's boards are deleted; its
+  router logs stay. Each skipped unit: `call`, `net`, `named`, `not_ripped` and `reason`: `no_victim` (no named net
+  may move), `too_many_victims` (more than `rip_max_nets`), `victim_width_unknown`, `victim_end_not_pad` (a moved
+  connection, or a join the moved copper made, has an end that is no pad), `blocked_width_unknown`,
+  `blocked_end_not_pad`, `joined_since` (an earlier kept attempt of the call joined it), `tried` (the same victims
+  were restored earlier in the call), `limit` (`rip_attempts` reached) or `stopped` (a router failure ended the call's
+  attempts). The phase's `connections` hold a kept attempt's records in place of the ones they answer again.
 - `final_asked`, `final_closure_clean`, `final_open`: the same obligations as `asked`, judged again on the final
   board, after the last phase and the clean-up, against the same input board's DRC. A short or a narrow join left
   by a later phase shows in the final fields; a fault is not attributed to a phase.
