@@ -68,3 +68,20 @@ def test_victims_are_named_nets_with_router_copper_laid_before_the_call():
     assert skipped == ({"net": "N", "reason": "own_net"}, {"net": "S", "reason": "no_router_copper"},
                        {"net": "L", "reason": "routed_by_call"}, {"net": "P", "reason": "pour_net"},
                        {"net": "D", "reason": "pair_net"}, {"net": "X", "reason": "excluded"})
+
+
+def test_a_phases_settings_are_its_clearances_layers_and_flags(tmp_path, monkeypatch):
+    import types
+    from placemat.kicad import phase_run, net_clearance
+    from placemat.route_phase import parse_phases
+    from placemat.settings import Settings
+    phase = parse_phases(({"name": "legs", "layers": ["F"], "neckdown": False, "router_args": ["--via-cost", "9"]},))[0]
+    sel = types.SimpleNamespace(layers=("F.Cu",))
+    ctx = types.SimpleNamespace(cfg=Settings(), class_clearances={"A": 0.3}, stated_clearances={"B": 0.5}, env={},
+                                geometry=types.SimpleNamespace(default_clearance=0.2), work=tmp_path,
+                                iterations=None, probe=None, quick=True)
+    got = phase_run.phase_settings(ctx, phase, sel, "p0_1_rip0_v0")
+    assert got.layers == ("F.Cu",) and got.clearance_map["A"] == 0.3 and got.clearance_map["B"] == 0.5
+    assert got.clearances_file == tmp_path / "p0_1_rip0_v0_net_clearances.json" and got.clearances_file.exists()
+    assert got.common["neckdown"] is False and got.common["extra_args"] == ("--via-cost", "9")
+    assert got.common["clearances"] == got.clearances_file

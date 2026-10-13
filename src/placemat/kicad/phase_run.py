@@ -1070,28 +1070,47 @@ def route_tasks(ctx, pending, src, stem, layers, common, phase, bus_nets=None) -
     return out
 
 
+@dataclass(frozen=True)
+class PhaseSettings:
+    clearance_map: dict
+    base_clearance: float
+    clearances_file: Path | None
+    common: dict
+    layers: tuple
+
+
+def phase_settings(ctx, phase, sel, stem: str) -> PhaseSettings:
+    """What one phase's calls are routed with: its clearance map (the net classes', the capture's stated clearances
+    and the ceiling from `[route] router_args` plus its own, net_clearance.merged), written to `<stem>_net_clearances.json`
+    when the capture states clearances; its base clearance (route.routing_clearance); its router keywords (neck-down,
+    its own router flags); and its layers. route_calls uses it for the phase, rip and reroute for each owner phase."""
+    from . import net_clearance
+    from .route import routing_clearance
+    args = tuple(ctx.cfg.route_router_args) + tuple(phase.router_args)
+    phase_map = net_clearance.merged(ctx.class_clearances, ctx.stated_clearances, net_clearance.ceiling(args, ctx.env))
+    phase_file = None
+    if ctx.stated_clearances:
+        phase_file = ctx.work / ("%s_net_clearances.json" % stem)
+        phase_file.write_text(json.dumps(phase_map, sort_keys=True) + "\n")
+    common = dict(iterations=ctx.iterations, probe=ctx.probe, quick=ctx.quick, clearances=phase_file,
+                  neckdown=phase.neckdown, extra_args=tuple(phase.router_args))
+    return PhaseSettings(phase_map, routing_clearance(ctx.geometry.default_clearance, args, ctx.env), phase_file,
+                         common, tuple(sel.layers))
+
+
 def route_calls(ctx, index, phase, sel, board) -> PhaseOutcome:
     """Route one phase's calls (plan_calls) on `board`, in order, each on the board the one before left, its copper
     locked. The outcome's `routed` is what judge_phase needs. A task the router refuses stops the route (RouteRefused
     "router_refused"); a call that fails raises RouterFailed."""
     t0 = time.time()
-    from . import net_clearance
-    from .route import routing_clearance
-    args = tuple(ctx.cfg.route_router_args) + tuple(phase.router_args)
-    phase_map = net_clearance.merged(ctx.class_clearances, ctx.stated_clearances,
-                                    net_clearance.ceiling(args, ctx.env))
-    phase_file = None
-    if ctx.stated_clearances:
-        phase_file = ctx.work / ("p%d_net_clearances.json" % index)
-        phase_file.write_text(json.dumps(phase_map, sort_keys=True) + "\n")
-    ctx = replace(ctx, clearance_map=phase_map, clearances_file=phase_file,
-                  base_clearance=routing_clearance(ctx.geometry.default_clearance, args, ctx.env))
+    st = phase_settings(ctx, phase, sel, "p%d" % index)
+    ctx = replace(ctx, clearance_map=st.clearance_map, clearances_file=st.clearances_file,
+                  base_clearance=st.base_clearance)
     calls = plan_calls(sel, ctx.clearance_map, ctx.base_clearance, set(ctx.excluded) | set(ctx.pour_nets))
-    layers = list(sel.layers)
+    layers = list(st.layers)
     out = PhaseOutcome(board, {}, {})
     pairs, connections, bus_groups, pour_joins, pour_calls = None, [], [], [], []
-    common = dict(iterations=ctx.iterations, probe=ctx.probe, quick=ctx.quick, clearances=ctx.clearances_file,
-                  neckdown=phase.neckdown, extra_args=tuple(phase.router_args))
+    common = st.common
     what = "phase %s" % phase.name
     for k, call in enumerate(calls):
         stem = "p%d_%d" % (index, k)
