@@ -288,8 +288,10 @@ When routing leaves connections open, continue the manual loop:
    remaining connections, then routing quality and placement score. Revert
    a trial that loses required checks or worsens closure. Retain each
    rejected trial's reason so it is not proposed again.
-5. Repeat while trials improve the routed result. When a bounded batch
-   stalls, report the open connections, constraints and trials that failed,
+5. Try a bounded batch of different proposals, each starting from the best
+   accepted checkpoint. One rejected trial does not end the batch. Continue
+   with another batch while accepted trials improve the routed result. When
+   a batch stalls, report the open connections, constraints and trials that failed,
    and choose a different neighbourhood or ask for a design decision. Do
    not call a board unroutable from one placement or repeatedly reroute an
    unchanged board expecting placement to improve.
