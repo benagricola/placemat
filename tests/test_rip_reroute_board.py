@@ -1,11 +1,16 @@
 """Rip and reroute on real boards (pcbnew), no router."""
+import json
+import os
 import shutil
+import subprocess
+import sys
 
 import pytest
 
 from placemat.kicad import rip_reroute as rr
 from placemat.kicad.route import copper_items
 from tests.conftest import needs_kicad
+from tests.rip_helpers import TOY, rip_board, toy_router
 from tests.test_net_clearance import _two_part_board
 
 
@@ -61,3 +66,56 @@ def test_a_pair_is_first_joined_on_the_first_board_whose_copper_joins_it(tmp_pat
         boards.append(b)
     assert rr.first_joined([(("U1", "2"), ("J1", "1"))], boards) == [1]
     assert rr.first_joined([(("U1", "2"), ("J1", "1"))], boards[:1]) == [None]
+
+
+def _toy(krt, board, out, *args):
+    """Run the stand-in router on `board`, writing `out`; returns its summary."""
+    summary = out.with_suffix(".json")
+    env = dict(os.environ, FAKE_ROUTER_LOG=str(out.parent / "router.log"))
+    subprocess.run([sys.executable, krt / "py_router/route.py", board, out, *args, "--json-out", summary],
+                   env=env, check=True)
+    return json.loads(summary.read_text())
+
+
+def _segments(pcb):
+    return sorted((k[1], k[3]) for k in copper_items(pcb) if k[0] == "segment")
+
+
+@needs_kicad
+def test_the_stand_in_router_lays_straight_names_its_blockers_and_detours(tmp_path):
+    pytest.importorskip("pcbnew")
+    krt = toy_router(tmp_path)
+    assert (krt / "py_router/route.py").read_text() == TOY
+    board = rip_board(tmp_path)
+    a_laid = tmp_path / "a.kicad_pcb"
+    _toy(krt, board, a_laid, "--nets", "A", "--layers", "F.Cu")
+    assert _segments(a_laid) == [("A", (105.0, 110.0, 125.0, 110.0))]
+
+    b_laid = tmp_path / "b.kicad_pcb"
+    doc = _toy(krt, a_laid, b_laid, "--nets", "B", "--layers", "F.Cu")
+    assert _segments(b_laid) == _segments(a_laid)
+    assert doc["blockers"] == [{"net": "B", "stage": "preexisting", "blocked_by": [{"net": "A", "preexisting": True}]}]
+
+    b_only = tmp_path / "b_only.kicad_pcb"
+    _toy(krt, board, b_only, "--nets", "B", "--layers", "F.Cu")
+    assert _segments(b_only) == [("B", (115.0, 104.0, 115.0, 116.0))]
+    conns = tmp_path / "conns.json"
+    conns.write_text(json.dumps([{"net": "A", "from": {"ref": "P1", "pad": "1"}, "to": {"ref": "P2", "pad": "1"},
+                                  "widths": {"F.Cu": 0.2}, "amps": None}]))
+    detoured = tmp_path / "detoured.kicad_pcb"
+    doc = _toy(krt, b_only, detoured, "--connections", conns, "--layers", "F.Cu")
+    a = [e for n, e in _segments(detoured) if n == "A"]
+    assert len(a) == 3 and [e for e in a if e[1] == e[3] == 118.0] == [(105.0, 118.0, 125.0, 118.0)]
+    assert [(r["net"], r["status"], r["joined"]) for r in doc["connections"]] == [("A", "routed", True)]
+
+
+@needs_kicad
+def test_a_track_blocks_b_and_c_every_way_on_the_rip_board(tmp_path):
+    pytest.importorskip("pcbnew")
+    krt = toy_router(tmp_path)
+    board = rip_board(tmp_path, a_track=True, c_net=True)
+    out = tmp_path / "out.kicad_pcb"
+    doc = _toy(krt, board, out, "--nets", "*", "!A", "--layers", "F.Cu")
+    assert _segments(out) == [("A", (105.0, 110.0, 125.0, 110.0))]
+    assert doc["blockers"] == [{"net": n, "stage": "preexisting", "blocked_by": [{"net": "A", "preexisting": True}]}
+                               for n in ("B", "C")]
