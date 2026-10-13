@@ -265,7 +265,8 @@ An existing placement search may report a "refine" pass: that narrows its
 search around candidate spots; it is not the later board-wide refinement
 or a response to routing failures.
 
-When routing leaves connections open, continue the manual loop:
+When parts remain unplaced, routing leaves connections open, or required
+DRC, width or electrical checks fail, continue the manual loop:
 
 1. Keep the best script, settings, accepted lock and routed board together
    as a recoverable checkpoint. Record the final board's DRC, required-width
@@ -284,19 +285,21 @@ When routing leaves connections open, continue the manual loop:
    and `--route-best` can compare placement alternatives against routing;
    keep its search bounded and verify the accepted result with a full run.
 4. Keep a trial only after comparing the final routed boards with the
-   installed release's `score.rank` order. Compare manufacturing legality,
-   required widths and critical electrical checks first, then each phase's
-   final clean closure in declared order, then overall clean closure. When
+   installed release's `score.rank` order. A valid board beats an invalid
+   one; compare two invalid boards by unplaced counts in priority order,
+   new DRC, required-width failures and critical electrical findings, in
+   that order. Then compare each phase's final clean closure in declared
+   order, then overall clean closure. When
    both boards are valid and fully closed, compare vias, copper length and
    segment count in that order, then placement score; otherwise placement
    score follows closure. Keep the incumbent on a tie. Revert a trial that
-   loses required checks or loses this comparison. Retain each rejected trial's reason so it is not
-   proposed again.
+   loses required checks or loses this comparison. Retain each rejected
+   trial's reason so it is not proposed again.
 5. Try a bounded batch of different proposals, each starting from the best
    accepted checkpoint. One rejected trial does not end the batch. Continue
    with another batch while accepted trials improve the routed result. When
-   a batch stalls, report the open connections, constraints and trials that failed,
-   and choose a different neighbourhood or ask for a design decision. Do
+   a batch stalls, report the open connections, constraints and trials that
+   failed, and choose a different neighbourhood or ask for a design decision. Do
    not call a board unroutable from one placement or repeatedly reroute an
    unchanged board expecting placement to improve.
 
