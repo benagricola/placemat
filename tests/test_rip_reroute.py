@@ -151,3 +151,40 @@ def test_an_owners_calls_carry_its_widths_layers_and_buses():
     # a bus cut to one moved net (W) is no bus: W goes with the plain tasks
     assert [(c.kind, c.nets, sorted(t.net for t in c.tasks)) for c in calls] == [
         ("bus_tasks", ("S", "T"), ["S", "T"]), ("tasks", (), ["V"]), ("tasks", (), ["W"])]
+
+
+def _st(judged, outcomes=None, open_nets=None, errors=()):
+    from pathlib import Path
+    return rr.Standing(Path("b"), Path("c"), Path("d"), dict(open_nets or {}), list(errors), judged,
+                       outcomes or [[None] * len(j) for j in judged], None)
+
+
+J_CLEAN = {"joined": True, "violated": False, "under": {}}
+J_UNDER = {"joined": True, "violated": False, "under": {"F.Cu": 0.1}}
+J_OPEN = {"joined": False, "violated": False, "under": {}}
+ASKED = [[_ob("V", ("U1", "1"), ("J1", "1"))], [_ob("N", ("Q1", "1"), ("Q2", "1")), _ob("M", ("R1", "1"), ("R2", "1"))]]
+
+
+def test_an_attempt_that_loses_nothing_is_kept():
+    v = rr.verdict(_st([[J_CLEAN], [J_OPEN, J_OPEN]]), _st([[J_CLEAN], [J_CLEAN, J_OPEN]]), ASKED, ["legs", "signals"],
+                   [True], 0)
+    assert (v.kept, v.reason, v.worse) == (True, None, ())
+
+
+def test_the_first_failing_check_is_the_reason_and_every_finding_is_kept():
+    before = _st([[J_CLEAN], [J_OPEN, J_UNDER]], open_nets={"N": 1, "GND": 0})
+    clearance = {"type": "clearance", "nets": ("N", "V"), "at_mm": (10.0, 5.0),        # drc.real_errors' shape
+                 "items": (("Track [N] on F.Cu", 10.0, 5.0), ("Track [V] on F.Cu", 10.2, 5.0))}
+    after = _st([[J_UNDER], [J_CLEAN, J_OPEN]], open_nets={"N": 0, "GND": 2}, errors=[clearance])
+    v = rr.verdict(before, after, ASKED, ["legs", "signals"], [False], 1)
+    assert v.kept is False and v.reason == "blocked_not_clean"
+    assert v.worse == ({"phase": "legs", "net": "V", "from": {"ref": "U1", "pad": "1"}, "to": {"ref": "J1", "pad": "1"},
+                        "before": "clean", "after": "joined"},
+                       {"phase": "signals", "net": "M", "from": {"ref": "R1", "pad": "1"}, "to": {"ref": "R2", "pad": "1"},
+                        "before": "joined", "after": "open"})
+    assert v.open_rose == {"GND": [0, 2]} and v.drc_new == 1 and v.off_layer == 1
+    assert rr.verdict(before, after, ASKED, ["legs", "signals"], [True], 0).reason == "obligation_worse"
+
+
+def test_a_joined_narrow_outcome_ranks_as_joined():
+    assert rr.rank(J_CLEAN, "joined_narrow") == 1 and rr.rank(J_CLEAN, "routed") == 2 and rr.rank(J_OPEN, None) == 0

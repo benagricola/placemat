@@ -6,6 +6,7 @@ Everything returned here is a value or a record; route.phase_lines renders them.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 
 TASK_CALLS = ("tasks", "bus_tasks", "pour")
 NET_CALLS = ("nets", "rest", "bus")
@@ -241,3 +242,86 @@ def owner_calls(sel, moves, settings) -> list:
     buses = tuple(b for b in (tuple(n for n in bus if n in nets) for bus in sel.buses) if len(b) >= 2)
     own = Selection(sel.phase, "rip", tasks=tasks, buses=buses, layers=settings.layers)
     return plan_calls(own, settings.clearance_map, settings.base_clearance, set())
+
+
+LEVEL = ("open", "joined", "clean")
+KEEP_CHECKS = ("blocked_not_clean", "obligation_worse", "net_open_rose", "drc_new", "off_layer")
+ROUTER_REASONS = ("router_failed", "router_refused", "router_timeout")
+
+
+@dataclass
+class Standing:
+    board: Path             # the board judged (not the DRC copy)
+    copy: Path              # its DRC copy: guards off, zones filled
+    drc_json: Path
+    open_nets: dict         # {net: open items}
+    errors: list            # drc.real_errors of the DRC
+    judged: list            # per phase 0..upto: judge_obligations
+    outcomes: list          # per phase 0..upto: the record status per obligation, or None
+    is_real: object = None  # the DRC's is_real_kind, for judging the blocked unit on `copy`
+
+
+def rank(j, outcome) -> int:
+    """2 clean (phase_run.is_clean), 1 joined but not clean, 0 open."""
+    from .phase_run import is_clean
+    return 2 if is_clean(j, outcome) else 1 if j["joined"] else 0
+
+
+@dataclass(frozen=True)
+class Verdict:
+    kept: bool
+    reason: str | None
+    worse: tuple = ()
+    open_rose: dict = field(default_factory=dict)
+    drc_new: int = 0
+    off_layer: int = 0
+
+
+def verdict(before, after, asked, names, blocked_clean, off_layer) -> Verdict:
+    """Keep the candidate (`after`) over the failing call's board (`before`) only when every blocked connection is
+    clean, no obligation of phases 0..i ranks lower, no net has more open items, the DRC has no new real error and no
+    track lies off its owner's layers (spec, "The keep or restore test"). The reason is the first check that fails,
+    in KEEP_CHECKS order; every finding is returned."""
+    from .drc import new_errors
+    worse = []
+    for k, obs in enumerate(asked):
+        for o, jb, ob, ja, oa in zip(obs, before.judged[k], before.outcomes[k], after.judged[k], after.outcomes[k]):
+            rb, ra = rank(jb, ob), rank(ja, oa)
+            if ra < rb:
+                worse.append({"phase": names[k], "net": o["net"], "from": o["from"], "to": o["to"],
+                              "before": LEVEL[rb], "after": LEVEL[ra]})
+    rose = {n: [before.open_nets.get(n, 0), v] for n, v in sorted(after.open_nets.items())
+            if v > before.open_nets.get(n, 0)}
+    new = len(new_errors(after.errors, before.errors))
+    failed = dict(zip(KEEP_CHECKS, (not (blocked_clean and all(blocked_clean)), bool(worse), bool(rose), new > 0,
+                                    off_layer > 0)))
+    reason = next((c for c in KEEP_CHECKS if failed[c]), None)
+    return Verdict(reason is None, reason, tuple(worse), rose, new, off_layer)
+
+
+def standing(ctx, asked, phases, upto, board, stem, connections) -> Standing:
+    """A board as the keep test judges it: a DRC of a copy with guards off and zones filled (as phase_run.judge_phase),
+    every obligation of phases 0..upto judged on it against its own phase's input DRC (phase_input_drc, ruling S15),
+    and each obligation's outcome from `connections[k]`, that phase's records as they stand."""
+    import json
+    from .drc import real_errors
+    from .phase_run import judge_obligations, judging_drc, phase_input_drc, phase_neck, records_of
+    copy, drc_json, drc = judging_drc(ctx.work, board, stem + "_drc")
+    judged, outcomes = [], []
+    for k in range(upto + 1):
+        obs = asked[k]
+        judged.append(judge_obligations(copy, obs, drc_json, phase_neck(ctx.cfg, phases[k]), drc.is_real_kind,
+                                        phase_input_drc(ctx.work, k)))
+        outcomes.append([r.get("status") if r else None for r in records_of(obs, connections[k])])
+    return Standing(Path(board), copy, drc_json, dict(drc.open_nets),
+                    real_errors(json.loads(drc_json.read_text()), drc.is_real_kind), judged, outcomes, drc.is_real_kind)
+
+
+def off_layer(given, routed, layers) -> int:
+    """Tracks (not vias) on `routed` that `given` lacks, on a layer outside `layers` (layer names)."""
+    from ..board_geometry import added_copper
+    from ..values import CopperLayer
+    from .read import read_board
+    allowed = {CopperLayer.of(l) for l in layers}
+    new = added_copper(read_board(str(given)).copper, read_board(str(routed)).copper)
+    return sum(1 for c in new if c.kind == "track" and not set(c.layers) <= allowed)

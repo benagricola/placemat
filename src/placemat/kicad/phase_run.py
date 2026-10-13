@@ -1205,17 +1205,23 @@ def route_calls(ctx, index, phase, sel, board) -> PhaseOutcome:
     return out
 
 
+def judging_drc(work, board, stem) -> tuple:
+    """The DRC a board is judged by: a copy at `<stem>.kicad_pcb` in `work` with its project files, guards off and
+    zones filled, and kicad-cli's DRC of it at `<stem>.json`. Returns (copy, drc_json, DrcReport)."""
+    copy = Path(work) / (stem + ".kicad_pcb")
+    drc_json = Path(work) / (stem + ".json")
+    shutil.copy(board, copy)
+    _copy_project(board, copy)
+    remove_guards(str(copy))
+    fill_zones(str(copy))
+    return copy, drc_json, run_drc(copy, drc_json, refill_zones=False)
+
+
 def judge_phase(ctx, index, phase, sel, routed: Routed, obligations) -> tuple:
     """A phase's judgement on the board its calls left: a DRC of a copy (guards off, zones filled), then each obligation
     judged on it. Returns (phase_record, {net: open items} from that DRC)."""
     t0 = time.time()
-    judged = ctx.work / ("p%d_drc.kicad_pcb" % index)
-    drc_json = ctx.work / ("p%d_drc.json" % index)
-    shutil.copy(routed.board, judged)
-    _copy_project(routed.board, judged)
-    remove_guards(str(judged))
-    fill_zones(str(judged))
-    drc = run_drc(judged, drc_json, refill_zones=False)
+    judged, drc_json, drc = judging_drc(ctx.work, routed.board, "p%d_drc" % index)
     net_evidence = {}
     for _, _, path in routed.summaries:             # a later call's record of a net wins
         if Path(path).exists():
