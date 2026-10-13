@@ -1371,8 +1371,8 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     before = run_drc(pcb_in, work / "drc_before.json")
     # ruling S6: each phase's asked set, fixed from the input board before anything routes (and before the guards
     # below edit pcb_in); the rest phase never takes a pour net (D15)
-    asked = obligations_of([picked[p.name] for p in run_list], open_connections(pcb_in, work / "drc_before.json"),
-                           excluded | pours)
+    input_open = open_connections(pcb_in, work / "drc_before.json")
+    asked = obligations_of([picked[p.name] for p in run_list], input_open, excluded | pours)
     open0 = {n: v for n, v in before.open_nets.items() if n not in counted}
     valid = not before.real
     guard_footprint_copper(str(pcb_in))          # after the placement's own DRC: the guards are the router's
@@ -1395,6 +1395,10 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
         raise RouteRefused("width_policy_failed", router=str(router_dir_path), failure=failure["code"],
                            **failure["facts"])
     asked = width_policy.apply(asked, [picked[p.name] for p in run_list], run_list, width_receipt)
+    # what rip and reroute needs of the phases before an attempt, read after the guards
+    from . import rip_reroute
+    hist = rip_reroute.History(tuple(run_list), tuple(picked[p.name] for p in run_list), tuple(asked), width_receipt,
+                               frozenset(copper_items(pcb_in)), tuple(input_open))
     stated = {n: c for n, c in (capture.clearances() if capture else {}).items() if n in geometry.nets}
     trapped = net_clearance.trapped(geometry, stated, judged={n for n in open0 if open0[n]}) if stated else []
     clearance_findings = net_clearance.findings(trapped)
@@ -1417,14 +1421,14 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     from .. import __version__
     settings_part = {k: v for k, v in sorted(json.loads(cfg.json()).items())
                      if k.startswith("route_") and k not in ("route_router_dir", "route_phase")}
-    base = digest("phase-judgement-v9", file_digest(pcb), file_digest(pcb.with_suffix(".kicad_pro")), file_digest(pcb.with_suffix(".kicad_dru")),
+    base = digest("phase-judgement-v10", file_digest(pcb), file_digest(pcb.with_suffix(".kicad_pro")), file_digest(pcb.with_suffix(".kicad_dru")),
                   capture.digest if capture else "", sorted(excluded), sorted(pours), layers, quick, iterations, probe,
                   router_version(router_dir_path), __version__, settings_part, cfg.check_rise_c)     # rise_c: current widths
     state.set_order(["only:" + run_list[0].name] if only else [p.name for p in run_list])
     script = str(ONE_ROUND) if quick else str(route_py)
     ctx = PhaseContext(rpy, script, router_dir_path, work, layers, iterations, probe, quick, timeout, env, cfg,
                        geometry, clearance_map, base_clearance, clearances_file, excluded, pours, rev,
-                       class_clearances, stated)
+                       class_clearances, stated, history=hist)
     pcb_out = work / "routed.kicad_pcb"
     raw_out = work / "router_out.kicad_pcb"      # the last phase's board: post-processing is made on a copy
     board, prev, records, summaries, spent, resumed = pcb_in, base, [], [], 0.0, []
@@ -1447,6 +1451,7 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
             rev.resumed(phase.name, saved["record"]["seconds"])
             board, open_now = routed.board, dict(saved["open_nets"])
             records.append(dict(saved["record"], reused=True))
+            hist.finish(i, board, saved["record"], reused=True)
             summaries += [tuple(x) for x in routed.summaries]
             spent += saved["record"]["seconds"]
             prev = key
@@ -1467,6 +1472,7 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
         state.record(label, key, {"routed": outcome.routed, "record": record, "open_nets": open_now})
         board = routed.board
         records.append(record)
+        hist.finish(i, board, record, reused=False)
         summaries += [tuple(x) for x in routed.summaries]
         spent += record["seconds"]
         prev = key
@@ -1485,7 +1491,7 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     breaches = [b for b in router_breaches(pcb_in, pcb_out) if not own_pour_breach(b, chosen_pours)]
     log = work / "route.json"
     for i in reversed(range(len(run_list))):
-        logs = sorted(work.glob("p%d_*.log" % i))
+        logs = sorted(l for l in work.glob("p%d_*.log" % i) if "_rip" not in l.name)    # an attempt's logs: not the call's
         if logs:
             log = logs[-1]
             break

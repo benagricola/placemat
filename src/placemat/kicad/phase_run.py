@@ -126,6 +126,7 @@ class PhaseContext:
     events: object
     class_clearances: dict = field(default_factory=dict)
     stated_clearances: dict = field(default_factory=dict)
+    history: object = None              # rip_reroute.History of the route; None: no rip and reroute
 
 
 @dataclass
@@ -152,18 +153,20 @@ class Routed:
 
     widths: list = field(default_factory=list)
     pour_joins: list = field(default_factory=list)      # pour_join.join_pour's record of each pour call
+    rip: dict = field(default_factory=lambda: {"attempts": [], "skipped": []})     # rip_reroute's record
 
     def record(self) -> dict:
         return {"widths": list(self.widths), "board": Path(self.board).name, "seconds": round(self.seconds, 1), "ncalls": self.ncalls,
                 "pairs": self.pairs, "connections": list(self.connections), "bus_groups": list(self.bus_groups),
-                "summaries": [list(s) for s in self.summaries], "pour_joins": list(self.pour_joins)}
+                "summaries": [list(s) for s in self.summaries], "pour_joins": list(self.pour_joins),
+                "rip": dict(self.rip)}
 
     @staticmethod
     def of(doc: dict, work) -> "Routed":
         return Routed(Path(work) / doc["board"], doc["seconds"], doc["ncalls"], doc.get("pairs"),
                       list(doc.get("connections") or ()), list(doc.get("bus_groups") or ()),
                       [tuple(s) for s in doc.get("summaries") or ()], list(doc.get("widths") or ()),
-                      list(doc.get("pour_joins") or ()))
+                      list(doc.get("pour_joins") or ()), dict(doc.get("rip") or {"attempts": [], "skipped": []}))
 
 
 def _run(cmd, log: Path, ctx) -> int:
@@ -887,18 +890,20 @@ def open_entry(o, j, record, net_evidence) -> dict:
 
 
 def phase_record(phase, index, sel, obligations, judged, seconds, calls, pairs=None, connections=(), bus_groups=(),
-                 net_evidence=None, pour_joins=()) -> dict:
+                 net_evidence=None, pour_joins=(), rip=None) -> dict:
     """What one phase did: its definition, `asked` (its obligations), `joined` (those clean on the board after it),
     `closure_clean` (joined / asked, 1.0 when nothing is asked), `open` (open_entry of each one not clean), its time,
     router calls, pair outcome, --connections records and bus groups, and `pour_served`: each connection a
     current_paths phase left to its pour (ruling S13), {"net", "from", "to", "joined"}, joined as judged after the
     phase; one the pour does not join is also open. `pour_joins`: each pour call's record (pour_join.join_pour: its
-    pads, the drops' vias, the tasks for the groups still apart). `reused` is set by the route."""
+    pads, the drops' vias, the tasks for the groups still apart). `rip`: rip and reroute's attempts and skipped units
+    (rip_reroute.after_call). `reused` is set by the route."""
     connections = list(connections)
     rec = dict(phase.record(), index=index, seconds=round(seconds, 1), reused=False, calls=calls, pairs=pairs,
                connections=connections, bus_groups=list(bus_groups), widths=[], pour_joins=list(pour_joins),
                pour_served=[dict({k: o[k] for k in ("net", "from", "to")}, joined=bool(j["joined"]))
-                            for o, j in zip(obligations, judged) if o.get("pour_served")])
+                            for o, j in zip(obligations, judged) if o.get("pour_served")],
+               rip=dict(rip or {"attempts": [], "skipped": []}))
     records = records_of(obligations, connections)
     clean = [is_clean(j, r.get("status") if r else None) for j, r in zip(judged, records)]
     rec.update(asked=len(obligations), joined=sum(clean),
@@ -1110,6 +1115,7 @@ def route_calls(ctx, index, phase, sel, board) -> PhaseOutcome:
     layers = list(st.layers)
     out = PhaseOutcome(board, {}, {})
     pairs, connections, bus_groups, pour_joins, pour_calls = None, [], [], [], []
+    rip, extra_widths, trims = {"attempts": [], "skipped": []}, [], []
     common = st.common
     what = "phase %s" % phase.name
     for k, call in enumerate(calls):
@@ -1170,6 +1176,20 @@ def route_calls(ctx, index, phase, sel, board) -> PhaseOutcome:
         lock_copper(str(nxt))
         if call.kind not in ("tasks", "bus_tasks"):
             out.calls.append((call, board, nxt))
+        if call.kind != "pairs" and ctx.history is not None:
+            # after the failing call is in out.calls with its own output (pre-flight M1): the attempts' copper is
+            # judged under their own calls' asks
+            from . import rip_reroute
+            recs = run.records if call.kind in rip_reroute.TASK_CALLS else []
+            doc = _summary_doc(summary) if call.kind in rip_reroute.NET_CALLS else {}
+            got = rip_reroute.after_call(ctx, index, phase, sel, k, call, board, nxt, recs, doc, connections, rip)
+            if got.trim:
+                trims.append((len(out.calls), set(got.trim)))     # the calls made so far laid the moved copper
+            nxt = got.board
+            connections = superseded(connections, got.records)
+            out.calls += got.calls
+            out.summaries += [(phase.name, k, s) for s in got.summaries]
+            extra_widths = [w for w in extra_widths if w.get("net") not in got.trim] + got.widths
         board = nxt
     rejoins = 0
     if pour_calls:
@@ -1197,12 +1217,32 @@ def route_calls(ctx, index, phase, sel, board) -> PhaseOutcome:
         _copy_project(board, nxt)
         board = nxt
     out.board = board
+    # each call made before a kept attempt loses the moved nets from its asks: their copper there is gone
+    out.calls = [(_without(c, set().union(*[n for at, n in trims if at > j])), a, b)
+                 for j, (c, a, b) in enumerate(out.calls)]
     out.routed = Routed(board, time.time() - t0, len(calls) + rejoins, pairs, connections, bus_groups,
                         [(n, k, str(sp)) for n, k, sp in out.summaries],
                         phase_widths(phase, out.calls, ctx.cfg)
                         + narrow_join_widths(phase, sel, connections, board, ctx.cfg)
-                        + task_widths(phase, sel, connections), pour_joins).record()
+                        + task_widths(phase, sel, connections) + extra_widths, pour_joins, rip).record()
     return out
+
+
+def _without(call, nets) -> Call:
+    """`call` without the nets in `nets`, in its nets and its tasks."""
+    return replace(call, nets=tuple(n for n in call.nets if n not in nets),
+                   tasks=tuple(t for t in call.tasks if t.net not in nets))
+
+
+def _summary_doc(path) -> dict:
+    """A whole-net call's summary as read, {} when it has none or it does not parse."""
+    path = Path(path)
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text())
+    except ValueError:
+        return {}
 
 
 def judging_drc(work, board, stem) -> tuple:
@@ -1234,7 +1274,7 @@ def judge_phase(ctx, index, phase, sel, routed: Routed, obligations) -> tuple:
                           judge_obligations(judged, obligations, drc_json, neck, drc.is_real_kind,
                                             phase_input_drc(ctx.work, index)),
                           routed.seconds + time.time() - t0, routed.ncalls, routed.pairs, routed.connections,
-                          routed.bus_groups, net_evidence, routed.pour_joins)
+                          routed.bus_groups, net_evidence, routed.pour_joins, routed.rip)
     record["widths"] = list(routed.widths)
     return record, dict(drc.open_nets)
 

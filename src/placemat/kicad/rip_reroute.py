@@ -325,3 +325,113 @@ def off_layer(given, routed, layers) -> int:
     allowed = {CopperLayer.of(l) for l in layers}
     new = added_copper(read_board(str(given)).copper, read_board(str(routed)).copper)
     return sum(1 for c in new if c.kind == "track" and not set(c.layers) <= allowed)
+
+
+def kept_moves(record) -> list:
+    """The rerouted records of a phase record's kept attempts, in order."""
+    return [r for a in record["rip"]["attempts"] if a["kept"] for r in a["rerouted"]]
+
+
+def moves_of(phases, k) -> list:
+    """[(mover phase index j, record)]: each reroute of a connection owned by phase k that a later phase j kept."""
+    return [(j, r) for j, p in enumerate(phases) if j > k for r in kept_moves(p) if r["index"] == k]
+
+
+def moved_records(phases, k) -> list:
+    """The records of phase k's connections that later phases rerouted and kept (moves_of), in order."""
+    return [r for _, r in moves_of(phases, k)]
+
+
+@dataclass
+class History:
+    """What a route's attempts need of the phases before them: the phases and their Selections, each phase's
+    obligations after width_policy.apply and the width receipt, the input board's script copper and open
+    connections; and, as the route goes, each finished phase's board and records, and the kept reroutes of each
+    phase's connections by later phases (`moved`)."""
+    phases: tuple            # the phases routed (run_list)
+    selections: tuple        # their Selections as picked before routing (layers, buses, pairs)
+    asked: tuple             # each phase's obligations after width_policy.apply
+    receipt: dict            # width_policy receipt
+    script_keys: frozenset   # route.copper_items of the route's input board after its guards
+    input_open: tuple        # open_connections of the route's input board
+    boards: list = field(default_factory=list)        # each finished phase's board, in order
+    connections: list = field(default_factory=list)   # each finished phase's records ("connections")
+    moved: dict = field(default_factory=dict)         # {phase index: kept reroute records owned by it, in order}
+
+    def record_move(self, index, attempt) -> None:
+        """A kept attempt of phase `index`: its reroutes of earlier phases' connections, to `moved` (finding M2:
+        called after each kept attempt, so a later attempt reads the moved records)."""
+        for r in attempt["rerouted"]:
+            if r["index"] < index:
+                self.moved.setdefault(r["index"], []).append(r)
+
+    def finish(self, index, board, record, *, reused: bool) -> None:
+        """A finished phase: its board and records; a reused one's kept moves too (its attempts did not run here)."""
+        self.boards.append(board)
+        self.connections.append(list(record.get("connections") or []))
+        if reused:
+            for a in record["rip"]["attempts"]:
+                if a["kept"]:
+                    self.record_move(index, a)
+
+
+@dataclass
+class CallRip:
+    """One call's attempts so far: how many were made, the victim sets restored, and whether a router failure stopped
+    them."""
+    made: int = 0
+    tried: set = field(default_factory=set)           # frozensets of victims restored in this call
+    stopped: bool = False
+
+
+def gate(victims, *, rip: CallRip, max_nets: int, attempts: int) -> str | None:
+    """Why a unit with these victims gets no attempt (spec "Limits"), the first that holds in this order: no_victim,
+    too_many_victims, stopped, limit, tried; None when it gets one."""
+    if not victims:
+        return "no_victim"
+    if len(victims) > max_nets:
+        return "too_many_victims"
+    if rip.stopped:
+        return "stopped"
+    if rip.made >= attempts:
+        return "limit"
+    if frozenset(victims) in rip.tried:
+        return "tried"
+    return None
+
+
+@dataclass
+class AfterCall:
+    board: Path              # the board the phase goes on from
+    records: list            # router records that supersede phase i's connections
+    calls: list              # (Call, board in, board out) of phase i's to add to out.calls
+    trim: set                # the victims of the kept attempts: dropped from the asks of phase i's calls before them
+    summaries: list          # summary paths of the attempts' router calls
+    widths: list             # route.width rows of reroutes owned by earlier phases
+
+
+def after_call(ctx, index, phase, sel, k, call, board_in, board_out, records, summary, connections,
+               rip_record) -> AfterCall:
+    """After call `k` of phase `index` (`board_in` -> `board_out`, its router `records` and `summary` doc): each
+    blocked unit (blocked_of) with its victims (victims_of) through the gate; a unit the gate stops is recorded in
+    `rip_record["skipped"]`. Returns the board the phase goes on from and what the attempts change."""
+    nothing = AfterCall(Path(board_out), [], [], set(), [], [])
+    if ctx.cfg.route_rip_attempts <= 0:
+        return nothing
+    units = blocked_of(call.kind, records, summary)
+    if not units:
+        return nothing
+    hist = ctx.history
+    on_board = router_nets(board_out, hist.script_keys)
+    laid = laid_nets(board_in, board_out)
+    pair_nets = {n for s in hist.selections for pair in s.pairs for n in pair}
+    rip = CallRip()
+    for unit in units:
+        victims, not_ripped = victims_of(unit, router_nets=on_board, laid_by_call=laid, pour_nets=set(ctx.pour_nets),
+                                         pair_nets=pair_nets, excluded=set(ctx.excluded))
+        reason = gate(victims, rip=rip, max_nets=ctx.cfg.route_rip_max_nets, attempts=ctx.cfg.route_rip_attempts)
+        if reason is None:
+            reason = "limit"                # Task 11 makes the attempt here
+        rip_record["skipped"].append({"call": k, "net": unit.net, "named": [n.record() for n in unit.named],
+                                      "not_ripped": list(not_ripped), "reason": reason})
+    return nothing

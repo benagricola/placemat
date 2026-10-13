@@ -188,3 +188,14 @@ def test_the_first_failing_check_is_the_reason_and_every_finding_is_kept():
 
 def test_a_joined_narrow_outcome_ranks_as_joined():
     assert rr.rank(J_CLEAN, "joined_narrow") == 1 and rr.rank(J_CLEAN, "routed") == 2 and rr.rank(J_OPEN, None) == 0
+
+
+def test_the_gate_skips_in_order():
+    r = rr.CallRip()
+    assert rr.gate((), rip=r, max_nets=3, attempts=4) == "no_victim"
+    assert rr.gate(("A", "B", "C", "D"), rip=r, max_nets=3, attempts=4) == "too_many_victims"
+    assert rr.gate(("A",), rip=rr.CallRip(stopped=True), max_nets=3, attempts=4) == "stopped"
+    assert rr.gate(("A",), rip=rr.CallRip(made=4), max_nets=3, attempts=4) == "limit"
+    assert rr.gate(("A",), rip=rr.CallRip(tried={frozenset({"A"})}), max_nets=3, attempts=4) == "tried"
+    assert rr.gate(("A",), rip=r, max_nets=3, attempts=4) is None
+    assert rr.gate(("A",), rip=r, max_nets=3, attempts=0) == "limit"
