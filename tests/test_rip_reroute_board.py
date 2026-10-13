@@ -26,3 +26,23 @@ def test_router_copper_is_what_the_input_board_lacks(tmp_path):
     _add_track(routed, "FB", (110, 110), (125, 110))
     assert rr.router_nets(routed, script) == {"FB": 1}
     assert rr.laid_nets(given, routed) == {"FB"}
+
+
+@needs_kicad
+def test_removing_a_victim_takes_its_router_copper_and_leaves_script_copper_and_other_nets(tmp_path):
+    pytest.importorskip("pcbnew")
+    given = _two_part_board(tmp_path)
+    _add_track(given, "FB", (110, 110), (112, 110))          # script copper on the victim
+    script = frozenset(copper_items(given))
+    routed = tmp_path / "routed.kicad_pcb"
+    shutil.copy(given, routed)
+    _add_track(routed, "FB", (112, 110), (125, 110))         # router copper on the victim
+    _add_track(routed, "VIN", (113, 110), (113, 115))        # router copper on another net
+    out = tmp_path / "ripped.kicad_pcb"
+    got = rr.remove_copper(routed, out, {"FB"}, script)
+    assert got == {"tracks": 1, "arcs": 0, "vias": 0, "track_mm": 13.0}
+    left = {(k[1], k[3]) for k in copper_items(out)}
+    assert ("FB", (110.0, 110.0, 112.0, 110.0)) in left and ("VIN", (113.0, 110.0, 113.0, 115.0)) in left
+    assert not any(n == "FB" and e == (112.0, 110.0, 125.0, 110.0) for n, e in left)
+    assert out.with_suffix(".kicad_pro").exists()
+    assert copper_items(routed) - copper_items(out)        # the source board is not written

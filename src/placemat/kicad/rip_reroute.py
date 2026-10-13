@@ -114,3 +114,32 @@ def victims_of(unit, *, router_nets, laid_by_call, pour_nets, pair_nets, exclude
         else:
             victims.append(n.net)
     return tuple(victims), tuple(skipped)
+
+
+def remove_copper(src, dst, victims, script_keys) -> dict:
+    """`src` written to `dst` without the victims' router copper: every track, arc and via of a net in `victims` that
+    is not script copper, taken off with board.Delete (CLAUDE.md: never board.Remove), after group.RemoveItem when it
+    is grouped. `src` is left as it was. Returns what was taken off."""
+    import shutil
+    from .quiet import import_pcbnew, quiet_stderr
+    from .route import _copy_project, _load_board, copper_key
+    from .route_cleanup import _delete
+    pcbnew = import_pcbnew()
+    shutil.copy(src, dst)
+    _copy_project(src, dst)
+    with quiet_stderr():
+        board = _load_board(str(dst))
+    out, mm = {"tracks": 0, "arcs": 0, "vias": 0}, 0.0
+    for t in list(board.GetTracks()):
+        if t.GetNetname() not in victims:
+            continue
+        key = copper_key(pcbnew, t)
+        if key in script_keys:
+            continue
+        out[{"segment": "tracks", "arc": "arcs", "via": "vias"}[key[0]]] += 1
+        if key[0] != "via":
+            mm += pcbnew.ToMM(t.GetLength())
+        _delete(board, t)                   # group.RemoveItem, then board.Delete (route_cleanup.py:200-204)
+    with quiet_stderr():
+        board.Save(str(dst))
+    return dict(out, track_mm=round(mm, 3))
