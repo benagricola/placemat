@@ -34,10 +34,28 @@ B = {"name": "b", "nets": ["B"]}
 
 
 @needs_kicad
-def test_every_phase_records_its_rip_and_rip_off_changes_nothing(toy):
-    report = toy.route(A, B, settings={"route_rip_attempts": 0})
-    assert [p["rip"] for p in report.phases] == [{"attempts": [], "skipped": []}] * 2
-    assert [p["joined"] for p in report.phases] == [1, 0]
+def test_every_phase_records_its_rip_and_rip_off_changes_nothing(toy, monkeypatch, tmp_path):
+    """With rip_attempts = 0 the route is the one a route that never reaches the rip code makes (no History, so
+    route_calls never calls after_call): the same phase records, width rows and copper (parked Task 10 minor)."""
+    from placemat.kicad import phase_run
+    monkeypatch.setenv("TOY_NARROW", "A")                  # width rows to compare: A laid narrow, said narrow
+    monkeypatch.setenv("TOY_SUMMARY_NARROW", "A")
+    pcb = rip_board(tmp_path, c_net=True)
+    phases_ = (A, {"name": "b", "nets": ["B", "C"]})
+    off = toy.route(*phases_, pcb=pcb, settings={"route_rip_attempts": 0})
+    assert [p["rip"] for p in off.phases] == [{"attempts": [], "skipped": []}] * 2
+    assert [p["joined"] for p in off.phases] == [1, 0]
+    off_copper = copper_items(off.routed_pcb)
+    real = phase_run.PhaseContext
+    monkeypatch.setattr(phase_run, "PhaseContext", lambda *a, **kw: real(*a, **dict(kw, history=None)))
+    never = toy.route(*phases_, pcb=pcb, settings={"route_rip_attempts": 0}, resume=False)
+
+    def same(p):            # a rerun on the same work folder lists the open connections in another order
+        return {k: sorted(v, key=repr) if k in ("open", "final_open") else v for k, v in p.items()
+                if k not in ("seconds", "reused")}
+    assert [same(p) for p in off.phases] == [same(p) for p in never.phases]
+    assert off.widths and off.widths == never.widths and off.widths_failed == never.widths_failed
+    assert off_copper == copper_items(never.routed_pcb)
 
 
 @needs_kicad
@@ -133,18 +151,45 @@ def test_only_takes_the_given_boards_copper_as_the_scripts(toy, tmp_path):
     assert b["rip"]["skipped"][0]["not_ripped"] == [{"net": "A", "reason": "no_router_copper"}]
 
 
-@needs_kicad
-def test_a_router_failure_in_an_attempt_restores_and_ends_the_calls_attempts(toy, monkeypatch):
-    import placemat.kicad.rip_reroute as rr_mod
+REFUSED = {"net": "B", "from": {"ref": "Q1", "pad": "1"}, "to": {"ref": "Q2", "pad": "1"}, "reason": "stand-in"}
+
+
+def _router_failed():
     from placemat.kicad.route import RouterFailed
+    return RouterFailed("stand-in", 3, "/dev/null", "")
+
+
+def _router_refused():
+    from placemat.kicad.route import RouteRefused
+    return RouteRefused("router_refused", phase="b", tasks=[REFUSED])
+
+
+def _router_timeout():
+    import subprocess
+    return subprocess.TimeoutExpired(["route.py"], 60)
+
+
+@needs_kicad
+@pytest.mark.parametrize("raised, reason, router", [
+    (_router_failed, "router_failed", {"code": "router_failed", "exit_code": 3, "log": "/dev/null"}),
+    (_router_refused, "router_refused", {"code": "router_refused", "phase": "b", "tasks": [REFUSED]}),
+    (_router_timeout, "router_timeout", {"code": "timeout", "seconds": 60})], ids=["failed", "refused", "timeout"])
+def test_a_router_failure_in_an_attempt_restores_and_ends_the_calls_attempts(toy, monkeypatch, tmp_path, raised,
+                                                                             reason, router):
+    import placemat.kicad.rip_reroute as rr_mod
 
     def broken(*a, **kw):
-        raise RouterFailed("stand-in", 3, "/dev/null", "")
+        raise raised()
     monkeypatch.setattr(rr_mod, "route_tasks", broken)        # rip_reroute imports route_tasks at module level
-    report = toy.route(A, B)
-    att = report.phases[1]["rip"]["attempts"][0]
-    assert (att["kept"], att["reason"], att["router"]["exit_code"]) == (False, "router_failed", 3)
+    report = toy.route(A, {"name": "b", "nets": ["B", "C"]}, pcb=rip_board(tmp_path, c_net=True))
+    rip = report.phases[1]["rip"]
+    (att,) = rip["attempts"]
+    assert (att["kept"], att["reason"], att["router"]) == (False, reason, router)
+    # the call's later unit gets no attempt, and the phase goes on from the call's own board
+    assert [(s["net"], s["reason"]) for s in rip["skipped"]] == [("C", "stopped")]
     assert report.phases[1]["joined"] == 0 and report.phases[0]["final_closure_clean"] == 1.0
+    work = tmp_path / "route"
+    assert copper_items(work / "p1_0.kicad_pcb") == copper_items(work / "router_out.kicad_pcb")
 
 
 @needs_kicad
@@ -279,3 +324,22 @@ def test_an_earlier_phases_net_moved_twice_in_one_call_keeps_no_row_of_the_first
     assert (first["victims"], first["kept"], second["victims"], second["kept"]) == (["A"], True, ["A"], True)
     assert first["widths"] and first["widths"][0]["stage"] == "a"     # the stub's row, of copper the second took off
     assert [w for w in report.widths if w["net"] == "A"] == []
+
+
+@needs_kicad
+def test_a_route_with_a_kept_attempt_resumes_with_its_rip_record_and_rows(toy, monkeypatch, tmp_path):
+    """Final review finding 7: a rerun takes the phase from the route's state, the kept attempt's `rip` record and the
+    summaries it made stale (Routed.stale) included, so its width rows are the first run's."""
+    from placemat.kicad import net_clearance
+    monkeypatch.setattr(net_clearance, "class_clearances", lambda *a, **kw: {"A": 0.3})
+    monkeypatch.setenv("TOY_SUMMARY_NARROW", "A")       # the first call's stale row of A would come back on a bad resume
+    pcb = rip_board(tmp_path)
+    first = toy.route({"name": "signals"}, pcb=pcb)
+    assert first.phases[0]["rip"]["attempts"][0]["kept"] and first.resumed == []
+    again = toy.route({"name": "signals"}, pcb=pcb)
+    assert again.resumed == ["signals"]
+    assert [p["rip"] for p in again.phases] == [p["rip"] for p in first.phases]
+    assert again.widths == first.widths and [(w["net"], w["stage"]) for w in again.widths] == [("A", "signals")]
+    assert [{k: v for k, v in p.items() if k not in ("reused", "seconds")} for p in again.phases] == [
+        {k: v for k, v in p.items() if k not in ("reused", "seconds")} for p in first.phases]
+    assert copper_items(again.routed_pcb) == copper_items(first.routed_pcb)

@@ -56,6 +56,17 @@ def test_a_whole_net_call_reads_net_evidence_and_the_preexisting_blockers():
     assert [(u.net, [n.net for n in u.named], u.connections) for u in got] == [("N", ["V"], ()), ("M", ["W"], ())]
 
 
+def test_a_net_named_in_both_its_evidence_and_the_preexisting_blockers_is_named_once():
+    """Parked Task 3 minor: a whole-net unit named by its net_evidence and by a preexisting blocker names the net once,
+    in the router's order."""
+    summary = {"net_evidence": {"N": _ev(_pre("V"))},
+               "blockers": [{"net": "N", "stage": "preexisting", "blocked_by": [{"net": "V", "preexisting": True},
+                                                                               {"net": "W", "preexisting": True}]}]}
+    (unit,) = rr.blocked_of("rest", summary=summary)
+    assert [n.record() for n in unit.named] == [{"net": "V", "found_by": "preexisting"},
+                                                {"net": "W", "found_by": "preexisting"}]
+
+
 def test_a_pair_call_blocks_nothing():
     assert rr.blocked_of("pairs", [_rec("N", "failed", _pre("V"))], {"blockers": []}) == []
 
@@ -152,16 +163,21 @@ def test_a_moved_task_keeps_its_current():
 def test_an_owners_calls_carry_its_widths_layers_and_buses():
     from placemat.kicad.phase_run import PhaseSettings
     from placemat.kicad.phase_select import Selection
+    # the Selection as picked names F.Cu; the owner's settings (what its calls are routed at) name B.Cu, its own
+    # clearance for V and a base clearance of its own: the calls take theirs (parked Task 7 minor)
     sel = Selection("legs", "current_paths", buses=(("S", "T", "Q"), ("W", "X")), layers=("F.Cu",))
-    st = PhaseSettings({}, 0.2, None, {}, ("F.Cu",))
-    moves = [rr.Move(0, _ob("V", ("U1", "1"), ("J1", "1"), {"F.Cu": 1.2}), True),
-             rr.Move(0, _ob("S", ("U1", "4"), ("J1", "4"), {"F.Cu": 0.2}), True),
-             rr.Move(0, _ob("T", ("U1", "5"), ("J1", "5"), {"F.Cu": 0.2}), True),
-             rr.Move(0, _ob("W", ("U1", "6"), ("J1", "6"), {"F.Cu": 0.2}), True)]
+    st = PhaseSettings({"V": 0.4}, 0.25, None, {}, ("B.Cu",))
+    both = lambda w: {"F.Cu": w, "B.Cu": w}
+    moves = [rr.Move(0, _ob("V", ("U1", "1"), ("J1", "1"), {"F.Cu": 1.0, "B.Cu": 1.2}), True),
+             rr.Move(0, _ob("S", ("U1", "4"), ("J1", "4"), both(0.2)), True),
+             rr.Move(0, _ob("T", ("U1", "5"), ("J1", "5"), both(0.2)), True),
+             rr.Move(0, _ob("W", ("U1", "6"), ("J1", "6"), both(0.2)), True)]
     calls = rr.owner_calls(sel, moves, st)
     # a bus cut to one moved net (W) is no bus: W goes with the plain tasks
-    assert [(c.kind, c.nets, sorted(t.net for t in c.tasks)) for c in calls] == [
-        ("bus_tasks", ("S", "T"), ["S", "T"]), ("tasks", (), ["V"]), ("tasks", (), ["W"])]
+    assert [(c.kind, c.nets, sorted(t.net for t in c.tasks), c.clearance) for c in calls] == [
+        ("bus_tasks", ("S", "T"), ["S", "T"], None), ("tasks", (), ["V"], 0.4), ("tasks", (), ["W"], 0.25)]
+    assert {t.net: t.widths for c in calls for t in c.tasks} == {
+        "V": (("B.Cu", 1.2),), "S": (("B.Cu", 0.2),), "T": (("B.Cu", 0.2),), "W": (("B.Cu", 0.2),)}
 
 
 def _st(judged, open_nets=None, errors=()):
@@ -267,6 +283,31 @@ def test_the_phase_lines_say_what_was_moved_restored_and_not_tried():
     assert "after moving W: 1 new DRC error" in lines[1] and "1 new DRC errors" not in lines[1]
     assert "; not moved for K: too many nets named" in lines[1] and "for Q" not in lines[1]
     assert "(" not in lines[1].split("; restored")[1]          # no bracketed plurals
+
+
+SKIP_REASONS = ("too_many_victims", "victim_width_unknown", "victim_end_not_pad", "blocked_width_unknown",
+                "blocked_end_not_pad", "joined_since", "tried", "limit", "stopped")
+
+
+def test_every_reason_has_its_own_wording_on_the_phase_line():
+    """Parked Task 14 minor: each keep check, router reason and skip reason is said in words of its own, never as the
+    fallback (the code with its underscores as spaces)."""
+    from placemat.kicad.route import phase_lines
+    end = {"ref": "A", "pad": "1"}
+    base = {"name": "b", "selector": "rest", "joined": 0, "asked": 1, "closure_clean": 0.0, "seconds": 1.0, "open": []}
+    for reason in rr.KEEP_CHECKS + rr.ROUTER_REASONS:
+        att = {"call": 0, "attempt": 0, "kept": False, "reason": reason, "victims": ["V"], "rerouted": [],
+               "blocked": [{"net": "N", "from": end, "to": end}], "drc_new": 1, "open_rose": {"N": [0, 1]},
+               "worse": [{"phase": "a", "net": "V", "from": end, "to": end, "before": "clean", "after": "open"}]
+               if reason == "obligation_worse" else []}
+        (line,) = phase_lines([dict(base, rip={"attempts": [att], "skipped": []})])
+        said = line.split("after moving V: ")[1]
+        assert said and not said.startswith(reason.replace("_", " ")), (reason, said)
+    for reason in SKIP_REASONS:
+        skip = {"call": 0, "net": "K", "named": [], "not_ripped": [], "reason": reason}
+        (line,) = phase_lines([dict(base, rip={"attempts": [], "skipped": [skip]})])
+        said = line.split("not moved for K: ")[1]
+        assert said and said != reason.replace("_", " "), (reason, said)
 
 
 def test_a_pour_calls_blocked_net_is_joined_to_its_pour_again(monkeypatch, tmp_path):
