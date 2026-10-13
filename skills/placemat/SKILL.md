@@ -593,8 +593,9 @@ shapes and files: `references/api.md`, "Live progress".
   placement and then each new best as the search finds it (only the latest
   waits while it is busy; with `--jobs 1` it routes after the search), in
   `<run>/explore/seed-S/`. Each closure is said as it comes
-  (`metrics.explore.routes`), and `--accept` takes the best clean closure,
-  ties going to the better score (`taken_seed`). A failed route is said on
+  (`metrics.explore.routes`), and `--accept` uses the final routed boards'
+  `score.rank` comparison described in the loop above, including validity,
+  final phase closure and routing quality (`taken_seed`). A failed route is said on
   its variant's line and the explore stands. A quick route of a large board
   takes minutes, so give the explore time for a few. The route in hand and
   the one waiting when the search ends are finished after it, so the run
