@@ -283,11 +283,15 @@ When routing leaves connections open, continue the manual loop:
    widths, layers and checks as the best result. Explore with `--focus`
    and `--route-best` can compare placement alternatives against routing;
    keep its search bounded and verify the accepted result with a full run.
-4. Keep a trial only after comparing the final routed boards: manufacturing
-   legality, required widths and critical electrical checks first, then
-   remaining connections, then routing quality and placement score. Revert
-   a trial that loses required checks or worsens closure. Retain each
-   rejected trial's reason so it is not proposed again.
+4. Keep a trial only after comparing the final routed boards with the
+   installed release's `score.rank` order. Compare manufacturing legality,
+   required widths and critical electrical checks first, then each phase's
+   final clean closure in declared order, then overall clean closure. When
+   both boards are valid and fully closed, compare vias, copper length and
+   segment count in that order, then placement score; otherwise placement
+   score follows closure. Keep the incumbent on a tie. Revert a trial that
+   loses required checks or loses this comparison. Retain each rejected trial's reason so it is not
+   proposed again.
 5. Try a bounded batch of different proposals, each starting from the best
    accepted checkpoint. One rejected trial does not end the batch. Continue
    with another batch while accepted trials improve the routed result. When
