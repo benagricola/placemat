@@ -261,6 +261,9 @@ failed route and reorganise its neighbourhood automatically. The new
 coarse/fine refinement pass and the automatic place-route loop are later
 steps; do not assume a standalone refine command is available. Read the
 installed release's API and migration notes before choosing commands.
+An existing placement search may report a "refine" pass: that narrows its
+search around candidate spots; it is not the later board-wide refinement
+or a response to routing failures.
 
 When routing leaves connections open, continue the manual loop:
 
