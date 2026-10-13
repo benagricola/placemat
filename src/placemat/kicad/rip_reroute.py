@@ -12,7 +12,7 @@ import time
 
 from . import pour_join
 from .phase_run import (Call, TaskRun, _end_pair, _without, fresh_output, is_clean, joined_pairs, judge_obligations,
-                        own_width, phase_input_drc, phase_neck, phase_settings, phase_widths, route_tasks)
+                        own_width, phase_input_drc, phase_neck, phase_settings, phase_widths, route_tasks, superseded)
 from .route import RouteRefused, RouterFailed
 
 TASK_CALLS = ("tasks", "bus_tasks", "pour")
@@ -587,7 +587,8 @@ def after_call(ctx, index, phase, sel, k, call, board_in, board_out, records, su
             out.board, before = after.board, after
             on_board = router_nets(out.board, hist.script_keys)
             laid.add(unit.net)
-            out.records += parts.records
+            # an earlier kept attempt's record of a connection this one routed again describes copper now gone
+            out.records = superseded(out.records, parts.records)
             # the copper the earlier kept attempts laid for this one's victims is gone: their calls lose those nets
             out.calls = [(_without(c, parts.trim), a, b) for c, a, b in out.calls] + parts.calls
             out.trim |= parts.trim

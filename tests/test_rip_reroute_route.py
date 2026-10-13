@@ -246,6 +246,9 @@ def test_a_net_moved_twice_in_one_call_keeps_no_row_of_the_first_reroute(toy, mo
     assert (first["victims"], first["kept"], second["victims"], second["kept"]) == (["A"], True, ["A"], True)
     # the second attempt took the first one's A, stub and all, off and laid A without one
     assert [w for w in report.widths if w["net"] == "A"] == [] and report.widths_failed == 0
+    # one record per connection: the second attempt's record of A replaces the first one's (final review finding 1)
+    ends = [(c["net"], frozenset((c["from"]["ref"], c["to"]["ref"]))) for c in report.phases[0]["connections"]]
+    assert len(ends) == len(set(ends)) and ("A", frozenset(("P1", "P2"))) in ends
 
 
 @needs_kicad
