@@ -127,3 +127,41 @@ def test_only_takes_the_given_boards_copper_as_the_scripts(toy, tmp_path):
     (b,) = report.phases
     assert b["rip"]["attempts"] == []
     assert b["rip"]["skipped"][0]["not_ripped"] == [{"net": "A", "reason": "no_router_copper"}]
+
+
+@needs_kicad
+def test_a_router_failure_in_an_attempt_restores_and_ends_the_calls_attempts(toy, monkeypatch):
+    import placemat.kicad.rip_reroute as rr_mod
+    from placemat.kicad.route import RouterFailed
+
+    def broken(*a, **kw):
+        raise RouterFailed("stand-in", 3, "/dev/null", "")
+    monkeypatch.setattr(rr_mod, "route_tasks", broken)        # rip_reroute imports route_tasks at module level
+    report = toy.route(A, B)
+    att = report.phases[1]["rip"]["attempts"][0]
+    assert (att["kept"], att["reason"], att["router"]["exit_code"]) == (False, "router_failed", 3)
+    assert report.phases[1]["joined"] == 0 and report.phases[0]["final_closure_clean"] == 1.0
+
+
+@needs_kicad
+def test_the_net_limit_skips_a_unit_naming_too_many_nets(toy):
+    report = toy.route(A, B, settings={"route_rip_max_nets": 0})
+    assert report.phases[1]["rip"]["skipped"][0]["reason"] == "too_many_victims"
+
+
+@needs_kicad
+def test_the_attempt_limit_skips_the_calls_later_units(toy, tmp_path):
+    report = toy.route(A, {"name": "b", "nets": ["B", "C"]}, pcb=rip_board(tmp_path, c_net=True),
+                       settings={"route_rip_attempts": 1})
+    rip = report.phases[1]["rip"]
+    assert [(a["blocked"][0]["net"], a["kept"]) for a in rip["attempts"]] == [("B", True)]
+    assert [(s["net"], s["reason"]) for s in rip["skipped"]] == [("C", "limit")]
+
+
+@needs_kicad
+def test_a_victim_set_restored_once_is_not_tried_again_in_the_call(toy, tmp_path, monkeypatch):
+    monkeypatch.setenv("TOY_DETOUR", "0")                  # A cannot go round: the first attempt is restored
+    report = toy.route(A, {"name": "b", "nets": ["B", "C"]}, pcb=rip_board(tmp_path, c_net=True))
+    rip = report.phases[1]["rip"]
+    assert [(a["blocked"][0]["net"], a["kept"]) for a in rip["attempts"]] == [("B", False)]
+    assert [(s["net"], s["reason"]) for s in rip["skipped"]] == [("C", "tried")]
