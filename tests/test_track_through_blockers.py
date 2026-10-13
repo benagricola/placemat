@@ -43,7 +43,8 @@ def test_a_leg_through_three_parts_names_all_of_them_along_the_leg():
 
 
 def test_a_blocker_is_said_to_have_been_placed_or_not_when_the_track_became_plannable():
-    """F1 firm; S1 searched first and joined to F1 by a track past K, which stands on the way (firm, placed first); T,
+    """Zero-radius searches isolate room-planning order from the common objective.
+    F1 firm; S1 searched first and joined to F1 by a track past K, which stands on the way (firm, placed first); T,
     searched after S1, is hinted onto the way as well, and was not placed when the track was first tried."""
     fps = [_fp("F1", 10, ("B", "A")),
            footprint("S1", 36, 20, w=6, h=3, inst="s1", nets=("A", "C"), excess=0.0, fab=(33, 18.5, 39, 21.5)),
@@ -52,8 +53,8 @@ def test_a_blocker_is_said_to_have_been_placed_or_not_when_the_track_became_plan
     b = _board(fps)
     b.place(Part("f1"), at=Location(10, 20))
     b.place(Part("k1"), at=Location(20, 20))
-    b.place(Part("s1"), at=Near(Location(36, 20)))
-    b.place(Part("t1"), at=Near(Location(28, 20)))
+    b.place(Part("s1"), at=Near(Location(36, 20), radius=0.0))
+    b.place(Part("t1"), at=Near(Location(28, 20), radius=0.0))
     b.track(Net("A"), [PadRef(Part("f1"), 2), PadRef(Part("s1"), 1)], layer=F, why="past k1")
     f = _not_drawn(b.resolve())
     by = {c["who"][0]: c["placed_when_plannable"] for c in f.facts["blockers"] if c["form"] == "pad"}
@@ -72,8 +73,8 @@ def test_a_track_refused_when_it_could_first_be_planned_says_so_and_what_refused
     b = _board(fps)
     b.place(Part("f1"), at=Location(10, 20))
     b.place(Part("k1"), at=Location(28, 20))
-    b.place(Part("s1"), at=Near(Location(36, 20)))
-    b.place(Part("t1"), at=Near(Location(18, 20)))
+    b.place(Part("s1"), at=Near(Location(36, 20), radius=0.0))
+    b.place(Part("t1"), at=Near(Location(18, 20), radius=0.0))
     b.track(Net("A"), [PadRef(Part("f1"), 2), PadRef(Part("s1"), 1)], layer=F, why="past k1")
     f = _not_drawn(b.resolve())
     assert f.facts["met"]["who"][0] == "T1" and f.facts["met"]["placed_when_plannable"] is False

@@ -29,11 +29,11 @@ def _board(congestion):
     return board, board.resolve()
 
 
-def _clean(board, plan, one):
+def _clean(board, plan):
     occ = plan.occupancy
     m = next(fp for fp in board.geometry.footprints if fp.ref == "M")
     pins = {"S": [("A1", "1"), ("A2", "1"), ("M", "1")]}
-    one_score = (lambda fp: MSTScorer(board, occ, fp, plan=plan, prune=True)) if one else None
+    one_score = lambda fp: MSTScorer(board, occ, fp, plan=plan, prune=True)
     before = sum(score.whole(board, occ, plan).values())
     result = cleanup(occ, {"m": m}, pins, [], board.clearance, 2, 40.0, 1.0, settings=board.settings,
                      one_score=one_score)
@@ -42,17 +42,28 @@ def _clean(board, plan, one):
 
 def test_a_move_that_lowers_wire_but_raises_the_one_score_is_refused():
     board, plan = _board(1000.0)
-    _, old_spot, before, old_after = _clean(board, plan, one=False)
-    assert old_after > before, 'fixture: the old objective takes a move the one score prices higher'
-    board, plan = _board(1000.0)
-    _, spot, before, after = _clean(board, plan, one=True)
-    assert spot != old_spot
+    occ = plan.occupancy
+    moving = board.geometry.footprint("m")
+    original = occ.items["M"].reference
+    before_terms = score.whole(board, occ, plan)
+    candidate = dataclasses.replace(original, location=Location(20, 22))
+    try:
+        occ.lift(["M"])
+        occ.commit(moving, candidate)
+        after_terms = score.whole(board, occ, plan)
+    finally:
+        occ.lift(["M"])
+        occ.commit(moving, original)
+    assert after_terms['airwire'] < before_terms['airwire']
+    assert sum(after_terms.values()) > sum(before_terms.values())
+    _, spot, before, after = _clean(board, plan)
+    assert spot != candidate.location
     assert after <= before
 
 
 def test_a_move_that_lowers_the_one_score_is_taken():
     board, plan = _board(0.0)
-    result, spot, before, after = _clean(board, plan, one=True)
+    result, spot, before, after = _clean(board, plan)
     assert "m" in result.moves and spot != Location(50, 22)
     assert after < before
 
