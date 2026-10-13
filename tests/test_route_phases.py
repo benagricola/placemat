@@ -26,6 +26,10 @@ FAKE = textwrap.dedent('''
     if fail and fail in a:
         sys.exit(3)
     shutil.copy(a[0], a[1])
+    extra = os.environ.get("FAKE_ROUTER_SEGMENTS")      # copper this call lays: the first call naming --nets only
+    if extra and "--nets" in a and extra not in open(a[1]).read():
+        text = open(a[1]).read().rstrip()
+        open(a[1], "w").write(text[:-1] + extra + ")\\n")
     if os.environ.get("FAKE_ROUTER_LOWER_HOLE"):
         import pathlib
         project = pathlib.Path(a[0]).with_suffix(".kicad_pro")
@@ -409,6 +413,27 @@ def test_a_join_under_its_width_is_a_width_line_though_no_call_of_the_phase_laid
         "VIN", "leg", ["leg", "leg2"], 0.2, "judged")
     assert {line["from"]["ref"], line["to"]["ref"]} == {"U1", "J1"}
     assert "UNDER WIDTH: VIN " in report.summary()
+
+
+def _segments(points, width):
+    return "".join('\t(segment (start %g %g) (end %g %g) (width %g) (layer "F.Cu") (net 3))\n' % (a + b + (width,))
+                   for a, b in zip(points, points[1:]))
+
+
+@needs_kicad
+@pytest.mark.parametrize("loop", [False, True])
+def test_a_calls_width_record_gives_way_to_the_judged_line_of_its_connection_unless_it_reports_more(rig, monkeypatch,
+                                                                                                   loop):
+    """The router lays 0.2 mm VIN copper in a phase asking 0.5 mm: the call's record and the judged line of VIN's one
+    connection describe the same copper, and only the judged line is listed. With a second, longer 0.2 mm route
+    between the same pads, which no connection's joining path takes, the call's record is listed too."""
+    path = _segments(((113, 110), (113, 113), (126, 113), (126, 110)), 0.2)
+    other = _segments(((113, 110), (113, 106.5), (126, 106.5), (126, 110)), 0.2)
+    monkeypatch.setenv("FAKE_ROUTER_SEGMENTS", path + (other if loop else ""))
+    report = rig.route({"name": "vin", "nets": ["VIN"], "width": 0.5})
+    assert [(w.get("source"), w["net"], w["stage"]) for w in report.widths] == (
+        ([(None, "VIN", "vin")] if loop else []) + [("judged", "VIN", "vin")])
+    assert report.widths[-1]["delivered_min_mm"] == 0.2
 
 
 def test_a_refusal_carries_facts_not_sentences(tmp_path):

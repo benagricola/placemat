@@ -88,11 +88,25 @@ def test_one_width_line_per_connection():
     pads = {"from": a["from"], "to": a["to"]}
     other = {"from": {"ref": "J1", "pad": "2"}, "to": {"ref": "Q1", "pad": "2"}}
     call = {"net": "VB", "stage": "legs", "layers": [], "connections": [pads]}
-    whole = {"net": "VB", "stage": "cur", "layers": []}
+    on_path = [{"layer": "F.Cu", "from": [5.0, 10.0], "to": [12.0, 10.0], "width_mm": 0.3}]
+    whole = {"net": "VB", "stage": "cur", "layers": [], "stretches": on_path}
+    stub = dict(whole, stretches=on_path + [{"layer": "F.Cu", "from": [8.0, 10.0], "to": [8.0, 14.0],
+                                             "width_mm": 0.2}])
     router = dict(pads, net="VB", stage="legs", layers=[], source="router")
     kept = [dict(call, connections=[other]), dict(call, stage="signals"), dict(whole, net="SW"),
-            dict(router, **other), {"net": "VB", "stage": "legs", "requested_mm": 1.0}]
-    assert phase_run.one_line_per_connection([call, whole, router] + kept, judged) == kept
+            dict(router, **other), {"net": "VB", "stage": "legs", "requested_mm": 1.0},
+            stub, dict(whole, stretches=[dict(on_path[0], layer="B.Cu")])]
+    # the judged connection's path: F.Cu (5, 10) - (20, 10), a whole track of which the call's stretch is a piece
+    paths = [[("F.Cu", (5.0, 10.0), (20.0, 10.0))]]
+    assert phase_run.one_line_per_connection([call, whole, router] + kept, judged, paths) == kept
+
+
+def test_a_stretch_lies_on_a_path_when_both_its_ends_are_on_one_track_of_it():
+    from placemat.kicad.phase_run import on_path
+    path = [("F.Cu", (0.0, 0.0), (10.0, 0.0)), ("F.Cu", (10.0, 0.0), (10.0, 5.0))]
+    assert on_path({"layer": "F.Cu", "from": [2.0, 0.0], "to": [10.0, 0.0]}, path)
+    assert not on_path({"layer": "F.Cu", "from": [2.0, 0.0], "to": [10.0, 5.0]}, path)       # a short cut
+    assert not on_path({"layer": "B.Cu", "from": [2.0, 0.0], "to": [10.0, 0.0]}, path)
 
 
 def test_without_neckdown_the_routers_own_minimum_per_task_is_judged():

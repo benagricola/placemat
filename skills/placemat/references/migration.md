@@ -71,7 +71,9 @@ section for each hand-written pattern a newer form replaces.
   findings) list every connection a phase asked at a width that the final board joins narrower, whichever call laid
   the copper: a current net a later phase with no width of its own joined thin is listed now. Such a record has
   `source` `judged`, names its two pads and the phases that asked them (`stages`), and is the connection's only
-  record: the per-call records of those phases for it are left out. Scripts need no change.
+  record: the per-call records of those phases for it are left out, except a whole-net call's record that also
+  counts under-width copper off every such connection's joining path. A per-call record lists the tracks it counts
+  as `stretches`. Scripts need no change.
 
 - **Routing phases.** On a board with inner copper layers, `settings <board> --example` gives the example current phase
   `layers` set to the board's outer copper layers. A placemat.toml written by an earlier `--example` keeps its current

@@ -1518,9 +1518,10 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
             report.pour_routed_by.setdefault(n, p.name)
     recheck_final_phases(report, asked, run_list, width_receipt, pcb_out,
                          work / "drc_after.json", after, cfg)
-    from .phase_run import judged_widths, one_line_per_connection
+    from .phase_run import judged_widths, one_line_per_connection, path_tracks, phase_neck
     judged = judged_widths(run_list, asked, report.final_judged)
-    report.widths = one_line_per_connection(report.widths, judged) + judged
+    paths = path_tracks(pcb_out, judged, {p.name: phase_neck(cfg, p) for p in run_list})
+    report.widths = one_line_per_connection(report.widths, judged, paths) + judged
     report.drc_new = new_error_count(work / "drc_before.json", work / "drc_after.json", after.is_real)
     report.vias, report.track_mm, report.segments = routed_copper(pcb, pcb_out)
     if only:

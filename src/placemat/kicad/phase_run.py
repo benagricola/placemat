@@ -314,17 +314,24 @@ def judge_obligations(pcb_path, obligations, drc_json, neck_mm=0.0, is_real=None
         j = joined[_ob_key(o)] if _ob_key(o) in joined else o["net"] not in open_nets
         under, spans = {}, None
         if j and o.get("widths") and geometry is not None:
-            spans = joining_spans(geometry, o, full_width=True, cache=rasters)
-            if spans is None and neck_mm > 0:
-                spans = joining_spans(geometry, o, full_width=True, neck_mm=neck_mm, cache=rasters)
-            if spans is None:
-                spans = joining_spans(geometry, o, cache=rasters)
+            spans = measured_spans(geometry, o, neck_mm, rasters)
             under = width_shortfall(spans, o["widths"], neck_mm) if spans is not None else {}
         # unknown only where no joining path could be measured; a measured shortfall is `under` alone
         unknown = bool(j and (o.get("width_policy_unknown") or
                               (o.get("widths") and spans is None)))
         out.append({"joined": j, "violated": o["net"] in violated, "under": under, **({"width_unknown": True} if unknown else {})})
     return out
+
+
+def measured_spans(geometry, o, neck_mm, rasters):
+    """The joining path judge_obligations measures an obligation with widths on: a path at full width, else one at
+    full width past the neck allowance, else the shortest (joining_spans' pieces); None when none joins its pads."""
+    spans = joining_spans(geometry, o, full_width=True, cache=rasters)
+    if spans is None and neck_mm > 0:
+        spans = joining_spans(geometry, o, full_width=True, neck_mm=neck_mm, cache=rasters)
+    if spans is None:
+        spans = joining_spans(geometry, o, cache=rasters)
+    return spans
 
 
 def is_clean(j: dict) -> bool:
@@ -1347,7 +1354,7 @@ def judged_widths(phases, asked, final_judged) -> list:
                 continue
             low = min(r["min_mm"] for r in rows)
             line = {"net": o["net"], "stage": phase.name, "from": dict(o["from"]), "to": dict(o["to"]),
-                    "requested_mm": max(o["widths"].values()), "delivered_min_mm": low, "length_under_mm": None,
+                    "widths": dict(o["widths"]), "requested_mm": max(o["widths"].values()), "delivered_min_mm": low, "length_under_mm": None,
                     "length_mm": None, "share": None, "declared": True, "max_a": None, "bottleneck_mm": low,
                     "layers": rows, "source": "judged"}
             key = _pair_key(o)
@@ -1358,23 +1365,59 @@ def judged_widths(phases, asked, final_judged) -> list:
     return [dict(line, stages=list(stages[k])) for k, line in lines.items()]
 
 
-def one_line_per_connection(records, judged) -> list:
-    """`records` (the route's width records) without those a judged line (judged_widths) stands for: a router
-    record of the same connection (task_widths: its `from` and `to`) in a phase that asked it, and a phase's per-call
-    record (phase_widths) of the same net in such a phase, when it names that connection among its `connections` or
-    names none (a whole-net call). Other records are kept as they are."""
-    said = [(set(j["stages"]), j["net"], frozenset((_ref_pad(j["from"]), _ref_pad(j["to"])))) for j in judged]
+def path_tracks(pcb_path, judged, necks) -> list:
+    """For each judged line (judged_widths), the tracks of the joining path its judgement measured on the board at
+    `pcb_path` (measured_spans, the line's `widths`, `necks`: {phase name: neck_mm} by its `stage`), each (layer
+    name, (x, y), (x, y)) once; [] when no path joins its pads."""
+    from .read import read_board
+    if not judged:
+        return []
+    geometry, rasters, out = read_board(str(pcb_path)), {}, []
+    for line in judged:
+        spans = measured_spans(geometry, line, necks.get(line["stage"], 0.0), rasters) or ()
+        tracks = []
+        for t, _ in spans:
+            if t.kind == "track":
+                seg = (next(iter(t.layers)).value, tuple(t.anchors[0]), tuple(t.anchors[1]))
+                if seg not in tracks:
+                    tracks.append(seg)
+        out.append(tracks)
+    return out
+
+
+def on_path(stretch, path, tolerance_mm=1e-3) -> bool:
+    """Whether a record's stretch ({"layer", "from", "to"}) lies on a path (path_tracks'): both its ends on the
+    centreline of one track of the path on its layer, within `tolerance_mm`. A track the clean-up merged with its
+    collinear neighbours still holds each piece it was made of."""
+    from ..geometry import point_segment_distance
+    a, b = tuple(stretch["from"]), tuple(stretch["to"])
+    return any(layer == stretch["layer"] and point_segment_distance(a, p, q) <= tolerance_mm
+               and point_segment_distance(b, p, q) <= tolerance_mm for layer, p, q in path)
+
+
+def one_line_per_connection(records, judged, paths) -> list:
+    """`records` (the route's width records) without those a judged line (judged_widths) stands for, in a phase that
+    asked its connection: a router record of the same connection (task_widths: its `from` and `to`); a per-call
+    record (phase_widths) of the same net that names that connection among its `connections`; and a whole-net
+    call's record of the same net when every stretch it counts lies on the joining path of such a line (`paths`,
+    path_tracks' for each line, on_path). A whole-net record with a stretch on no such path is kept: it reports
+    under-width copper no judged line stands for. Other records are kept as they are."""
+    said = [(set(j["stages"]), j["net"], frozenset((_ref_pad(j["from"]), _ref_pad(j["to"]))), path)
+            for j, path in zip(judged, paths)]
 
     def covered(r):
         if r.get("source") == "judged" or "stage" not in r:
             return False
-        if r.get("from") is not None:
-            pads = [frozenset((_ref_pad(r["from"]), _ref_pad(r["to"])))]
-        elif r.get("connections"):
-            pads = [frozenset((_ref_pad(c["from"]), _ref_pad(c["to"]))) for c in r["connections"]]
-        elif "layers" in r:
-            pads = None
-        else:
+        mine = [(pair, path) for st, net, pair, path in said if r["stage"] in st and r["net"] == net]
+        if not mine:
             return False
-        return any(r["stage"] in st and r["net"] == net and (pads is None or pair in pads) for st, net, pair in said)
+        if r.get("from") is not None:
+            return frozenset((_ref_pad(r["from"]), _ref_pad(r["to"]))) in {pair for pair, _ in mine}
+        if r.get("connections"):
+            return bool({frozenset((_ref_pad(c["from"]), _ref_pad(c["to"]))) for c in r["connections"]}
+                        & {pair for pair, _ in mine})
+        if "layers" in r and r.get("stretches"):
+            return all(any(on_path(st, path) for _, path in mine) for st in r["stretches"])
+        return False
     return [r for r in records if not covered(r)]
+

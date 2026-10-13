@@ -3879,9 +3879,11 @@ gets a record, whichever call laid the copper (a later phase that asked no width
 `source` `judged`, `stage` the phase that asked it, `stages` every phase that asked that pad pair under its width
 (the record of the largest need stands for them, one record per connection), `from` and `to` its pads, `layers`
 ({`layer`, `need_mm`, `min_mm`, `by`}: `current` for a phase sized from currents, else `asked`), `requested_mm` and
-`delivered_min_mm`, and null lengths. It replaces the per-call records of the phases that asked it: the router's
-record of the same connection, and a call's record of its net when the call routed that connection or the whole
-net. Its summary entry reads `VB J1.1-Q1.1 under F.Cu 2.47, In2.Cu 6.41 (min 0.127)`. Net-class and pair widths are reported only where the router records a narrowing of them: its pair router writes no
+`delivered_min_mm`, `widths` (the widths asked of it), and null lengths. It replaces the per-call records of the
+phases that asked it: the router's record of the same connection, a task call's record of its net when the call
+routed that connection, and a whole-net call's record of its net when every track that record counts under width
+(its `stretches`, {`layer`, `from`, `to`, `width_mm`}) lies on the joining path of such a connection. A whole-net
+record with under-width copper on no such path stays listed. Its summary entry reads `VB J1.1-Q1.1 under F.Cu 2.47, In2.Cu 6.41 (min 0.127)`. Net-class and pair widths are reported only where the router records a narrowing of them: its pair router writes no
 summary.
 
 The routed copy is cleaned as KiCad's own cleanup cleans a board, over the copper the router added only: its dangling tracks and vias

@@ -148,8 +148,8 @@ def board_widths(geometry, asks: dict, stage: str, rise_c: float | None = None, 
                  neck_mm: float = KRT_NECKDOWN_LENGTH_MM + KRT_NECKDOWN_TAPER_MM, only=None, by="asked") -> list:
     """A phase's tracks below its per-layer asked widths, restricted to `only` when supplied.
 
-    Each record names the phase and the layer's shortfall. Pad neck copper within the router's allowance
-    is reported separately. Current capacity uses IPC-2221 and the board's layer copper thickness.
+    Each record names the phase and the layer's shortfall, and each track it counts (`stretches`: {"layer", "from",
+    "to", "width_mm"}). Pad neck copper within the router's allowance is reported separately. Current capacity uses IPC-2221 and the board's layer copper thickness.
     """
     from ..checks import COPPER_OZ, TRACK_RISE_C, _layer_k, _layer_oz, ipc2221_current_a
     rise_c = TRACK_RISE_C if rise_c is None else rise_c
@@ -193,6 +193,9 @@ def board_widths(geometry, asks: dict, stage: str, rise_c: float | None = None, 
                     "max_a": round(capacity(worst), 2), "bottleneck_mm": round(worst.width_mm, 4),
                     "bottleneck_layer": next(iter(worst.layers)).value, "amps": None,
                     "necks_mm": round(sum(tracks[i].length_mm for i in necks), 2), "neck_limit_mm": neck_mm,
+                    "stretches": [{"layer": next(iter(t.layers)).value, "from": [round(c, 4) for c in t.anchors[0]],
+                                   "to": [round(c, 4) for c in t.anchors[1]], "width_mm": round(t.width_mm, 4)}
+                                  for t in counted],
                     "layers": [dict(r, under_mm=round(r["under_mm"], 2), min_mm=round(r["min_mm"], 4))
                                for _, r in sorted(per.items(), key=lambda kv: kv[0].value)]})
     return out
