@@ -176,9 +176,26 @@ def test_reference_timeout_reaps_its_process_group(tmp_path, monkeypatch):
     with pytest.raises(RuntimeError, match="timed out"):
         route_ref._route(tmp_path / "board.kicad_pcb", tmp_path / "route", None)
     parent, child = map(int, (tmp_path / "pids").read_text().split())
-    for pid in (parent, child):
-        with pytest.raises(ProcessLookupError):
-            os.kill(pid, 0)
+    with pytest.raises(ProcessLookupError):
+        os.kill(parent, 0)  # run_owned reaps its direct child
+    # A killed grandchild can remain a zombie until the host's init reaps it.
+    # It must be dead, rather than merely absent from the process table.
+    import time
+    from pathlib import Path
+    deadline = time.monotonic() + 2.0
+    while True:
+        try:
+            state = (Path("/proc") / str(child) / "stat").read_text().rsplit(")", 1)[1].split()[0]
+        except FileNotFoundError:
+            try:
+                os.kill(child, 0)
+            except ProcessLookupError:
+                break
+            state = None
+        if state == "Z":
+            break
+        assert time.monotonic() < deadline, "owned router child survived process-group termination"
+        time.sleep(0.01)
 
 
 def test_interrupted_reference_wait_reaps_owned_parent(tmp_path, monkeypatch):

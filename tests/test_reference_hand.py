@@ -172,7 +172,7 @@ def test_module_records_hand_facts_and_same_placed_area_measure(tmp_path, monkey
     monkeypatch.setattr(place_ref, '_placed_board', lambda script: board)
     monkeypatch.setattr(place_ref, 'placemat_run', lambda *args: ({'status': 'ok', 'metrics': {
         'closure_clean': 1.0, 'extent': [10, 9], 'placed': 4, 'crossings': 5, 'airwire_mm': 150.0}}, 2.0))
-    monkeypatch.setattr(place_ref, 'run_score', lambda *args: 5.0)
+    monkeypatch.setattr(place_ref, 'run_score', lambda *args, script: 5.0)
     result = place_ref.run_module('family/Thing', script, tmp_path / 'work', versions=VERSIONS)
     assert result.hand == dataclasses.asdict(hand.HandFacts(80.0, 3, 120.0, 1.0, 0))
     assert result.placed_area_mm2 == 90.0

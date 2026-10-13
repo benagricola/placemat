@@ -70,7 +70,7 @@ def test_an_open_board_on_an_invalid_input_is_a_route_not_a_failure(tmp_path, mo
     monkeypatch.setattr(place_ref, "generation_inputs", lambda path: "inputs")
     monkeypatch.setattr(place_ref.lint, "lint", lambda *args: SimpleNamespace(problems=[]))
     monkeypatch.setattr(place_ref, "krt_version", lambda path: "k")
-    monkeypatch.setattr(place_ref, "run_score", lambda record, folder: 1.0)
+    monkeypatch.setattr(place_ref, "run_score", lambda record, folder, *, script: 1.0)
     monkeypatch.setattr(prepare, "measure", lambda path: (None, prepare.HumanCopper(12, 67.5)))
     route = dict(INVALID, closure_clean=0.75, open_after=1, routed_pcb=str(pcb))
     monkeypatch.setattr(place_ref, "placemat_run", lambda script, extra: (

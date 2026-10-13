@@ -880,9 +880,9 @@ _MOVED = {
 _VALIDITY = ("counts in the validity tier of the board comparison (score.rank), before closure and the run score, "
              "with no weight")
 _REPLACED = {
-    "route_islands": 'a phase with `nets` and `width` ([[route.phase]], api.md "Routing phases")',
-    "route_pair_layers": 'a phase with `pairs = true` and `layers` ([[route.phase]], api.md "Routing phases")',
-    "route_net_halos": "the clearance field of the net's type in the capture",
+    "route_islands": 'set a phase with `nets` and `width` ([[route.phase]], api.md "Routing phases")',
+    "route_pair_layers": 'set a phase with `pairs = true` and `layers` ([[route.phase]], api.md "Routing phases")',
+    "route_net_halos": "set the clearance field of the net's type in the capture",
 
     "place_search_wire": "the placement search now uses the common run score; remove this temporary comparison setting",
     "place_escape_depth": "set score.escape_depth; placement and run judgment use the same depth",
