@@ -280,3 +280,31 @@ def test_a_pour_calls_blocked_net_is_joined_to_its_pour_again(monkeypatch, tmp_p
                        types.SimpleNamespace(name="pours", width=0.5))
     assert seen == [("GND", "p2_0_rip0_b", 0.5, ("F.Cu",))]
 
+
+def test_a_pair_call_never_starts_an_attempt(tmp_path, monkeypatch):
+    import types
+    import pytest
+    from placemat.kicad import phase_run
+    from placemat.kicad.phase_select import Selection
+
+    def route_pairs(rpy, router_dir, board, work, pairs, layers, cfg, *a, stem, **kw):
+        out = work / (stem + "_pairs.kicad_pcb")
+        out.write_text("routed")
+        return out, types.SimpleNamespace(as_dict=lambda: {"coupled": [list(p) for p in pairs]})
+
+    def no_attempt(*a, **kw):
+        pytest.fail("a pair call started rip and reroute")
+    monkeypatch.setattr(phase_run, "route_pairs", route_pairs)
+    monkeypatch.setattr(phase_run, "lock_copper", lambda pcb: None)
+    monkeypatch.setattr(phase_run, "phase_widths", lambda *a: [])
+    monkeypatch.setattr(phase_run, "task_widths", lambda *a: [])
+    monkeypatch.setattr(rr, "after_call", no_attempt)
+    phase = types.SimpleNamespace(name="pairs", router_args=(), neckdown=True, width=None)
+    ctx = phase_run.PhaseContext(tmp_path, "route.py", str(tmp_path), tmp_path, ["F.Cu", "B.Cu"], None, None, False,
+                                 60, {}, Settings(), types.SimpleNamespace(default_clearance=0.15), {}, 0.15, None,
+                                 set(), set(), None, history=object())
+    sel = Selection("pairs", "pairs", pairs=(("D_P", "D_N"),), layers=("F.Cu", "B.Cu"))
+    board = tmp_path / "in.kicad_pcb"
+    board.write_text("board")
+    out = phase_run.route_calls(ctx, 0, phase, sel, board)
+    assert [c.kind for c, _, _ in out.calls] == ["pairs"] and out.routed["rip"] == {"attempts": [], "skipped": []}

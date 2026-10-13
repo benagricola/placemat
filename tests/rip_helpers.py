@@ -87,6 +87,13 @@ TOY = textwrap.dedent('''
                 "blocked_by": [{"found_by": "preexisting", "kind": "copper", "net": m, "ref": None, "pad": None,
                                 "layer": None, "at": None, "cells": None, "seen_from": None,
                                 "near_source_cells": None, "near_target_cells": None} for m in met]}
+    def joined_already(net, s, e):
+        for t in board.GetTracks():
+            if t.GetNetname() == net and t.Type() != pcbnew.PCB_VIA_T:
+                ends_ = {(round(mm(p.x), 3), round(mm(p.y), 3)) for p in (t.GetStart(), t.GetEnd())}
+                if ends_ == {(round(s[0], 3), round(s[1], 3)), (round(e[0], 3), round(e[1], 3))}:
+                    return True
+        return False
     doc, laid = {}, set()
     if "--connections" in a:
         recs = []
@@ -96,6 +103,12 @@ TOY = textwrap.dedent('''
             layer = board.GetLayerID(os.environ["TOY_BLOCKED_LAYER"])     # an attempt's blocked unit, off its layers
         for t in json.load(open(opt("--connections"))):
             ends = pads_of(t["net"])
+            s_, e_ = ends[(t["from"]["ref"], t["from"]["pad"])], ends[(t["to"]["ref"], t["to"]["pad"])]
+            if os.environ.get("TOY_JOINED_NARROW") and joined_already(t["net"], s_, e_):
+                # KRT's joined_narrow: the ends are already joined by narrower copper; it lays nothing
+                recs.append(dict(t, status="joined_narrow", reason=None, joined=True, length_mm=0.0,
+                                 min_width_mm={}, layers=layers, path=None, evidence=None))
+                continue
             w = max(t["widths"].values()) / (2 if t["net"] == narrow else 1)
             ok, length, met = lay(t["net"], ends[(t["from"]["ref"], t["from"]["pad"])],
                                   ends[(t["to"]["ref"], t["to"]["pad"])], w)
@@ -161,16 +174,20 @@ def _part(ref, x, y, net, amps=None):
             '(net "%s"))\n\t)\n' % (x, y, current, ref, net))
 
 
-def rip_board(tmp_path, *, a_track=False, currents=False, third=False, c_net=False, d_net=False) -> Path:
+def rip_board(tmp_path, *, a_track=False, currents=False, third=False, c_net=False, d_net=False,
+              p23_track=None) -> Path:
     """Net A: P1.1 (105, 110) to P2.1 (125, 110), with P3.1 (130, 110) when `third`; net B: Q1.1 (115, 104) to
     Q2.1 (115, 116); net C, when `c_net`: R1.1 (113, 104) to R2.1 (113, 116), which A's straight blocks every way, as it
     does B (C's detours, at x = 105 and 121, meet A's track). `currents`: P1 and P2 carry 1 A. `d_net`: the board
     reaches x = 150, with net D, S1.1 (140, 101.5) to S2.1 (140, 123.5), which blocks net E, T1.1 (136, 110) to
-    T2.1 (144, 110), every way (E's detours, at y = 102 and 118, meet it), and nothing of A, B or C."""
+    T2.1 (144, 110), every way (E's detours, at y = 102 and 118, meet it), and nothing of A, B or C. `p23_track`: a
+    script track of A that wide (mm) from P2.1 to P3.1."""
     pcb = tmp_path / "board" / "layout.kicad_pcb"
     pcb.parent.mkdir()
     amps = "1A" if currents else None
     track = '\t(segment (start 105 110) (end 125 110) (width 0.2) (layer "F.Cu") (net 1))\n' if a_track else ""
+    if p23_track:
+        track += '\t(segment (start 125 110) (end 130 110) (width %g) (layer "F.Cu") (net 1))\n' % p23_track
     parts = (_part("P1", 105, 110, "A", amps) + _part("P2", 125, 110, "A", amps)
              + (_part("P3", 130, 110, "A") if third else "")
              + _part("Q1", 115, 104, "B") + _part("Q2", 115, 116, "B")

@@ -217,3 +217,19 @@ def test_a_blocked_unit_laid_off_its_phases_layers_is_restored(toy, monkeypatch)
     att = report.phases[1]["rip"]["attempts"][0]
     assert (att["kept"], att["reason"], att["off_layer"]) == (False, "off_layer", 1)
     assert report.phases[1]["joined"] == 0
+
+
+@needs_kicad
+def test_a_moved_connection_still_under_width_keeps_one_judged_line(toy, monkeypatch, tmp_path):
+    # P2-P3 is joined over a 0.2 script track, under the 0.4 asked: the router answers joined_narrow and lays
+    # nothing, in phase a's call and again when the attempt moves A (script copper stays)
+    monkeypatch.setenv("TOY_JOINED_NARROW", "1")
+    a = {"name": "a", "width": 0.4, "connections": [{"from": {"part": "P1", "pad": "1"}, "to": {"part": "P2", "pad": "1"}},
+                                                    {"from": {"part": "P2", "pad": "1"}, "to": {"part": "P3", "pad": "1"}}]}
+    report = toy.route(a, B, pcb=rip_board(tmp_path, third=True, p23_track=0.2))
+    assert [c["status"] for c in report.phases[0]["connections"]] == ["routed", "joined_narrow"]
+    att = report.phases[1]["rip"]["attempts"][0]
+    assert att["kept"] and {r["status"] for r in att["rerouted"]} == {"routed", "joined_narrow"}
+    rows = [w for w in report.widths if w["net"] == "A"]
+    assert [(w["source"], w["stage"], w["from"]["ref"], w["to"]["ref"]) for w in rows] == [("judged", "a", "P2", "P3")]
+    assert report.widths_failed == len(rows) == 1
