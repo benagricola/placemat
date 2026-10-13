@@ -408,7 +408,7 @@ def _ends_key(o) -> tuple:
     return (o["net"], frozenset((e.get("ref"), e.get("pad"), e.get("fp")) for e in (o["from"], o["to"])))
 
 
-def blocked_connections(unit, call, before, hist, index, phase) -> tuple:
+def blocked_connections(unit, before, hist, index, phase) -> tuple:
     """The blocked unit's connections, each {"net", "from", "to", "widths"}, on the board `before` judged: a task
     unit's as the router answered them; a whole-net unit's the open connections of its net in `before`'s DRC, each at
     the widths phase `index` asks for that pad pair, or its width answer for the net (spec "What triggers an
@@ -443,11 +443,15 @@ def plan_moves(victims, hist, index, before) -> tuple:
     obligations of phases 0..index joined on `before` (asked_moves), then the input board's open connections joined on
     `before` that no phase asks (unasked_pairs), each owned by the first phase whose board joins it (the failing
     call's board for phase `index`) at that phase's width answer for the net. ([Move], None), or ([], reason):
-    `victim_end_not_pad`, `victim_width_unknown`."""
+    `victim_end_not_pad`, `victim_width_unknown`. An input-board open connection with an end that is no pad cannot be
+    a task: when `before` joins it (its net has no open item there, as judge_obligations judges such an end), taking
+    the victim's copper off would open it again with nothing to route it, so the unit is skipped."""
     joined = [[j["joined"] for j in before.judged[o]] for o in range(index + 1)]
     moves, reason = asked_moves(victims, hist.asked, index, joined, selections=hist.selections)
     if reason:
         return [], reason
+    if any(o["net"] in victims and not _pads(o) and not before.open_nets.get(o["net"]) for o in hist.input_open):
+        return [], "victim_end_not_pad"
     cand = [o for o in hist.input_open if o["net"] in victims and _pads(o)]
     pairs = [(_end_pair(o["from"]), _end_pair(o["to"])) for o in cand]
     loose = unasked_pairs(victims, cand, moves, joined_pairs(before.board, pairs))
@@ -572,7 +576,7 @@ def after_call(ctx, index, phase, sel, k, call, board_in, board_out, records, su
         if reason is None:
             if before is None:
                 before = standing(ctx, hist.asked, hist.phases, index, out.board, "p%d_%d_rip" % (index, k))
-            conns, reason = blocked_connections(unit, call, before, hist, index, phase)
+            conns, reason = blocked_connections(unit, before, hist, index, phase)
             if reason is None:
                 moves, reason = plan_moves(victims, hist, index, before)
         if reason is not None:

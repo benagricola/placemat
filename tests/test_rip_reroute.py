@@ -116,6 +116,17 @@ def test_joins_no_phase_asks_are_moved_too():
     assert [(o["from"]["ref"], o["to"]["ref"]) for o in got] == [("U1", "R1")]
 
 
+def test_a_join_no_phase_asks_with_an_end_that_is_no_pad_skips_the_unit():
+    """The victim's copper joins an island whose end is no pad (final review finding 4): taking it off would open the
+    island with nothing to route it, so the unit is skipped, not spent as an attempt; an island still open is left."""
+    import types
+    stub = dict(_ob("V", ("U1", "1"), ("J1", "1")), to={"ref": None, "pad": None, "at": [1.0, 2.0]})
+    hist = types.SimpleNamespace(asked=([],), selections=(None,), input_open=(stub,), boards=[], receipt={},
+                                 phases=(types.SimpleNamespace(name="a"),))
+    assert rr.plan_moves({"V"}, hist, 0, _st([[]])) == ([], "victim_end_not_pad")
+    assert rr.plan_moves({"V"}, hist, 0, _st([[]], open_nets={"V": 1})) == ([], None)
+
+
 def test_a_phases_width_answer_for_a_net():
     receipt = {"policies": [{"name": "signals", "kind": "nets",
                              "by_net": {"V": {"status": "known", "widths": {"F.Cu": 0.5, "B.Cu": 0.5}},
