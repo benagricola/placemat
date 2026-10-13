@@ -86,3 +86,60 @@ def test_a_native_memo_entry_serves_a_later_lifted_board_with_equal_shapes():
     assert scores(again) == first == scores(again, native_memo=False)
     made_after, taken_after, _ = memo.counts()
     assert made_after == made and taken_after > taken
+
+
+def _ringed(owner):
+    """The baseline memo test's board, with the ring of tracks round P1's pad owned by `owner` and R1 off net S."""
+    import math
+    from placemat.layout import Board
+    from placemat.settings import Settings
+    from placemat.values import Part
+    from tests.fixtures import board_geometry, footprint, pad, track
+    from tests.test_surface_escapes import _part_of, _round_pad
+    item = _part_of('P1', 'p1', [_round_pad('P1', 'p1', 1, 'S', 30, 30, 0.5)], 30, 30)
+    target = _part_of('T1', 't1', [pad('T1', 't1', 1, 'S', 10, 30, 0.5, 0.5)], 10, 30)
+    other = footprint('R1', 40, 40, inst='r1', nets=('Y', 'Q'))
+    far = footprint('R2', 50, 10, inst='r2', nets=('Q', 'Z'))
+    ring = []
+    for index in range(48):
+        angle = 2 * math.pi * index / 48
+        x, y = 30 + 1.3 * math.cos(angle), 30 + 1.3 * math.sin(angle)
+        ring.append(track('Z', x, y, x + 0.001, y, w=0.1, owner=owner))
+    board = Board(board_geometry([item, target, other, far], width=60, height=60, copper=ring), keep_going=True,
+                  settings=replace(Settings(), cleanup_enabled=False))
+    board.rect(width=60, height=60)
+    for part in (item, target, other, far):
+        board.place(Part(part.inst), at=part.location)
+    plan = board.resolve()
+    return board, plan
+
+
+def test_copper_of_a_lifted_owner_is_off_the_memo_board_and_back_on_when_it_returns(monkeypatch):
+    # R2 owns the ring of tracks round P1's pad. Lifted, R2 takes its copper off the board as a verdict reads it, so P1
+    # gets out; put back, the ring walls P1 again, though no shape of R2's own is near P1.
+    board, plan = _ringed('R2')
+    occ = plan.occupancy
+
+    def judged(ref):
+        memo = _judged(escapes.EscapeDelta(occ, {ref}, native=escapes.native_judge()))
+        monkeypatch.setattr(escapes, 'BASELINE_MEMO', False)
+        fresh = _judged(escapes.EscapeDelta(occ, {ref}, native=escapes.native_judge()))
+        monkeypatch.setattr(escapes, 'BASELINE_MEMO', True)
+        return memo, fresh
+    occ.lift({'R2'})
+    memo, fresh = judged('R2')
+    assert memo == fresh and memo[('P1', '1')][1] is escapes.Way.SURFACE
+    occ.unlift({'R2'})
+    occ.lift({'R1'})
+    memo, fresh = judged('R1')
+    assert fresh[('P1', '1')][1] is escapes.Way.WALLED
+    assert memo == fresh
+    # The native rest cache takes its ways from the same memo: a surface with it scores R1 as one judging every pad.
+    r1 = next(fp for fp in board.geometry.footprints if fp.ref == 'R1')
+    delta = Delta(board, occ, r1, plan.links, plan=plan)
+    delta.escape_native = escapes.native_judge()
+    cached, reason = prepare(delta, (0,), Face.FRONT, rest_cache=True)
+    plain, _ = prepare(delta, (0,), Face.FRONT)
+    assert cached is not None and plain is not None, reason
+    pose = occ._geometry(r1).reference
+    assert cached.evaluate(pose, 0, inspect=True) == plain.evaluate(pose, 0, inspect=True)

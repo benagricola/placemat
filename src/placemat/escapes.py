@@ -1601,8 +1601,13 @@ class _BaselineMemo:
     def sync(self, occ, native) -> None:
         key = (occ.settings, occ.geometry, occ.rules, frozenset(occ.quiet_nets), occ.board_box,
                occ.settings.score_escape_depth, bool(native))
+        # The board as a verdict reads it: the placed items' shapes, the planned copper and vias whose owner is not
+        # lifted (`search_near`, the blocker grid), and every rule area that bans vias (`_bans`, `extra_walls`). A lifted
+        # cell's copper stays in `occ.copper` but is read by no verdict, so it is not on the board here either: when the
+        # cell comes back, its copper counts as added.
         current = {id(sh): sh for r, g in occ.items.items() if r not in occ.pending for sh in g.shapes}
-        current.update((id(sh), sh) for sh in occ.copper)
+        current.update((id(sh), sh) for sh in occ.copper
+                       if sh.kind == "viaban" or (sh.kind in ("copper", "through") and sh.owner not in occ.pending))
         if self.key is None or any(a is not b for a, b in zip(key[:3], self.key[:3])) or key[3:] != self.key[3:]:
             self.key, self.shapes, self.lanes, self.pads, self.ways, self._cells = key, current, {}, {}, {}, None
             self.generation += 1
