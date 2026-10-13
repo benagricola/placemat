@@ -5,8 +5,15 @@ their own phases' widths, layers and clearance; the result is kept only when not
 Everything returned here is a value or a record; route.phase_lines renders them."""
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
+import subprocess
+import time
+
+from . import pour_join
+from .phase_run import (Call, TaskRun, _end_pair, fresh_output, is_clean, joined_pairs, judge_obligations,
+                        phase_input_drc, phase_neck, phase_settings, phase_widths, records_of, route_tasks, superseded)
+from .route import RouteRefused, RouterFailed
 
 TASK_CALLS = ("tasks", "bus_tasks", "pour")
 NET_CALLS = ("nets", "rest", "bus")
@@ -191,7 +198,6 @@ def unasked_pairs(victims, input_open, moves, joined_on_board) -> list:
 def first_joined(pairs, boards) -> list:
     """For each pad pair ((ref, pad[, fp]), (ref, pad[, fp])), the index of the first board in `boards` whose copper
     joins it (phase_run.joined_pairs), or None."""
-    from .phase_run import joined_pairs
     out = [None] * len(pairs)
     for i, b in enumerate(boards):
         todo = [n for n, v in enumerate(out) if v is None]
@@ -225,7 +231,6 @@ def task_amps(sel, o) -> float | None:
 
 def task_of(o, layers, amps=None):
     """An obligation as a --connections task, its widths in the layer order of the owner phase."""
-    from .phase_run import _end_pair
     from .phase_select import Task
     return Task(o["net"], _end_pair(o["from"]), _end_pair(o["to"]), tuple((l, o["widths"][l]) for l in layers), amps)
 
@@ -263,7 +268,6 @@ class Standing:
 
 def rank(j, outcome) -> int:
     """2 clean (phase_run.is_clean), 1 joined but not clean, 0 open."""
-    from .phase_run import is_clean
     return 2 if is_clean(j, outcome) else 1 if j["joined"] else 0
 
 
@@ -305,7 +309,7 @@ def standing(ctx, asked, phases, upto, board, stem, connections) -> Standing:
     and each obligation's outcome from `connections[k]`, that phase's records as they stand."""
     import json
     from .drc import real_errors
-    from .phase_run import judge_obligations, judging_drc, phase_input_drc, phase_neck, records_of
+    from .phase_run import judging_drc
     copy, drc_json, drc = judging_drc(ctx.work, board, stem + "_drc")
     judged, outcomes = [], []
     for k in range(upto + 1):
@@ -410,28 +414,219 @@ class AfterCall:
     widths: list             # route.width rows of reroutes owned by earlier phases
 
 
+def _pads(o) -> bool:
+    return bool(o["from"].get("ref") and o["to"].get("ref"))
+
+
+def _ends_key(o) -> tuple:
+    """A connection by its net and its two pad ends, either way round: a router record and the obligation it answers
+    (`answered` gives a record its task's footprint uuid) have the same key."""
+    return (o["net"], frozenset((e.get("ref"), e.get("pad"), e.get("fp")) for e in (o["from"], o["to"])))
+
+
+def blocked_connections(unit, call, before, hist, index, phase) -> tuple:
+    """The blocked unit's connections, each {"net", "from", "to", "widths"}, on the board `before` judged: a task
+    unit's as the router answered them; a whole-net unit's the open connections of its net in `before`'s DRC, each at
+    the widths phase `index` asks for that pad pair, or its width answer for the net (spec "What triggers an
+    attempt"). ([conns], None), or ([], reason): `blocked_end_not_pad`, `blocked_width_unknown`, or `joined_since`
+    when an earlier kept attempt of the call has joined them all."""
+    from .phase_run import _pair_key, open_connections
+    if unit.connections:
+        conns = [dict(c) for c in unit.connections]
+        if not all(_pads(c) for c in conns):
+            return [], "blocked_end_not_pad"
+        if not all(c.get("widths") for c in conns):
+            return [], "blocked_width_unknown"
+        joined = joined_pairs(before.board, [(_end_pair(c["from"]), _end_pair(c["to"])) for c in conns])
+        return ([], "joined_since") if all(joined) else (conns, None)
+    open_ = [c for c in open_connections(before.copy, before.drc_json) if c["net"] == unit.net]
+    if not open_:
+        return [], "joined_since"
+    asks = {_pair_key(o): o.get("widths") for o in hist.asked[index]}
+    conns = []
+    for c in open_:
+        if not _pads(c):
+            return [], "blocked_end_not_pad"
+        widths = asks.get(_pair_key(c)) or receipt_widths(hist.receipt, phase.name, unit.net)
+        if not widths:
+            return [], "blocked_width_unknown"
+        conns.append(dict(c, widths=dict(widths)))
+    return conns, None
+
+
+def plan_moves(victims, hist, index, before) -> tuple:
+    """The victims' connections to route again, each a Move (spec "The removed connections and their settings"): the
+    obligations of phases 0..index joined on `before` (asked_moves), then the input board's open connections joined on
+    `before` that no phase asks (unasked_pairs), each owned by the first phase whose board joins it (the failing
+    call's board for phase `index`) at that phase's width answer for the net. ([Move], None), or ([], reason):
+    `victim_end_not_pad`, `victim_width_unknown`."""
+    joined = [[j["joined"] for j in before.judged[o]] for o in range(index + 1)]
+    moves, reason = asked_moves(victims, hist.asked, index, joined, selections=hist.selections)
+    if reason:
+        return [], reason
+    cand = [o for o in hist.input_open if o["net"] in victims and _pads(o)]
+    pairs = [(_end_pair(o["from"]), _end_pair(o["to"])) for o in cand]
+    loose = unasked_pairs(victims, cand, moves, joined_pairs(before.board, pairs))
+    owners = first_joined([(_end_pair(o["from"]), _end_pair(o["to"])) for o in loose],
+                          list(hist.boards[:index]) + [before.board])
+    out = []
+    for o, owner in zip(loose, owners):
+        owner = index if owner is None else owner
+        widths = receipt_widths(hist.receipt, hist.phases[owner].name, o["net"])
+        if not widths:
+            return [], "victim_width_unknown"
+        out.append(Move(owner, {"net": o["net"], "from": o["from"], "to": o["to"], "widths": widths}, False))
+    return list(moves) + out, None
+
+
+def reroute_blocked(ctx_i, call, unit, conns, ripped, settings, stem, phase_name) -> TaskRun:
+    """Step 2 of an attempt: the blocked unit routed on the ripped board at phase i's layers and router keywords
+    (`settings`, its PhaseSettings; `ctx_i` carries its clearances). After a pour call, join_pour again for the unit's
+    net (its TaskRun with `board` the join's output); after any other, its connections as --connections tasks."""
+    if call.kind == "pour":
+        out = ctx_i.work / (stem + "_b.kicad_pcb")
+        _, run = pour_join.join_pour(ctx_i, ripped, out, unit.net, call.width, settings.layers, stem + "_b",
+                                     phase_name, settings.common)
+        run.board = out
+        return run
+    layers = list(settings.layers)
+    return route_tasks(ctx_i, [task_of(c, layers) for c in conns], ripped, stem + "_b", layers, settings.common,
+                       phase_name)
+
+
+def _in_settings(ctx, st):
+    """`ctx` with a phase's clearances (its PhaseSettings), as route_calls routes the phase."""
+    return replace(ctx, clearance_map=st.clearance_map, clearances_file=st.clearances_file,
+                   base_clearance=st.base_clearance)
+
+
+def _standing_connections(hist, index, connections, blocked=(), rerouted=()) -> list:
+    """Each phase's records as they stand for the keep test: phase k < index's superseded by the kept reroutes of its
+    connections so far (`hist.moved`), then by `rerouted`; phase `index`'s `connections`, superseded by the blocked
+    unit's records (`blocked`) and its own `rerouted`."""
+    later = {index: list(blocked)}
+    for r in rerouted:
+        later.setdefault(r["index"], []).append(r)
+    return ([superseded(superseded(hist.connections[o], hist.moved.get(o, [])), later.get(o, []))
+             for o in range(index)] + [superseded(connections, later.get(index, []))])
+
+
+def attempt(ctx, index, phase, sel, k, a, call, unit, conns, victims, not_ripped, moves, before, connections) -> tuple:
+    """One attempt (spec "The order of calls", "The keep or restore test") on `before`, the board the call left
+    as judged: the victims' router copper taken off, the blocked unit routed at phase `index`'s settings
+    (reroute_blocked), the moved connections owner by owner at their own phases' settings (owner_calls), then the
+    candidate judged against `before` (verdict). A router failure, refusal or timeout ends it unjudged. Returns
+    (record, the candidate's Standing or None, AfterCall of what a kept attempt adds to the phase)."""
+    t0 = time.time()
+    hist = ctx.history
+    stem = "p%d_%d_rip%d" % (index, k, a)
+    ripped = fresh_output(ctx.work / (stem + "_ripped.kicad_pcb"))
+    removed = remove_copper(before.board, ripped, set(victims), hist.script_keys)
+    blocked_records, rerouted, calls_i, summaries, widths, off = [], [], [], [], [], 0
+    board, router, after, v = ripped, None, None, None
+    try:
+        st_i = phase_settings(ctx, phase, sel, stem + "_b")
+        run = reroute_blocked(_in_settings(ctx, st_i), call, unit, conns, ripped, st_i, stem, phase.name)
+        blocked_records = list(run.records)
+        summaries += run.summaries
+        calls_i += [(Call("tasks", tasks=attempted), s, p) for attempted, s, p in run.calls]
+        off += off_layer(ripped, run.board, st_i.layers)
+        board = run.board
+        for o in sorted({m.owner for m in moves}):
+            mine = [m for m in moves if m.owner == o]
+            asked_of = {_ends_key(m.obligation): m.asked for m in mine}
+            owner = hist.phases[o]
+            st = phase_settings(ctx, owner, hist.selections[o], "%s_v%d" % (stem, o))
+            ctx_o, calls_o = _in_settings(ctx, st), []
+            for j, c in enumerate(owner_calls(hist.selections[o], mine, st)):
+                got = route_tasks(ctx_o, c.tasks, board, "%s_v%d_%d" % (stem, o, j), list(st.layers), st.common,
+                                  owner.name, bus_nets=c.nets if c.kind == "bus_tasks" else None)
+                off += off_layer(board, got.board, st.layers)
+                rerouted += [dict(r, phase=owner.name, index=o, asked=asked_of.get(_ends_key(r), False))
+                             for r in got.records]
+                calls_o += [(replace(c, tasks=attempted), s, p) for attempted, s, p in got.calls]
+                summaries += got.summaries
+                board = got.board
+            if o == index:
+                calls_i += calls_o
+            else:
+                widths += phase_widths(owner, calls_o, ctx.cfg)
+    except RouterFailed as e:
+        router, reason = {"code": e.code, "exit_code": e.exit_code, "log": str(e.log)}, "router_failed"
+    except RouteRefused as e:
+        router, reason = {"code": e.code, **e.facts}, "router_refused"
+    except subprocess.TimeoutExpired as e:
+        router, reason = {"code": "timeout", "seconds": e.timeout}, "router_timeout"
+    if router is None:
+        after = standing(ctx, hist.asked, hist.phases, index, board, stem + "_after",
+                         _standing_connections(hist, index, connections, blocked_records, rerouted))
+        judged = judge_obligations(after.copy, conns, after.drc_json, phase_neck(ctx.cfg, phase), after.is_real,
+                                   phase_input_drc(ctx.work, index))
+        status = [r.get("status") if r else None for r in records_of(conns, blocked_records)]
+        v = verdict(before, after, hist.asked[:index + 1], [p.name for p in hist.phases],
+                    [is_clean(j, s) for j, s in zip(judged, status)], off)
+    else:
+        v = Verdict(False, reason)
+    record = {"call": k, "attempt": a, "blocked": [dict(c) for c in conns],
+              "named": [n.record() for n in unit.named], "victims": list(victims), "not_ripped": list(not_ripped),
+              "removed": removed, "rerouted": rerouted, "blocked_records": blocked_records, "kept": v.kept,
+              "reason": v.reason, "worse": list(v.worse), "open_rose": dict(v.open_rose), "drc_new": v.drc_new,
+              "off_layer": v.off_layer, "router": router, "widths": widths, "seconds": round(time.time() - t0, 1)}
+    parts = AfterCall(Path(board), blocked_records + [r for r in rerouted if r["index"] == index], calls_i,
+                      set(victims), [Path(x) for x in summaries], widths)
+    return record, after, parts
+
+
 def after_call(ctx, index, phase, sel, k, call, board_in, board_out, records, summary, connections,
                rip_record) -> AfterCall:
     """After call `k` of phase `index` (`board_in` -> `board_out`, its router `records` and `summary` doc): each
-    blocked unit (blocked_of) with its victims (victims_of) through the gate; a unit the gate stops is recorded in
-    `rip_record["skipped"]`. Returns the board the phase goes on from and what the attempts change."""
-    nothing = AfterCall(Path(board_out), [], [], set(), [], [])
+    blocked unit (blocked_of) with its victims (victims_of) through the gate, then its connections
+    (blocked_connections) and moves (plan_moves), then an attempt; a unit stopped on the way is recorded in
+    `rip_record["skipped"]`, an attempt in `rip_record["attempts"]`. A kept attempt's candidate is the board the call's
+    later units, and the phase, go on from. Returns that board and what the kept attempts change."""
+    out = AfterCall(Path(board_out), [], [], set(), [], [])
     if ctx.cfg.route_rip_attempts <= 0:
-        return nothing
+        return out
     units = blocked_of(call.kind, records, summary)
     if not units:
-        return nothing
+        return out
     hist = ctx.history
     on_board = router_nets(board_out, hist.script_keys)
     laid = laid_nets(board_in, board_out)
     pair_nets = {n for s in hist.selections for pair in s.pairs for n in pair}
-    rip = CallRip()
+    rip, before, conns_i = CallRip(), None, list(connections)
     for unit in units:
         victims, not_ripped = victims_of(unit, router_nets=on_board, laid_by_call=laid, pour_nets=set(ctx.pour_nets),
                                          pair_nets=pair_nets, excluded=set(ctx.excluded))
         reason = gate(victims, rip=rip, max_nets=ctx.cfg.route_rip_max_nets, attempts=ctx.cfg.route_rip_attempts)
         if reason is None:
-            reason = "limit"                # Task 11 makes the attempt here
-        rip_record["skipped"].append({"call": k, "net": unit.net, "named": [n.record() for n in unit.named],
-                                      "not_ripped": list(not_ripped), "reason": reason})
-    return nothing
+            if before is None:
+                before = standing(ctx, hist.asked, hist.phases, index, out.board, "p%d_%d_rip" % (index, k),
+                                  _standing_connections(hist, index, conns_i))
+            conns, reason = blocked_connections(unit, call, before, hist, index, phase)
+            if reason is None:
+                moves, reason = plan_moves(victims, hist, index, before)
+        if reason is not None:
+            rip_record["skipped"].append({"call": k, "net": unit.net, "named": [n.record() for n in unit.named],
+                                          "not_ripped": list(not_ripped), "reason": reason})
+            continue
+        rec, after, parts = attempt(ctx, index, phase, sel, k, rip.made, call, unit, conns, victims, not_ripped,
+                                    moves, before, conns_i)
+        rip.made += 1
+        rip_record["attempts"].append(rec)
+        if rec["kept"]:
+            hist.record_move(index, rec)        # finding M2: the next attempt's before and after read it
+            out.board, before = after.board, after
+            on_board = router_nets(out.board, hist.script_keys)
+            laid.add(unit.net)
+            conns_i = superseded(conns_i, parts.records)
+            out.records += parts.records
+            out.calls += parts.calls
+            out.trim |= parts.trim
+            out.widths += parts.widths
+            out.summaries += parts.summaries
+        else:
+            rip.tried.add(frozenset(victims))
+            if rec["reason"] in ROUTER_REASONS:
+                rip.stopped = True
+    return out
