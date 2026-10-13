@@ -175,6 +175,7 @@ def test_native_scoring_is_bypassed_for_a_pushed_item():
     occ = Occupancy(g, edge_margin=1.0)
     u2 = g.footprint("U2")
     push = Push(Location(10, 30), 3.0, 2.0, 3.2, 0.3)
+    occ.lift({u2.ref})
     scorer = MSTScorer(Board(g, settings=occ.settings), occ, u2, plan=Plan(g, occ), prune=False,
                        pushes=[(Location(10, 30), push)])
     assert scorer.native((0.0,), Face.FRONT) is None

@@ -8753,6 +8753,24 @@ class Board:
         return out
 
     def _cleanup(self, occ: Occupancy, plan: Plan):
+        if occ.congestion_frame() is not None or not self.settings.score_congestion_step:
+            return self._cleanup_in_frame(occ, plan)
+        boxes = self._scoring_pad_boxes(occ)
+        if not boxes:
+            return self._cleanup_in_frame(occ, plan)
+        # Cleanup's net medians and swap targets lie in the current content's
+        # hull. Include reference/body offsets, all rotations and both search
+        # radii, without giving this diagnostic grid physical edge authority.
+        reach = max((shape.box.center.distance(geom.reference.location) +
+                     math.hypot(shape.box.width, shape.box.height) / 2
+                     for ref, geom in occ.items.items() if ref not in occ.pending
+                     for shape in geom.shapes), default=0.0)
+        frame = Box.union(boxes).inflate(4 * reach + self.settings.cleanup_search_radius +
+                                       self.settings.cleanup_swap_radius)
+        with occ.congestion_domain(frame):
+            return self._cleanup_in_frame(occ, plan)
+
+    def _cleanup_in_frame(self, occ: Occupancy, plan: Plan):
         """The cleanup pass (cleanup.py) over the movable parts, its moves
         written back into their steps."""
         from .cleanup import cleanup
@@ -11156,6 +11174,52 @@ class Board:
         return first
 
     def _scan_arrangements(self, occ, i, plan, placed, ids, **kw) -> "_Scanned":
+        if occ.congestion_frame() is not None or not self.settings.score_congestion_step:
+            return self._scan_arrangements_in_frame(occ, i, plan, placed, ids, **kw)
+        # Fragments have no physical edge. All arrangements and faces share
+        # one diagnostic grid enclosing their complete finite candidate sets.
+        boxes = self._scoring_pad_boxes(occ)
+        for ident in ids:
+            j = self._arranged(i, ident)
+            hint = kw["hint"]
+            if j.item is not i.item and kw["reseed"] is not None and kw["band"] is None and kw["bt"] is None \
+                    and not (kw["wide_push"] or kw["wide_tangent"]):
+                hint = self._seed_hint(j.item, occ, kw["targets"], i.rotation, i.face)
+            radius = self._scan_radius(occ, j, hint, kw["band"], kw["wide_push"], kw["wide_tangent"])
+            faces = (Face.FRONT, Face.BACK) if j.either else (j.face,)
+            for face in faces:
+                face_hint = hint
+                if face is Face.BACK and hint.face is not Face.BACK:
+                    face_hint = self._seed_hint(j.item, occ, kw["reseed"], i.rotation, face) if kw["reseed"] else \
+                        dataclasses.replace(hint, face=face)
+                # Tangent turns may vary continuously: a pad's distance from
+                # the reference bounds every turn, including their extrema.
+                geometries, _ = occ.placed_geometries(j.item, dataclasses.replace(face_hint, face=face))
+                reach = max((shape.box.center.distance(face_hint.location) +
+                             math.hypot(shape.box.width, shape.box.height) / 2
+                             for geom in geometries.values() for shape in geom.shapes
+                             if shape.kind in ('pad', 'through')), default=0.0)
+                boxes.append(Box(face_hint.location.x - radius - reach, face_hint.location.y - radius - reach,
+                                 face_hint.location.x + radius + reach, face_hint.location.y + radius + reach))
+        with occ.congestion_domain(Box.union(boxes)):
+            return self._scan_arrangements_in_frame(occ, i, plan, placed, ids, **kw)
+
+    @staticmethod
+    def _scoring_pad_boxes(occ):
+        return [shape.box for ref, geom in occ.items.items() if ref not in occ.pending
+                for shape in geom.shapes if shape.kind in ('pad', 'through')]
+
+    def _scan_radius(self, occ, j, hint, band, wide_push, wide_tangent):
+        body = occ._geometry(j.item).body
+        if band is not None:
+            return band[2] + hint.location.distance(band[0])
+        if j.near is not None:
+            return j.radius
+        if wide_push or wide_tangent:
+            return math.hypot(self._outline.width, self._outline.height)
+        return max(j.radius, body.width, body.height)
+
+    def _scan_arrangements_in_frame(self, occ, i, plan, placed, ids, **kw) -> "_Scanned":
         """Scan item `i` in each arrangement of `ids` ("" the default), in order, each an ordinary scan of the arranged cell (its own
         geometry, sweeper, scorer, seed and lanes), the front before the back. A non-default arrangement costs `score.arrangement`
         more and is taken only when its best spot walls off fewer pads than the best so far (`ScanResult.walled`), or as many at a
@@ -11419,18 +11483,7 @@ class Board:
                              pushes=push_sources, lanes=lanes, plan=plan)
         if score is not None and floor is not None and hasattr(score, "best"):
             score.best[0] = min(score.best[0], floor - cost)
-        # A seeded item lands on the pads that pull it; it must be free to step at least its own size clear of them.
-        body = occ._geometry(j.item).body
-        if band is not None:
-            radius = band[2] + hint.location.distance(band[0])      # every point of the band is within it
-        elif j.near is not None:
-            radius = j.radius
-        elif wide_push or wide_tangent:
-            # A push's own disc can swallow whatever a link or the global solve seeded, so the
-            # widening applies whatever else set the hint - not only when a push seeded it too.
-            radius = math.hypot(self._outline.width, self._outline.height)
-        else:
-            radius = max(j.radius, body.width, body.height)
+        radius = self._scan_radius(occ, j, hint, band, wide_push, wide_tangent)
         hopeless = None if bt is not None or band is not None else self._no_pocket_note(occ, j)
         if hopeless:
             return _Tried(j, hint, radius, None, None, ahead, score, hopeless)
@@ -11570,6 +11623,21 @@ class Board:
 
     def _settle_turns_on_point(self, occ: Occupancy, i: PlaceIntent, plan: Plan, placed: set, clr,
                                push_sources: list) -> Step:
+        if occ.congestion_frame() is not None or not self.settings.score_congestion_step:
+            return self._settle_turns_on_point_in_frame(occ, i, plan, placed, clr, push_sources)
+        boxes = self._scoring_pad_boxes(occ)
+        for ident in self._arrangement_ids(i):
+            j = self._arranged(i, ident)
+            for rotation in self._turns(i):
+                placement, _ = self._firm_placement(occ, plan, dataclasses.replace(j, rotation=rotation))
+                geometries, _ = occ.placed_geometries(j.item, placement)
+                boxes.extend(shape.box for geom in geometries.values() for shape in geom.shapes
+                             if shape.kind in ('pad', 'through'))
+        with occ.congestion_domain(Box.union(boxes)):
+            return self._settle_turns_on_point_in_frame(occ, i, plan, placed, clr, push_sources)
+
+    def _settle_turns_on_point_in_frame(self, occ: Occupancy, i: PlaceIntent, plan: Plan, placed: set, clr,
+                                        push_sources: list) -> Step:
         """The item stays on its point and its turn is searched: each turn `rotations=` names, in each arrangement of a cell, is
         laid as the declaration lays it, kept when the item is legal there as a decided place is judged, and scored as a search
         scores a candidate (links, pushes, escape lanes, a via giving way) with its arrangement's scorer. A turn that walls off
