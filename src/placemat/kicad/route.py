@@ -1231,11 +1231,25 @@ def finalize_copper(raw_board, pcb_out, given, source_pcb, drc_path):
     return cleanup, run_drc(pcb_out, drc_path, refill_zones=False)
 
 
+def summary_widths(routeds, gone, judged) -> list:
+    """read_widths of each phase's summaries (`routeds`, each phase's Routed in order) for the nets not in `judged`,
+    without the rows of copper a kept attempt took off: phase k's rows of a net when (k, net) is in `gone`
+    (rip_reroute.moved_nets), and a phase's rows of an attempt's victims from the summaries before it (Routed.stale)."""
+    from .route_widths import read_widths
+    out = []
+    for k, routed in enumerate(routeds):
+        for q, s in enumerate(routed.summaries):
+            off = {n for at, nets in routed.stale if q < at for n in nets}
+            out += [w for w in read_widths([tuple(s)], judged) if (k, w["net"]) not in gone and w["net"] not in off]
+    return out
+
+
 def recheck_final_phases(report, asked, run_list, width_receipt, pcb_out, drc_path, after, cfg):
     """Ruling S6: every phase's obligations (`asked`, obligations_of, fixed from the input board before routing) judged
     again on the routed board `pcb_out`, after the last phase and the clean-up. Fills each phase record's final_* counts, `report.final_judged`,
     `report.widths_failed` and `report.asked`."""
-    from .phase_run import is_clean, judge_obligations, phase_input_drc, phase_neck, records_of
+    from .phase_run import is_clean, judge_obligations, phase_input_drc, phase_neck, records_of, superseded
+    from .rip_reroute import moved_records
     if not (len(report.phases) == len(asked) == len(run_list)):
         raise ValueError("final phase/obligation count mismatch")
     report.final_judged = []
@@ -1246,7 +1260,9 @@ def recheck_final_phases(report, asked, run_list, width_receipt, pcb_out, drc_pa
         got = judge_obligations(pcb_out, obs, drc_path, phase_neck(cfg, phase), after.is_real_kind,
                                 phase_input_drc(Path(drc_path).parent, i) if drc_path is not None else None)
         report.final_judged.append(got)
-        connections = rec.get("connections") or []
+        # phase i's records with every later kept reroute of its connections in their place (spec "A kept attempt
+        # also changes")
+        connections = superseded(rec.get("connections") or [], moved_records(report.phases, i))
         outcomes = [r.get("status") if r else None for r in records_of(obs, connections)]
         if not (len(got) == len(obs) == len(outcomes)):
             raise ValueError("final phase judgment/obligation count mismatch")
@@ -1431,7 +1447,7 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
                        class_clearances, stated, history=hist)
     pcb_out = work / "routed.kicad_pcb"
     raw_out = work / "router_out.kicad_pcb"      # the last phase's board: post-processing is made on a copy
-    board, prev, records, summaries, spent, resumed = pcb_in, base, [], [], 0.0, []
+    board, prev, records, routeds, spent, resumed = pcb_in, base, [], [], 0.0, []
     open_now = dict(before.open_nets)
     for i, phase in enumerate(run_list):
         phase_identity = (phase.key(), width_policy.phase_key(width_receipt, phase.name))
@@ -1452,7 +1468,7 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
             board, open_now = routed.board, dict(saved["open_nets"])
             records.append(dict(saved["record"], reused=True))
             hist.finish(i, board, saved["record"], reused=True)
-            summaries += [tuple(x) for x in routed.summaries]
+            routeds.append(routed)
             spent += saved["record"]["seconds"]
             prev = key
             continue
@@ -1473,7 +1489,7 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
         board = routed.board
         records.append(record)
         hist.finish(i, board, record, reused=False)
-        summaries += [tuple(x) for x in routed.summaries]
+        routeds.append(routed)
         spent += record["seconds"]
         prev = key
     seconds = round(spent, 1)
@@ -1506,9 +1522,11 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
                                   if f.cause is FindingCause.SETUP_NET_CLEARANCE]
     report.duplicate_references = shared
     report.violations = {n: violated[n] for n in sc.shorted}   # the new errors that shorted it (S15)
-    from .route_widths import read_widths
-    judged_width_nets = {w["net"] for rec in records for w in rec.get("widths", [])}
-    report.widths = [w for rec in records for w in rec.get("widths", [])] + read_widths(summaries, judged_width_nets)
+    from .rip_reroute import moved_nets
+    gone = moved_nets(records)
+    report.widths = [w for j, rec in enumerate(records) for w in rec.get("widths", [])
+                     if (j, w.get("net")) not in gone]
+    report.widths += summary_widths(routeds, gone, {w["net"] for w in report.widths})
     report.dangling_removed = cleanup.record()
     report.phases = records
     for p in run_list:

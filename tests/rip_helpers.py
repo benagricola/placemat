@@ -80,7 +80,7 @@ TOY = textwrap.dedent('''
                 "blocked_by": [{"found_by": "preexisting", "kind": "copper", "net": m, "ref": None, "pad": None,
                                 "layer": None, "at": None, "cells": None, "seen_from": None,
                                 "near_source_cells": None, "near_target_cells": None} for m in met]}
-    doc = {}
+    doc, laid = {}, set()
     if "--connections" in a:
         recs = []
         narrow = os.environ.get("TOY_NARROW") if "_rip" not in opt("--connections") else None
@@ -90,6 +90,7 @@ TOY = textwrap.dedent('''
             ok, length, met = lay(t["net"], ends[(t["from"]["ref"], t["from"]["pad"])],
                                   ends[(t["to"]["ref"], t["to"]["pad"])], w)
             status = ("joined_narrow" if t["net"] == narrow else "routed") if ok else "failed"
+            laid |= {t["net"]} if ok else set()
             recs.append(dict(t, status=status, reason=None, joined=ok, length_mm=length,
                              min_width_mm={l: w for l in t["widths"]} if ok else {}, layers=layers, path=None,
                              evidence=None if ok else evidence(met)))
@@ -125,11 +126,16 @@ TOY = textwrap.dedent('''
                 ok, _, by = lay(net, target, c, powered.get(net, 0.2))
                 if ok:
                     anchors.append(c)
+                    laid.add(net)
                 met += [m for m in by if m not in met]
             if len(anchors) < len(ends):
                 doc["net_evidence"][net] = evidence([])
                 doc["blockers"].append({"net": net, "stage": "preexisting",
                                         "blocked_by": [{"net": m, "preexisting": True} for m in met]})
+    said = os.environ.get("TOY_SUMMARY_NARROW")         # a net the summary says shipped narrow, its copper not
+    if said in laid:
+        doc["design_rules"] = {"narrowed": [{"net_name": said, "kind": "track_width", "requested": 0.2,
+                                             "delivered": 0.1, "length_mm": 1.0}]}
     board.Save(a[1])
     if "--json-out" in a:
         open(opt("--json-out"), "w").write(json.dumps(doc))

@@ -165,3 +165,33 @@ def test_a_victim_set_restored_once_is_not_tried_again_in_the_call(toy, tmp_path
     rip = report.phases[1]["rip"]
     assert [(a["blocked"][0]["net"], a["kept"]) for a in rip["attempts"]] == [("B", False)]
     assert [(s["net"], s["reason"]) for s in rip["skipped"]] == [("C", "tried")]
+
+
+@needs_kicad
+def test_a_moved_connection_replaces_its_earlier_record_and_width_rows(toy, monkeypatch):
+    monkeypatch.setenv("TOY_NARROW", "A")                  # phase a's call lays A at half width: joined_narrow
+    a = {"name": "a", "connections": [{"from": {"part": "P1", "pad": "1"}, "to": {"part": "P2", "pad": "1"}}]}
+    report = toy.route(a, B)
+    assert report.phases[0]["connections"][0]["status"] == "joined_narrow"   # phase a's own record stands
+    assert report.phases[1]["rip"]["attempts"][0]["kept"]
+    assert report.phases[0]["final_closure_clean"] == 1.0                     # read from the moved record
+    assert not [w for w in report.widths if w.get("stage") == "a" and w.get("net") == "A"]
+
+
+@needs_kicad
+def test_a_moved_nets_summary_row_is_reported_once_under_its_owner(toy, monkeypatch):
+    monkeypatch.setenv("TOY_SUMMARY_NARROW", "A")          # every call that lays A says it shipped A narrow
+    report = toy.route(A, B)
+    assert report.phases[1]["rip"]["attempts"][0]["kept"]
+    # phase a's call's row describes copper the attempt took off; the reroute's row is phase a's
+    assert [(w["net"], w["stage"]) for w in report.widths] == [("A", "a")]
+
+
+@needs_kicad
+def test_a_moved_nets_summary_row_from_an_earlier_call_of_the_phase_goes(toy, monkeypatch):
+    from placemat.kicad import net_clearance
+    monkeypatch.setattr(net_clearance, "class_clearances", lambda *a, **kw: {"A": 0.3})
+    monkeypatch.setenv("TOY_SUMMARY_NARROW", "A")
+    report = toy.route({"name": "signals"})
+    assert report.phases[0]["rip"]["attempts"][0]["kept"]
+    assert [(w["net"], w["stage"]) for w in report.widths] == [("A", "signals")]

@@ -217,3 +217,17 @@ def test_each_later_check_is_the_reason_when_it_is_the_first_to_fail():
     assert (new.kept, new.reason, new.open_rose, new.drc_new) == (False, "drc_new", {}, 1)
     off = rr.verdict(before, _st(judged, open_nets={"N": 1}, errors=[old]), ASKED, names, [True], 1)
     assert (off.kept, off.reason, off.drc_new, off.off_layer) == (False, "off_layer", 0, 1)
+
+
+def test_the_final_judgement_reads_an_earlier_phases_moved_records():
+    moved = {"net": "V", "from": {"ref": "U1", "pad": "1"}, "to": {"ref": "J1", "pad": "1"}, "status": "routed",
+             "phase": "legs", "index": 0, "asked": True}
+    phases = [{"name": "legs", "rip": {"attempts": [], "skipped": []}},
+              {"name": "rest", "rip": {"attempts": [], "skipped": []}},
+              {"name": "signals", "rip": {"attempts": [{"kept": True, "victims": ["V"], "rerouted": [moved]},
+                                                       {"kept": False, "victims": ["W"],
+                                                        "rerouted": [dict(moved, status="failed")]}],
+                                          "skipped": []}}]
+    assert rr.moved_records(phases, 0) == [moved] and rr.moved_records(phases, 2) == []
+    # every earlier phase's rows of a moved net go, whichever phase owns the moved connection (finding F7)
+    assert rr.moved_nets(phases) == {(0, "V"), (1, "V")}

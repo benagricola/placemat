@@ -346,6 +346,14 @@ def moved_records(phases, k) -> list:
     return [r for _, r in moves_of(phases, k)]
 
 
+def moved_nets(phases) -> set:
+    """{(k, net)}: each victim of a kept attempt of phase j, for every phase k before j. All of a victim's router
+    copper was taken off, so the width rows phase k gave the net describe copper that is gone (spec "A kept attempt
+    also changes"), whichever phase owns the moved connections."""
+    return {(k, v) for j, p in enumerate(phases) for a in p["rip"]["attempts"] if a["kept"] for v in a["victims"]
+            for k in range(j)}
+
+
 @dataclass
 class History:
     """What a route's attempts need of the phases before them: the phases and their Selections, each phase's
@@ -410,8 +418,10 @@ class AfterCall:
     records: list            # router records that supersede phase i's connections
     calls: list              # (Call, board in, board out) of phase i's to add to out.calls
     trim: set                # the victims of the kept attempts: dropped from the asks of phase i's calls before them
-    summaries: list          # summary paths of the attempts' router calls
+    summaries: list          # (stage, summary path) of the attempts' router calls: a reroute's under its owner phase
     widths: list             # route.width rows of reroutes owned by earlier phases
+    stale: list = field(default_factory=list)   # (n, victims) of each kept attempt: the summaries before the
+                                                # attempt's own (the call's and the n first here) describe gone copper
 
 
 def _pads(o) -> bool:
@@ -528,7 +538,7 @@ def attempt(ctx, index, phase, sel, k, a, call, unit, conns, victims, not_ripped
         st_i = phase_settings(ctx, phase, sel, stem + "_b")
         run = reroute_blocked(_in_settings(ctx, st_i), call, unit, conns, ripped, st_i, stem, phase.name)
         blocked_records = list(run.records)
-        summaries += run.summaries
+        summaries += [(phase.name, s) for s in run.summaries]
         calls_i += [(Call("tasks", tasks=attempted), s, p) for attempted, s, p in run.calls]
         off += off_layer(ripped, run.board, st_i.layers)
         board = run.board
@@ -545,7 +555,7 @@ def attempt(ctx, index, phase, sel, k, a, call, unit, conns, victims, not_ripped
                 rerouted += [dict(r, phase=owner.name, index=o, asked=asked_of.get(_ends_key(r), False))
                              for r in got.records]
                 calls_o += [(replace(c, tasks=attempted), s, p) for attempted, s, p in got.calls]
-                summaries += got.summaries
+                summaries += [(owner.name, s) for s in got.summaries]
                 board = got.board
             if o == index:
                 calls_i += calls_o
@@ -573,7 +583,7 @@ def attempt(ctx, index, phase, sel, k, a, call, unit, conns, victims, not_ripped
               "reason": v.reason, "worse": list(v.worse), "open_rose": dict(v.open_rose), "drc_new": v.drc_new,
               "off_layer": v.off_layer, "router": router, "widths": widths, "seconds": round(time.time() - t0, 1)}
     parts = AfterCall(Path(board), blocked_records + [r for r in rerouted if r["index"] == index], calls_i,
-                      set(victims), [Path(x) for x in summaries], widths)
+                      set(victims), [(n, Path(x)) for n, x in summaries], widths)
     return record, after, parts
 
 
@@ -623,7 +633,8 @@ def after_call(ctx, index, phase, sel, k, call, board_in, board_out, records, su
             out.records += parts.records
             out.calls += parts.calls
             out.trim |= parts.trim
-            out.widths += parts.widths
+            out.widths = [w for w in out.widths if w.get("net") not in parts.trim] + parts.widths
+            out.stale.append((len(out.summaries), set(parts.trim)))
             out.summaries += parts.summaries
         else:
             rip.tried.add(frozenset(victims))

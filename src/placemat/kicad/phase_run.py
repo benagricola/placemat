@@ -154,19 +154,22 @@ class Routed:
     widths: list = field(default_factory=list)
     pour_joins: list = field(default_factory=list)      # pour_join.join_pour's record of each pour call
     rip: dict = field(default_factory=lambda: {"attempts": [], "skipped": []})     # rip_reroute's record
+    stale: list = field(default_factory=list)   # (n, nets): a kept attempt's victims, whose rows in the first n
+                                                # summaries describe copper it took off
 
     def record(self) -> dict:
         return {"widths": list(self.widths), "board": Path(self.board).name, "seconds": round(self.seconds, 1), "ncalls": self.ncalls,
                 "pairs": self.pairs, "connections": list(self.connections), "bus_groups": list(self.bus_groups),
                 "summaries": [list(s) for s in self.summaries], "pour_joins": list(self.pour_joins),
-                "rip": dict(self.rip)}
+                "rip": dict(self.rip), "stale": [[n, list(v)] for n, v in self.stale]}
 
     @staticmethod
     def of(doc: dict, work) -> "Routed":
         return Routed(Path(work) / doc["board"], doc["seconds"], doc["ncalls"], doc.get("pairs"),
                       list(doc.get("connections") or ()), list(doc.get("bus_groups") or ()),
                       [tuple(s) for s in doc.get("summaries") or ()], list(doc.get("widths") or ()),
-                      list(doc.get("pour_joins") or ()), dict(doc.get("rip") or {"attempts": [], "skipped": []}))
+                      list(doc.get("pour_joins") or ()), dict(doc.get("rip") or {"attempts": [], "skipped": []}),
+                      [(n, list(v)) for n, v in doc.get("stale") or ()])
 
 
 def _run(cmd, log: Path, ctx) -> int:
@@ -1115,7 +1118,7 @@ def route_calls(ctx, index, phase, sel, board) -> PhaseOutcome:
     layers = list(st.layers)
     out = PhaseOutcome(board, {}, {})
     pairs, connections, bus_groups, pour_joins, pour_calls = None, [], [], [], []
-    rip, extra_widths, trims = {"attempts": [], "skipped": []}, [], []
+    rip, extra_widths, trims, stale = {"attempts": [], "skipped": []}, [], [], []
     common = st.common
     what = "phase %s" % phase.name
     for k, call in enumerate(calls):
@@ -1188,7 +1191,8 @@ def route_calls(ctx, index, phase, sel, board) -> PhaseOutcome:
             nxt = got.board
             connections = superseded(connections, got.records)
             out.calls += got.calls
-            out.summaries += [(phase.name, k, s) for s in got.summaries]
+            stale += [(len(out.summaries) + n, sorted(v)) for n, v in got.stale]
+            out.summaries += [(name, k, s) for name, s in got.summaries]
             extra_widths = [w for w in extra_widths if w.get("net") not in got.trim] + got.widths
         board = nxt
     rejoins = 0
@@ -1224,7 +1228,7 @@ def route_calls(ctx, index, phase, sel, board) -> PhaseOutcome:
                         [(n, k, str(sp)) for n, k, sp in out.summaries],
                         phase_widths(phase, out.calls, ctx.cfg)
                         + narrow_join_widths(phase, sel, connections, board, ctx.cfg)
-                        + task_widths(phase, sel, connections) + extra_widths, pour_joins, rip).record()
+                        + task_widths(phase, sel, connections) + extra_widths, pour_joins, rip, stale).record()
     return out
 
 
