@@ -199,3 +199,21 @@ def test_the_gate_skips_in_order():
     assert rr.gate(("A",), rip=rr.CallRip(tried={frozenset({"A"})}), max_nets=3, attempts=4) == "tried"
     assert rr.gate(("A",), rip=r, max_nets=3, attempts=4) is None
     assert rr.gate(("A",), rip=r, max_nets=3, attempts=0) == "limit"
+
+
+def _err(net, x):
+    return {"type": "clearance", "nets": ("GND", net), "at_mm": (x, 5.0),
+            "items": (("Track [GND] on F.Cu", x, 5.0), ("Track [%s] on F.Cu" % net, x + 0.2, 5.0))}
+
+
+def test_each_later_check_is_the_reason_when_it_is_the_first_to_fail():
+    judged = [[J_CLEAN], [J_CLEAN, J_CLEAN]]
+    old = _err("N", 10.0)
+    before = _st(judged, open_nets={"N": 1}, errors=[old])
+    names = ["legs", "signals"]
+    rose = rr.verdict(before, _st(judged, open_nets={"N": 2}, errors=[old]), ASKED, names, [True], 0)
+    assert (rose.kept, rose.reason, rose.open_rose, rose.drc_new) == (False, "net_open_rose", {"N": [1, 2]}, 0)
+    new = rr.verdict(before, _st(judged, open_nets={"N": 1}, errors=[old, _err("M", 20.0)]), ASKED, names, [True], 0)
+    assert (new.kept, new.reason, new.open_rose, new.drc_new) == (False, "drc_new", {}, 1)
+    off = rr.verdict(before, _st(judged, open_nets={"N": 1}, errors=[old]), ASKED, names, [True], 1)
+    assert (off.kept, off.reason, off.drc_new, off.off_layer) == (False, "off_layer", 0, 1)

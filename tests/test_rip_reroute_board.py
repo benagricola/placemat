@@ -119,3 +119,62 @@ def test_a_track_blocks_b_and_c_every_way_on_the_rip_board(tmp_path):
     assert _segments(out) == [("A", (105.0, 110.0, 125.0, 110.0))]
     assert doc["blockers"] == [{"net": n, "stage": "preexisting", "blocked_by": [{"net": "A", "preexisting": True}]}
                                for n in ("B", "C")]
+
+
+def _add_copper(pcb, sexprs):
+    pcb.write_text(pcb.read_text().replace("\t(gr_rect", "".join("\t%s\n" % s for s in sexprs) + "\t(gr_rect", 1))
+
+
+@needs_kicad
+def test_off_layer_counts_the_added_tracks_and_arcs_off_the_layers_and_never_a_via(tmp_path):
+    pytest.importorskip("pcbnew")
+    given = _two_part_board(tmp_path)
+    routed = tmp_path / "routed.kicad_pcb"
+    shutil.copy(given, routed)
+    _add_copper(routed, ['(segment (start 112 115) (end 120 115) (width 0.2) (layer "B.Cu") (net 2))',
+                         '(arc (start 128 104) (mid 129 105) (end 128 106) (width 0.2) (layer "B.Cu") (net 2))',
+                         '(segment (start 112 117) (end 120 117) (width 0.2) (layer "F.Cu") (net 2))',
+                         '(via (at 122 115) (size 0.6) (drill 0.3) (layers "F.Cu" "B.Cu") (net 2))'])
+    assert rr.off_layer(given, routed, ["F.Cu"]) == 2
+    assert rr.off_layer(given, routed, ["F.Cu", "B.Cu"]) == 0
+    assert rr.off_layer(given, given, ["F.Cu"]) == 0
+
+
+def _standing_board(d, stub):
+    """_two_part_board with VIN joined (U1.3 to J1.2) and FB left open; `stub` adds a VIN stub too near SW's track (a
+    clearance error, a real kind). A via on VIN below KiCad's minimum size and drill gives two errors of kinds that are
+    not real."""
+    d.mkdir()
+    pcb = _two_part_board(d)
+    _add_copper(pcb, ['(segment (start 113 110) (end 113 108) (width 0.2) (layer "F.Cu") (net 3))',
+                      '(segment (start 113 108) (end 126 108) (width 0.2) (layer "F.Cu") (net 3))',
+                      '(segment (start 126 108) (end 126 110) (width 0.2) (layer "F.Cu") (net 3))',
+                      '(via (at 120 108) (size 0.3) (drill 0.1) (layers "F.Cu" "B.Cu") (net 3))']
+                + (['(segment (start 113 108) (end 109.35 108) (width 0.2) (layer "F.Cu") (net 3))'] if stub else []))
+    return pcb
+
+
+@needs_kicad
+def test_a_standing_reads_its_boards_drc_and_judges_each_phase_against_its_own_input(tmp_path):
+    import types
+    from placemat.kicad.drc import run_drc
+    pytest.importorskip("pcbnew")
+    work = tmp_path / "work"
+    work.mkdir()
+    run_drc(_standing_board(tmp_path / "clean", False), work / "drc_before.json", refill_zones=False)
+    run_drc(_standing_board(tmp_path / "short", True), work / "p0_drc.json", refill_zones=False)
+    board = _standing_board(tmp_path / "judged", True)
+    vin = {"net": "VIN", "from": {"ref": "U1", "pad": "3"}, "to": {"ref": "J1", "pad": "2"}, "widths": {}}
+    fb = {"net": "FB", "from": {"ref": "U1", "pad": "2"}, "to": {"ref": "J1", "pad": "1"}, "widths": {}}
+    phase = types.SimpleNamespace(neckdown=False, router_args=())
+    ctx = types.SimpleNamespace(work=work, cfg=None)
+    conns = [[dict(vin, status="routed")], [dict(vin, status="joined_narrow")]]
+    st = rr.standing(ctx, [[vin], [vin, fb]], [phase, phase], 1, board, "t", conns)
+    assert st.board == board and st.copy == work / "t_drc.kicad_pcb" and st.drc_json == work / "t_drc.json"
+    assert st.open_nets == {"FB": 1}
+    assert [(e["type"], e["nets"]) for e in st.errors] == [("clearance", ("SW", "VIN"))]
+    kinds = {v["type"] for v in json.loads(st.drc_json.read_text())["violations"] if v["severity"] == "error"}
+    assert {"via_diameter", "drill_out_of_range"} <= kinds and not any(st.is_real(k) for k in kinds - {"clearance"})
+    # phase 0's input (drc_before.json) lacks the short, phase 1's (p0_drc.json) has it
+    assert [[(j["joined"], j["violated"]) for j in js] for js in st.judged] == [[(True, True)], [(True, False), (False, False)]]
+    assert st.outcomes == [["routed"], ["joined_narrow", None]]
