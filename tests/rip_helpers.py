@@ -73,6 +73,13 @@ TOY = textwrap.dedent('''
                     t.SetEnd(pcbnew.VECTOR2I(pcbnew.FromMM(q[0]), pcbnew.FromMM(q[1])))
                     t.SetWidth(pcbnew.FromMM(w)); t.SetLayer(layer); t.SetNet(board.FindNet(net))
                     board.Add(t)
+                if layer != board.GetLayerID(layers[0]):
+                    for c in (s, e):            # off the call's first layer: a via at each pad down to the track
+                        v = pcbnew.PCB_VIA(board)
+                        v.SetPosition(pcbnew.VECTOR2I(pcbnew.FromMM(c[0]), pcbnew.FromMM(c[1])))
+                        v.SetWidth(pcbnew.FromMM(0.6)); v.SetDrill(pcbnew.FromMM(0.3))
+                        v.SetLayerPair(pcbnew.F_Cu, pcbnew.B_Cu); v.SetNet(board.FindNet(net))
+                        board.Add(v)
                 return True, sum(math.hypot(q[0] - p[0], q[1] - p[1]) for p, q in zip(path, path[1:])), []
         return False, 0.0, met
     def evidence(met):
@@ -84,6 +91,9 @@ TOY = textwrap.dedent('''
     if "--connections" in a:
         recs = []
         narrow = os.environ.get("TOY_NARROW") if "_rip" not in opt("--connections") else None
+        name = os.path.basename(opt("--connections"))
+        if os.environ.get("TOY_BLOCKED_LAYER") and "_rip" in name and "_b_" in name:
+            layer = board.GetLayerID(os.environ["TOY_BLOCKED_LAYER"])     # an attempt's blocked unit, off its layers
         for t in json.load(open(opt("--connections"))):
             ends = pads_of(t["net"])
             w = max(t["widths"].values()) / (2 if t["net"] == narrow else 1)
@@ -151,10 +161,12 @@ def _part(ref, x, y, net, amps=None):
             '(net "%s"))\n\t)\n' % (x, y, current, ref, net))
 
 
-def rip_board(tmp_path, *, a_track=False, currents=False, third=False, c_net=False) -> Path:
+def rip_board(tmp_path, *, a_track=False, currents=False, third=False, c_net=False, d_net=False) -> Path:
     """Net A: P1.1 (105, 110) to P2.1 (125, 110), with P3.1 (130, 110) when `third`; net B: Q1.1 (115, 104) to
     Q2.1 (115, 116); net C, when `c_net`: R1.1 (113, 104) to R2.1 (113, 116), which A's straight blocks every way, as it
-    does B (C's detours, at x = 105 and 121, meet A's track). `currents`: P1 and P2 carry 1 A."""
+    does B (C's detours, at x = 105 and 121, meet A's track). `currents`: P1 and P2 carry 1 A. `d_net`: the board
+    reaches x = 150, with net D, S1.1 (140, 101.5) to S2.1 (140, 123.5), which blocks net E, T1.1 (136, 110) to
+    T2.1 (144, 110), every way (E's detours, at y = 102 and 118, meet it), and nothing of A, B or C."""
     pcb = tmp_path / "board" / "layout.kicad_pcb"
     pcb.parent.mkdir()
     amps = "1A" if currents else None
@@ -162,14 +174,17 @@ def rip_board(tmp_path, *, a_track=False, currents=False, third=False, c_net=Fal
     parts = (_part("P1", 105, 110, "A", amps) + _part("P2", 125, 110, "A", amps)
              + (_part("P3", 130, 110, "A") if third else "")
              + _part("Q1", 115, 104, "B") + _part("Q2", 115, 116, "B")
-             + (_part("R1", 113, 104, "C") + _part("R2", 113, 116, "C") if c_net else ""))
+             + (_part("R1", 113, 104, "C") + _part("R2", 113, 116, "C") if c_net else "")
+             + (_part("S1", 140, 101.5, "D") + _part("S2", 140, 123.5, "D")
+                + _part("T1", 136, 110, "E") + _part("T2", 144, 110, "E") if d_net else ""))
     pcb.write_text('(kicad_pcb\n\t(version 20241229)\n\t(generator "test")\n\t(general (thickness 1.6))\n'
                    '\t(layers\n\t\t(0 "F.Cu" signal)\n\t\t(2 "B.Cu" signal)\n\t\t(25 "Edge.Cuts" user)\n'
                    '\t\t(1 "F.Mask" user)\n\t\t(5 "F.SilkS" user)\n\t)\n'
                    '\t(net 1 "A")\n\t(net 2 "B")\n' + ('\t(net 3 "C")\n' if c_net else "")
+                   + ('\t(net 4 "D")\n\t(net 5 "E")\n' if d_net else "")
                    + parts + track
-                   + '\t(gr_rect (start 100 100) (end 135 125) (stroke (width 0.1) (type solid)) (fill no) '
-                     '(layer "Edge.Cuts"))\n)\n')
+                   + '\t(gr_rect (start 100 100) (end %d 125) (stroke (width 0.1) (type solid)) (fill no) '
+                     '(layer "Edge.Cuts"))\n)\n' % (150 if d_net else 135))
     _project(pcb, [{"name": "Default", "clearance": 0.15, "track_width": 0.2}])
     return pcb
 

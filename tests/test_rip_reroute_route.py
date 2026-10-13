@@ -195,3 +195,25 @@ def test_a_moved_nets_summary_row_from_an_earlier_call_of_the_phase_goes(toy, mo
     report = toy.route({"name": "signals"})
     assert report.phases[0]["rip"]["attempts"][0]["kept"]
     assert [(w["net"], w["stage"]) for w in report.widths] == [("A", "signals")]
+
+
+@needs_kicad
+def test_a_second_kept_attempt_of_a_call_reads_the_first_ones_moves(toy, monkeypatch, tmp_path):
+    monkeypatch.setenv("TOY_NARROW", "A")                  # phase a's own record of A is joined_narrow
+    a = {"name": "a", "connections": [{"from": {"part": "P1", "pad": "1"}, "to": {"part": "P2", "pad": "1"}}]}
+    report = toy.route(a, {"name": "d", "nets": ["D"]}, {"name": "b", "nets": ["B", "E"]},
+                       pcb=rip_board(tmp_path, d_net=True))
+    first, second = report.phases[2]["rip"]["attempts"]
+    assert (first["victims"], first["kept"]) == (["A"], True)
+    # the second moves D only: it judges A by the first's reroute (routed), not phase a's own record (joined_narrow)
+    assert (second["victims"], second["kept"], second["reason"]) == (["D"], True, None)
+    assert report.phases[2]["joined"] == 2
+
+
+@needs_kicad
+def test_a_blocked_unit_laid_off_its_phases_layers_is_restored(toy, monkeypatch):
+    monkeypatch.setenv("TOY_BLOCKED_LAYER", "B.Cu")         # the attempt lays B on B.Cu, through a via at each pad
+    report = toy.route(A, {"name": "b", "nets": ["B"], "layers": ["F"]})
+    att = report.phases[1]["rip"]["attempts"][0]
+    assert (att["kept"], att["reason"], att["off_layer"]) == (False, "off_layer", 1)
+    assert report.phases[1]["joined"] == 0
