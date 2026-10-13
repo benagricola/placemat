@@ -499,7 +499,7 @@ def attempt(ctx, index, phase, sel, k, a, call, unit, conns, victims, not_ripped
     stem = "p%d_%d_rip%d" % (index, k, a)
     ripped = fresh_output(ctx.work / (stem + "_ripped.kicad_pcb"))
     removed = remove_copper(before.board, ripped, set(victims), hist.script_keys)
-    blocked_records, rerouted, calls_i, summaries, widths, off = [], [], [], [], [], 0
+    blocked_records, rerouted, calls_i, summaries, widths, said, off = [], [], [], [], [], [], 0
     board, router, after, v = ripped, None, None, None
     try:
         st_i = phase_settings(ctx, phase, sel, stem + "_b")
@@ -524,10 +524,12 @@ def attempt(ctx, index, phase, sel, k, a, call, unit, conns, victims, not_ripped
                 calls_o += [(replace(c, tasks=attempted), s, p) for attempted, s, p in got.calls]
                 summaries += [(owner.name, s) for s in got.summaries]
                 board = got.board
+            rows = phase_widths(owner, calls_o, ctx.cfg)
+            said += rows
             if o == index:
-                calls_i += calls_o
+                calls_i += calls_o            # phase i's rows come from its calls (route_calls), not from here
             else:
-                widths += phase_widths(owner, calls_o, ctx.cfg)
+                widths += rows
     except RouterFailed as e:
         router, reason = {"code": e.code, "exit_code": e.exit_code, "log": str(e.log)}, "router_failed"
     except RouteRefused as e:
@@ -546,7 +548,7 @@ def attempt(ctx, index, phase, sel, k, a, call, unit, conns, victims, not_ripped
               "named": [n.record() for n in unit.named], "victims": list(victims), "not_ripped": list(not_ripped),
               "removed": removed, "rerouted": rerouted, "blocked_records": blocked_records, "kept": v.kept,
               "reason": v.reason, "worse": list(v.worse), "open_rose": dict(v.open_rose), "drc_new": v.drc_new,
-              "off_layer": v.off_layer, "router": router, "widths": widths, "seconds": round(time.time() - t0, 1)}
+              "off_layer": v.off_layer, "router": router, "widths": said, "seconds": round(time.time() - t0, 1)}
     parts = AfterCall(Path(board), blocked_records + [r for r in rerouted if r["index"] == index], calls_i,
                       set(victims), [(n, Path(x)) for n, x in summaries], widths)
     return record, after, parts

@@ -244,6 +244,8 @@ def test_a_net_moved_twice_in_one_call_keeps_no_row_of_the_first_reroute(toy, mo
     report = toy.route({"name": "signals", "neckdown": False, "width": 0.4}, pcb=rip_board(tmp_path, c_net=True))
     first, second = report.phases[0]["rip"]["attempts"]
     assert (first["victims"], first["kept"], second["victims"], second["kept"]) == (["A"], True, ["A"], True)
+    # the attempt's own record holds its reroute's rows, phase i's own included (final review finding 5)
+    assert [(w["net"], w["stage"]) for w in first["widths"]] == [("A", "signals")] and second["widths"] == []
     # the second attempt took the first one's A, stub and all, off and laid A without one
     assert [w for w in report.widths if w["net"] == "A"] == [] and report.widths_failed == 0
     # one record per connection: the second attempt's record of A replaces the first one's (final review finding 1)
