@@ -211,7 +211,10 @@ def test_a_current_paths_phase_leaves_a_pour_nets_connections_to_its_pour():
     assert s.pour_served and {t.net for t in s.pour_served} == {"VB"}
     assert plan_calls(s, {}, 0.15, set()) == []
     (asked,) = obligations_of([s], [], set())
-    assert len(asked) == len(s.pour_served) and all(o["pour_served"] and o["widths"] is None for o in asked)
+    # asked of the pour at the current width the phase would route them at: a thinner join is under it
+    assert len(asked) == len(s.pour_served) and all(o["pour_served"] for o in asked)
+    assert [o["widths"] for o in asked] == [dict(t.widths) for t in s.pour_served]
+    assert max(o["widths"]["F.Cu"] for o in asked) > 1.0           # J1 to Q1 at 4 A
 
 
 def _gnd_carriers():

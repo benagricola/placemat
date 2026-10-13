@@ -57,6 +57,31 @@ def test_an_end_on_a_shared_reference_names_its_footprint():
     assert tasks[0].end == ("TP1", "1", "uuid-TP1")
 
 
+def test_each_groups_join_takes_the_largest_current_of_a_connection_ending_on_one_of_its_pads():
+    """The user's ruling of 2026-10-13 (fix round 1): a group's join is laid at the current width of the largest
+    current among the connections a current_paths phase leaves to the pour that end on one of the group's pads; a
+    group with none takes the class width, and a phase's own width stands over both."""
+    from types import SimpleNamespace
+    from placemat.checks import COPPER_OZ
+    from placemat.kicad.phase_select import layer_widths
+    from placemat.kicad.pour_join import join_widths
+    from placemat.settings import Settings
+    from tests.fixtures import board_geometry, footprint
+    g = board_geometry([footprint("J1", 5, 10, nets=("GND", "VIN")), footprint("U1", 20, 10, nets=("GND", "VOUT")),
+                        footprint("C1", 30, 10, nets=("GND", "VOUT"))])
+    ctx = SimpleNamespace(geometry=g, cfg=Settings(), pour_currents={"GND": {("J1", "1"): 3.0, ("U1", "1"): 1.0}})
+    layers = ["F.Cu", "B.Cu"]
+    amps3 = layer_widths(3.0, layers, g, Settings().check_rise_c, COPPER_OZ)
+    assert join_widths(ctx, "GND", None, layers, [("U1", "1"), ("J1", "1")]) == (amps3, "current")
+    assert join_widths(ctx, "GND", None, layers, [("C1", "1")]) == (W, "class")
+    assert join_widths(ctx, "GND", 0.5, layers, [("J1", "1")]) == ((("F.Cu", 0.5), ("B.Cu", 0.5)), "asked")
+    main = PadGroup((_end("C2", 0.0),), True)
+    carrier, cap = PadGroup((_end("J1", 5.0),), False), PadGroup((_end("C1", -5.0),), False)
+    pick = {id(carrier): amps3, id(cap): W}
+    tasks = tasks_to_pour([main, carrier, cap], "GND", lambda grp: pick[id(grp)])
+    assert [(t.start[0], t.widths) for t in tasks] == [("C2", amps3), ("C1", W)]
+
+
 def test_the_drop_call_keeps_the_boards_sizes_and_rules():
     cmd = drop_command("py", "/krt", "in.kicad_pcb", "out.kicad_pcb", "GND", ["F.Cu", "B.Cu"], via_size=0.6,
                        via_drill=0.3, track_width=0.25, pads_file="pads.json", clearances_file="c.json",
@@ -73,6 +98,39 @@ def test_the_drop_call_keeps_the_boards_sizes_and_rules():
     assert "--rip-blocker-nets" not in cmd
     assert cmd[cmd.index("--max-iterations") + 1] == "500"
     assert {a for a in cmd if a.startswith("--")} <= set(REPAIR_FLAGS)
+
+
+def test_the_drop_call_caps_each_layer_at_its_own_width():
+    """A current pour net's drops and region joins: routed at the widest layer's width, each layer's copper capped at
+    its own (the fork's per-layer --max-track-width)."""
+    cmd = drop_command("py", "/krt", "in", "out", "GND", ["F.Cu", "In2.Cu"], track_width=0.8,
+                       layer_widths=(("F.Cu", 0.3), ("In2.Cu", 0.8)))
+    assert cmd[cmd.index("--track-width") + 1] == "0.8" and cmd[cmd.index("--min-track-width") + 1] == "0.8"
+    assert cmd[cmd.index("--max-track-width") + 1] == "F.Cu=0.3,In2.Cu=0.8"
+
+
+def test_each_pad_apart_is_tapped_at_its_own_width():
+    """Round 3: a pad that ends a connection a current_paths phase leaves to the pour is tapped at its group's current
+    width, the widest layer's (the per-layer cap narrows it on the others); a pad with no such current at the class
+    width; a phase's own width stands over both."""
+    from types import SimpleNamespace
+    from placemat.checks import COPPER_OZ
+    from placemat.kicad.phase_select import layer_widths
+    from placemat.kicad.pour_join import pad_widths
+    from placemat.settings import Settings
+    from tests.fixtures import board_geometry, footprint
+    g = board_geometry([footprint("J1", 5, 10, nets=("GND", "VIN")), footprint("C1", 30, 10, nets=("GND", "VOUT")),
+                        footprint("C2", 40, 10, nets=("GND", "VOUT"))])
+    ctx = SimpleNamespace(geometry=g, cfg=Settings(), pour_currents={"GND": {("J1", "1"): 3.0}})
+    layers = ["F.Cu", "B.Cu"]
+    wide = max(w for _, w in layer_widths(3.0, layers, g, Settings().check_rise_c, COPPER_OZ))
+    j1, c1, c2 = _end("J1", 5.0), _end("C1", 6.0), _end("C2", 40.0)
+    groups = [PadGroup((j1, c1), False), PadGroup((c2,), False)]
+    assert pad_widths(ctx, "GND", None, layers, groups) == [
+        {"ref": "J1", "pad": "1", "width": round(wide, 4), "by": "current"},
+        {"ref": "C1", "pad": "1", "width": 0.2, "by": "class"},
+        {"ref": "C2", "pad": "1", "width": 0.2, "by": "class"}]
+    assert {p["by"] for p in pad_widths(ctx, "GND", 0.5, layers, groups)} == {"asked"}
 
 
 def test_a_net_with_no_class_sizes_leaves_the_via_to_the_repair():
@@ -138,6 +196,17 @@ def test_every_flag_of_the_drop_call_is_one_the_routers_plane_repair_parses():
                        pads_file="p.json", clearances_file="c.json", iterations=5)
     assert {a for a in cmd if a.startswith("--")} <= known
     assert set(REPAIR_FLAGS) <= known
+
+
+@needs_router
+def test_the_routers_plane_repair_lists_the_forms_a_current_nets_drops_take():
+    """Round 3: the fork's capability listing has the per-layer --max-track-width and the --pads `width` that
+    route.pour_flags_lacking asks of it for a current pour net."""
+    from placemat.kicad.route import pour_flags_lacking
+    rpy = ROUTER / ".venv" / "bin" / "python"
+    caps = json.loads(subprocess.run([str(rpy), str(ROUTER / "krt_capabilities.py")], capture_output=True, text=True,
+                                     cwd=str(ROUTER), timeout=60, check=True).stdout)
+    assert pour_flags_lacking(caps, current=True) == []
 
 
 @needs_kicad

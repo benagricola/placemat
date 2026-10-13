@@ -12,7 +12,8 @@ import time
 
 from . import pour_join
 from .phase_run import (Call, TaskRun, _end_pair, fresh_output, is_clean, joined_pairs, judge_obligations,
-                        phase_input_drc, phase_neck, phase_settings, phase_widths, records_of, route_tasks, superseded)
+                        own_width, phase_input_drc, phase_neck, phase_settings, phase_widths, records_of, route_tasks,
+                        superseded)
 from .route import RouteRefused, RouterFailed
 
 TASK_CALLS = ("tasks", "bus_tasks", "pour")
@@ -266,9 +267,9 @@ class Standing:
     is_real: object = None  # the DRC's is_real_kind, for judging the blocked unit on `copy`
 
 
-def rank(j, outcome) -> int:
+def rank(j) -> int:
     """2 clean (phase_run.is_clean), 1 joined but not clean, 0 open."""
-    return 2 if is_clean(j, outcome) else 1 if j["joined"] else 0
+    return 2 if is_clean(j) else 1 if j["joined"] else 0
 
 
 @dataclass(frozen=True)
@@ -289,8 +290,8 @@ def verdict(before, after, asked, names, blocked_clean, off_layer) -> Verdict:
     from .drc import new_errors
     worse = []
     for k, obs in enumerate(asked):
-        for o, jb, ob, ja, oa in zip(obs, before.judged[k], before.outcomes[k], after.judged[k], after.outcomes[k]):
-            rb, ra = rank(jb, ob), rank(ja, oa)
+        for o, jb, ja in zip(obs, before.judged[k], after.judged[k]):
+            rb, ra = rank(jb), rank(ja)
             if ra < rb:
                 worse.append({"phase": names[k], "net": o["net"], "from": o["from"], "to": o["to"],
                               "before": LEVEL[rb], "after": LEVEL[ra]})
@@ -489,19 +490,19 @@ def plan_moves(victims, hist, index, before) -> tuple:
     return list(moves) + out, None
 
 
-def reroute_blocked(ctx_i, call, unit, conns, ripped, settings, stem, phase_name) -> TaskRun:
+def reroute_blocked(ctx_i, call, unit, conns, ripped, settings, stem, phase) -> TaskRun:
     """Step 2 of an attempt: the blocked unit routed on the ripped board at phase i's layers and router keywords
     (`settings`, its PhaseSettings; `ctx_i` carries its clearances). After a pour call, join_pour again for the unit's
     net (its TaskRun with `board` the join's output); after any other, its connections as --connections tasks."""
     if call.kind == "pour":
         out = ctx_i.work / (stem + "_b.kicad_pcb")
-        _, run = pour_join.join_pour(ctx_i, ripped, out, unit.net, call.width, settings.layers, stem + "_b",
-                                     phase_name, settings.common)
+        _, run = pour_join.join_pour(ctx_i, ripped, out, unit.net, own_width(phase, call), settings.layers,
+                                     stem + "_b", phase.name, settings.common)
         run.board = out
         return run
     layers = list(settings.layers)
     return route_tasks(ctx_i, [task_of(c, layers) for c in conns], ripped, stem + "_b", layers, settings.common,
-                       phase_name)
+                       phase.name)
 
 
 def _in_settings(ctx, st):
@@ -536,7 +537,7 @@ def attempt(ctx, index, phase, sel, k, a, call, unit, conns, victims, not_ripped
     board, router, after, v = ripped, None, None, None
     try:
         st_i = phase_settings(ctx, phase, sel, stem + "_b")
-        run = reroute_blocked(_in_settings(ctx, st_i), call, unit, conns, ripped, st_i, stem, phase.name)
+        run = reroute_blocked(_in_settings(ctx, st_i), call, unit, conns, ripped, st_i, stem, phase)
         blocked_records = list(run.records)
         summaries += [(phase.name, s) for s in run.summaries]
         calls_i += [(Call("tasks", tasks=attempted), s, p) for attempted, s, p in run.calls]
@@ -572,9 +573,8 @@ def attempt(ctx, index, phase, sel, k, a, call, unit, conns, victims, not_ripped
                          _standing_connections(hist, index, connections, blocked_records, rerouted))
         judged = judge_obligations(after.copy, conns, after.drc_json, phase_neck(ctx.cfg, phase), after.is_real,
                                    phase_input_drc(ctx.work, index))
-        status = [r.get("status") if r else None for r in records_of(conns, blocked_records)]
         v = verdict(before, after, hist.asked[:index + 1], [p.name for p in hist.phases],
-                    [is_clean(j, s) for j, s in zip(judged, status)], off)
+                    [is_clean(j) for j in judged], off)
     else:
         v = Verdict(False, reason)
     record = {"call": k, "attempt": a, "blocked": [dict(c) for c in conns],

@@ -69,8 +69,8 @@ def test_unknown_nominal_policy_cannot_certify_a_connected_board(tmp_path, monke
     drc = tmp_path / 'drc.json'; drc.write_text('{"violations": []}')
     monkeypatch.setattr(phase_run, 'joined_pairs', lambda *args: [True])
     (judgment,) = phase_run.judge_obligations('board', obs, drc, is_real=lambda _: False)
-    assert judgment['joined'] and judgment['width_unknown'] and not phase_run.is_clean(judgment, None)
-    assert phase_run.widths_failed([{}], [obs], [[judgment]]) == 1
+    assert judgment['joined'] and judgment['width_unknown'] and not phase_run.is_clean(judgment)
+    assert phase_run.widths_failed([[judgment]]) == 1
     assert phase_run.open_entry(obs[0], judgment, None, {})['width_policy_failure'] == {
         'code': 'router_unknown', 'facts': {'reason': 'stored impedance'}}
 

@@ -186,8 +186,9 @@ def test_the_first_failing_check_is_the_reason_and_every_finding_is_kept():
     assert rr.verdict(before, after, ASKED, ["legs", "signals"], [True], 0).reason == "obligation_worse"
 
 
-def test_a_joined_narrow_outcome_ranks_as_joined():
-    assert rr.rank(J_CLEAN, "joined_narrow") == 1 and rr.rank(J_CLEAN, "routed") == 2 and rr.rank(J_OPEN, None) == 0
+def test_rank_is_placemats_measure_alone():
+    # S8: the router's joined_narrow does not decide; a join under its width on the joining path is joined, not clean
+    assert (rr.rank(J_CLEAN), rr.rank(J_UNDER), rr.rank(J_OPEN)) == (2, 1, 0)
 
 
 def test_the_gate_skips_in_order():
@@ -276,5 +277,6 @@ def test_a_pour_calls_blocked_net_is_joined_to_its_pour_again(monkeypatch, tmp_p
     call = types.SimpleNamespace(kind="pour", width=0.5, nets=("GND",))
     rr.reroute_blocked(types.SimpleNamespace(work=tmp_path), call, rr.Blocked("GND", ()), [],
                        tmp_path / "r.kicad_pcb", types.SimpleNamespace(layers=("F.Cu",), common={}), "p2_0_rip0",
-                       "pours")
+                       types.SimpleNamespace(name="pours", width=0.5))
     assert seen == [("GND", "p2_0_rip0_b", 0.5, ("F.Cu",))]
+

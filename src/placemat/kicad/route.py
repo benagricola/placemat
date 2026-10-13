@@ -125,9 +125,13 @@ def refused_text(code: str, facts: dict) -> str:
                                            for t in facts["tasks"]))
 
     elif code == "router_old":
-        facts = dict(facts, missing=", ".join(
-            "%s %s" % (m["module"], m["flag"] if "flag" in m else "task field %r" % m["field"])
-            for m in facts["missing"]))
+        def said(m):
+            if "form" in m:
+                return "%s as %s" % (m["flag"], {"per_layer": "LAYER=MM"}.get(m["form"], m["form"]))
+            if "pad_field" in m:
+                return "--pads field %r" % m["pad_field"]
+            return m["flag"] if "flag" in m else "task field %r" % m["field"]
+        facts = dict(facts, missing=", ".join("%s %s" % (m["module"], said(m)) for m in facts["missing"]))
     elif code == "router_owned":
         facts = dict(facts, where="[route]" if facts.get("phase") is None else "phase %r" % facts["phase"])
     elif code == "capture":
@@ -210,7 +214,9 @@ class RouteReport:
     # The route record (route_progress.py): the events of every stage in laid order, what the studio replays the route from; "" when
     # events are off.
     record: str = ""
-    # Copper the router laid under the width it was asked, from its per-stage summaries (route_widths.py): a record per net and stage.
+    # Copper laid under the width it was asked (route_widths.py): each phase's per-call records (phase_run.phase_widths,
+    # task_widths), the router's per-stage summaries, and one record per obligation the final board joins under its
+    # width on its joining path, whichever call laid it (phase_run.judged_widths, "source": "judged").
     widths: list = field(default_factory=list)
     # Capture clearances as applied, trapped pads, and structured setup findings in presentation order.
     net_clearances: dict = field(default_factory=dict)
@@ -235,7 +241,7 @@ class RouteReport:
     phases_without_copper: list = field(default_factory=list)
     # {pour net: the first phase that routes it in a pour call (D15)}, for the phase lines (phase_lines).
     pour_routed_by: dict = field(default_factory=dict)
-    # Obligations joined on the final board whose joining path is under their width, joined_narrow included (Task 15).
+    # Obligations joined on the final board whose joining path is under their width, or not measured (Task 15; S8).
     widths_failed: int = 0
     # Real-bucket DRC errors on the final board beyond the input board's (drc.real_errors, drc.new_errors); None when
     # either DRC wrote no report.
@@ -1138,17 +1144,28 @@ def _router_lacks(rpy, router_dir_path, phases) -> list:
     return [m for m in router_capable(rpy, router_dir_path) if buses or not m.endswith(":--bus-nets")]
 
 
-def pour_flags_lacking(caps) -> list:
+def pour_flags_lacking(caps, current=False) -> list:
     """The flags a pour net's calls give the router (pour_join.REPAIR_FLAGS on its plane repair, TASK_FLAGS on its
     tasks) and the task fields its tasks carry (TASK_FIELDS, the listing's `task_fields`) that its capability listing
     (router_capabilities) does not have, as {"module", "flag"} or {"module", "field"} records; every one when it has
-    no listing."""
-    from .pour_join import REPAIR_FLAGS, TASK_FIELDS, TASK_FLAGS
-    flags = (caps or {}).get("flags") or {}
-    fields = ((caps or {}).get("task_fields") or {}).get("route.py") or ()
-    return [{"module": mod, "flag": f} for mod, want in (("repair_planes.py", REPAIR_FLAGS), ("route.py", TASK_FLAGS))
-            for f in want if f not in (flags.get(mod) or ())] + \
+    no listing. `current`: a pour net a current_paths phase leaves to its pour is joined too, whose drops take a
+    width per layer and per pad (pour_join.join_pour), so the plane repair's per-layer `--max-track-width`
+    (`flag_forms`, {"module", "flag", "form"}) and its `--pads` `width` (`pad_fields`, {"module", "pad_field"}) are
+    asked as well."""
+    from .pour_join import PAD_FIELDS, REPAIR_FLAGS, REPAIR_FORMS, TASK_FIELDS, TASK_FLAGS
+    caps = caps or {}
+    flags = caps.get("flags") or {}
+    fields = (caps.get("task_fields") or {}).get("route.py") or ()
+    out = [{"module": mod, "flag": f} for mod, want in (("repair_planes.py", REPAIR_FLAGS), ("route.py", TASK_FLAGS))
+           for f in want if f not in (flags.get(mod) or ())] + \
         [{"module": "route.py", "field": f} for f in TASK_FIELDS if f not in fields]
+    if current:
+        forms = (caps.get("flag_forms") or {}).get("repair_planes.py") or {}
+        pads = (caps.get("pad_fields") or {}).get("repair_planes.py") or ()
+        out += [{"module": "repair_planes.py", "flag": f, "form": form} for f, form in REPAIR_FORMS
+                if form not in (forms.get(f) or ())]
+        out += [{"module": "repair_planes.py", "pad_field": f} for f in PAD_FIELDS if f not in pads]
+    return out
 
 
 def new_error_count(before_json, after_json, is_real) -> int | None:
@@ -1248,27 +1265,19 @@ def recheck_final_phases(report, asked, run_list, width_receipt, pcb_out, drc_pa
     """Ruling S6: every phase's obligations (`asked`, obligations_of, fixed from the input board before routing) judged
     again on the routed board `pcb_out`, after the last phase and the clean-up. Fills each phase record's final_* counts, `report.final_judged`,
     `report.widths_failed` and `report.asked`."""
-    from .phase_run import is_clean, judge_obligations, phase_input_drc, phase_neck, records_of, superseded
-    from .rip_reroute import moved_records
+    from .phase_run import is_clean, judge_obligations, phase_input_drc, phase_neck, widths_failed
     if not (len(report.phases) == len(asked) == len(run_list)):
         raise ValueError("final phase/obligation count mismatch")
     report.final_judged = []
-    report.widths_failed = 0
     for i, (rec, obs, phase) in enumerate(zip(report.phases, asked, run_list)):
         rec["width_policy"] = [p for p in width_receipt['policies'] if p['name'] == phase.name]
         rec["final_asked"] = len(obs)
         got = judge_obligations(pcb_out, obs, drc_path, phase_neck(cfg, phase), after.is_real_kind,
                                 phase_input_drc(Path(drc_path).parent, i) if drc_path is not None else None)
         report.final_judged.append(got)
-        # phase i's records with every later kept reroute of its connections in their place (spec "A kept attempt
-        # also changes")
-        connections = superseded(rec.get("connections") or [], moved_records(report.phases, i))
-        outcomes = [r.get("status") if r else None for r in records_of(obs, connections)]
-        if not (len(got) == len(obs) == len(outcomes)):
+        if len(got) != len(obs):
             raise ValueError("final phase judgment/obligation count mismatch")
-        # joined on the final board narrower than asked along its path, or reported joined_narrow by the router (D3)
-        report.widths_failed += sum(1 for j, oc in zip(got, outcomes) if j["joined"] and (j["under"] or j.get("width_unknown", False) or oc == "joined_narrow"))
-        clean = [is_clean(j, oc) for j, oc in zip(got, outcomes)]
+        clean = [is_clean(j) for j in got]
         rec["final_joined"] = sum(clean)
         # joined at all, whatever its width or DRC
         rec["final_connected"] = sum(j["joined"] for j in got)
@@ -1279,6 +1288,8 @@ def recheck_final_phases(report, asked, run_list, width_receipt, pcb_out, drc_pa
                                   **({"under": dict(j["under"])} if j["joined"] and j["under"] else {}),
                                   **({"width_unknown": True} if j.get("width_unknown") else {}))
                              for o, j, ok in zip(obs, got, clean) if not ok]
+    # joined on the final board narrower than asked along its joining path (S8), or not measured
+    report.widths_failed = widths_failed(report.final_judged)
     report.asked = asked
 
 
@@ -1380,7 +1391,16 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
         picked[p.name] = select(p, geometry, capture, open_nets=every, excluded=excluded, pour_nets=pours,
                                 route_layers=layers, rise_c=cfg.check_rise_c, copper_oz=COPPER_OZ)
     chosen_pours = set().union(*(set(picked[p.name].pour_nets) for p in run_list))
-    lacking = pour_flags_lacking(caps) if chosen_pours else []
+    # the user's decision of 2026-10-13: a pour net a current_paths phase leaves to its pour (S13) is joined to it at
+    # the current that phase asks of it: per pad, the most of the connections it ends (pour_join.join_widths)
+    pour_currents = {}
+    for p in phases:
+        if p.selector == "current_paths":
+            for t in picked[p.name].pour_served:
+                on = pour_currents.setdefault(t.net, {})
+                for end in (tuple(t.start), tuple(t.end)):
+                    on[end] = max(on.get(end, 0.0), t.amps)
+    lacking = pour_flags_lacking(caps, current=bool(chosen_pours & set(pour_currents))) if chosen_pours else []
     if lacking:                     # a phase names a pour net: its calls need the router's plane repair flags
         raise RouteRefused("router_old", router=str(router_dir_path), missing=lacking)
     counted = excluded | (pours - chosen_pours)          # what the closure leaves out
@@ -1444,13 +1464,17 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     script = str(ONE_ROUND) if quick else str(route_py)
     ctx = PhaseContext(rpy, script, router_dir_path, work, layers, iterations, probe, quick, timeout, env, cfg,
                        geometry, clearance_map, base_clearance, clearances_file, excluded, pours, rev,
-                       class_clearances, stated, history=hist)
+                       class_clearances, stated, pour_currents, history=hist)
     pcb_out = work / "routed.kicad_pcb"
     raw_out = work / "router_out.kicad_pcb"      # the last phase's board: post-processing is made on a copy
     board, prev, records, routeds, spent, resumed = pcb_in, base, [], [], 0.0, []
     open_now = dict(before.open_nets)
     for i, phase in enumerate(run_list):
         phase_identity = (phase.key(), width_policy.phase_key(width_receipt, phase.name))
+        currents = {n: sorted([list(e), a] for e, a in pour_currents[n].items())
+                    for n in sorted(picked[phase.name].pour_nets) if n in pour_currents}
+        if currents:                    # its pour joins are laid at these currents' widths (pour_join.join_widths)
+            phase_identity += (currents,)
         key = digest(base, "only", *phase_identity) if only else digest(prev, *phase_identity)
         label = state.order[i]
         saved = state.result(label, key)
@@ -1534,6 +1558,10 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
             report.pour_routed_by.setdefault(n, p.name)
     recheck_final_phases(report, asked, run_list, width_receipt, pcb_out,
                          work / "drc_after.json", after, cfg)
+    from .phase_run import judged_widths, one_line_per_connection, path_tracks, phase_neck
+    judged = judged_widths(run_list, asked, report.final_judged)
+    paths = path_tracks(pcb_out, judged, {p.name: phase_neck(cfg, p) for p in run_list})
+    report.widths = one_line_per_connection(report.widths, judged, paths) + judged
     report.drc_new = new_error_count(work / "drc_before.json", work / "drc_after.json", after.is_real)
     report.vias, report.track_mm, report.segments = routed_copper(pcb, pcb_out)
     if only:
@@ -1665,7 +1693,7 @@ def phase_lines(phases: list, without_copper=(), pour_routed_by=None) -> list:
             line += ", final %.1f%%" % (100 * final)
         opened, said, unreached = [], set(), []
         for o in p.get("final_open", p.get("open")) or ():
-            if o.get("pour_served") and not o.get("violated"):
+            if o.get("pour_served") and not o.get("violated") and not o.get("under") and not o.get("width_unknown"):
                 unreached.append(o)
             elif o.get("violated"):
                 if o["net"] not in said:
@@ -1683,8 +1711,9 @@ def phase_lines(phases: list, without_copper=(), pour_routed_by=None) -> list:
         served = {}
         for t in p.get("pour_served") or ():
             served[t["net"]] = served.get(t["net"], 0) + 1
-        for o in unreached:
-            served[o["net"]] = served.get(o["net"], 0) - 1
+        for o in p.get("final_open", p.get("open")) or ():
+            if o.get("pour_served") and not o.get("violated"):      # not reached, or joined under its width
+                served[o["net"]] = served.get(o["net"], 0) - 1
         later = {n: by for n, by in (pour_routed_by or {}).items() if by in names[i + 1:]}
         left = ["%s %d connection%s%s" % (n, k, "" if k == 1 else "s", " routed by phase %s" % later[n] if n in later
                                          else "") for n, k in served.items() if k > 0]
