@@ -127,15 +127,16 @@ def cleanup(occ, movable: dict, pins: dict, links, clearance, passes: int, radiu
         crossed, closed, walled = esc.closed(movable[k], pl, crossed)
         return walled, crossing * added + s.score_escape_crossed * crossed + s.score_escape_closed * closed
 
-    def limits_ok(ks, override):
-        """Whether no limited link of `ks` ends over its limit and longer than it was. `limits_ok.of(k)`: whether `k`
-        has a limit to keep (a limited link, or a satellite's)."""
+    def limits_ok(ks, override, before=None):
+        """Whether no limited link of `ks` ends over its limit and longer than it was. `before` places the items as they
+        were where the board no longer holds that (a swap's two parts, committed at their new spots). `limits_ok.of(k)`:
+        whether `k` has a limit to keep (a limited link, or a satellite's)."""
         for k in ks:
             for l in links_of[k]:
                 if l.limit_mm is None:
                     continue
                 after = link_len(l, override)
-                if after > l.limit_mm + 1e-9 and after > link_len(l, {}) + 1e-9:
+                if after > l.limit_mm + 1e-9 and after > link_len(l, before or {}) + 1e-9:
                     return False
         return True
 
@@ -406,7 +407,7 @@ def _swaps(occ, movable, keys, placement, ref_of, nets_of, links_of, cost, terms
             occ.lift([ref_of[a], ref_of[b]])
             after = _pair(cost([a, b], nets, {}), terms(a, moved[a]), terms(b, moved[b]))
             taken = _below(after, now, _EPS)
-        if taken and limits_ok([a, b], {}) and satellite_ok(a, None) and satellite_ok(b, None):
+        if taken and limits_ok([a, b], moved, {a: pa, b: pb}) and satellite_ok(a, None) and satellite_ok(b, None):
             occ.commit(movable[a], moved[a])
             occ.commit(movable[b], moved[b])
             placement[a], placement[b] = moved[a], moved[b]
