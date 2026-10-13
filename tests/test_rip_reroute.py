@@ -257,3 +257,24 @@ def test_the_phase_lines_say_what_was_moved_restored_and_not_tried():
     assert "after moving W: 1 new DRC error" in lines[1] and "1 new DRC errors" not in lines[1]
     assert "; not moved for K: too many nets named" in lines[1] and "for Q" not in lines[1]
     assert "(" not in lines[1].split("; restored")[1]          # no bracketed plurals
+
+
+def test_a_pour_calls_blocked_net_is_joined_to_its_pour_again(monkeypatch, tmp_path):
+    """Step 2 of an attempt after a pour call is join_pour on the ripped board, not a plain task call."""
+    import types
+    import placemat.kicad.pour_join as pj
+    seen = []
+
+    def join_pour(ctx, board, out, net, width, layers, stem, phase, common):
+        seen.append((net, stem, width, tuple(layers)))
+        return {"net": net}, types.SimpleNamespace(board=out, records=[], summaries=[], calls=[])
+
+    def no_tasks(*a, **kw):
+        raise AssertionError("route_tasks called for a pour call")
+    monkeypatch.setattr(pj, "join_pour", join_pour)
+    monkeypatch.setattr(rr, "route_tasks", no_tasks)
+    call = types.SimpleNamespace(kind="pour", width=0.5, nets=("GND",))
+    rr.reroute_blocked(types.SimpleNamespace(work=tmp_path), call, rr.Blocked("GND", ()), [],
+                       tmp_path / "r.kicad_pcb", types.SimpleNamespace(layers=("F.Cu",), common={}), "p2_0_rip0",
+                       "pours")
+    assert seen == [("GND", "p2_0_rip0_b", 0.5, ("F.Cu",))]
