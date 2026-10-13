@@ -3874,7 +3874,11 @@ least capacity carries, and its width, the router's IPC-2152). The route's
 summary line ends `UNDER WIDTH: NET 16.6 of 17.2 mm under 1.37 (min 0.16)`, `route_summary.json` has `under_width` (the same records), `placemat watch` and the studio's stream
 get a `route_width` event per record, and each is a `route.width` finding in the console, `run.json` and `placemat route --json`
 (`finding_details`). A net the router recorded as narrowed but the script gave no width is not measured per length and has
-`length_mm` null. Net-class and pair widths are reported only where the router records a narrowing of them: its pair router writes no
+`length_mm` null. Each phase's obligation that the final board joins narrower than asked along its joining path also
+gets a record, whichever call laid the copper (a later phase that asked no width, such as the rest phase, included):
+`source` `judged`, `stage` the phase that asked it, `from` and `to` its pads, `layers` ({`layer`, `need_mm`,
+`min_mm`, `by`}: `current` for a phase sized from currents, else `asked`), `requested_mm` and `delivered_min_mm`, and
+null lengths. Its summary entry reads `VB J1.1-Q1.1 under F.Cu 2.47, In2.Cu 6.41 (min 0.127)`. Net-class and pair widths are reported only where the router records a narrowing of them: its pair router writes no
 summary.
 
 The routed copy is cleaned as KiCad's own cleanup cleans a board, over the copper the router added only: its dangling tracks and vias
@@ -4001,7 +4005,11 @@ joined (by a cell's via, a track, the pour itself) is left as it is. The repair 
 with tracks no wider than the phase's width or the net class's, and leaves anything still split to the next step.
 Then the group of the net's pads holding the most pads among those on the pour stands for it, and every other group
 is routed to its nearest pad by one pad-to-pad task, at the phase's width or the net class's; the track reaches the other
-group's pad copper, never only the pour's fill. Which pads are joined is KiCad's judgement (its connectivity with the zones refilled), and each task
+group's pad copper, never only the pour's fill. A pour net that a `current_paths` phase leaves to its pour (below) is
+joined at its current width instead of the net class's, when the phase that joins it sets no width: the width the
+`current_paths` phase asks for its largest carrier-pair current on each of this phase's layers (IPC-2221 at `[check]
+rise_c`). The tasks take that width per layer; the drops and the joins of the pour's pieces, which take one width,
+take the widest of them. Which pads are joined is KiCad's judgement (its connectivity with the zones refilled), and each task
 tells the router so: the router routes it even where its own model takes the pads for joined, and answers `routed`
 only when its copper joins the task's ends; otherwise the task is `failed`, its `evidence.diagnosis`
 `joined_by_pour_only` (the router counted the ends joined through a pour KiCad does not) or
@@ -4018,11 +4026,14 @@ end of a route, so the tasks are the only tracks the call lays. Every pour net's
 route's layers, whatever the phase's own `layers`, from the first phase on; a pour net's call takes its own net's guard
 off for itself alone. A pour net no phase names is left to its pours and is not counted in the closure. The rest
 phase never takes a pour net. A `current_paths` phase does not route the pour nets it picks up: the pour carries the
-net's current. Their connections are asked of the pour, with no width: after the phase each is judged as the
-phase's other connections are, and one the pour does not join is open and counted in the phase's closure. The
-phase lists them as `pour_served` ({net, from, to, joined}); its line counts the joined ones and names the others
-("left to their pours: GND 12 connections; not reached by the pour: GND J1.2-U1.3"), and says "routed by phase
-NAME" when a later phase routes that net (`pour_routed_by` in `route.json`). A pour net a phase names, by `nets`,
+net's current. Their connections are asked of the pour at the current width the phase would route them at: after
+the phase each is judged as the phase's other connections are, along the copper that joins its pads, pour fill
+included. One the pour does not join is open, and one joined narrower than that width is `under`; both count
+against the phase's closure. The phase lists them as `pour_served` ({net, from, to, joined}, and `under` ({layer:
+mm}) when joined under its width); its line counts the clean ones, names those under their width as other open
+connections are named ("GND J1.2-U2.1 under F.Cu 0.2") and the ones not joined ("left to their pours: GND 12
+connections; not reached by the pour: GND J1.2-U1.3"), and says "routed by phase NAME" when a later phase routes
+that net (`pour_routed_by` in `route.json`). A pour net a phase names, by `nets`,
 a class, `connections` or another selector, routes in its own call as above, `width = "current"` or not.
 
 **Kept results.** Each phase's result is kept in the route's work folder (`<run dir>/route/`, or `.placemat/route/`, or
@@ -4050,8 +4061,9 @@ last phase's board is `router_out.kicad_pcb`, and `routed.kicad_pcb` is made fro
   filled) and their share (1.0 with none asked). Clean is joined by copper (KiCad's connectivity), its net in no real
   error of that DRC that the phase's input board did not already have (the `real` bucket at severity error, matched as
   `drc_new` matches them; the input board's DRC is the phase before's, or the unrouted board's for the first phase), not narrower than asked along the
-  copper path that joins its two pads (a thin branch to another pad does not count), and not a `joined_narrow`
-  outcome. The path is its tracks and any stretch of a pour's fill, a filled copper polygon or another pad it passes
+  copper path that joins its two pads (a thin branch to another pad does not count). That measure decides: a task
+  the router answered `joined_narrow`, which the router measures on the shortest copper between the pads, is clean
+  when the joining path is at its width. The path is its tracks and any stretch of a pour's fill, a filled copper polygon or another pad it passes
   through; such a stretch is as wide as the widest disc that can travel through that copper from where the path
   enters it to where it leaves (the measure the current-path check uses, read to within one `[check] zone_step`). Copper
   on one layer joins wherever it overlaps, as KiCad 10's connectivity joins it: a track end anywhere on a pad, a
@@ -4070,7 +4082,9 @@ last phase's board is `router_out.kicad_pcb`, and `routed.kicad_pcb` is made fro
   outline polygon); `joined_before` (those on the pour before the call, left alone); `apart_before`; `tapped` (pads apart
   before that the drops joined); `vias` (`in_pad`, `beside`: the drops' vias, in a pad or beside it; `joins`: the
   vias the repair's joins of the pour's pieces added); `groups_left` (the groups still apart after the drops, one
-  task each); `groups_after` (its pad groups when the call was done); `tasks` (the
+  task each); `groups_after` (its pad groups when the call was done); `widths` ({layer: mm}, the width its joins
+  were laid at) and `width_by` (`asked`: the phase's width or its tasks'; `current`: the current width of a net a
+  `current_paths` phase leaves to its pour; `class`: the net class's track width); `tasks` (the
   router's record of each task, as in `connections`); `rejoin`, a record of the same fields, when a later call of
   the phase split the net and it was joined once more; and `groups_final`, its pad groups when the phase was done.
   An open connection's `outcome` and `evidence` come from the latest task that answered it. The phase line says the
@@ -4087,8 +4101,7 @@ as there), `drc_new` (errors in the DRC's `real` bucket on
 the final board that the unrouted board does not have, matched one to one on type and every item's description and
 position within 0.05 mm; warnings and
 the other buckets never count; null when a DRC wrote no report) and `widths_failed` (obligations joined on the final
-board narrower than asked along their path, reported `joined_narrow` by the router, or with a width that could not be
-measured (`width_unknown`)). The board-wide `closure`, `closure_clean` and `open_nets` are as before.
+board narrower than asked along their path, or with a width that could not be measured (`width_unknown`)). The board-wide `closure`, `closure_clean` and `open_nets` are as before.
 
 The width each join is judged against comes from the router: before any copper changes, the route asks the
 configured router which width it will draw each selected net at in each phase and on each layer, as the router works

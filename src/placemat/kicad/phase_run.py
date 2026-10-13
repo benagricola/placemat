@@ -126,6 +126,8 @@ class PhaseContext:
     events: object
     class_clearances: dict = field(default_factory=dict)
     stated_clearances: dict = field(default_factory=dict)
+    pour_currents: dict = field(default_factory=dict)   # {pour net: amps} a current_paths phase leaves to its pour
+                                                        # (pour_join.join_widths)
 
 
 @dataclass
@@ -259,9 +261,10 @@ def obligations_of(selections, input_open, skip) -> list:
         if sel.tasks or sel.pour_served:
             obs = [dict({k: v for k, v in t.record().items() if k in ("net", "from", "to")}, widths=dict(t.widths))
                    for t in sel.tasks]
-            # ruling S13: a current_paths phase's connections on pour nets are asked of the pour, joined or not, with
-            # no width (the pour carries the current)
-            obs += [dict({k: v for k, v in t.record().items() if k in ("net", "from", "to")}, widths=None,
+            # ruling S13: a current_paths phase's connections on pour nets are asked of the pour, joined or not, at
+            # the current width the phase would route them at (the user's decision of 2026-10-13): a join narrower
+            # than it is under its width
+            obs += [dict({k: v for k, v in t.record().items() if k in ("net", "from", "to")}, widths=dict(t.widths),
                          pour_served=True) for t in sel.pour_served]
         elif sel.rest:
             obs = [dict(o, widths={layer: sel.width for layer in sel.layers} if sel.width else None) for o in input_open if o["net"] not in skip and o["net"] not in named]
@@ -324,10 +327,11 @@ def judge_obligations(pcb_path, obligations, drc_json, neck_mm=0.0, is_real=None
     return out
 
 
-def is_clean(j: dict, outcome) -> bool:
-    """Joined, not violated, not under its width, and not a `joined_narrow` outcome (ruling S6): a short a later phase
-    laid, or a join narrower than asked, never reads clean."""
-    return bool(j["joined"]) and not j["violated"] and not j["under"] and not j.get("width_unknown", False) and outcome != "joined_narrow"
+def is_clean(j: dict) -> bool:
+    """Joined, not violated, not under its width and not width-unknown (ruling S6): a short a later phase laid, or a
+    join narrower than asked, never reads clean. The width is placemat's measure on the joining path (S8): the
+    router's `joined_narrow`, which KRT measures on the shortest path between the pads, does not decide it."""
+    return bool(j["joined"]) and not j["violated"] and not j["under"] and not j.get("width_unknown", False)
 
 
 def joining_path(geometry, o):
@@ -892,15 +896,18 @@ def phase_record(phase, index, sel, obligations, judged, seconds, calls, pairs=N
     `closure_clean` (joined / asked, 1.0 when nothing is asked), `open` (open_entry of each one not clean), its time,
     router calls, pair outcome, --connections records and bus groups, and `pour_served`: each connection a
     current_paths phase left to its pour (ruling S13), {"net", "from", "to", "joined"}, joined as judged after the
-    phase; one the pour does not join is also open. `pour_joins`: each pour call's record (pour_join.join_pour: its
-    pads, the drops' vias, the tasks for the groups still apart). `reused` is set by the route."""
+    phase, with "under" ({layer: narrowest mm}) when it joins under its current width; one the pour does not join,
+    or joins under that width, is also open. `pour_joins`: each pour call's record (pour_join.join_pour: its pads, the
+    widths its joins were laid at, the drops' vias, the tasks for the groups still apart). `reused` is set by the
+    route."""
     connections = list(connections)
     rec = dict(phase.record(), index=index, seconds=round(seconds, 1), reused=False, calls=calls, pairs=pairs,
                connections=connections, bus_groups=list(bus_groups), widths=[], pour_joins=list(pour_joins),
-               pour_served=[dict({k: o[k] for k in ("net", "from", "to")}, joined=bool(j["joined"]))
+               pour_served=[dict({k: o[k] for k in ("net", "from", "to")}, joined=bool(j["joined"]),
+                                 **({"under": dict(j["under"])} if j["joined"] and j["under"] else {}))
                             for o, j in zip(obligations, judged) if o.get("pour_served")])
     records = records_of(obligations, connections)
-    clean = [is_clean(j, r.get("status") if r else None) for j, r in zip(judged, records)]
+    clean = [is_clean(j) for j in judged]
     rec.update(asked=len(obligations), joined=sum(clean),
                closure_clean=round(sum(clean) / len(obligations), 4) if obligations else 1.0,
                open=[open_entry(o, j, r, net_evidence or {})
@@ -1180,9 +1187,8 @@ def route_calls(ctx, index, phase, sel, board) -> PhaseOutcome:
     out.board = board
     out.routed = Routed(board, time.time() - t0, len(calls) + rejoins, pairs, connections, bus_groups,
                         [(n, k, str(sp)) for n, k, sp in out.summaries],
-                        phase_widths(phase, out.calls, ctx.cfg)
-                        + narrow_join_widths(phase, sel, connections, board, ctx.cfg)
-                        + task_widths(phase, sel, connections), pour_joins).record()
+                        phase_widths(phase, out.calls, ctx.cfg) + task_widths(phase, sel, connections),
+                        pour_joins).record()
     return out
 
 
@@ -1269,37 +1275,6 @@ def phase_widths(phase, calls, cfg) -> list:
     return out
 
 
-def narrow_join_widths(phase, sel, connections, routed_pcb, cfg) -> list:
-    """A task KRT reported `joined_narrow` and left unrouted (D3's fallback): the joining path its record names is
-    judged against the task's asked widths, so the phase raises route.width on it. The path is matched to the routed
-    board's tracks of the net by layer and both ends (to the micrometre)."""
-    from ..values import CopperLayer
-    from .read import read_board
-    from .route_widths import board_widths, neck_allowance
-    narrow = [r for r in connections if r.get("status") == "joined_narrow" and r.get("path")]
-    if not narrow:
-        return []
-    tasks = {(t.net, tuple(t.start[:2]), tuple(t.end[:2])): t for t in sel.tasks}
-    routed = read_board(str(routed_pcb))
-    neck = neck_allowance(tuple(cfg.route_router_args) + tuple(phase.router_args)) if phase.neckdown else 0.0
-    out = []
-    for r in narrow:
-        t = tasks.get((r["net"], (r["from"]["ref"], r["from"]["pad"]), (r["to"]["ref"], r["to"]["pad"])))
-        if t is None:
-            continue
-        path = {(CopperLayer.of(s["layer"]), _ends(s["start"], s["end"])) for s in r["path"]}
-        only = [c for c in routed.copper if c.kind == "track" and c.net == t.net and len(c.anchors) == 2
-                and any((layer, _ends(*c.anchors)) in path for layer in c.layers)]
-        asks = {t.net: {CopperLayer.of(layer): w for layer, w in t.widths}}
-        out += board_widths(routed, asks, phase.name, cfg.check_rise_c, None, neck, only=only,
-                            by="current" if t.amps is not None else "asked")
-    return out
-
-
-def _ends(a, b) -> frozenset:
-    return frozenset((round(p[0], 3), round(p[1], 3)) for p in (a, b))
-
-
 def task_widths(phase, sel, connections) -> list:
     """KRT's own narrowest width per layer of each routed task (`min_width_mm`) against the task's asked width, for a
     phase with `neckdown = false`, whose calls carry --no-power-tap-neckdown: the router laid no tap neck, so a layer
@@ -1328,11 +1303,34 @@ def task_widths(phase, sel, connections) -> list:
     return out
 
 
-def widths_failed(records, asked, final_judged) -> int:
-    """Obligations joined on the final board under their width on their joining path, and joined_narrow outcomes."""
-    n = 0
-    for rec, obs, got in zip(records, asked, final_judged):
-        for j, r in zip(got, records_of(obs, rec.get("connections") or [])):
-            if j["joined"] and (j["under"] or j.get("width_unknown", False) or (r or {}).get("status") == "joined_narrow"):
-                n += 1
-    return n
+def widths_failed(final_judged) -> int:
+    """Obligations joined on the final board under their width on their joining path, or whose width could not be
+    measured (ruling S6; S8: placemat's measure decides, not the router's `joined_narrow`)."""
+    return sum(1 for got in final_judged for j in got
+               if j["joined"] and (j["under"] or j.get("width_unknown", False)))
+
+
+def judged_widths(phases, asked, final_judged) -> list:
+    """A width line for each obligation the final board joins under its width (judge_obligations' `under`, measured
+    on its joining path), whichever call laid the copper: a phase's own calls are judged on the copper they added
+    (phase_widths), and a later call that asked no width, such as the rest phase's, is judged nowhere else. One per
+    obligation, as phase `stage` asked it: {"net", "stage", "from", "to", "source": "judged", "layers": [{"layer",
+    "need_mm", "min_mm", "by"}], ...} with route_widths' record fields; "by" is "current" for a phase sized from
+    currents (current_paths, or width = "current"), else "asked"."""
+    from ..route_phase import CURRENT
+    out = []
+    for phase, obs, got in zip(phases, asked, final_judged):
+        by = "current" if phase.selector == "current_paths" or phase.width == CURRENT else "asked"
+        for o, j in zip(obs, got):
+            if not (j["joined"] and j["under"] and o.get("widths")):
+                continue
+            rows = [{"layer": layer, "need_mm": o["widths"][layer], "min_mm": mm, "by": by}
+                    for layer, mm in sorted(j["under"].items()) if layer in o["widths"]]
+            if not rows:
+                continue
+            low = min(r["min_mm"] for r in rows)
+            out.append({"net": o["net"], "stage": phase.name, "from": dict(o["from"]), "to": dict(o["to"]),
+                        "requested_mm": max(o["widths"].values()), "delivered_min_mm": low, "length_under_mm": None,
+                        "length_mm": None, "share": None, "declared": True, "max_a": None, "bottleneck_mm": low,
+                        "layers": rows, "source": "judged"})
+    return out

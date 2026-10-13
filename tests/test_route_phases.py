@@ -166,16 +166,15 @@ def test_a_later_short_never_makes_an_obligation_clean(tmp_path, monkeypatch):
     obs = [{"net": n, "from": {"ref": "J1", "pad": "1"}, "to": {"ref": "U1", "pad": "2"}, "widths": None}
            for n in ("FB", "EN", "SW")]
     fb, en, sw = phase_run.judge_obligations(tmp_path / "x.kicad_pcb", obs, drc)
-    assert fb == {"joined": True, "violated": True, "under": {}} and not phase_run.is_clean(fb, None)
+    assert fb == {"joined": True, "violated": True, "under": {}} and not phase_run.is_clean(fb)
     # one rule with drc_new: the real bucket at severity error; a warning, or a kind outside the bucket, is no fault
     assert not en["violated"] and not sw["violated"]
 
 
 def test_a_join_narrower_than_asked_is_not_clean():
     from placemat.kicad import phase_run
-    assert not phase_run.is_clean({"joined": True, "violated": False, "under": {"F.Cu": 0.2}}, None)
-    assert not phase_run.is_clean({"joined": True, "violated": False, "under": {}}, "joined_narrow")
-    assert phase_run.is_clean({"joined": True, "violated": False, "under": {}}, "routed")
+    assert not phase_run.is_clean({"joined": True, "violated": False, "under": {"F.Cu": 0.2}})
+    assert phase_run.is_clean({"joined": True, "violated": False, "under": {}})
 
 
 def test_widths_are_judged_on_the_path_that_joins_the_pair_not_on_a_branch():
@@ -370,15 +369,44 @@ def test_a_phase_whose_judgement_failed_keeps_its_routing_and_is_judged_on_the_r
     assert len(rig.calls()) == n and report.phases[0]["asked"] == 1 and report.resumed == ["vin"]
 
 
+def _vin_track(pcb, width):
+    """A VIN track `width` wide from U1.3 (113, 110) to J1.2 (126, 110), around J1's FB pad."""
+    pts = ((113, 110), (113, 113), (126, 113), (126, 110))
+    seg = "".join('\t(segment (start %g %g) (end %g %g) (width %g) (layer "F.Cu") (net 3))\n' % (a + b + (width,))
+                  for a, b in zip(pts, pts[1:]))
+    text = pcb.read_text().rstrip()
+    pcb.write_text(text[:-1] + seg + ")\n")
+
+
+LEG_VIN = {"name": "leg", "width": 0.4, "connections": [{"from": {"part": "U1", "pad": "3"},
+                                                        "to": {"part": "J1", "pad": "2"}}]}
+
+
 @needs_kicad
-def test_widths_failed_counts_joined_narrow_outcomes(rig, monkeypatch):
+@pytest.mark.parametrize("width, clean", [(0.5, True), (0.2, False)])
+def test_placemats_measure_on_the_joining_path_decides_over_the_routers_joined_narrow(rig, monkeypatch, width, clean):
+    """Ruling S8: the router reports joined_narrow from the shortest path between the pads; placemat judges the path
+    that joins them. A join placemat measures at its width is clean whatever the router said, and one it measures
+    under is a width failure."""
     monkeypatch.setenv("FAKE_ROUTER_STATUS", "joined_narrow")
-    monkeypatch.setattr(phase_run, "judge_obligations",
-                        lambda pcb, obs, drc, neck=0.0, is_real=None, baseline_json=None: [{"joined": True, "violated": False, "under": {}}
-                                                                        for _ in obs])
-    report = rig.route({"name": "leg", "width": 0.4, "connections": [{"from": {"part": "U1", "pad": "3"},
-                                                                    "to": {"part": "J1", "pad": "2"}}]})
-    assert report.widths_failed == 1 and report.phases[0]["final_closure_clean"] == 0.0
+    _vin_track(rig.pcb, width)
+    report = rig.route(LEG_VIN)
+    (p,) = report.phases
+    assert p["connections"][0]["status"] == "joined_narrow"
+    assert (report.widths_failed, p["closure_clean"], p["final_closure_clean"]) == ((0, 1.0, 1.0) if clean
+                                                                                   else (1, 0.0, 0.0))
+
+
+@needs_kicad
+def test_a_join_under_its_width_is_a_width_line_though_no_call_of_the_phase_laid_it(rig):
+    """The final board's joins are judged on their joining path whichever call laid the copper: here the board's own
+    0.2 mm VIN track joins a connection the phase asks at 0.4 mm, and the router adds nothing."""
+    _vin_track(rig.pcb, 0.2)
+    report = rig.route(LEG_VIN)
+    (line,) = [w for w in report.widths if w.get("source") == "judged"]
+    assert (line["net"], line["stage"], line["delivered_min_mm"]) == ("VIN", "leg", 0.2)
+    assert {line["from"]["ref"], line["to"]["ref"]} == {"U1", "J1"}
+    assert "UNDER WIDTH: VIN " in report.summary()
 
 
 def test_a_refusal_carries_facts_not_sentences(tmp_path):
@@ -683,6 +711,52 @@ def test_a_current_paths_phase_asks_the_pour_for_its_pour_nets_connections(rig, 
         assert "left to their pours: VIN 1 connection" in line and "not reached" not in line
     else:
         assert "not reached by the pour: VIN " in line and "left to their pours" not in line
+
+
+@needs_kicad
+def test_a_connection_left_to_its_pour_and_joined_thinner_than_its_current_is_under(rig):
+    """The user's decision of 2026-10-13: a current_paths phase's connections on a pour net are judged at the current
+    width it would route them at. The pour covers J1 only; a 0.2 mm track joins U1's VIN pad to it, under the 1 A
+    width."""
+    from placemat.kicad.route import phase_lines
+    _vin_pour(rig.pcb, 125.6, 127)
+    _vin_track(rig.pcb, 0.2)
+    report = rig.route({"name": "current", "current_paths": True, "width": "current"}, pour_nets={"VIN"})
+    (p,) = report.phases
+    (served,) = p["pour_served"]
+    assert served["joined"] and served["under"] == {"F.Cu": 0.2}
+    (vin,) = [o for o in p["final_open"] if o["net"] == "VIN"]
+    assert vin["under"] == {"F.Cu": 0.2} and vin["widths"]["F.Cu"] > 0.2
+    assert report.widths_failed == 1
+    (line,) = phase_lines(report.phases, (), report.pour_routed_by)
+    assert "VIN J1.2-U1.3 under F.Cu 0.2" in line and "not reached" not in line
+
+
+@needs_kicad
+@pytest.mark.parametrize("current", [True, False])
+def test_a_pour_phase_joins_a_net_a_current_paths_phase_leaves_to_its_pour_at_its_current_width(rig, current):
+    """The user's decision of 2026-10-13: the joins of a pour net a current_paths phase leaves to its pour (the drops'
+    tracks, the region joins and the tasks) are laid at the current width that phase would ask, in place of the net
+    class's track width (ruling S16), on the pour phase's own layers. Without such a phase they keep the class's."""
+    from placemat.checks import COPPER_OZ
+    from placemat.kicad.phase_select import layer_widths
+    from placemat.kicad.read import read_board
+    _vin_pour(rig.pcb, 125.6, 127)
+    want = (dict(layer_widths(1.0, ["F.Cu", "B.Cu"], read_board(str(rig.pcb)), Settings().check_rise_c, COPPER_OZ))
+            if current else {"F.Cu": 0.2, "B.Cu": 0.2})
+    first = [{"name": "current", "current_paths": True, "width": "current"}] if current else []
+    report = rig.route(*first, {"name": "pours", "nets": ["VIN"]}, pour_nets={"VIN"})
+    calls = rig.calls()
+    drops = next(c for c in calls if _drops(c))
+    for flag in ("--track-width", "--min-track-width", "--max-track-width"):
+        assert float(drops[drops.index(flag) + 1]) == pytest.approx(max(want.values()))
+    (track,) = [c for c in calls if "--connections" in c and "VIN" in open(c[c.index("--connections") + 1]).read()]
+    (task,) = json.loads(open(track[track.index("--connections") + 1]).read())
+    assert task["widths"] == pytest.approx(want)
+    (joined,) = report.phases[-1]["pour_joins"]
+    assert joined["widths"] == pytest.approx(want) and joined["width_by"] == ("current" if current else "class")
+    if current:
+        assert want["F.Cu"] > 0.2
 
 
 @needs_kicad

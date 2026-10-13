@@ -53,6 +53,23 @@ section for each hand-written pattern a newer form replaces.
   room from every later phase. A pour net a phase names (`nets`, a class, `connections`) is still routed. Scripts
   need no change.
 
+- **Routing phases.** A pour net that a `current_paths` phase leaves to its pour is held to its current width. Its
+  connections in that phase are judged at the width the phase would route them at, and one joined narrower than it
+  (by a thin join or a narrow stretch of the pour) is `under`, no longer clean. The phase that joins the net to its
+  pour lays its drops, the joins of the pour's pieces and its tasks at that current width rather than the net
+  class's, unless the phase sets a width. Each `pour_joins` record gives the width it used as `widths` and
+  `width_by`. Scripts need no change; such a net's phase closure may read lower, and its pour joins are wider.
+
+- **Routing phases.** A connection the router answers `joined_narrow` is clean when placemat's own measure, along the
+  copper that joins its two pads, finds it at its width. The router measures the shortest copper between the pads,
+  so a thin tap beside a full-width trunk made a good join read narrow. `widths_failed` no longer counts such
+  outcomes, and the route no longer lists a width record for the router's narrow path. Scripts need no change.
+
+- **Routing phases.** The route's width records (`route.json` `widths`, the summary's `UNDER WIDTH`, `route.width`
+  findings) list every connection a phase asked at a width that the final board joins narrower, whichever call laid
+  the copper: a current net a later phase with no width of its own joined thin is listed now. Such a record has
+  `source` `judged` and names its two pads. Scripts need no change.
+
 - **Routing phases.** On a board with inner copper layers, `settings <board> --example` gives the example current phase
   `layers` set to the board's outer copper layers. A placemat.toml written by an earlier `--example` keeps its current
   phase on every layer: add `layers = ["F.Cu", "B.Cu"]` (the board's outer layers) to that phase to match.

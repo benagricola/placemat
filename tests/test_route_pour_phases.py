@@ -21,7 +21,8 @@ def _ctx(tmp_path, work):
     """What join_pour reads of a route's phase context (kicad/phase_run.PhaseContext)."""
     return SimpleNamespace(cfg=Settings(), work=work, rpy="py", script="route.py", router_dir=str(tmp_path),
                            iterations=None, probe=None, quick=True, clearances_file=None, env={}, timeout=60,
-                           layers=ROUTE_LAYERS, geometry=SimpleNamespace(netclasses={}, min_track_width=0.2))
+                           layers=ROUTE_LAYERS, geometry=SimpleNamespace(netclasses={}, min_track_width=0.2),
+                           pour_currents={})
 
 
 COMMON = dict(iterations=None, probe=None, quick=True, clearances=None, neckdown=True, extra_args=())

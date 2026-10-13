@@ -225,10 +225,11 @@ def stated_currents(geometry) -> dict:
 
 def brief(r: dict) -> str:
     """One record as the route's summary line has it."""
-    if r.get("source") == "router":
+    if r.get("source") in ("router", "judged"):
         need = ", ".join("%s %g" % (row["layer"], round(row["need_mm"], 2)) for row in r["layers"])
-        return "%s %s.%s-%s.%s under %s (router min %g)" % (r["net"], r["from"]["ref"], r["from"]["pad"], r["to"]["ref"],
-                                                           r["to"]["pad"], need, r["delivered_min_mm"])
+        return "%s %s.%s-%s.%s under %s (%smin %g)" % (r["net"], r["from"]["ref"], r["from"]["pad"], r["to"]["ref"],
+                                                      r["to"]["pad"], need,
+                                                      "router " if r["source"] == "router" else "", r["delivered_min_mm"])
 
     length = "" if r["length_mm"] is None else " of %.1f" % r["length_mm"]
     if r.get("layers"):

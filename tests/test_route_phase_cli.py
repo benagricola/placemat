@@ -114,6 +114,18 @@ def test_a_phase_names_the_connections_it_left_to_their_pours_and_the_ones_the_p
                     "GND 2 connections, VB 1 connection; not reached by the pour: GND J1.2-U2.1")
 
 
+def test_a_connection_the_pour_joins_under_its_current_width_is_named_under_not_unreached():
+    gnd = {"net": "GND", "from": {"ref": "J1", "pad": "2"}, "to": {"ref": "U1", "pad": "3"}}
+    thin = dict(gnd, to={"ref": "U2", "pad": "1"})
+    (line,) = phase_lines([{"name": "current", "selector": "current_paths", "asked": 2, "joined": 1,
+                            "closure_clean": 0.5, "seconds": 1.0,
+                            "open": [dict(thin, widths={"F.Cu": 1.0}, pour_served=True, under={"F.Cu": 0.2},
+                                          outcome=None, evidence=None)],
+                            "pour_served": [dict(gnd, joined=True), dict(thin, joined=True, under={"F.Cu": 0.2})]}])
+    assert line == ("phase current (current_paths): 1 of 2 joined clean (50.0%), 1 s; open: GND J1.2-U2.1 under "
+                    "F.Cu 0.2; left to their pours: GND 1 connection")
+
+
 def test_a_pour_net_a_later_phase_routes_is_said_so():
     gnd = {"net": "GND", "from": {"ref": "J1", "pad": "2"}, "to": {"ref": "U1", "pad": "3"}, "joined": True}
     phases = [{"name": "current", "selector": "current_paths", "asked": 1, "joined": 1, "closure_clean": 1.0,
@@ -130,11 +142,15 @@ def test_a_phase_record_carries_each_connection_left_to_its_pour_and_whether_it_
          "pour_served": True}
     b = dict(a, to={"ref": "U2", "pad": "1"})
     phase = type("P", (), {"record": lambda self: {"name": "current"}})()
-    judged = [{"joined": True, "violated": False, "under": {}}, {"joined": False, "violated": False, "under": {}}]
-    rec = phase_record(phase, 0, None, [a, b], judged, 1.0, 0)
+    c = dict(a, to={"ref": "U3", "pad": "1"})
+    judged = [{"joined": True, "violated": False, "under": {}}, {"joined": False, "violated": False, "under": {}},
+              {"joined": True, "violated": False, "under": {"F.Cu": 0.2}}]
+    rec = phase_record(phase, 0, None, [a, b, c], judged, 1.0, 0)
     assert rec["pour_served"] == [{"net": "GND", "from": a["from"], "to": a["to"], "joined": True},
-                                  {"net": "GND", "from": b["from"], "to": b["to"], "joined": False}]
-    assert (rec["asked"], rec["joined"]) == (2, 1) and [o["to"] for o in rec["open"]] == [b["to"]]
+                                  {"net": "GND", "from": b["from"], "to": b["to"], "joined": False},
+                                  {"net": "GND", "from": c["from"], "to": c["to"], "joined": True,
+                                   "under": {"F.Cu": 0.2}}]
+    assert (rec["asked"], rec["joined"]) == (3, 1) and [o["to"] for o in rec["open"]] == [b["to"], c["to"]]
     assert phase_record(phase, 0, None, [], [], 1.0, 0)["pour_served"] == []
 
 
