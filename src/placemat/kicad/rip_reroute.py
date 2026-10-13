@@ -396,6 +396,8 @@ class AfterCall:
     widths: list             # route.width rows of reroutes owned by earlier phases
     stale: list = field(default_factory=list)   # (n, victims) of each kept attempt: the summaries before the
                                                 # attempt's own (the call's and the n first here) describe gone copper
+    pour_join: dict | None = None   # after a pour call, the kept attempt's join_pour record, with "rip": {"call",
+                                    # "attempt"}: it replaces the call's own in the phase's pour_joins
 
 
 def _pads(o) -> bool:
@@ -467,19 +469,20 @@ def plan_moves(victims, hist, index, before) -> tuple:
     return list(moves) + out, None
 
 
-def reroute_blocked(ctx_i, call, unit, conns, ripped, settings, stem, phase) -> TaskRun:
+def reroute_blocked(ctx_i, call, unit, conns, ripped, settings, stem, phase) -> tuple:
     """Step 2 of an attempt: the blocked unit routed on the ripped board at phase i's layers and router keywords
     (`settings`, its PhaseSettings; `ctx_i` carries its clearances). After a pour call, join_pour again for the unit's
-    net (its TaskRun with `board` the join's output); after any other, its connections as --connections tasks."""
+    net: (its record, its TaskRun with `board` the join's output); after any other, its connections as --connections
+    tasks: (None, TaskRun)."""
     if call.kind == "pour":
         out = ctx_i.work / (stem + "_b.kicad_pcb")
-        _, run = pour_join.join_pour(ctx_i, ripped, out, unit.net, own_width(phase, call), settings.layers,
-                                     stem + "_b", phase.name, settings.common)
+        joined, run = pour_join.join_pour(ctx_i, ripped, out, unit.net, own_width(phase, call), settings.layers,
+                                          stem + "_b", phase.name, settings.common)
         run.board = out
-        return run
+        return joined, run
     layers = list(settings.layers)
-    return route_tasks(ctx_i, [task_of(c, layers) for c in conns], ripped, stem + "_b", layers, settings.common,
-                       phase.name)
+    return None, route_tasks(ctx_i, [task_of(c, layers) for c in conns], ripped, stem + "_b", layers,
+                             settings.common, phase.name)
 
 
 def _in_settings(ctx, st):
@@ -500,10 +503,10 @@ def attempt(ctx, index, phase, sel, k, a, call, unit, conns, victims, not_ripped
     ripped = fresh_output(ctx.work / (stem + "_ripped.kicad_pcb"))
     removed = remove_copper(before.board, ripped, set(victims), hist.script_keys)
     blocked_records, rerouted, calls_i, summaries, widths, said, off = [], [], [], [], [], [], 0
-    board, router, after, v = ripped, None, None, None
+    board, router, after, v, joined = ripped, None, None, None, None
     try:
         st_i = phase_settings(ctx, phase, sel, stem + "_b")
-        run = reroute_blocked(_in_settings(ctx, st_i), call, unit, conns, ripped, st_i, stem, phase)
+        joined, run = reroute_blocked(_in_settings(ctx, st_i), call, unit, conns, ripped, st_i, stem, phase)
         blocked_records = list(run.records)
         summaries += [(phase.name, s) for s in run.summaries]
         calls_i += [(Call("tasks", tasks=attempted), s, p) for attempted, s, p in run.calls]
@@ -550,7 +553,8 @@ def attempt(ctx, index, phase, sel, k, a, call, unit, conns, victims, not_ripped
               "reason": v.reason, "worse": list(v.worse), "open_rose": dict(v.open_rose), "drc_new": v.drc_new,
               "off_layer": v.off_layer, "router": router, "widths": said, "seconds": round(time.time() - t0, 1)}
     parts = AfterCall(Path(board), blocked_records + [r for r in rerouted if r["index"] == index], calls_i,
-                      set(victims), [(n, Path(x)) for n, x in summaries], widths)
+                      set(victims), [(n, Path(x)) for n, x in summaries], widths,
+                      pour_join=dict(joined, rip={"call": k, "attempt": a}) if joined is not None else None)
     return record, after, parts
 
 
@@ -601,6 +605,7 @@ def after_call(ctx, index, phase, sel, k, call, board_in, board_out, records, su
             out.widths = [w for w in out.widths if w.get("net") not in parts.trim] + parts.widths
             out.stale.append((len(out.summaries), set(parts.trim)))
             out.summaries += parts.summaries
+            out.pour_join = parts.pour_join or out.pour_join
         else:
             rip.tried.add(frozenset(victims))
             if rec["reason"] in ROUTER_REASONS:

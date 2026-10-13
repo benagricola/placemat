@@ -284,10 +284,61 @@ def test_a_pour_calls_blocked_net_is_joined_to_its_pour_again(monkeypatch, tmp_p
     monkeypatch.setattr(pj, "join_pour", join_pour)
     monkeypatch.setattr(rr, "route_tasks", no_tasks)
     call = types.SimpleNamespace(kind="pour", width=0.5, nets=("GND",))
-    rr.reroute_blocked(types.SimpleNamespace(work=tmp_path), call, rr.Blocked("GND", ()), [],
-                       tmp_path / "r.kicad_pcb", types.SimpleNamespace(layers=("F.Cu",), common={}), "p2_0_rip0",
-                       types.SimpleNamespace(name="pours", width=0.5))
+    joined, run = rr.reroute_blocked(types.SimpleNamespace(work=tmp_path), call, rr.Blocked("GND", ()), [],
+                                     tmp_path / "r.kicad_pcb", types.SimpleNamespace(layers=("F.Cu",), common={}),
+                                     "p2_0_rip0", types.SimpleNamespace(name="pours", width=0.5))
     assert seen == [("GND", "p2_0_rip0_b", 0.5, ("F.Cu",))]
+    assert joined == {"net": "GND"} and run.board == tmp_path / "p2_0_rip0_b.kicad_pcb"
+
+
+def test_a_kept_attempt_after_a_pour_call_is_the_join_its_pour_joins_entry_describes(monkeypatch, tmp_path):
+    """Final review finding 6: the phase's pour_joins entry for the net is the kept attempt's join, not the failing
+    call's, so the phase line and the S22 re-check read the groups the attempt left."""
+    import types
+    from pathlib import Path
+    import placemat.kicad.pour_join as pj
+    from placemat.kicad import phase_run
+    from placemat.kicad.phase_select import Selection
+    failed = {"net": "GND", "from": {"ref": "U1", "pad": "1"}, "to": {"ref": "J1", "pad": "1"},
+              "widths": {"F.Cu": 0.5}, "status": "failed", "evidence": _ev(_pre("V"))}
+
+    def join_pour(ctx, board, out, net, width, layers, stem, phase, common):
+        Path(out).write_text("board")
+        if "_rip" in stem:                         # the attempt's join: every group joined
+            return ({"net": net, "groups_left": 1, "groups_after": 1, "tasks": [dict(failed, status="routed")]},
+                    phase_run.TaskRun(Path(out), [dict(failed, status="routed")]))
+        return ({"net": net, "groups_left": 1, "groups_after": 2, "tasks": [failed]},
+                phase_run.TaskRun(Path(out), [failed]))
+    clean = {"joined": True, "violated": False, "under": {}}
+    monkeypatch.setattr(pj, "join_pour", join_pour)
+    monkeypatch.setattr(pj, "pad_groups", lambda board, net: [object()])
+    monkeypatch.setattr(phase_run, "lock_copper", lambda pcb: None)
+    monkeypatch.setattr(phase_run, "phase_widths", lambda *a: [])
+    monkeypatch.setattr(phase_run, "task_widths", lambda *a: [])
+    monkeypatch.setattr(rr, "router_nets", lambda board, keys: {"V": 1})
+    monkeypatch.setattr(rr, "laid_nets", lambda a, b: set())
+    monkeypatch.setattr(rr, "standing", lambda ctx, asked, phases, upto, board, stem:
+                        rr.Standing(Path(board), Path(board), Path(board), {}, [], [[]], None))
+    monkeypatch.setattr(rr, "joined_pairs", lambda board, pairs: [False] * len(pairs))
+    monkeypatch.setattr(rr, "plan_moves", lambda victims, hist, index, before: ([], None))
+    monkeypatch.setattr(rr, "remove_copper", lambda src, dst, victims, keys: {"tracks": 1})
+    monkeypatch.setattr(rr, "off_layer", lambda given, routed, layers: 0)
+    monkeypatch.setattr(rr, "judge_obligations", lambda *a: [clean])
+    phase = types.SimpleNamespace(name="pours", router_args=(), neckdown=True, width=0.5)
+    sel = Selection("pours", "nets", pour_nets=("GND",), layers=("F.Cu",))
+    hist = rr.History((phase,), (sel,), ([],), {}, frozenset(), ())
+    ctx = phase_run.PhaseContext(tmp_path, "route.py", str(tmp_path), tmp_path, ["F.Cu"], None, None, False,
+                                 60, {}, Settings(), types.SimpleNamespace(default_clearance=0.15), {}, 0.15, None,
+                                 set(), {"GND"}, None, history=hist)
+    board = tmp_path / "in.kicad_pcb"
+    board.write_text("board")
+    (tmp_path / "drc_before.json").write_text("{}")
+    out = phase_run.route_calls(ctx, 0, phase, sel, board)
+    (att,) = out.routed["rip"]["attempts"]
+    assert att["kept"]
+    (entry,) = out.routed["pour_joins"]
+    assert (entry["groups_after"], entry["tasks"][0]["status"]) == (1, "routed")
+    assert entry["rip"] == {"call": 0, "attempt": 0} and entry["groups_final"] == 1 and "rejoin" not in entry
 
 
 def test_a_pair_call_never_starts_an_attempt(tmp_path, monkeypatch):

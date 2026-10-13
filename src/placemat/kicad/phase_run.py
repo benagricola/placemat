@@ -1210,6 +1210,10 @@ def route_calls(ctx, index, phase, sel, board) -> PhaseOutcome:
             if got.trim:
                 trims.append((len(out.calls), set(got.trim)))     # the calls made so far laid the moved copper
             nxt = got.board
+            if got.pour_join is not None:
+                # the kept attempt's join stands: the entry (shared with pour_calls, for the S22 re-check) says it
+                joined.clear()
+                joined.update(got.pour_join)
             connections = superseded(connections, got.records)
             out.calls += got.calls
             stale += [(len(out.summaries) + n, sorted(v)) for n, v in got.stale]
