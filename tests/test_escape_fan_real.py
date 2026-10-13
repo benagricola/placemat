@@ -104,18 +104,19 @@ def test_the_lanes_stand_the_hand_layouts_distance_over_the_bypass(run):
 
 
 def test_the_searched_inductor_lands_where_its_link_is_within_its_limit(run):
-    """The search missed a spot a fine step off its lattice that was legal and within the link's limit (1.50 mm).
-
-    Since Beside stands against the shapes of its item's envelope, the bypass beside the chip stands 0.32 mm nearer (a
-    legal, tighter placement), and the inductor, searched after it, lands 0.2 mm further out: its link is 1.61 mm against
-    the 1.50 mm soft limit. That is the correct result of the tighter placement, so the test asserts the link is reported
-    with its measured length and where the inductor stands, not the old position."""
+    """The written geometry, not a former optimizer's pose, establishes the link's length."""
     result, _, pcb = run
+    written = pcbnew.LoadBoard(str(pcb))
+    def point(ref):
+        fp = written.FindFootprintByReference(ref)
+        pin = next(p for p in fp.Pads() if p.GetNumber() == "1")
+        at = pin.GetPosition()
+        return pcbnew.ToMM(at.x), pcbnew.ToMM(at.y)
+    length = math.dist(point("L1"), point("U1"))
     said = _findings(result)
     over = [t for t in said if t.startswith("link L1.1 to U1.1")]
-    assert len(over) == 1 and "1.61 mm, over its 1.50 mm limit" in over[0], said
-    at = pcbnew.LoadBoard(str(pcb)).FindFootprintByReference("L1").GetPosition()
-    assert (pcbnew.ToMM(at.x), pcbnew.ToMM(at.y)) == pytest.approx((-2.80, 5.33), abs=0.05)
+    assert length <= 1.50 + 1e-6, (length, said)
+    assert not over, said
 
 
 def test_no_handoff_pin_of_the_module_is_reported_walled(run):
