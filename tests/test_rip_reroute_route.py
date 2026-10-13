@@ -233,3 +233,40 @@ def test_a_moved_connection_still_under_width_keeps_one_judged_line(toy, monkeyp
     rows = [w for w in report.widths if w["net"] == "A"]
     assert [(w["source"], w["stage"], w["from"]["ref"], w["to"]["ref"]) for w in rows] == [("judged", "a", "P2", "P3")]
     assert report.widths_failed == len(rows) == 1
+
+
+@needs_kicad
+def test_a_net_moved_twice_in_one_call_keeps_no_row_of_the_first_reroute(toy, monkeypatch, tmp_path):
+    from placemat.kicad import net_clearance
+    monkeypatch.setattr(net_clearance, "class_clearances", lambda *a, **kw: {"A": 0.3})
+    monkeypatch.setenv("TOY_STUB", "A")
+    monkeypatch.setenv("TOY_STUB_STEM", "p0_1_rip0_")           # the first attempt's A has a stub under 0.4 mm
+    report = toy.route({"name": "signals", "neckdown": False, "width": 0.4}, pcb=rip_board(tmp_path, c_net=True))
+    first, second = report.phases[0]["rip"]["attempts"]
+    assert (first["victims"], first["kept"], second["victims"], second["kept"]) == (["A"], True, ["A"], True)
+    # the second attempt took the first one's A, stub and all, off and laid A without one
+    assert [w for w in report.widths if w["net"] == "A"] == [] and report.widths_failed == 0
+
+
+@needs_kicad
+def test_a_moved_nets_summary_row_stands_when_its_only_board_row_was_of_gone_copper(toy, monkeypatch):
+    monkeypatch.setenv("TOY_NARROW", "A")                  # phase a's own A is narrow: a board row, then gone
+    monkeypatch.setenv("TOY_SUMMARY_NARROW", "A")          # every call that lays A says it shipped A narrow
+    a = {"name": "a", "connections": [{"from": {"part": "P1", "pad": "1"}, "to": {"part": "P2", "pad": "1"}}]}
+    report = toy.route(a, B)
+    assert report.phases[1]["rip"]["attempts"][0]["kept"]
+    # the reroute lays A at its width; only its summary says otherwise, and that row stands under phase a
+    assert [(w["net"], w["stage"], w.get("source")) for w in report.widths] == [("A", "a", None)]
+
+
+@needs_kicad
+def test_an_earlier_phases_net_moved_twice_in_one_call_keeps_no_row_of_the_first_reroute(toy, monkeypatch, tmp_path):
+    monkeypatch.setenv("TOY_STUB", "A")
+    monkeypatch.setenv("TOY_STUB_STEM", "p1_0_rip0_v0")         # phase b's first attempt reroutes A with a stub
+    a = {"name": "a", "neckdown": False, "width": 0.4,
+         "connections": [{"from": {"part": "P1", "pad": "1"}, "to": {"part": "P2", "pad": "1"}}]}
+    report = toy.route(a, {"name": "b", "nets": ["B", "C"]}, pcb=rip_board(tmp_path, c_net=True))
+    first, second = report.phases[1]["rip"]["attempts"]
+    assert (first["victims"], first["kept"], second["victims"], second["kept"]) == (["A"], True, ["A"], True)
+    assert first["widths"] and first["widths"][0]["stage"] == "a"     # the stub's row, of copper the second took off
+    assert [w for w in report.widths if w["net"] == "A"] == []

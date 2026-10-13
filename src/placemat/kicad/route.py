@@ -1457,7 +1457,7 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     from .. import __version__
     settings_part = {k: v for k, v in sorted(json.loads(cfg.json()).items())
                      if k.startswith("route_") and k not in ("route_router_dir", "route_phase")}
-    base = digest("phase-judgement-v10", file_digest(pcb), file_digest(pcb.with_suffix(".kicad_pro")), file_digest(pcb.with_suffix(".kicad_dru")),
+    base = digest("phase-judgement-v11", file_digest(pcb), file_digest(pcb.with_suffix(".kicad_pro")), file_digest(pcb.with_suffix(".kicad_dru")),
                   capture.digest if capture else "", sorted(excluded), sorted(pours), layers, quick, iterations, probe,
                   router_version(router_dir_path), __version__, settings_part, cfg.check_rise_c)     # rise_c: current widths
     state.set_order(["only:" + run_list[0].name] if only else [p.name for p in run_list])
@@ -1491,7 +1491,7 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
             rev.resumed(phase.name, saved["record"]["seconds"])
             board, open_now = routed.board, dict(saved["open_nets"])
             records.append(dict(saved["record"], reused=True))
-            hist.finish(i, board, saved["record"], reused=True)
+            hist.boards.append(board)
             routeds.append(routed)
             spent += saved["record"]["seconds"]
             prev = key
@@ -1512,7 +1512,7 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
         state.record(label, key, {"routed": outcome.routed, "record": record, "open_nets": open_now})
         board = routed.board
         records.append(record)
-        hist.finish(i, board, record, reused=False)
+        hist.boards.append(board)
         routeds.append(routed)
         spent += record["seconds"]
         prev = key

@@ -113,6 +113,13 @@ TOY = textwrap.dedent('''
             ok, length, met = lay(t["net"], ends[(t["from"]["ref"], t["from"]["pad"])],
                                   ends[(t["to"]["ref"], t["to"]["pad"])], w)
             status = ("joined_narrow" if t["net"] == narrow else "routed") if ok else "failed"
+            if ok and t["net"] == os.environ.get("TOY_STUB") and os.environ.get("TOY_STUB_STEM", "") in opt("--connections"):
+                # a 0.3 mm stub off the start pad, on no joining path
+                st = pcbnew.PCB_TRACK(board)
+                st.SetStart(pcbnew.VECTOR2I(pcbnew.FromMM(s_[0]), pcbnew.FromMM(s_[1])))
+                st.SetEnd(pcbnew.VECTOR2I(pcbnew.FromMM(s_[0] - 2), pcbnew.FromMM(s_[1])))
+                st.SetWidth(pcbnew.FromMM(0.3)); st.SetLayer(layer); st.SetNet(board.FindNet(t["net"]))
+                board.Add(st)
             laid |= {t["net"]} if ok else set()
             recs.append(dict(t, status=status, reason=None, joined=ok, length_mm=length,
                              min_width_mm={l: w for l in t["widths"]} if ok else {}, layers=layers, path=None,

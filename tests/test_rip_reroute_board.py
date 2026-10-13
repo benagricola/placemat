@@ -168,8 +168,7 @@ def test_a_standing_reads_its_boards_drc_and_judges_each_phase_against_its_own_i
     fb = {"net": "FB", "from": {"ref": "U1", "pad": "2"}, "to": {"ref": "J1", "pad": "1"}, "widths": {}}
     phase = types.SimpleNamespace(neckdown=False, router_args=())
     ctx = types.SimpleNamespace(work=work, cfg=None)
-    conns = [[dict(vin, status="routed")], [dict(vin, status="joined_narrow")]]
-    st = rr.standing(ctx, [[vin], [vin, fb]], [phase, phase], 1, board, "t", conns)
+    st = rr.standing(ctx, [[vin], [vin, fb]], [phase, phase], 1, board, "t")
     assert st.board == board and st.copy == work / "t_drc.kicad_pcb" and st.drc_json == work / "t_drc.json"
     assert st.open_nets == {"FB": 1}
     assert [(e["type"], e["nets"]) for e in st.errors] == [("clearance", ("SW", "VIN"))]
@@ -177,4 +176,3 @@ def test_a_standing_reads_its_boards_drc_and_judges_each_phase_against_its_own_i
     assert {"via_diameter", "drill_out_of_range"} <= kinds and not any(st.is_real(k) for k in kinds - {"clearance"})
     # phase 0's input (drc_before.json) lacks the short, phase 1's (p0_drc.json) has it
     assert [[(j["joined"], j["violated"]) for j in js] for js in st.judged] == [[(True, True)], [(True, False), (False, False)]]
-    assert st.outcomes == [["routed"], ["joined_narrow", None]]

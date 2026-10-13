@@ -153,10 +153,9 @@ def test_an_owners_calls_carry_its_widths_layers_and_buses():
         ("bus_tasks", ("S", "T"), ["S", "T"]), ("tasks", (), ["V"]), ("tasks", (), ["W"])]
 
 
-def _st(judged, outcomes=None, open_nets=None, errors=()):
+def _st(judged, open_nets=None, errors=()):
     from pathlib import Path
-    return rr.Standing(Path("b"), Path("c"), Path("d"), dict(open_nets or {}), list(errors), judged,
-                       outcomes or [[None] * len(j) for j in judged], None)
+    return rr.Standing(Path("b"), Path("c"), Path("d"), dict(open_nets or {}), list(errors), judged, None)
 
 
 J_CLEAN = {"joined": True, "violated": False, "under": {}}
@@ -220,7 +219,7 @@ def test_each_later_check_is_the_reason_when_it_is_the_first_to_fail():
     assert (off.kept, off.reason, off.drc_new, off.off_layer) == (False, "off_layer", 0, 1)
 
 
-def test_the_final_judgement_reads_an_earlier_phases_moved_records():
+def test_every_earlier_phase_of_a_moved_net_is_named():
     moved = {"net": "V", "from": {"ref": "U1", "pad": "1"}, "to": {"ref": "J1", "pad": "1"}, "status": "routed",
              "phase": "legs", "index": 0, "asked": True}
     phases = [{"name": "legs", "rip": {"attempts": [], "skipped": []}},
@@ -229,7 +228,6 @@ def test_the_final_judgement_reads_an_earlier_phases_moved_records():
                                                        {"kept": False, "victims": ["W"],
                                                         "rerouted": [dict(moved, status="failed")]}],
                                           "skipped": []}}]
-    assert rr.moved_records(phases, 0) == [moved] and rr.moved_records(phases, 2) == []
     # every earlier phase's rows of a moved net go, whichever phase owns the moved connection (finding F7)
     assert rr.moved_nets(phases) == {(0, "V"), (1, "V")}
 

@@ -1206,7 +1206,7 @@ def route_calls(ctx, index, phase, sel, board) -> PhaseOutcome:
             from . import rip_reroute
             recs = run.records if call.kind in rip_reroute.TASK_CALLS else []
             doc = _summary_doc(summary) if call.kind in rip_reroute.NET_CALLS else {}
-            got = rip_reroute.after_call(ctx, index, phase, sel, k, call, board, nxt, recs, doc, connections, rip)
+            got = rip_reroute.after_call(ctx, index, phase, sel, k, call, board, nxt, recs, doc, rip)
             if got.trim:
                 trims.append((len(out.calls), set(got.trim)))     # the calls made so far laid the moved copper
             nxt = got.board

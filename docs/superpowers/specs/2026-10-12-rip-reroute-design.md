@@ -148,10 +148,11 @@ and the next attempt, start from C.
 Placemat judges two boards with the same rules: B, the failing call's output (judged once per call, then each kept
 candidate takes its place), and C. Each judgement is a DRC of a copy with guards off and zones filled (as
 `judge_phase` does), `judge_obligations` for every obligation of phases 0..i with each phase's own input DRC as the
-baseline (`phase_input_drc`, ruling S15), each outcome read from the phase's records as superseded by earlier kept
-attempts, and the DRC's open items per net.
+baseline (`phase_input_drc`, ruling S15), and the DRC's open items per net.
 
-Each obligation has a rank: 2 clean (`is_clean`), 1 joined but not clean, 0 open. C is kept when all of these hold,
+Each obligation has a rank from placemat's judgement alone (S8): 2 clean (`is_clean`: joined, not violated, not
+under its width on its joining path), 1 joined but not clean, 0 open. The router's outcome (`joined_narrow`) does
+not enter it. C is kept when all of these hold,
 checked in this order; the first that fails is the attempt's `reason`:
 
 | Reason | Check |
@@ -227,15 +228,17 @@ A kept attempt also changes:
 - Phase i's `connections`: the blocked unit's records and phase i's own rerouted records supersede the earlier ones
   (`phase_run.superseded`).
 - An earlier phase k's records are not rewritten (its kept result stays as it was routed). The final re-judgement
-  (`recheck_final_phases`) reads phase k's outcomes from its records superseded by every kept attempt's `rerouted`
-  records with `index == k`, so a stale outcome (a `joined_narrow` that was moved) is not carried over.
+  (`recheck_final_phases`) judges every obligation on the final board by placemat's measure (S8), so a moved
+  connection's standing comes from the board, not from a record.
 - Width rows (`RouteReport.widths`, the `route.width` findings) describe the final board: every row of a victim net
-  from the phases before the attempt's phase, and from that phase's calls before the attempt, is dropped (all of
-  the net's router copper was removed, whichever phase owns its connections), and the reroute calls' rows are added
-  under the owner phase's name.
+  from the phases before the attempt's phase, from that phase's calls before the attempt and from the call's
+  earlier kept attempts is dropped (all of the net's router copper was removed, whichever phase owns its
+  connections), router summary rows included, and the reroute calls' rows are added under the owner phase's name.
+  A connection the final board joins under its width has one judged line (`judged_widths`) under the phase that
+  asked it; this filtering never drops a judged line.
 
 `RouteReport` gains no top-level field: everything is in `phases[i]["rip"]`. The kept-result digest moves to
-`phase-judgement-v10`, and the two settings enter it through the `route_*` settings the digest already reads.
+`phase-judgement-v11`, and the two settings enter it through the `route_*` settings the digest already reads.
 
 ## Console
 
@@ -297,8 +300,8 @@ The studio's route view and the route record's replay are unchanged in this step
   restored attempt, with the phase's board equal to the failing call's output; script copper never ripped; a
   `current_paths` owner rerouted at its widths, layers and neck-down; a join no phase asks moved at the settings of
   the phase that made it; the attempt limit, a restored victim set not tried again, a router failure ending the
-  call's attempts; `--only`; the final re-judgement reading the reroute record (a `joined_narrow` replaced) and the
-  moved net's width rows gone.
+  call's attempts; `--only`; the final re-judgement of a moved connection on the final board, the moved net's
+  width rows gone, and a moved connection still under width keeping one judged line.
 - Real boards: pic_programmer (b) and usb-c-power-adapter (b) at a fixed placement against results.json, under a
   private realboard lock.
 
@@ -310,8 +313,8 @@ The studio's route view and the route record's replay are unchanged in this step
   at the class width): each is rerouted at its own owner's settings.
 - An obligation of a later call of phase i that is open on B: open on C is not `obligation_worse`.
 - A restored attempt: phase i's next call reads B's file, unchanged (compare digests).
-- The final re-judgement of an earlier phase after a kept attempt: it reads the reroute record, not the original
-  (`joined_narrow` before, `routed` after).
+- The final re-judgement of an earlier phase after a kept attempt: it judges the moved connection on the final board
+  (S8); a `joined_narrow` record of the original routing does not decide it.
 - A reroute that splits a pour net: restored with `net_open_rose`.
 - A named net that has only script copper: not ripped, `no_router_copper`.
 - usb-c-power-adapter: its blockers may be named only in the router's prose sentence about protected nets within 3 mm
