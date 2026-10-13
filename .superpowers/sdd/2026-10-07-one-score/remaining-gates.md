@@ -1,5 +1,11 @@
 # Remaining Step 2 gates
 
+Historical evidence from 2026-10-08, not the current release gate. Later user
+decisions D25, D28 and D30 supersede the pending choices and recommendations
+below. Preserve the source-scoped receipts; use
+[the 0.100 qualification record](../../../docs/superpowers/0.100-qualification.md)
+for current integration status.
+
 Reviewed ledger, 2026-10-08. Current combined review is `c780`/genuine dev254 after reviewed Step 1 staging, with no final gate on that source. Historical measured results retain their original source identities. No physical jobs are queued or authorized by this file.
 
 | Gate or decision | Command / action | Proposed finite bound | Dependency and required result |

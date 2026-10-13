@@ -43,6 +43,8 @@ Remaining work:
 After finishing the active task, rebase onto the released steps 1 and 2.
 Reconcile scorer/settings retirements, cleanup removal, planned-join layer
 metadata, final routed validity/quality, and current-width/rip obligations.
+Preserve focused exploration's compatible plain-standing reuse and its
+declaration/version authority checks when wiring refine into replay.
 Retain the existing retry.attempt implementation for step 4 reconstruction;
 do not build a second retry engine. Restore released migration sections
 exactly from their tags.

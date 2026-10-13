@@ -1,5 +1,11 @@
 # Step 2 gate: measured status, 2026-10-08
 
+Historical evidence from 2026-10-08, not the current release gate. Later user
+decisions D25, D28 and D30 supersede the pending choices and recommendations
+below. Preserve the source-scoped receipts; use
+[the 0.100 qualification record](../../../docs/superpowers/0.100-qualification.md)
+for current integration status.
+
 This is a review draft for Task 15 step 7. Step 2 is not complete. Search remains clique; area price 0.25 is provisional. D3 and D4 await the user's decisions. No API removal, default switch or merge follows from this record.
 
 ## Provenance and interpretation
