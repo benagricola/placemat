@@ -1360,12 +1360,14 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
                                 route_layers=layers, rise_c=cfg.check_rise_c, copper_oz=COPPER_OZ)
     chosen_pours = set().union(*(set(picked[p.name].pour_nets) for p in run_list))
     # the user's decision of 2026-10-13: a pour net a current_paths phase leaves to its pour (S13) is joined to it at
-    # the current that phase asks of it, the most of its carrier pairs' (pour_join.join_widths)
+    # the current that phase asks of it: per pad, the most of the connections it ends (pour_join.join_widths)
     pour_currents = {}
     for p in phases:
         if p.selector == "current_paths":
             for t in picked[p.name].pour_served:
-                pour_currents[t.net] = max(pour_currents.get(t.net, 0.0), t.amps)
+                on = pour_currents.setdefault(t.net, {})
+                for end in (tuple(t.start), tuple(t.end)):
+                    on[end] = max(on.get(end, 0.0), t.amps)
     lacking = pour_flags_lacking(caps) if chosen_pours else []
     if lacking:                     # a phase names a pour net: its calls need the router's plane repair flags
         raise RouteRefused("router_old", router=str(router_dir_path), missing=lacking)
@@ -1433,7 +1435,8 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     open_now = dict(before.open_nets)
     for i, phase in enumerate(run_list):
         phase_identity = (phase.key(), width_policy.phase_key(width_receipt, phase.name))
-        currents = {n: pour_currents[n] for n in sorted(picked[phase.name].pour_nets) if n in pour_currents}
+        currents = {n: sorted([list(e), a] for e, a in pour_currents[n].items())
+                    for n in sorted(picked[phase.name].pour_nets) if n in pour_currents}
         if currents:                    # its pour joins are laid at these currents' widths (pour_join.join_widths)
             phase_identity += (currents,)
         key = digest(base, "only", *phase_identity) if only else digest(prev, *phase_identity)
@@ -1515,8 +1518,9 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
             report.pour_routed_by.setdefault(n, p.name)
     recheck_final_phases(report, asked, run_list, width_receipt, pcb_out,
                          work / "drc_after.json", after, cfg)
-    from .phase_run import judged_widths
-    report.widths += judged_widths(run_list, asked, report.final_judged)
+    from .phase_run import judged_widths, one_line_per_connection
+    judged = judged_widths(run_list, asked, report.final_judged)
+    report.widths = one_line_per_connection(report.widths, judged) + judged
     report.drc_new = new_error_count(work / "drc_before.json", work / "drc_after.json", after.is_real)
     report.vias, report.track_mm, report.segments = routed_copper(pcb, pcb_out)
     if only:

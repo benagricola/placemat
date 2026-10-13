@@ -57,6 +57,7 @@ def test_every_final_join_under_its_width_gets_a_width_line_whichever_call_laid_
               [{"joined": True, "violated": False, "under": {}}]]
     (r,) = phase_run.judged_widths([legs, signals], [[a, b], [c]], judged)
     assert (r["net"], r["stage"], r["from"], r["to"], r["source"]) == ("VB", "legs", a["from"], a["to"], "judged")
+    assert r["stages"] == ["legs"]
     assert r["layers"] == [{"layer": "F.Cu", "need_mm": 2.4651, "min_mm": 0.127, "by": "current"},
                            {"layer": "In2.Cu", "need_mm": 6.4127, "min_mm": 0.127, "by": "current"}]
     assert r["delivered_min_mm"] == 0.127 and r["requested_mm"] == 6.4127 and r["declared"]
@@ -69,6 +70,29 @@ def test_every_final_join_under_its_width_gets_a_width_line_whichever_call_laid_
     (s,) = phase_run.judged_widths([signals, signals], [[dict(a, widths={"F.Cu": 0.2})], []],
                                    [[{"joined": True, "violated": False, "under": {"F.Cu": 0.127}}], []])
     assert s["layers"][0]["by"] == "asked"
+
+
+def test_one_width_line_per_connection():
+    """A connection two phases ask under its width has one judged line, the larger need's, naming both phases; the
+    per-call records of the phases that asked it (task_widths' of the same pads, phase_widths' of a call that names
+    it or of a whole-net call on its net) give way to it; records of other connections, nets or phases stay."""
+    from placemat.kicad import phase_run
+    from placemat.route_phase import parse_phases
+    legs, cur = parse_phases(({"name": "legs", "width": 1.0, "connections": [
+        {"from": {"part": "J1", "pad": "1"}, "to": {"part": "Q1", "pad": "1"}}]},
+                              {"name": "cur", "current_paths": True}))
+    a = {"net": "VB", "from": {"ref": "J1", "pad": "1"}, "to": {"ref": "Q1", "pad": "1"}, "widths": {"F.Cu": 1.0}}
+    under = {"joined": True, "violated": False, "under": {"F.Cu": 0.3}}
+    judged = phase_run.judged_widths([legs, cur], [[a], [dict(a, widths={"F.Cu": 2.0})]], [[under], [under]])
+    assert [(j["stage"], j["stages"], j["requested_mm"]) for j in judged] == [("cur", ["legs", "cur"], 2.0)]
+    pads = {"from": a["from"], "to": a["to"]}
+    other = {"from": {"ref": "J1", "pad": "2"}, "to": {"ref": "Q1", "pad": "2"}}
+    call = {"net": "VB", "stage": "legs", "layers": [], "connections": [pads]}
+    whole = {"net": "VB", "stage": "cur", "layers": []}
+    router = dict(pads, net="VB", stage="legs", layers=[], source="router")
+    kept = [dict(call, connections=[other]), dict(call, stage="signals"), dict(whole, net="SW"),
+            dict(router, **other), {"net": "VB", "stage": "legs", "requested_mm": 1.0}]
+    assert phase_run.one_line_per_connection([call, whole, router] + kept, judged) == kept
 
 
 def test_without_neckdown_the_routers_own_minimum_per_task_is_judged():

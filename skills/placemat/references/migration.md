@@ -55,10 +55,12 @@ section for each hand-written pattern a newer form replaces.
 
 - **Routing phases.** A pour net that a `current_paths` phase leaves to its pour is held to its current width. Its
   connections in that phase are judged at the width the phase would route them at, and one joined narrower than it
-  (by a thin join or a narrow stretch of the pour) is `under`, no longer clean. The phase that joins the net to its
-  pour lays its drops, the joins of the pour's pieces and its tasks at that current width rather than the net
-  class's, unless the phase sets a width. Each `pour_joins` record gives the width it used as `widths` and
-  `width_by`. Scripts need no change; such a net's phase closure may read lower, and its pour joins are wider.
+  (by a thin join or a narrow stretch of the pour) is `under`, no longer clean. A phase with no width of its own
+  (`nets`, a class, or `connections` at the class widths) that joins the net to its pour lays each group's task at
+  the current width of the largest current ending on a pad of that group, and the class width for a group with
+  none; its drops and the joins of the pour's pieces take the widest of the groups apart. Each `pour_joins` record
+  gives the width as `widths`, `width_by` and `task_width_by`. Scripts need no change; such a net's phase closure
+  may read lower, and its pour joins are wider.
 
 - **Routing phases.** A connection the router answers `joined_narrow` is clean when placemat's own measure, along the
   copper that joins its two pads, finds it at its width. The router measures the shortest copper between the pads,
@@ -68,7 +70,8 @@ section for each hand-written pattern a newer form replaces.
 - **Routing phases.** The route's width records (`route.json` `widths`, the summary's `UNDER WIDTH`, `route.width`
   findings) list every connection a phase asked at a width that the final board joins narrower, whichever call laid
   the copper: a current net a later phase with no width of its own joined thin is listed now. Such a record has
-  `source` `judged` and names its two pads. Scripts need no change.
+  `source` `judged`, names its two pads and the phases that asked them (`stages`), and is the connection's only
+  record: the per-call records of those phases for it are left out. Scripts need no change.
 
 - **Routing phases.** On a board with inner copper layers, `settings <board> --example` gives the example current phase
   `layers` set to the board's outer copper layers. A placemat.toml written by an earlier `--example` keeps its current

@@ -402,9 +402,11 @@ def test_a_join_under_its_width_is_a_width_line_though_no_call_of_the_phase_laid
     """The final board's joins are judged on their joining path whichever call laid the copper: here the board's own
     0.2 mm VIN track joins a connection the phase asks at 0.4 mm, and the router adds nothing."""
     _vin_track(rig.pcb, 0.2)
-    report = rig.route(LEG_VIN)
-    (line,) = [w for w in report.widths if w.get("source") == "judged"]
-    assert (line["net"], line["stage"], line["delivered_min_mm"]) == ("VIN", "leg", 0.2)
+    report = rig.route(LEG_VIN, dict(LEG_VIN, name="leg2", width=0.3))
+    # one line for the connection, though two phases ask it: the larger need stands, and both phases are named
+    (line,) = report.widths
+    assert (line["net"], line["stage"], line["stages"], line["delivered_min_mm"], line["source"]) == (
+        "VIN", "leg", ["leg", "leg2"], 0.2, "judged")
     assert {line["from"]["ref"], line["to"]["ref"]} == {"U1", "J1"}
     assert "UNDER WIDTH: VIN " in report.summary()
 
@@ -732,12 +734,18 @@ def test_a_connection_left_to_its_pour_and_joined_thinner_than_its_current_is_un
     assert "VIN J1.2-U1.3 under F.Cu 0.2" in line and "not reached" not in line
 
 
+VIN_LEG = {"from": {"part": "J1", "pad": "2"}, "to": {"part": "U1", "pad": "3"}}
+
+
 @needs_kicad
+@pytest.mark.parametrize("pours", [{"name": "pours", "nets": ["VIN"]}, {"name": "pours", "connections": [VIN_LEG]}],
+                         ids=["nets", "connections"])
 @pytest.mark.parametrize("current", [True, False])
-def test_a_pour_phase_joins_a_net_a_current_paths_phase_leaves_to_its_pour_at_its_current_width(rig, current):
+def test_a_pour_phase_joins_a_net_a_current_paths_phase_leaves_to_its_pour_at_its_current_width(rig, current, pours):
     """The user's decision of 2026-10-13: the joins of a pour net a current_paths phase leaves to its pour (the drops'
     tracks, the region joins and the tasks) are laid at the current width that phase would ask, in place of the net
-    class's track width (ruling S16), on the pour phase's own layers. Without such a phase they keep the class's."""
+    class's track width (ruling S16), on the pour phase's own layers, when that phase sets no width of its own: a
+    `connections` phase's tasks at their class widths included. Without such a phase they keep the class's."""
     from placemat.checks import COPPER_OZ
     from placemat.kicad.phase_select import layer_widths
     from placemat.kicad.read import read_board
@@ -745,7 +753,7 @@ def test_a_pour_phase_joins_a_net_a_current_paths_phase_leaves_to_its_pour_at_it
     want = (dict(layer_widths(1.0, ["F.Cu", "B.Cu"], read_board(str(rig.pcb)), Settings().check_rise_c, COPPER_OZ))
             if current else {"F.Cu": 0.2, "B.Cu": 0.2})
     first = [{"name": "current", "current_paths": True, "width": "current"}] if current else []
-    report = rig.route(*first, {"name": "pours", "nets": ["VIN"]}, pour_nets={"VIN"})
+    report = rig.route(*first, pours, pour_nets={"VIN"})
     calls = rig.calls()
     drops = next(c for c in calls if _drops(c))
     for flag in ("--track-width", "--min-track-width", "--max-track-width"):
@@ -754,9 +762,23 @@ def test_a_pour_phase_joins_a_net_a_current_paths_phase_leaves_to_its_pour_at_it
     (task,) = json.loads(open(track[track.index("--connections") + 1]).read())
     assert task["widths"] == pytest.approx(want)
     (joined,) = report.phases[-1]["pour_joins"]
-    assert joined["widths"] == pytest.approx(want) and joined["width_by"] == ("current" if current else "class")
+    by = "current" if current else "class"
+    assert joined["widths"] == pytest.approx(want) and joined["width_by"] == by and joined["task_width_by"] == [by]
     if current:
         assert want["F.Cu"] > 0.2
+
+
+@needs_kicad
+def test_a_pour_phase_routed_alone_is_not_reused_once_a_current_paths_phase_covers_its_net(rig):
+    """The pour phase's kept result depends on the currents a current_paths phase leaves to its pour: routed alone
+    (`only`), it is reused while they hold and routed again, at the current width, once such a phase is added."""
+    _vin_pour(rig.pcb, 125.6, 127)
+    pours = {"name": "pours", "nets": ["VIN"]}
+    current = {"name": "current", "current_paths": True, "width": "current"}
+    rig.route(pours, pour_nets={"VIN"}, upto="pours", only=True)
+    assert rig.route(pours, pour_nets={"VIN"}, upto="pours", only=True).resumed == ["pours"]
+    report = rig.route(current, pours, pour_nets={"VIN"}, upto="pours", only=True)
+    assert report.resumed == [] and report.phases[0]["pour_joins"][0]["width_by"] == "current"
 
 
 @needs_kicad

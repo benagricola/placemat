@@ -89,18 +89,21 @@ def drop_command(python, router_dir, pcb_in, pcb_out, net: str, layers, *, track
     return cmd
 
 
-def join_widths(ctx, net: str, width, layers) -> tuple:
-    """The width `net`'s joins are laid at on each of `layers`, and what set it: ((layer, mm), ...), by.
+def join_widths(ctx, net: str, width, layers, ends) -> tuple:
+    """The width a join of `net` that serves the pads `ends` ((ref, pad[, footprint uuid]) as PadEnd.end() gives
+    them) is laid at on each of `layers`, and what set it: ((layer, mm), ...), by.
 
-    - "asked": the pour call's `width` (the phase's numeric width, or its tasks' widest), on every layer;
-    - "current": the net is one a current_paths phase leaves to its pour (`ctx.pour_currents`, {net: amps}, ruling
-      S13), so its joins carry that current: the width that phase asks for it, phase_select.layer_widths at
-      `[check] rise_c` on these layers (the user's decision of 2026-10-13, in place of S16's class width);
+    - "asked": the phase's own numeric width (`width`), on every layer;
+    - "current": with no width of the phase's own, and a pad of `ends` at an end of a connection a current_paths
+      phase leaves to this pour (`ctx.pour_currents`, {net: {end: amps}}, ruling S13): the width that phase asks
+      for the largest such current, phase_select.layer_widths at `[check] rise_c` on these layers (the user's
+      decision of 2026-10-13, in place of S16's class width);
     - "class": the net class's track width (ruling S16)."""
     from .phase_select import _class_widths, layer_widths
     if width:
         return tuple((l, width) for l in layers), "asked"
-    amps = ctx.pour_currents.get(net)
+    on = ctx.pour_currents.get(net) or {}
+    amps = max((on[e] for e in ends if e in on), default=None)
     if amps:
         from ..checks import COPPER_OZ
         return layer_widths(amps, layers, ctx.geometry, ctx.cfg.check_rise_c, COPPER_OZ), "current"
@@ -119,8 +122,9 @@ def main_group(groups):
 def tasks_to_pour(groups, net: str, widths) -> list:
     """One task for each group other than main_group: between its pad nearest a pad of the main group and that pad, ties
     broken by the ends' names, the two ends in (ref, pad) order as an open connection names them (open_connections),
-    so the task's record answers the obligation on the same two pads. `widths` ((layer, mm), ...) go on each task.
-    Returns phase_select.Task records, in the groups' order."""
+    so the task's record answers the obligation on the same two pads. `widths` ((layer, mm), ...) go on each task, or,
+    when it is a function, `widths(group)` on the group's task. Returns phase_select.Task records, in the groups'
+    order."""
     from .phase_select import Task
     groups = list(groups)
     main = main_group(groups)
@@ -133,7 +137,7 @@ def tasks_to_pour(groups, net: str, widths) -> list:
         a, b = min(((a, b) for a in g.pads for b in main.pads),
                    key=lambda ab: (math.hypot(ab[0].x - ab[1].x, ab[0].y - ab[1].y), ab[0].end(), ab[1].end()))
         ends = sorted((a.end(), b.end()), key=lambda e: (e[0], e[1]))
-        out.append(Task(net, ends[0], ends[1], tuple(widths), apart=True))
+        out.append(Task(net, ends[0], ends[1], tuple(widths(g) if callable(widths) else widths), apart=True))
     return out
 
 
@@ -242,10 +246,12 @@ def join_pour(ctx, board: Path, out: Path, net: str, width, layers, stem: str, p
     the drops, then a task for each group still apart (module doc). Every pour net's partial inner-layer pours are
     guarded on the route's input board; this call takes its own net's guard off for itself and puts it back on
     `out`. The board's project files are copied back over each call's. The drops, the region joins and the tasks are
-    laid at join_widths'. Returns (record, phase_run.TaskRun): {"net", "pads", "joined_before", "apart_before",
-    "tapped", "vias": {"in_pad", "beside", "joins"}, "groups_left", "groups_after", "widths": {layer: mm},
-    "width_by": "asked" | "current" | "class", "tasks": [the router's record of each task]}; pads count those inside
-    the board's outline, "tapped"
+    laid at join_widths': each group's task for the pads of that group; the drops and region joins, one width for
+    the call, for the pads of the groups apart from the pour, or, with none apart (only pieces of the pour apart),
+    for every pad of the net. Returns (record, phase_run.TaskRun): {"net", "pads", "joined_before", "apart_before",
+    "tapped", "vias": {"in_pad", "beside", "joins"}, "groups_left", "groups_after", "widths": {layer: mm} and
+    "width_by" ("asked" | "current" | "class") of the drops and region joins, "task_width_by": the same for each
+    task, "tasks": [the router's record of each task]}; pads count those inside the board's outline, "tapped"
     the pads apart before that the drops joined, "groups_left" the groups the tasks were given, "groups_after" the
     net's pad groups on `out` (route_calls' re-check compares it after the phase's later pour calls, ruling S22).
     Each task says its ends are apart (`apart`): KiCad's view decided it, and the router must not answer
@@ -258,9 +264,10 @@ def join_pour(ctx, board: Path, out: Path, net: str, width, layers, stem: str, p
     _copy_project(board, inp)
     drop_pour_guards(str(inp), {net})
     pours_as_zones(str(inp), net)
-    widths, width_by = join_widths(ctx, net, width, layers)
     before = pad_groups(inp, net)
     apart = [p for g in before if not g.joined for p in g.pads]
+    widths, width_by = join_widths(ctx, net, width, layers, [p.end() for p in apart or
+                                                             [q for g in before for q in g.pads]])
     dropped, vias = inp, []
     if apart or len(before) > 1:          # a pad apart from the pour, or pieces of the pour apart
         dropped = fresh_output(ctx.work / (stem + "_drops.kicad_pcb"))
@@ -281,7 +288,10 @@ def join_pour(ctx, board: Path, out: Path, net: str, width, layers, stem: str, p
         lock_copper(str(dropped))
         vias = new_vias(inp, dropped, net, {(p.ref, p.number) for p in apart})
     after = pad_groups(dropped, net) if dropped != inp else before
-    pending = tasks_to_pour(after, net, widths)
+    by_group = {id(g): join_widths(ctx, net, width, layers, [p.end() for p in g.pads]) for g in after}
+    pending = tasks_to_pour(after, net, lambda g: by_group[id(g)][0])
+    main = main_group(after)
+    task_by = [by_group[id(g)][1] for g in after if g is not main and g.pads] if pending else []
     task_common = dict(common, extra_args=tuple(common.get("extra_args") or ()) + ("--no-own-pad-lift",))
     # KICAD_PLANE_FINALIZE=0 is upstream's own switch (KRT route.py) for its in-run plane finalize, which would tap, rip
     # and reconnect the pour net on its own inside a task call; the tasks are the only tracking join_pour asks of it
@@ -302,5 +312,5 @@ def join_pour(ctx, board: Path, out: Path, net: str, width, layers, stem: str, p
                        "beside": sum(1 for v in vias if v["tap"] and not v["in_pad"]),
                        "joins": sum(1 for v in vias if not v["tap"])},
               "groups_left": len(pending), "groups_after": groups_after, "widths": dict(widths), "width_by": width_by,
-              "tasks": list(run.records)}
+              "task_width_by": task_by, "tasks": list(run.records)}
     return record, run

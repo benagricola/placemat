@@ -57,6 +57,31 @@ def test_an_end_on_a_shared_reference_names_its_footprint():
     assert tasks[0].end == ("TP1", "1", "uuid-TP1")
 
 
+def test_each_groups_join_takes_the_largest_current_of_a_connection_ending_on_one_of_its_pads():
+    """The user's ruling of 2026-10-13 (fix round 1): a group's join is laid at the current width of the largest
+    current among the connections a current_paths phase leaves to the pour that end on one of the group's pads; a
+    group with none takes the class width, and a phase's own width stands over both."""
+    from types import SimpleNamespace
+    from placemat.checks import COPPER_OZ
+    from placemat.kicad.phase_select import layer_widths
+    from placemat.kicad.pour_join import join_widths
+    from placemat.settings import Settings
+    from tests.fixtures import board_geometry, footprint
+    g = board_geometry([footprint("J1", 5, 10, nets=("GND", "VIN")), footprint("U1", 20, 10, nets=("GND", "VOUT")),
+                        footprint("C1", 30, 10, nets=("GND", "VOUT"))])
+    ctx = SimpleNamespace(geometry=g, cfg=Settings(), pour_currents={"GND": {("J1", "1"): 3.0, ("U1", "1"): 1.0}})
+    layers = ["F.Cu", "B.Cu"]
+    amps3 = layer_widths(3.0, layers, g, Settings().check_rise_c, COPPER_OZ)
+    assert join_widths(ctx, "GND", None, layers, [("U1", "1"), ("J1", "1")]) == (amps3, "current")
+    assert join_widths(ctx, "GND", None, layers, [("C1", "1")]) == (W, "class")
+    assert join_widths(ctx, "GND", 0.5, layers, [("J1", "1")]) == ((("F.Cu", 0.5), ("B.Cu", 0.5)), "asked")
+    main = PadGroup((_end("C2", 0.0),), True)
+    carrier, cap = PadGroup((_end("J1", 5.0),), False), PadGroup((_end("C1", -5.0),), False)
+    pick = {id(carrier): amps3, id(cap): W}
+    tasks = tasks_to_pour([main, carrier, cap], "GND", lambda grp: pick[id(grp)])
+    assert [(t.start[0], t.widths) for t in tasks] == [("C2", amps3), ("C1", W)]
+
+
 def test_the_drop_call_keeps_the_boards_sizes_and_rules():
     cmd = drop_command("py", "/krt", "in.kicad_pcb", "out.kicad_pcb", "GND", ["F.Cu", "B.Cu"], via_size=0.6,
                        via_drill=0.3, track_width=0.25, pads_file="pads.json", clearances_file="c.json",

@@ -3876,9 +3876,12 @@ get a `route_width` event per record, and each is a `route.width` finding in the
 (`finding_details`). A net the router recorded as narrowed but the script gave no width is not measured per length and has
 `length_mm` null. Each phase's obligation that the final board joins narrower than asked along its joining path also
 gets a record, whichever call laid the copper (a later phase that asked no width, such as the rest phase, included):
-`source` `judged`, `stage` the phase that asked it, `from` and `to` its pads, `layers` ({`layer`, `need_mm`,
-`min_mm`, `by`}: `current` for a phase sized from currents, else `asked`), `requested_mm` and `delivered_min_mm`, and
-null lengths. Its summary entry reads `VB J1.1-Q1.1 under F.Cu 2.47, In2.Cu 6.41 (min 0.127)`. Net-class and pair widths are reported only where the router records a narrowing of them: its pair router writes no
+`source` `judged`, `stage` the phase that asked it, `stages` every phase that asked that pad pair under its width
+(the record of the largest need stands for them, one record per connection), `from` and `to` its pads, `layers`
+({`layer`, `need_mm`, `min_mm`, `by`}: `current` for a phase sized from currents, else `asked`), `requested_mm` and
+`delivered_min_mm`, and null lengths. It replaces the per-call records of the phases that asked it: the router's
+record of the same connection, and a call's record of its net when the call routed that connection or the whole
+net. Its summary entry reads `VB J1.1-Q1.1 under F.Cu 2.47, In2.Cu 6.41 (min 0.127)`. Net-class and pair widths are reported only where the router records a narrowing of them: its pair router writes no
 summary.
 
 The routed copy is cleaned as KiCad's own cleanup cleans a board, over the copper the router added only: its dangling tracks and vias
@@ -4006,10 +4009,13 @@ with tracks no wider than the phase's width or the net class's, and leaves anyth
 Then the group of the net's pads holding the most pads among those on the pour stands for it, and every other group
 is routed to its nearest pad by one pad-to-pad task, at the phase's width or the net class's; the track reaches the other
 group's pad copper, never only the pour's fill. A pour net that a `current_paths` phase leaves to its pour (below) is
-joined at its current width instead of the net class's, when the phase that joins it sets no width: the width the
-`current_paths` phase asks for its largest carrier-pair current on each of this phase's layers (IPC-2221 at `[check]
-rise_c`). The tasks take that width per layer; the drops and the joins of the pour's pieces, which take one width,
-take the widest of them. Which pads are joined is KiCad's judgement (its connectivity with the zones refilled), and each task
+joined at its current width instead of the net class's whenever the phase that joins it sets no width of its own
+(a `nets` or class phase with no `width`, or a `connections` phase whose tasks take the class widths). Each group's
+task takes the width the `current_paths` phase asks for the largest current among its connections that end on a
+pad of that group, on each of this phase's layers (IPC-2221 at `[check] rise_c`); a group with no such pad takes the
+net class's width, and a phase's own width stands over both. The drops and the joins of the pour's pieces take one
+width for the call, the widest of those of the groups apart from the pour (of every group when only the pour's
+pieces are apart). Which pads are joined is KiCad's judgement (its connectivity with the zones refilled), and each task
 tells the router so: the router routes it even where its own model takes the pads for joined, and answers `routed`
 only when its copper joins the task's ends; otherwise the task is `failed`, its `evidence.diagnosis`
 `joined_by_pour_only` (the router counted the ends joined through a pour KiCad does not) or
@@ -4083,8 +4089,9 @@ last phase's board is `router_out.kicad_pcb`, and `routed.kicad_pcb` is made fro
   before that the drops joined); `vias` (`in_pad`, `beside`: the drops' vias, in a pad or beside it; `joins`: the
   vias the repair's joins of the pour's pieces added); `groups_left` (the groups still apart after the drops, one
   task each); `groups_after` (its pad groups when the call was done); `widths` ({layer: mm}, the width its joins
-  were laid at) and `width_by` (`asked`: the phase's width or its tasks'; `current`: the current width of a net a
-  `current_paths` phase leaves to its pour; `class`: the net class's track width); `tasks` (the
+  and the joins of the pour's pieces were laid at) and `width_by` (`asked`: the phase's own width; `current`: the
+  current width of a net a `current_paths` phase leaves to its pour; `class`: the net class's track width);
+  `task_width_by` (the same, for each task in order); `tasks` (the
   router's record of each task, as in `connections`); `rejoin`, a record of the same fields, when a later call of
   the phase split the net and it was joined once more; and `groups_final`, its pad groups when the phase was done.
   An open connection's `outcome` and `evidence` come from the latest task that answered it. The phase line says the
