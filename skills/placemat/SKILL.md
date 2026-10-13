@@ -254,6 +254,49 @@ model into declarations.
 
 ## The loop
 
+**For 0.100.0, the agent drives the placement/routing loop.** A resolve
+includes placement search, retry of items left unplaced, and local cleanup
+using the common placement score. These passes do not route, inspect a
+failed route and reorganise its neighbourhood automatically. The new
+coarse/fine refinement pass and the automatic place-route loop are later
+steps; do not assume a standalone refine command is available. Read the
+installed release's API and migration notes before choosing commands.
+
+When routing leaves connections open, continue the manual loop:
+
+1. Keep the best script, settings, accepted lock and routed board together
+   as a recoverable checkpoint. Record the final board's DRC, required-width
+   findings, critical electrical checks and open connections, with the
+   placement score. A lower placement score alone is not a better routed
+   board.
+2. Read the failed connections and phase reports. Inspect the endpoint
+   escapes and the crowded neighbourhood, and use crossings by net and
+   congestion to choose an intent change: a different relation, cell
+   arrangement, ordering of related items, or a legal turn. Preserve fixed
+   mechanical positions, single-axis constraints and electrical reasons.
+   Change one neighbourhood at a time; never replace intent with measured
+   coordinates or free the whole board without a reason.
+3. Preview the trial. At a checkpoint run it with the same routing phases,
+   widths, layers and checks as the best result. Explore with `--focus`
+   and `--route-best` can compare placement alternatives against routing;
+   keep its search bounded and verify the accepted result with a full run.
+4. Keep a trial only after comparing the final routed boards: manufacturing
+   legality, required widths and critical electrical checks first, then
+   remaining connections, then routing quality and placement score. Revert
+   a trial that loses required checks or worsens closure. Retain each
+   rejected trial's reason so it is not proposed again.
+5. Repeat while trials improve the routed result. When a bounded batch
+   stalls, report the open connections, constraints and trials that failed,
+   and choose a different neighbourhood or ask for a design decision. Do
+   not call a board unroutable from one placement or repeatedly reroute an
+   unchanged board expecting placement to improve.
+
+Until automatic refinement is released, local rearrangement means editing
+the layout intent or exploring the alternatives the current API supports.
+When refinement becomes available before the automatic loop, use it to
+propose a bounded local trial, then route and judge that trial with the same
+checkpoint procedure above.
+
 **Iterate with `placemat preview`; `placemat run` only at checkpoints.** A
 preview resolves the placement and copper and reports the findings, with no
 write, no DRC, no checks and no render. A run does all of those. On a large
