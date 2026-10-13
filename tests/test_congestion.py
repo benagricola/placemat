@@ -67,3 +67,134 @@ def test_the_grid_is_kept_and_its_worst_cell_is_the_worst():
     assert (r.origin.x, r.origin.y) == (0, 0)
     i, j = int((r.worst_at.x - r.origin.x) // r.cell), int((r.worst_at.y - r.origin.y) // r.cell)
     assert r.util[j][i] == pytest.approx(r.worst, abs=1e-4)
+
+
+def test_grid_signed_changes_match_rebuilt_grid_and_leave_baseline_unchanged():
+    import random
+    from placemat.congestion import RudyGrid
+    from placemat.values import Location
+    rng = random.Random(4)
+    box = Box(0, 0, 20, 20)
+    points = {str(i): [Location(rng.uniform(0, 20), rng.uniform(0, 20)) for _ in range(4)] for i in range(6)}
+    grid = RudyGrid(box, 2, 0.4, 0.05)
+    for net, pads in points.items():
+        grid.add_net(net, pads)
+    baseline = grid.steps()
+    saved = list(grid.demand)
+    for _ in range(100):
+        replacements = {net: [Location(rng.uniform(0, 20), rng.uniform(0, 20)) for _ in range(4)]
+                        for net in rng.sample(list(points), 2)}
+        rebuilt = RudyGrid(box, 2, 0.4, 0.05)
+        for net, pads in dict(points, **replacements).items():
+            rebuilt.add_net(net, pads)
+        assert grid.change(replacements) == rebuilt.steps() - baseline
+        assert grid.demand == saved and grid.steps() == baseline
+
+
+def test_spreading_a_net_can_lower_congestion():
+    from placemat.congestion import RudyGrid
+    from placemat.values import Location
+    grid = RudyGrid(Box(0, 0, 20, 20), 2, 0.4, 0.05)
+    grid.add_net('n', [Location(1, 1), Location(1.1, 1.1)])
+    assert grid.change({'n': [Location(1, 1), Location(15, 15)]}) < 0
+
+
+def test_grid_repeated_net_changes_do_not_drift_at_step_boundaries():
+    from placemat.congestion import RudyGrid
+    from placemat.values import Location
+    grid = RudyGrid(Box(0, 0, 10, 10), 2, 0.4, 0.05)
+    baseline = [Location(1, 1), Location(1.000000001, 1.000000001)]
+    grid.add_net('a', baseline)
+    grid.add_net('b', baseline)
+    before = list(grid.demand), grid.steps()
+    for _ in range(1000):
+        grid.remove_net('a')
+        grid.add_net('a', [Location(1, 1), Location(8, 8)])
+        grid.add_net('a', baseline)
+    assert (grid.demand, grid.steps()) == before
+
+
+def test_grid_worst_matches_display_rudy_and_removing_all_pads_clears_it():
+    from placemat.congestion import RudyGrid
+    from placemat.values import Location
+    box = Box(0, 0, 10, 10)
+    grid = RudyGrid(box, 2, 0.4, 0.05)
+    points = [Location(1.2, 2.3), Location(6.7, 8.9)]
+    grid.add_net('a', points)
+    display = rudy([_pad('a', p.x, p.y) for p in points], box, 2, 0.4)
+    assert grid.worst() == pytest.approx(display.worst, abs=0.00005)
+    assert grid.change({'a': []}) == -grid.steps()
+    grid.remove_net('a')
+    assert grid.steps() == 0 and grid.worst() == 0
+
+
+def test_a_net_box_is_floored_at_the_set_width_about_its_centre():
+    """`score.congestion_box`: a net along one axis spreads its wire over the floor's width, not one cell."""
+    pads = [_pad("A", 2.0, 5.25), _pad("A", 4.0, 5.25)]
+    thin = rudy(pads, Box(0, 0, 10, 10), layers=2, pitch=0.4, cell=0.5)
+    wide = rudy(pads, Box(0, 0, 10, 10), layers=2, pitch=0.4, cell=0.5, box=2.0)
+    assert wide.demand == thin.demand == pytest.approx(2.0)
+    assert wide.worst == pytest.approx(thin.worst / 4, abs=1e-4)          # 2 mm high, not 0.5 mm
+    assert wide.worst_at.y == pytest.approx(thin.worst_at.y, abs=1.0)
+    assert rudy(pads, Box(0, 0, 10, 10), 2, 0.4, cell=0.5, box=0.5).worst == thin.worst
+
+
+def test_grid_changes_across_the_box_floor_match_a_rebuilt_grid_and_the_display():
+    import random
+    from placemat.congestion import RudyGrid
+    from placemat.values import Location
+    rng = random.Random(7)
+    box = Box(0, 0, 12, 12)
+    rest = {str(i): [Location(rng.uniform(1, 11), rng.uniform(1, 11)) for _ in range(3)] for i in range(5)}
+    grid = RudyGrid(box, 2, 0.4, 0.05, box=2.5)
+    for net, pads in rest.items():
+        grid.add_net(net, pads)
+    grid.add_net("s", [Location(5, 5), Location(6, 5)])
+    baseline = grid.steps()
+    widths = set()
+    for _ in range(200):
+        x, y = rng.uniform(4, 9), rng.uniform(4, 6)                     # the short net's box crosses 2.5 mm either way
+        moved = [Location(5, 5), Location(x, y)]
+        widths.add((abs(x - 5) < 2.5, abs(y - 5) < 2.5))
+        rebuilt = RudyGrid(box, 2, 0.4, 0.05, box=2.5)
+        for net, pads in dict(rest, s=moved).items():
+            rebuilt.add_net(net, pads)
+        assert grid.change({"s": moved}) == rebuilt.steps() - baseline
+        display = rudy([_pad(net, p.x, p.y) for net, pads in dict(rest, s=moved).items() for p in pads],
+                       box, 2, 0.4, box=2.5)
+        assert rebuilt.worst() == pytest.approx(display.worst, abs=0.00005)
+    assert {w for w, _ in widths} == {True, False}
+
+
+def test_the_native_cells_keep_the_python_grids_sums_bit_for_bit():
+    """RudyGrid's cells kept natively (rudy.rs) give the demand, steps, worst and candidate changes the Python cells
+    give, bit for bit, through adds, moves, removals and change questions in any order."""
+    import random
+    from placemat import congestion
+    from placemat.values import Box, Location
+    if congestion._native_cells() is None:
+        pytest.skip("native module not built")
+    rng = random.Random(3)
+    board = Box(0.0, 0.0, 30.0, 20.0)
+    native = congestion.RudyGrid(board, 2, 0.4, 0.5, box=1.0)
+    plain = congestion.RudyGrid(board, 2, 0.4, 0.5, box=1.0)
+    plain._native, plain.cells = None, [{} for _ in plain._demand]
+
+    def points():
+        return [Location(rng.uniform(-2, 32), rng.uniform(-2, 22)) for _ in range(rng.choice([1, 2, 3, 5]))]
+    nets = ["N%d" % i for i in range(12)]
+    for _ in range(400):
+        net = rng.choice(nets)
+        roll = rng.random()
+        if roll < 0.55:
+            p = points()
+            native.add_net(net, p)
+            plain.add_net(net, p)
+        elif roll < 0.7:
+            native.remove_net(net)
+            plain.remove_net(net)
+        else:
+            ask = {rng.choice(nets): points() for _ in range(rng.choice([1, 2, 3]))}
+            assert native.change(ask) == plain.change(ask)
+        assert native.demand == plain.demand
+        assert native.steps() == plain.steps() and native.worst() == plain.worst()

@@ -93,10 +93,10 @@ def test_the_switch_cells_of_a_real_board_are_not_walled_off_at_their_ground_pin
 
 
 def _ring_with_far_diagonal(track_ends):
-    """U9's IN pad ringed 0.6 mm off by R9's pads (a track still gets out between them), and a diagonal track of another net
-    well clear of the pad, whose box covers the window the way out is looked for in."""
+    """U9's IN pad ringed 0.8 mm off by R9's pads (a via fits at its edge), and a diagonal track of another net well clear of
+    the pad, whose box covers the window the way out is looked for in."""
     from tests.test_escape_findings import _walled_in
-    fps = _walled_in(0.6)
+    fps = _walled_in(0.8)
     cfg = dataclasses.replace(Settings(), cleanup_enabled=False)
     b = Board(board_geometry(fps, width=60, height=60), edge_margin=1.0, settings=cfg, keep_going=True)
     for fp in fps:

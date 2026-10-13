@@ -29,7 +29,7 @@ def test_a_finding_is_its_text_and_carries_its_kind():
     assert f == "link A.1 to B.2 is 3.00 mm, over its 2.00 mm limit" and f.kind == "link_over"
     assert f.startswith("link") and "over its" in f
     assert set(KINDS) == {"unplaced", "link_over", "fixed", "copper", "label", "escape_crossed", "pair_crossed",
-                          "escape_closed", "escape_walled", "escape_lane", "setup", "route", "vias", "fab", "facts",
+                          "escape_closed", "escape_walled", "escape_via", "escape_lane", "setup", "route", "vias", "fab", "facts",
                           "needs", "split", "time", "arrangement", "keep_out", "escape", "pins", "turn"}
 
 

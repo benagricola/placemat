@@ -1,5 +1,5 @@
-"""A resolve reports escapes it left crossed, closed or walled off, as
-findings of their own kinds, confirmed by the path search."""
+"""A resolve reports escapes it left crossed, and pads whose cheapest way out by the surface-lane judgement is a via,
+a lane away from what they join, or none, as findings of their own kinds."""
 import dataclasses
 
 from placemat.board_geometry import Footprint
@@ -40,13 +40,15 @@ def _walled_in(gap):
     return [centre, ring, footprint("T1", 50, 50, inst="t1", nets=("IN", "Z"))]
 
 
-def test_a_pad_the_path_search_finds_walled_in_is_a_finding_naming_what_walls_it():
+def test_a_pad_walled_in_is_a_finding_naming_what_walls_it():
     plan = _fixed(_walled_in(0.1), keep_going=True)          # 0.1 mm is under the clearance: a finding too
     walled = [f for f in plan.findings if f.kind == "escape_walled"]
     assert walled == ["U9 pin 1 (IN): walled off by R9"]
 
 
-def test_a_pad_whose_corridors_are_closed_but_a_track_still_gets_out_is_no_finding():
+def test_a_pad_whose_lanes_are_closed_but_a_track_still_gets_out_is_no_finding():
+    """The ring's pads stand 1.0 mm off: no straight lane leaves the pad, and the path search finds a track out through
+    the 0.75 mm gaps between them."""
     plan = _fixed(_walled_in(1.0), keep_going=True)
     assert not [f for f in plan.findings if f.kind.startswith("escape_")]
 

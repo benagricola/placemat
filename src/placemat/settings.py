@@ -111,6 +111,12 @@ class Settings:
         "a scored scan does a coarse pass first when its radius is at least this many steps; below it one fine pass is cheaper")
     place_refine_spots: int = S(3, "count",
         "how many of the best coarse spots get a fine pass: this many by score, and, where the part's riders refuse some spots, this many of those they take")
+    place_escape_spots: int = S(8, "count",
+        "how many candidates of a scan the one-score search gives the escape grades and the walled check: the best this many by every other term that wall no pad beyond the lifted board's walled pads, going down that order past each that does; the rest rank below them")
+    place_retry_rounds: int = S(2, "count",
+        "how many times the one-score search tries again for each item it left unplaced for want of room: each try lifts the placed items in the way of one room, places the item and then them again, and is kept only when the board then ranks above the board before it (fewer parts unplaced by priority, then a lower run score); 0 tries none")
+    place_retry_lift: int = S(4, "count",
+        "the most placed items one retry lifts to make room for an item left unplaced")
     place_block_gap_step: float = S(0.05, "mm",
         "how finely a block's tightest gap is searched")
     place_block_gap_reach: float = S(2.0, "mm",
@@ -149,7 +155,7 @@ class Settings:
     place_beside_reach: float = S(2.0, "mm",
         "how far past its standoff from the item a part placed Beside may be moved out to clear what is in its way; past it the part stays at the standoff and the collision is reported")
     place_escape_depth: float = S(1.0, "mm",
-        "how far each corridor out of a pad runs in the search: it weighs a candidate that crosses, closes or walls off a pad's corridors (`score.escape_*`); the run score measures them at `score.escape_depth`")
+        "how far each corridor out of a pad runs in the search: it weighs a candidate that crosses or closes a pad's corridors (`score.escape_*`), and one that walls a pad off loses to any that does not; the run score measures them at `score.escape_depth`")
     place_escape_min_pads: int = S(1, "count",
         "a part's pads keep escapes when it has at least this many (3 leaves two-pad parts out)")
     place_escape_via_step: float = S(0.05, "mm",
@@ -207,11 +213,11 @@ class Settings:
     place_approach_detour: float = S(2.0, "mm",
         "how far to either side of that airwire a track may go round such a gap, on the pad's layer and crossing no other net's airwire, and still count as a way: a pinch with a way round within it is no `escape.pinched` finding")
     place_turn_gain_mm: float = S(2.0, "mm",
-        "the least another allowed turn of a searched part or cell, at the same spot, must shorten its links for a `turn.better` finding, in weighted mm: each link's length times its weight, as the search scores it")
+        "the least reduction of the common run score for another legal turn at the same body centre to produce a `turn.better` finding")
+    place_search_wire: str = S("mst", "choice",
+        "temporary measured search comparison: mst is the one-score search (the run score's terms, the escape grades on the best `place.escape_spots`); clique is the pull estimate")
     place_turn_gain_share: float = S(0.05, "share",
-        "the least share of the item's weighted link length that turn must save as well, for a `turn.better` finding on length")
-    place_turn_crossings_min: float = S(2.0, "count",
-        "the fewest weighted crossings another allowed turn must remove for a `turn.better` finding on crossings alone; either way the turn's links and crossings together, as the search prices them, must come out lower")
+        "the least share of the item's wire and declared-link contribution the common run-score gain must reach for a `turn.better` finding")
     place_turn_held_words: tuple = S(("turn", "turned", "turns", "rotation", "rotated", "rotate", "facing", "faces", "degrees"), "list",
         "words that, in the `why=` of an item whose turn the script fixes, say the turn was chosen: a better turn is then a `turn.better` notice with `held_by` \"why\" and no edit")
     place_split_min_group: int = S(2, "count",
@@ -308,8 +314,6 @@ class Settings:
         "the chance two focused items next in the placement order trade turns")
     explore_rank_power: float = S(1.0, "exponent",
         "an explored item's spot at rank r among its candidates is drawn with weight 1 / r to this power: higher keeps it nearer its best")
-    explore_congestion_step: float = S(0.05, "fraction",
-        "variants are ranked by the run score, with the worst congestion cell counted in steps of this at `score.congestion` each (0 leaves it out)")
     explore_jobs: int = S(0, "count",
         "worker processes for `--explore`; 0 is the CPU count less one")
     explore_stall_variants: int = S(0, "count",
@@ -323,17 +327,11 @@ class Settings:
     explore_route_best: bool = S(False, "bool",
         "a routing worker, one of the explore's jobs, quick-routes the plain placement at the start and each new best by run score as the search finds it (only the latest waits while it is busy; with one job it routes after the search); each closure is said beside its score and `--accept` takes the best clean closure, ties going to the better score. The route in hand and the one waiting when the search ends are finished after it, so the run can last past the explore's time. A run only: a preview writes no board (`--route-best`)")
     explore_rank_remapped: bool = S(False, "bool",
-        "every variant an explore keeps gets the pin map study, and variants are ranked, and the best chosen, on the run score less what its best pin remap saves: the weighted crossings it removes at `score.crossing` each. With `explore.route_best` a variant is routed on its board with that remap applied to its pads. Nothing changes on a board with no `Pm.PinPool` part (`--rank-remapped`)")
+        "every variant an explore keeps gets the pin map study, and variants are ranked, and the best chosen, on the run score less what its best pin remaps save: the run-score gain of every group's best map and pose, judged together on the board. With `explore.route_best` a variant is routed on its board with those remaps applied to its pads. Nothing changes on a board with no `Pm.PinPool` part (`--rank-remapped`)")
     pins_exit_mm: float = S(0.5, "mm",
         "the pin map study: how far past its part's courtyard a pin's airwire leaves (its exit point) before it may turn")
     pins_follow_series: bool = S(True, "bool",
         "the pin map study scores a net that reaches a pin through a two-pad series part (a termination resistor) on to the series part's far net, as one connection")
-    pins_pair_weight: float = S(5.0, "weight",
-        "the pin map study: what a crossing counts where either airwire is a differential pair's (any other counts 1)")
-    pins_impedance_weight: float = S(3.0, "weight",
-        "the pin map study: what a crossing counts where either airwire's net class names a tuning profile, a controlled impedance, and how many times over such a net's airwire length counts (a differential pair's half too)")
-    pins_length_weight: float = S(0.25, "weight",
-        "the pin map study: weighted crossings per mm of the studied nets' airwire (0.25: the run score's 4 mm a crossing)")
     pins_bend_weight: float = S(0.005, "weight",
         "the pin map study: weighted crossings per degree a studied net turns from its pin's outward normal toward its target")
     pins_group_weight: float = S(4.0, "weight",
@@ -416,22 +414,8 @@ class Settings:
         "how far airwire may move, as a fraction, before a run counts as better or worse than its family's best: kicad-cli picks different ratsnest edges each run for a byte-identical board")
     best_crossing_noise: float = S(0.02, "fraction",
         "how far the crossings' term may move, as a fraction, before a score counts as better or worse: kicad-cli's ratsnest varies run to run")
-    score_unplaced: float = S(2000.0, "mm",
-        "mm a part left unplaced costs the run score, times its priority's multiplier")
-    score_unplaced_high: float = S(2.0, "multiplier",
-        "the unplaced multiplier for a part declared `priority=HIGH`")
-    score_unplaced_default: float = S(1.0, "multiplier",
-        "the unplaced multiplier for a part with no declared priority")
-    score_unplaced_low: float = S(0.5, "multiplier",
-        "the unplaced multiplier for a part declared `priority=LOW`")
-    score_drc: float = S(200.0, "mm",
-        "mm a real DRC violation costs")
     score_link_over: float = S(20.0, "mm",
         "mm per millimetre a link is past its limit, times the link's weight")
-    score_fixed: float = S(200.0, "mm",
-        "mm a decided item (fixed, a cutout, a keepout) not legal where it was put costs")
-    score_copper: float = S(200.0, "mm",
-        "mm planned copper that meets another net, crosses a keepout or cannot bridge costs")
     score_label: float = S(50.0, "mm",
         "mm a label with a part on it costs")
     score_setup: float = S(0.0, "mm",
@@ -442,18 +426,32 @@ class Settings:
         "a crossing with a plane's or free net's airwire, as a share of `score.crossing`: each of its pads drops to the plane by a via")
     score_pair_crossing: float = S(100.0, "mm",
         "mm a differential pair (a net class's own, board_pairs) crossing itself costs, in place of `score.crossing`: such a pair has to exchange sides to route coupled, so a swap of two identical parts or a turned part is worth wire")
+    score_crossing_pair_net: float = S(5.0, "share",
+        "what a ratsnest crossing counts, in crossings, where either airwire is a differential pair's half (and not its partner's)")
+    score_impedance: float = S(3.0, "share",
+        "a net whose class names a tuning profile (a controlled impedance): what its ratsnest crossings count, in crossings, and how many times over its airwire length counts")
     score_escape_crossed: float = S(20.0, "mm",
         "mm two escapes from one part's pins crossing near its pin row cost")
     score_escape_depth: float = S(1.5, "mm",
-        "the corridor length the escape findings, and so the run score, are measured at, whatever `place.escape_depth` the search used, so runs at different search depths compare")
+        "how near a part's pads two escapes' airwires that cross count as crossed (`escape_crossed`), and how far round a hand-off pin or the end of a declared lane the path search looks for a way out, whatever `place.escape_depth` the search used, so runs at different search depths compare")
     score_escape_closed: float = S(50.0, "mm",
-        "mm a pad whose last route toward what it connects to is closed costs")
-    score_escape_walled: float = S(400.0, "mm",
-        "mm a pad with no route out at all costs. A pad that copper of its own net already leaves with a way on (a track that reaches another pad of the net, a via in it, a pour over it) is not counted, closed or walled; a track or an escape's lane that ends in the air is the pad's way out only as far as it goes, and the pad is walled when no track or via gets on from where the copper ends. What walls a pad (pads on a layer the pad shares, a through-hole pad on every layer it spans, unplated holes, copper, and where a via is wanted the rule areas that forbid vias) is named by owner, \"track NET\", \"via NET\", \"pour NET\" or \"the escape lane of U1 pin 53\". A pad whose net has no other pad on the board (a pin the cell hands off to the board above it; not a no-connect net: `NC_...`, `unconnected-(...)`, or a net named under an instance, with a dot) is reported at the end of the run when no track or via gets out of it, from the end of its own net's copper on it (a stub, an escape's lane) where it has any: \"no other pad is on the net, so it leaves the board here, and it is walled off by ...\". Such a pin keeps no corridor in the placement search; `board.escape` names the pins whose routes out are to be kept")
+        "mm a pad costs that has no surface route toward what it connects to and no via beside it, but a surface route another way (`score.escape_reach`)")
+    score_escape_reach: float = S(3.0, "mm",
+        "how far round a pad its way out is looked for (the exact path search's window, and the reach of the straight lanes tried first): placemat's own rule, not KiCad's")
+    score_escape_via: float = S(10.0, "mm",
+        "mm a pad costs whose only way out toward what it joins is a via beside it: no surface route toward its target, but a via of its class fits at the pad's edge or where its track leaves the pin field")
     score_escape_lane: float = S(400.0, "mm",
         "mm a declared `board.escape` lane costs that another net's pad, hole or copper already placed blocks, or whose via has no legal spot: in the search at each candidate, and in the run score as the `escape_lane` finding")
     score_congestion: float = S(10.0, "mm",
-        "explore: mm per `explore.congestion_step` of the worst RUDY cell")
+        "mm per `score.congestion_step` of the worst RUDY cell, in every run's score")
+    score_congestion_step: float = S(0.05, "fraction",
+        "the worst RUDY cell is counted in steps of this, at `score.congestion` each (0 leaves congestion out)")
+    score_congestion_box: float = S(3.0, "mm",
+        "each net's RUDY box is at least this wide each way, about its centre (placemat's own rule): a short net along one axis spreads its wire over this width rather than one 0.5 mm cell, so a small turn of it cannot move the worst cell by several steps")
+    score_link: float = S(1.0, "multiplier",
+        "the run score's link term: each declared link's weight times its pad-to-pad length, times this")
+    score_area: float = S(0.25, "mm",
+        "mm of score per mm2 of a fitted frame (`board.rect(fit=...)`), on the axes it fits; 0 on a fixed outline")
     score_via_share: float = S(1.0, "mm",
         "mm the search adds to a spot for each carried via that shares a via of its net there")
     score_via_move: float = S(2.0, "mm",
@@ -741,6 +739,7 @@ class SettingsError(ValueError):
 
 # Keys with a fixed set of values.
 _CHOICES = {"place_envelope": ("courtyard", "physical", "union"), "place_rotations": ("all", "declared"), "place_order": ("freedoms", "room"),
+            "place_search_wire": ("clique", "mst"),
             "copper_cell_zones_under_planes": ("drop", "keep"), "write_split_groups": ("lift", "split", "keep"),
             "write_keepout_drawings": ("admitting", "all", "none")}
 
@@ -749,7 +748,7 @@ _CHOICES = {"place_envelope": ("courtyard", "physical", "union"), "place_rotatio
 # from this table because weighting a dimension at nothing is a real choice.
 _ABOVE_ZERO = frozenset((
     "place_radius", "place_step", "place_bearing_step", "place_tangent_bin", "place_lookahead_step", "place_room_pitch", "place_coarse_min_radius_steps", "place_coarse_stride",
-    "place_refine_spots", "place_step_budget", "place_arrangement_options_max", "place_arrangements_max", "place_arrangement_note_chars", "place_block_gap_step", "place_block_gap_reach", "place_beside_step", "place_beside_reach", "place_firm_passes", "place_copper_room_tolerance", "place_escape_depth", "place_escape_via_step", "place_escape_via_reach", "place_edge_step", "place_pocket_step", "place_freedom_min_step", "place_cutout_step", "place_cutout_angle_step", "place_escape_cell", "place_approach_reach", "place_approach_detour", "geometry_cap_steps", "solve_spread_growth", "solve_centre_pull", "score_escape_depth", "place_via_move_step", "place_via_search_chunk", "place_via_clear_cache",
+    "place_refine_spots", "place_escape_spots", "place_retry_lift", "place_step_budget", "place_arrangement_options_max", "place_arrangements_max", "place_arrangement_note_chars", "place_block_gap_step", "place_block_gap_reach", "place_beside_step", "place_beside_reach", "place_firm_passes", "place_copper_room_tolerance", "place_escape_depth", "place_escape_via_step", "place_escape_via_reach", "place_edge_step", "place_pocket_step", "place_freedom_min_step", "place_cutout_step", "place_cutout_angle_step", "place_escape_cell", "place_approach_reach", "place_approach_detour", "geometry_cap_steps", "solve_spread_growth", "solve_centre_pull", "score_escape_depth", "score_escape_reach", "score_congestion_box", "place_via_move_step", "place_via_search_chunk", "place_via_clear_cache",
     "place_conflict_reach", "place_fit_room", "copper_arc_radius_track_widths", "copper_bridge_half_gap", "copper_finger_bridge_width", "copper_finger_min_piece",
     "copper_plane_min_width", "copper_pour_outline_width", "copper_pour_reach_step", "copper_pour_reach_max", "copper_microvia_drill", "label_text_height",
     "label_thickness", "label_slide_step", "geometry_arc_sag", "geometry_index_cells",
@@ -759,16 +758,17 @@ _ABOVE_ZERO = frozenset((
     "route_plane_share", "route_adopt_tolerance", "place_courtyard_polygon_share", "write_keepout_line_width", "write_keepout_text_height",
     "pins_seeds", "pins_anneal_moves", "pins_budget_steps", "pins_reversed_min", "pins_joint_combinations", "pins_probe_budget_steps"))
 _AT_LEAST_ZERO = frozenset((
-    "studio_follow_hold_s", "rank_area_weight", "rank_pins_weight", "place_drops_keep_share", "place_turn_gain_mm", "place_turn_crossings_min", "route_turn_cost", "place_courtyard_touch", "place_silk_margin", "cleanup_passes", "cleanup_swap_neighbours", "preview_model_edge_px", "studio_3d_appear_ms", "studio_3d_spread_ms", "studio_note_age_s", "studio_port", "studio_debounce_ms", "studio_cancel_grace_ms", "copper_chamfer", "best_airwire_noise",
-    "run_max_time_s", "run_step_warn_s", "run_step_limit_s", "best_crossing_noise", "score_unplaced", "score_unplaced_high", "score_unplaced_default", "score_unplaced_low",
-    "score_drc", "score_link_over", "score_fixed", "score_copper", "score_label", "score_setup", "score_crossing",
-    "score_crossing_plane", "score_escape_crossed", "score_escape_closed", "score_escape_walled", "score_escape_lane", "score_congestion",
+    "studio_follow_hold_s", "rank_area_weight", "rank_pins_weight", "place_drops_keep_share", "place_turn_gain_mm", "route_turn_cost", "place_courtyard_touch", "place_silk_margin", "cleanup_passes", "place_retry_rounds", "cleanup_swap_neighbours", "preview_model_edge_px", "studio_3d_appear_ms", "studio_3d_spread_ms", "studio_note_age_s", "studio_port", "studio_debounce_ms", "studio_cancel_grace_ms", "copper_chamfer", "best_airwire_noise",
+    "run_max_time_s", "run_step_warn_s", "run_step_limit_s", "best_crossing_noise",
+    "score_link_over", "score_label", "score_setup", "score_crossing",
+    "score_crossing_plane", "score_crossing_pair_net", "score_impedance", "score_escape_crossed", "score_escape_closed", "score_escape_lane", "score_escape_via", "score_congestion",
+    "score_congestion_step", "score_link", "score_area",
     "copper_pair_chamfer", "copper_pair_via_offset", "copper_plane_inset", "copper_straight_tolerance",
     "copper_plane_clearance", "label_gap", "check_keep_out_mm", "route_diff_pair_gap", "route_diff_pair_width",
     "score_pair_crossing", "copper_tap_overlap", "solve_spread_pull", "place_via_share_distance", "place_via_move_distance", "place_via_leave_distance", "place_via_route_distance", "score_via_route", "score_via_share", "score_via_leave",
     "score_via_move", "score_via_drop", "score_via_shorten", "score_push", "score_back_face", "score_arrangement", "place_extent_notice_mm", "place_arrangement_margin",
     "score_via_relay", "score_via_relay_moved", "score_via_relay_gap", "score_via_relay_pitch",
-    "pins_exit_mm", "pins_pair_weight", "pins_impedance_weight", "pins_length_weight", "pins_bend_weight", "pins_group_weight", "pins_anneal_start",
+    "pins_exit_mm", "pins_bend_weight", "pins_group_weight", "pins_anneal_start",
     "pins_anneal_end", "pins_gain_min", "pins_placed_share_min", "pins_explore_top", "pins_guard_ms"))
 # A floor of 2: below it a "group" can never be more than one part, which
 # is not a group at all.
@@ -867,21 +867,46 @@ _RETIRED = {
     "route_diff_pairs": "a net class's diff_pair_width/diff_pair_gap in the board's .zen",
 }
 
+# Keys renamed: {old key: the key that took its place}, the value meaning the same.
+_MOVED = {
+    "explore_congestion_step": "score_congestion_step",
+}
+
 # Keys retired because what they set is now counted another way: {key: what replaced it}. A time is not a count of
-# steps, so the old value is not carried over; the project is told what to set instead.
+# steps, so the old value is not carried over; the project is told what to set instead, or, for a term moved out of the
+# run score into the validity tier (D13), that it has no weight now.
+_VALIDITY = ("counts in the validity tier of the board comparison (score.rank), before closure and the run score, "
+             "with no weight")
 _REPLACED = {
     "route_islands": 'a phase with `nets` and `width` ([[route.phase]], api.md "Routing phases")',
     "route_pair_layers": 'a phase with `pairs = true` and `layers` ([[route.phase]], api.md "Routing phases")',
     "route_net_halos": "the clearance field of the net's type in the capture",
 
-    "pins_budget_ms": "pins.budget_steps, a count of the study's steps, so a board gives the same map at any speed",
-    "pins_probe_budget_ms": "pins.probe_budget_steps, a count of the study's steps, so a board gives the same map at any speed",
-    "explore_route_top": "explore.route_best = true, which routes the plain placement and each new best as the search finds them",
+    "pins_pair_weight": "set score.crossing_pair_net; pin candidates use the common pair crossing price",
+    "pins_impedance_weight": "set score.impedance; pin candidates use the common impedance price",
+    "pins_length_weight": "the generator uses 1 / score.crossing (or 0 when crossing is 0); finalists use the common run score",
+    "place_turn_crossings_min": "crossings are priced in the common run score; set place.turn_gain_mm and place.turn_gain_share",
+    "score_unplaced": "an unplaced part " + _VALIDITY,
+    "score_unplaced_high": "an unplaced part " + _VALIDITY + ", a high priority one before a default before a low",
+    "score_unplaced_default": "an unplaced part " + _VALIDITY + ", a high priority one before a default before a low",
+    "score_unplaced_low": "an unplaced part " + _VALIDITY + ", a high priority one before a default before a low",
+    "score_drc": "a real DRC error beyond the board's baseline " + _VALIDITY,
+    "score_fixed": "a decided item illegal where it stands (the critical fixed finding) " + _VALIDITY,
+    "score_copper": "planned copper that meets another net (the critical copper finding) " + _VALIDITY,
+    "score_escape_walled": "a walled pad (the critical escape_walled finding) " + _VALIDITY
+                           + "; the search takes a spot that walls no pad over any that walls one",
+    "pins_budget_ms": "set pins.budget_steps, a count of the study's steps, so a board gives the same map at any speed",
+    "pins_probe_budget_ms": "set pins.probe_budget_steps, a count of the study's steps, so a board gives the same map at any speed",
+    "explore_route_top": "set explore.route_best = true, which routes the plain placement and each new best as the search finds them",
 }
 
 
 def _replaced(where, name: str) -> SettingsError:
-    return SettingsError("%s: %s.%s is retired; set %s" % ((where,) + split_key(name) + (_REPLACED[name],)))
+    return SettingsError("%s: %s.%s is retired; %s" % ((where,) + split_key(name) + (_REPLACED[name],)))
+
+
+def _moved(where, name: str) -> SettingsError:
+    return SettingsError("%s: %s.%s is now %s.%s" % ((where,) + split_key(name) + split_key(_MOVED[name])))
 
 
 def _flatten(data: dict, path) -> dict:
@@ -908,6 +933,8 @@ def _flatten(data: dict, path) -> dict:
                 out[join_key(full, "")] = dict(value)
                 continue
             name = join_key(section, key)
+            if name in _MOVED:
+                raise _moved(path, name)
             if name in _REPLACED:
                 raise _replaced(path, name)
             if name in _RETIRED:
@@ -985,6 +1012,8 @@ def load(start, overrides=None, script=None) -> Settings:
                 values[name] = value
                 sources[name] = "%s [scripts.%s]" % (path, json.dumps(key))
     for name, value in (overrides or {}).items():
+        if name in _MOVED:
+            raise _moved("flag", name)
         if name in _REPLACED:
             raise _replaced("flag", name)
         if name not in set(Settings.keys()):

@@ -69,6 +69,7 @@ class BResult:
     placement: dict = dataclasses.field(default_factory=dict)   # placement_facts: kept when the route fails or is refused
     open_pour: int = 0      # open connections on the nets the routed board serves by a pour; open_other is the rest
     open_other: int = 0
+    measures: dict = dataclasses.field(default_factory=dict)    # the run's measures (score.py), routed quality included
 
 
 @dataclasses.dataclass(frozen=True)
@@ -85,6 +86,7 @@ class MResult:
     placement: dict = dataclasses.field(default_factory=dict)
     hand: dict = dataclasses.field(default_factory=dict)
     placed_area_mm2: float | None = None
+    measures: dict = dataclasses.field(default_factory=dict)    # the run's measures (score.py), routed quality included
 
 
 def asdict(result) -> dict:
@@ -100,7 +102,7 @@ def module_scripts(root: pathlib.Path = FIXTURES) -> dict[str, pathlib.Path]:
     return found
 
 
-def placement_facts(record: dict | None, folder: pathlib.Path) -> dict:
+def placement_facts(record: dict | None, folder: pathlib.Path, *, script=None) -> dict:
     """What the placement alone measured, from run.json's metrics, before any route: crossings, airwire_mm, area_mm2, placed,
     findings and run_score. {} when the run recorded no placement (a refused script)."""
     metrics = (record or {}).get("metrics") or {}
@@ -109,7 +111,7 @@ def placement_facts(record: dict | None, folder: pathlib.Path) -> dict:
     facts = {"crossings": metrics.get("crossings"), "airwire_mm": metrics.get("airwire_mm"), "area_mm2": _area(metrics),
              "placed": metrics["placed"], "findings": metrics.get("findings")}
     if metrics.get("measures"):
-        facts["run_score"] = run_score(record, folder)
+        facts["run_score"] = run_score(record, folder) if script is None else run_score(record, folder, script=script)
     return facts
 
 
@@ -126,10 +128,10 @@ def krt_version(folder: pathlib.Path) -> str:
     return route_ref._krt_version(pathlib.Path(folder) / "x.kicad_pcb")
 
 
-def run_score(record: dict, folder: pathlib.Path) -> float:
+def run_score(record: dict, folder: pathlib.Path, *, script=None) -> float:
     """The run score of run.json's measures, at the settings of the board folder."""
     from placemat import score, settings
-    return round(score.total(record["metrics"]["measures"], settings.load(pathlib.Path(folder))), 3)
+    return round(score.total(record["metrics"]["measures"], settings.load(pathlib.Path(folder), script=script)), 3)
 
 
 def _copy_folder(src: pathlib.Path, dst: pathlib.Path) -> None:
@@ -147,7 +149,7 @@ def _process_text(value) -> str:
     return value.decode(errors="replace") if isinstance(value, bytes) else value or ""
 
 
-def placemat_run(script: pathlib.Path, extra: tuple = ()) -> tuple[dict | None, float]:
+def placemat_run(script: pathlib.Path, extra: tuple = (), *, route: bool = True) -> tuple[dict | None, float]:
     """`placemat run <script>` with RUN_ARGS and `extra` (route_ref.run_owned): (run.json as a dict, seconds). Only exit 0
     and a run.json this invocation wrote or rewrote give a result; a malformed record, a nonzero exit or the timeout is a
     failed result. Logs and the process facts are kept beside the copied script."""
@@ -158,7 +160,8 @@ def placemat_run(script: pathlib.Path, extra: tuple = ()) -> tuple[dict | None, 
     audits = script.parent / ".placemat" / "reference-runs"
     audits.mkdir(parents=True, exist_ok=True)
     audit = pathlib.Path(tempfile.mkdtemp(prefix="invocation-", dir=audits))
-    cmd = [sys.executable, "-m", "placemat", "run", str(script), *RUN_ARGS, *extra]
+    args = RUN_ARGS if route else tuple(a for a in RUN_ARGS if a != "--route")
+    cmd = [sys.executable, "-m", "placemat", "run", str(script), *args, *extra]
     facts = {"argv": cmd, "cwd": str(pathlib.Path.cwd()), "timeout_s": RUN_TIMEOUT_S}
 
     def log(stdout, stderr):
@@ -229,7 +232,8 @@ def _failure(record: dict | None) -> tuple[str, str]:
 
 
 def run_b(board: fetch.Board, ref_dir: pathlib.Path, work: pathlib.Path, *, prepared: prepare.Prepared | None = None,
-          versions: dict | None = None, a_closure_clean: float | None = None) -> BResult:
+          versions: dict | None = None, a_closure_clean: float | None = None,
+          overrides: dict | None = None) -> BResult:
     """Run the placement script and judge against a fresh import of the pinned source.
 
     The regenerated reference uses the same library footprints as the script.
@@ -257,9 +261,11 @@ def run_b(board: fetch.Board, ref_dir: pathlib.Path, work: pathlib.Path, *, prep
         human = prepared.human
     folder = work / "board"
     _copy_folder(ref_dir, folder)
-    record, seconds = placemat_run(folder / script.name, FULL_ROUTE)
+    copied = folder / script.name
+    _apply_overrides(copied, overrides or {})
+    record, seconds = placemat_run(copied, FULL_ROUTE)
     versions["krt"] = krt_version(folder)
-    placement = placement_facts(record, folder)
+    placement = placement_facts(record, folder, script=copied)
     kind, message = _failure(record)
     if kind:
         return result(failure=kind, detail=message, seconds=round(seconds, 1), versions=versions, placement=placement)
@@ -275,8 +281,8 @@ def run_b(board: fetch.Board, ref_dir: pathlib.Path, work: pathlib.Path, *, prep
     pour, other = route_ref.open_split(route.get("open_nets") or {}, opened, route_ref.pour_nets(pathlib.Path(route["routed_pcb"])))
     return result(closure_clean=route.get("closure_clean", NOT_RUN), open=opened, open_pour=pour, open_other=other,
                   new_violations=new,
-                  vias=routed.vias, track_mm=routed.track_mm, run_score=run_score(record, folder), seconds=round(seconds, 1),
-                  versions=versions, placement=placement)
+                  vias=routed.vias, track_mm=routed.track_mm, run_score=run_score(record, folder, script=copied), seconds=round(seconds, 1),
+                  versions=versions, placement=placement, measures=record["metrics"].get("measures") or {})
 
 
 def _area(metrics: dict) -> float:
@@ -304,7 +310,8 @@ def _placed_board(script: pathlib.Path) -> pathlib.Path:
     return find_board(script).pcb
 
 
-def run_module(name: str, script: pathlib.Path, work: pathlib.Path, *, versions: dict | None = None) -> MResult:
+def run_module(name: str, script: pathlib.Path, work: pathlib.Path, *, versions: dict | None = None,
+               overrides: dict | None = None) -> MResult:
     """A module fixture run as a user runs it: `placemat run --route` on the script inside a copy of its family's workspace in
     `work`, so placemat generates the board fresh with `pcb layout` (the checked-in layout/ holds an old run's copper and is not
     the generation) and the repository's files are not written."""
@@ -312,9 +319,10 @@ def run_module(name: str, script: pathlib.Path, work: pathlib.Path, *, versions:
     versions = dict(versions if versions is not None else route_ref.current_versions())
     digest = generation_inputs(script)
     copy = _copy_family(script, pathlib.Path(work) / "workspace")
+    _apply_overrides(copy, overrides or {})
     record, seconds = placemat_run(copy)
     versions["krt"] = krt_version(copy.parent)
-    placement = placement_facts(record, copy.parent)
+    placement = placement_facts(record, copy.parent, script=copy)
     extra = {}
     found = hand.reference_of(script)
     if found is not None:
@@ -328,8 +336,8 @@ def run_module(name: str, script: pathlib.Path, work: pathlib.Path, *, versions:
         return MResult(name, NOT_RUN, placement.get("area_mm2", 0.0), 0.0, round(seconds, 1), versions, kind, message, digest,
                        placement, **extra)
     metrics = record["metrics"]
-    return MResult(name, metrics.get("closure_clean", NOT_RUN), _area(metrics), run_score(record, copy.parent), round(seconds, 1),
-                   versions, inputs_digest=digest, placement=placement, **extra)
+    return MResult(name, metrics.get("closure_clean", NOT_RUN), _area(metrics), run_score(record, copy.parent, script=copy), round(seconds, 1),
+                   versions, inputs_digest=digest, placement=placement, measures=metrics.get("measures") or {}, **extra)
 
 
 def _differ(old: dict, new, changing: set[str]) -> list[str]:
@@ -350,14 +358,36 @@ def _compared(old: dict | None, new, changing: set[str], value) -> route_ref.Com
     return values
 
 
+def _ranked(old: dict, new) -> str | None:
+    """same, better or worse by `score.rank` when both runs recorded their measures and neither failed: the new
+    violations as the DRC errors beyond the baseline (a board's; None for a module) and the clean closure, closures ()
+    as a run records no phases yet. None otherwise: a record from before the measures is judged as it was."""
+    if new.failure or old.get("failure") or not new.measures or not old.get("measures"):
+        return None
+    from placemat import score
+    from placemat.settings import Settings
+
+    def standing(r: dict):
+        m = r["measures"]
+        drc = len(r["new_violations"] or ()) if "new_violations" in r else m.get("drc")
+        return score.Standing(m, score.Validity.of(m, drc_new=drc), (), r["closure_clean"])
+    return {-1: "better", 0: "same", 1: "worse"}[score.rank(standing(asdict(new)), standing(old), Settings())]
+
+
 def b_by_value(old: dict, new: BResult) -> route_ref.Comparison:
-    """same, better or worse on the values alone: route_ref.routing_values."""
-    return route_ref.routing_values(old, new)
+    """Keep every routed no-worse guard, then compare recorded shared scores."""
+    values = route_ref.routing_values(old, new)
+    if values.status == "worse":
+        return values
+    ranked = _ranked(old, new)
+    return dataclasses.replace(values, status=ranked) if ranked is not None else values
 
 
 def module_by_value(old: dict, new: MResult) -> route_ref.Comparison:
-    """same, better or worse on the values alone: a failure or lower clean closure is worse, a higher one better; at equal
-    closure a larger area is worse. A module's record has no open counts or DRC, so those are not compared."""
+    """Use shared validity/score when measured; retain legacy closure/area comparison otherwise."""
+    ranked = _ranked(old, new)
+    if ranked is not None:
+        return route_ref.Comparison(ranked, [])
     values = route_ref.routing_values(old, new, counts=False)
     if values.status != "same":
         return values
@@ -414,11 +444,123 @@ def line_module(r: MResult, c: route_ref.Comparison) -> str:
     return "%s  %s%s" % (head, route_ref.said(c), "  FAILED %s: %s" % (r.failure, r.detail[:200]) if r.failure else "")
 
 
+def _apply_overrides(copied, overrides):
+    """Validate and write settings only in the copied script's workspace."""
+    from placemat import settings
+    from placemat.script_edit import toml_set
+    settings.load(copied.parent, overrides=overrides, script=copied)
+    if overrides:
+        path = copied.parent / "placemat.toml"
+        text = path.read_text() if path.exists() else ""
+        for name, value in overrides.items():
+            section, key = settings.split_key(name)
+            text = toml_set(text, ["scripts", copied.name, section], key, value)
+        path.write_text(text)
+    return settings.load(copied.parent, script=copied)
+
+
+def run_placement(name, script, work, *, module, versions, overrides):
+    """Placement only in a clean workspace, with overrides confined to that copy."""
+    script = pathlib.Path(script)
+    digest = generation_inputs(script)
+    if module:
+        copied = _copy_family(script, work / "workspace")
+    else:
+        _copy_folder(script.parent, work / "board")
+        copied = work / "board" / script.name
+    cfg = _apply_overrides(copied, overrides)
+    record, seconds = placemat_run(copied, route=False)
+    kind, message = _failure(record)
+    return dict(placement_facts(record, copied.parent, script=copied), versions=versions, inputs_digest=digest,
+                measures=((record or {}).get("metrics") or {}).get("measures") or {},
+                score_settings={k: getattr(cfg, k) for k in cfg.keys() if k.startswith("score_")},
+                seconds=round(seconds, 3), failure=kind, detail=message)
+
+
+def compare_placement(old, new, changing):
+    """Placement-only verdict under the current run's weights and common validity."""
+    from placemat import score
+    from placemat.settings import Settings
+    if old is None:
+        return "new"
+    if route_ref.comparable(old.get("versions", {}), new["versions"], changing) or old.get("inputs_digest") != new.get("inputs_digest"):
+        return "not comparable"
+    if bool(old.get("failure")) != bool(new.get("failure")):
+        return "worse" if new.get("failure") else "better"
+    if new.get("failure"):
+        return "same"
+    a, b = new.get("measures") or {}, old.get("measures") or {}
+    if a.get("v") != score.MEASURES_VERSION or b.get("v") != score.MEASURES_VERSION:
+        return "not comparable"
+    cfg = dataclasses.replace(Settings(), **new.get("score_settings", {}))
+    def standing(m):
+        return score.Standing(m, score.Validity.of(m, drc_new=m.get("drc")))
+    return {-1: "better", 0: "same", 1: "worse"}[score.rank(standing(a), standing(b), cfg)]
+
+
+def _setting_overrides(values, ap, root):
+    from placemat.settings import Settings, SettingsError, load
+    overrides = {}
+    for setting in values:
+        name, equal, value = setting.partition("=")
+        name = name.replace(".", "_")
+        if not equal or name not in Settings.keys():
+            ap.error("--set needs a known setting NAME=VALUE")
+        try:
+            overrides[name] = json.loads(value)
+        except json.JSONDecodeError:
+            overrides[name] = value
+    try:
+        load(root, overrides=overrides)
+    except SettingsError as e:
+        ap.error(str(e))
+    return overrides
+
+
+def _placement_only(args, ap, root, recorded, versions):
+    """Record placement measures independently of the routed reference baseline."""
+    overrides = _setting_overrides(args.set, ap, root)
+    if args.modules:
+        found = module_scripts()
+        chosen = {n: p for n, p in found.items() if not args.names or n in args.names or n.split("/")[1] in args.names}
+    else:
+        boards = [b for b in fetch.load_manifest() if "b" in b.tests and (not args.names or b.name in args.names)]
+        chosen = {b.name: lint.find_script(b.name) for b in boards}
+    if args.names and not chosen:
+        ap.error("no placement fixture among: %s" % ", ".join(args.names))
+    results = dict(recorded.get("placement", {}))
+    worse = False
+    with lock.realboard():
+        for name, script in chosen.items():
+            try:
+                if not args.modules:
+                    fixed = next(b.fixed for b in boards if b.name == name)
+                    problems = lint.lint(script, fixed).problems
+                    if problems:
+                        raise ValueError("reference script failed intent lint: " + "; ".join(
+                            "line %d %s %s" % (p.line, p.rule, p.ref) for p in problems))
+                row = run_placement(name, script, root / name.replace("/", "_"), module=args.modules,
+                                    versions=versions, overrides=overrides)
+            except Exception as e:
+                row = dict(versions=versions, failure=type(e).__name__, detail=str(e), measures={})
+            status = compare_placement(results.get(name), row, set(args.changing))
+            worse = worse or status == "worse"
+            if status != "worse" or args.accept_worse:
+                results[name] = row
+            print(json.dumps(dict(name=name, comparison=status, **row), sort_keys=True), flush=True)
+            if args.update:
+                recorded["placement"] = results
+                pathlib.Path(args.results).write_text(json.dumps(recorded, indent=1, sort_keys=True) + "\n")
+    return int(worse or any(results.get(n, {}).get("failure") for n in chosen))
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("names", nargs="*", help="boards, or with --modules the modules as <family>/<name> or <name> "
                                              "(default: every open board, or every module)")
     ap.add_argument("--modules", action="store_true", help="run the module fixtures instead of the boards")
+    ap.add_argument("--place-only", action="store_true", help="measure placement without routing")
+    ap.add_argument("--set", action="append", default=[], metavar="NAME=VALUE", help="setting override in the copied workspace")
     ap.add_argument("--update", action="store_true", help="write the results into results.json")
     ap.add_argument("--accept-worse", action="store_true", help="with --update: also write results that are worse than the recorded ones")
     ap.add_argument("--changing", nargs="+", choices=route_ref.COMPONENTS, default=["placemat"],
@@ -431,6 +573,12 @@ def main(argv=None) -> int:
     root = pathlib.Path(args.work) if args.work else pathlib.Path(tempfile.mkdtemp(prefix="placemat-reference-"))
     boards, modules, comparisons, held, worse = [], [], [], [], False
     changing = set(args.changing)
+    if args.place_only:
+        try:
+            return _placement_only(args, ap, root, recorded, versions)
+        finally:
+            if not args.work:
+                shutil.rmtree(root, ignore_errors=True)
 
     def save() -> None:   # after each board or module, so a run that stops keeps the ones it finished
         if args.update:
@@ -439,19 +587,20 @@ def main(argv=None) -> int:
                          [r for r in write if isinstance(r, MResult)])
 
     try:
+        overrides = _setting_overrides(args.set, ap, root)
         if args.modules:
             found = module_scripts()
             chosen = {n: found[n] for n in found if not args.names or n in args.names or n.split("/")[1] in args.names}
             if args.names and not chosen:
                 ap.error("no module among: %s" % ", ".join(args.names))
             with lock.realboard():
-                worse = _run_modules(chosen, root, recorded.get("modules", {}), versions, changing, modules, comparisons, save)
+                worse = _run_modules(chosen, root, recorded.get("modules", {}), versions, changing, modules, comparisons, save, overrides=overrides)
         else:
             chosen = [b for b in fetch.load_manifest() if "b" in b.tests and (not args.names or b.name in args.names)]
             if args.names and len(chosen) != len(args.names):
                 ap.error("no test (b) board among: %s" % ", ".join(sorted(set(args.names) - {b.name for b in chosen})))
             with lock.realboard():
-                worse = _run_boards(chosen, root, recorded, versions, changing, boards, comparisons, save)
+                worse = _run_boards(chosen, root, recorded, versions, changing, boards, comparisons, save, overrides=overrides)
     finally:
         if not args.work:   # a --work folder is the caller's, to inspect
             shutil.rmtree(root, ignore_errors=True)
@@ -478,7 +627,7 @@ def _failed_digest(script_of) -> str:
         return ""
 
 
-def _run_boards(boards, root, recorded, versions, changing, results, comparisons, save) -> bool:
+def _run_boards(boards, root, recorded, versions, changing, results, comparisons, save, *, overrides=None) -> bool:
     """Test (b) on each board; a board whose preparation or run raises is a failed result. `save` is called after each."""
     worse = False
     for board in boards:
@@ -487,7 +636,7 @@ def _run_boards(boards, root, recorded, versions, changing, results, comparisons
         a = recorded.get("a", {}).get(board.name, {}).get("class", {}).get("closure_clean")
         try:
             prepared = prepare.prepare(board, fetch.fetch(board), work / "reference", regenerated=True)
-            r = run_b(board, ref_dir, work, prepared=prepared, versions=versions, a_closure_clean=a)
+            r = run_b(board, ref_dir, work, prepared=prepared, versions=versions, a_closure_clean=a, overrides=overrides)
         except Exception as e:   # a failed result, so the other boards still run and are kept
             r = BResult(board.name, NOT_RUN, 0, None, 0, 0.0, 0.0, 0, 0.0, a, 0.0, _failed_versions(versions, ref_dir),
                         type(e).__name__, str(e), _failed_digest(lambda: lint.find_script(board.name, ref_dir.parent)))
@@ -500,12 +649,12 @@ def _run_boards(boards, root, recorded, versions, changing, results, comparisons
     return worse
 
 
-def _run_modules(chosen, root, recorded, versions, changing, results, comparisons, save) -> bool:
+def _run_modules(chosen, root, recorded, versions, changing, results, comparisons, save, *, overrides=None) -> bool:
     """Each module fixture; a module whose copy or run raises is a failed result. `save` is called after each."""
     worse = False
     for name, script in chosen.items():
         try:
-            r = run_module(name, script, root / name.replace("/", "_"), versions=versions)
+            r = run_module(name, script, root / name.replace("/", "_"), versions=versions, overrides=overrides)
         except Exception as e:   # a failed result, so the other modules still run and are kept
             r = MResult(name, NOT_RUN, 0.0, 0.0, 0.0, _failed_versions(versions, pathlib.Path(script).parent),
                         type(e).__name__, str(e), _failed_digest(lambda: script))

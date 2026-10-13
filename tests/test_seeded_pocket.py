@@ -62,6 +62,7 @@ def test_with_no_pocket_the_part_is_unplaced_and_the_finding_says_so(monkeypatch
     monkeypatch.setattr(layout, "pockets", lambda *a, **k: [])
     monkeypatch.setattr(Board, "_no_pocket_note", lambda self, occ, i: "")
     b = _board()
+    b.settings = dataclasses.replace(b.settings, place_retry_rounds=0)     # a retry would find it the room pockets() hides
     b.place(Part("u1"))
     plan = b.resolve()
     assert _step(plan, "u1").placement is None

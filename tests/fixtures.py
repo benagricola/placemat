@@ -99,10 +99,19 @@ def make_pdf(path, body: str):
     return Path(path)
 
 
-def placement_findings(plan) -> list:
-    """The plan's findings less the escape findings: a routing diagnosis the
-    geometry tests are not about."""
-    return [f for f in plan.findings if not getattr(f, "kind", "").startswith("escape_")]
+def placement_findings(plan, unturned: bool = False) -> list:
+    """The plan's findings less the escape findings, a routing diagnosis the geometry tests are not about; with
+    `unturned`, less the `turn.better` notices too (`unturned_findings`)."""
+    return [f for f in plan.findings if not getattr(f, "kind", "").startswith("escape_")
+            and not (unturned and getattr(f, "cause", None) is FindingCause.TURN_BETTER)]
+
+
+def unturned_findings(plan) -> list:
+    """The plan's findings less the `turn.better` notices: advice on the run score. Only for a scene whose turn notice
+    the test is not about and is either a real gain on airwire or crossings, or congestion-only advice of a single
+    `score.congestion_step` (the worst cell on a step boundary); anywhere else a turn notice is a finding like any
+    other."""
+    return [f for f in plan.findings if getattr(f, "cause", None) is not FindingCause.TURN_BETTER]
 
 
 def declared_findings(plan) -> list:
@@ -113,3 +122,14 @@ def declared_findings(plan) -> list:
     return [f for f in plan.findings if "no declaration places it" not in f
             and not getattr(f, "kind", "").startswith("escape_")
             and getattr(f, "cause", None) is not FindingCause.TURN_BETTER]
+
+
+def placed(geometry):
+    """(board, plan): every footprint of `geometry` placed where it stands on a 50 x 50 mm outline, and resolved."""
+    from placemat.layout import Board
+    from placemat.values import Part
+    board = Board(geometry, keep_going=True)
+    board.rect(width=50, height=50)
+    for fp in geometry.footprints:
+        board.place(Part(fp.inst), at=fp.location, rotation=fp.rotation, face=fp.face)
+    return board, board.resolve()

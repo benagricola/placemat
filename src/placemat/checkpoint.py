@@ -10,8 +10,8 @@ Under `<board>/.placemat/explore/<script stem>/`:
   without comments or docstrings, and `script_files` keeps each file's, for an
   accept to name what changed), then one line per finished variant ({"v": seed, "s":
   score, "t": seconds spent in all, and "r", the score it is ranked by, when that is
-  not the run score: `explore.rank_remapped`}; a variant better than any before it also
-  carries "m", its measures), flushed as it is written, a "stop" line when
+  not the run score: `explore.rank_remapped`}; every variant carries "m", its
+  measures for validity and resume ranking), flushed as it is written, a "stop" line when
   the process was stopped, a "done" line when the explore finished, and a
   "recorded" line once the command that ran it has recorded its result. A
   line cut short by a kill is ignored.
@@ -34,12 +34,13 @@ import time
 from typing import NamedTuple
 
 BEST_VERSION = 1
-FORMAT = 1
+FORMAT = 2
 ENTRIES = "entries.jsonl"
 
 # What the digest is made of, and what a change to each is called.
 PARTS = {"script": "the script", "board": "the generated board", "settings": "the settings",
-         "fab": "the fab profile", "version": "the placemat version", "lock": "the lock", "focus": "the focus"}
+         "fab": "the fab profile", "version": "the placemat version", "measures": "the measures' version",
+         "lock": "the lock", "focus": "the focus"}
 
 
 class ResumeRefused(ValueError):
@@ -125,12 +126,17 @@ def read_lines(path) -> list:
 class Prior(NamedTuple):
     baseline: float
     measures: dict
-    done: dict            # {seed: (seed, score, measures or None)}
+    done: dict            # {seed: (seed, score, measures)}
     spent: float          # seconds, over every session
     finished: bool
     best_seed: int
     curve: list = []       # [(seed, score, t)] of the variants, in the order they finished
     ranks: dict = {}       # {seed: the score it is ranked by} where that is not its run score (`explore.rank_remapped`), 0 too
+
+
+def _rank_key(score, seed, measures, rank=None):
+    from .score import placement_key
+    return placement_key((seed, score, measures), None if rank is None else {seed: rank})
 
 
 class Checkpoint:
@@ -150,7 +156,7 @@ class Checkpoint:
         self.max_variants = max_variants
         self.baseline = None
         self.baseline_rank = None       # the baseline's score to rank by, when it is not its run score
-        self.best_key = None            # (score to rank by, seed) of the best seen: a variant better than it carries its measures
+        self.best_key = None            # validity, recorded objective and seed of the best seen
         self.n = 0
         self._out = None
         self._entries = None
@@ -202,26 +208,29 @@ class Checkpoint:
                 finished = finished or "done" in d
         done.pop(0, None)
         self.n = len(done)
-        scored = [(ranks.get(r[0], r[1]), r[0]) for r in done.values()]
+        if any(row[2] is None for row in done.values()):
+            if self.resume == "yes":
+                raise ResumeRefused("the saved explore is damaged (a variant has no measures); run with --no-resume to start over")
+            self.clear()
+            self.discarded = ["the checkpoint (damaged)"]
+            return None
+        scored = [_rank_key(r[1], r[0], r[2], ranks.get(r[0])) for r in done.values()]
         base = head["baseline"]
         self.baseline = base["score"]
         self.baseline_rank = base.get("rank")
         if self.baseline_rank is not None:
             ranks[0] = self.baseline_rank
-        best = min(scored + [(base["score"] if self.baseline_rank is None else self.baseline_rank, 0)])
+        best = _rank_key(base["score"], 0, base["measures"], self.baseline_rank)
+        for candidate in scored:
+            if candidate < best:
+                best = candidate
         self.best_key = best
-        if best[1] and done[best[1]][2] is None:           # a best always carries them: a line was edited
-            if self.resume == "yes":
-                raise ResumeRefused("the saved explore is damaged (its best variant has no measures); run with "
-                                    "--no-resume to start over")
-            self.clear()
-            self.discarded = ["the checkpoint (damaged)"]
-            return None
+        self._baseline_key = _rank_key(base["score"], 0, base["measures"], self.baseline_rank)
         saved = read_best(self.dir)
         if saved is not None:
-            self._best_written = (saved.get("score_remapped", saved["score"]), saved["seed"])
+            self._best_written = best if saved["seed"] == best[-1] else None
         curve = [(d["v"], d["s"], d.get("t", 0.0)) for d in lines[1:] if "v" in d and d["v"]]
-        self.resumed = Prior(base["score"], base["measures"], done, spent, finished, best[1], curve, ranks)
+        self.resumed = Prior(base["score"], base["measures"], done, spent, finished, best[-1], curve, ranks)
         return self.resumed
 
     def best_measures(self, prior: Prior):
@@ -243,7 +252,8 @@ class Checkpoint:
         self.clear()
         self.baseline = baseline
         self.baseline_rank = rank
-        self.best_key = (baseline if rank is None else rank, 0)
+        self.best_key = _rank_key(baseline, 0, measures, rank)
+        self._baseline_key = self.best_key
         self._open("w").write({
             "kind": "header", "version": FORMAT, "digest": self.digest, "parts": self.parts, "script_files": self.script_files,
             "focus": self.focus, "baseline": dict({"score": baseline, "measures": measures},
@@ -258,33 +268,28 @@ class Checkpoint:
         return self._out
 
     def variant(self, seed: int, score: float, measures: dict, elapsed: float, payload, rank: float | None = None) -> None:
-        """One finished variant: a line (its measures when it beat every one
-        before it; at the cap on lines, nothing), its entries' line when it
+        """One finished variant: a line with its measures (at the cap on lines, nothing), its entries' line when it
         brought its entries (`payload`), and best.json when those beat the
         baseline and the best written. `rank` is the score it is ranked by
         when that is not `score` (`explore.rank_remapped`): what "better" means."""
-        by = score if rank is None else rank
+        key = _rank_key(score, seed, measures, rank)
         if self.n < self.max_variants and payload is not None and seed:
             if self._entries is None:
                 self._entries = Appender(self.entries_path, "a")
             self._entries.write({"v": seed, "entries": payload["entries"], "orders": payload["orders"]})
         if self.n < self.max_variants:
-            line = {"v": seed, "s": score, "t": round(elapsed, 2)}
+            line = {"v": seed, "s": score, "t": round(elapsed, 2), "m": measures}
             if rank is not None:
                 line["r"] = rank
-            if self.best_key is None or (by, seed) < self.best_key:
-                line["m"] = measures
             self._open("a").write(line)
             self.n += 1
             if self.n == self.max_variants:
                 self._open("a").write({"full": self.n})      # no more lines: a resume tries what follows again
-        key = (by, seed)
         if self.best_key is None or key < self.best_key:
             self.best_key = key
         if payload is None or not seed:
             return
-        base = self.baseline if self.baseline_rank is None else self.baseline_rank
-        if base is not None and by >= base - 1e-9:
+        if key >= self._baseline_key:
             return
         if self._best_written is not None and key >= self._best_written:
             return

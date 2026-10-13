@@ -84,6 +84,8 @@ def test_a_track_of_the_script_that_walls_a_pad_is_named_as_a_refusal_names_it()
 
 
 def test_a_pour_of_the_script_that_walls_a_pad_is_a_pour():
+    """A script's pour is static copper: across the gap it closes the pad's one way out, and no via spot clears the
+    ring 0.1 mm off, so the pad is walled, and the pour is named."""
     b = _board(_ring_open_south())
     b.pour(Net("RING"), [Location(29.0, 30.6), Location(31.0, 30.6), Location(31.0, 31.1), Location(29.0, 31.1)],
            layer=F, why="a pour across the way out")

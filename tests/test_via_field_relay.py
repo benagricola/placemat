@@ -126,7 +126,7 @@ def test_a_relay_costs_score_via_relay_once_and_score_via_relay_moved_for_each_v
     occ.commit(b.geometry.footprint("R9"), Placement(Location(18.1, 19.1), 0.0, Face.BACK))
     centre = occ._geometry(b.geometry.cells["m"]).reference.location
     hint = Placement(Location(centre.x - SHIFT, centre.y - SHIFT), 0.0, Face.FRONT)
-    r = scan(occ, b.geometry.cells["m"], hint, 0.0, 0.2, (0.0,), score=lambda p: 0.0)
+    r = scan(occ, b.geometry.cells["m"], hint, 0.0, 0.2, (0.0,), score=lambda p: (0, 0.0))
     assert r.chosen is not None and r.score == pytest.approx(3.0 + 3 * 0.5)
 
 

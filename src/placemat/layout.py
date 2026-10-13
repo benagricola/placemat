@@ -42,7 +42,7 @@ from .placement import Placement
 from .settings import Settings
 from .arrangements import (DEFAULT_SPEC, Alt, Enumeration, Exclusion, Group, GroupOption, Option, Spec, check_keywords, check_name,
                            enumerate_specs, merged_call, only_holds, units)
-from .placer import BandTurns, BearingTurns, BlockSpec, SearchBudget, SpotTurns, ScanResult, _grid, _pin_normal, facing_rotation, pad_way_out, pad_row_end, way_out_side, parallel_rotation, _reason_key, box_centered_placement, cell_pad_anchored_placement, pad_box_at, cell_origin_anchored_placement, disc_placement, pad_anchored_placement, sweep_standoff, edge_placement, layout_block, pockets, run_placement, scan, scan_block
+from .placer import UNWEIGHED, BandTurns, BearingTurns, BlockSpec, SearchBudget, SpotTurns, ScanResult, _grid, _pin_normal, facing_rotation, pad_way_out, pad_row_end, way_out_side, parallel_rotation, _reason_key, box_centered_placement, cell_pad_anchored_placement, pad_box_at, cell_origin_anchored_placement, disc_placement, pad_anchored_placement, sweep_standoff, edge_placement, layout_block, pockets, run_placement, scan, scan_block
 from .board_geometry import BoardGeometry, CellGeom, Footprint, members_of, part_height, stackup_order
 from .lanes import Escape, EscapeDecl, EscapeError, Lane, LanePoint, Layouter, row_way, turn_direction
 from .values import (Tangent, Turned, Turns, Axis, Bearing, Bend, Corner, Cover, Beside, Between, Cutout, CutoutEdge, Drops, Freedom, Keepout, LabelKey, bearing_of, Along, Box, Cell, CellPadRef, Centre, Disc, Facing, SideOf, Line, OnBore, OnRim, Origin, Parallel, Past, Pin, Polar, bearing, bearing_vector, box_support, polar_point, CopperLayer, Edge, Face, Fraction, FreeSpot, Inside, Land, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
@@ -476,6 +476,7 @@ class CopperIntent:
     declared: dict = field(default_factory=dict, metadata={"reuse": False})   # what the declaration gave, as a finding's suggestions read it
     only: tuple = field(default=(), metadata={"omit_default": True})    # the arrangements it exists in, as only= names them; () every one (arrangements.py)
     form: str = field(default="", metadata={"omit_default": True})      # the declaration's arguments in canonical form (_declares_copper): what `plan` reads, which reuse.canonical cannot see into
+    joins: tuple = field(default=(), metadata={"reuse": False, "omit_default": True})  # (ref, pad number) of each pad it is drawn onto at the pad (Board._pad_joins), from its points
 
     def applies_in(self, held: frozenset) -> bool:
         """Whether it exists in an arrangement holding the choice ids `held` (arrangements.Spec.held): `only=` matches by the
@@ -712,7 +713,10 @@ class Plan:
     pocketed: list = field(default_factory=list)                  # seeded items whose scan failed and took a pocket
     footprints: list = field(default_factory=list)                # courtyard mode: footprints whose courtyard understates the part
     cleanup: dict = field(default_factory=dict)                   # what the cleanup pass did, when it ran
+    retry: list = field(default_factory=list)                     # each try of the retry for what the search left unplaced (retry.py)
     rudy: object = None                                           # congestion.Rudy of the placed board
+    fitted_axes: tuple = (False, False)                           # (x fitted, y fitted): the axes of a fit frame (board.rect(fit=...)) the content sized
+    fit_margin: float = 0.0                                       # a fit frame's margin round its content
     reuse: dict = field(default_factory=dict)                     # this run's record, for the next run to replay
     seconds: float = 0.0                                          # how long the resolve took, in all
     turns: dict = field(default_factory=dict, repr=False)        # each searched item's turn: where it went and the pad it depends on (lock.py)
@@ -829,16 +833,17 @@ PRUNED = 1e6
 
 
 class Scorer:
-    """A searched item's cost at a candidate placement: each connection's
-    weight times its length, `score.crossing` for each ratsnest crossing its
-    airwires would add, and the escape weights for each escape it would
-    cross, close or wall off (escapes.py). With `prune`, a candidate whose
-    wire alone reaches the best cost weighed so far (`best[0]`) is not
-    weighed further: its crossings and escapes can only add. Explore draws
-    among candidates near the best and needs every one weighed.
+    """A searched item's standing at a candidate placement, as (pads it walls off, cost), compared in that order (D13):
+    a candidate that walls a pad (escapes.py, `Escapes.closed`) loses to any that walls none, then the cost decides.
+    The cost is each connection's weight times its length, `score.crossing` for each ratsnest crossing its airwires
+    would add, and the escape weights for each escape it would cross or close. `best[0]` is the lowest cost weighed so
+    far of a candidate that walls no pad: with `prune`, a candidate whose wire alone reaches it is not weighed further
+    (its crossings and escapes can only add, and walling a pad only loses) and stands at (placer.UNWEIGHED, its wire plus
+    PRUNED), below every candidate weighed in full.
+    Explore draws among candidates near the best and needs every one weighed.
 
     Called, it is the Python reference; `native(rots, face)` hands a scan
-    the same cost, worked out in the native sweep (placemat_native.NativeScoring),
+    the same standing, worked out in the native sweep (placemat_native.NativeScoring),
     sharing `best` with it."""
 
     def __init__(self, settings, item, occ: Occupancy, targets: list, prune: bool, pushes=(), lanes=None):
@@ -848,14 +853,13 @@ class Scorer:
         self.lanes = lanes          # placement -> how many of the item's declared escape lanes it would block
         self.crossing = s.score_crossing
         self.rn = occ.ratsnest() if self.crossing > 0 else None
-        self.escaping = s.score_escape_crossed > 0 or s.score_escape_closed > 0 or s.score_escape_walled > 0
-        self.esc = occ.escapes() if self.escaping else None
+        self.esc = occ.escapes()        # walled pads are counted whatever the escape weights are
         self.own = frozenset(fp.ref for fp in members_of(item))
         self.depth = s.place_escape_depth
         self.best = [math.inf]
         self._native = {}
 
-    def __call__(self, placement: Placement) -> float:
+    def __call__(self, placement: Placement) -> tuple:
         occ, s = self.occ, self.s
         pads = occ.candidate_pad_locations(self.item, placement)
         cost = sum(w * pads[key].distance(target) for key, target, w in self.targets if key in pads)
@@ -868,18 +872,18 @@ class Scorer:
                 value, _ = _push_value(source_point, point, push)
                 cost += s.score_push * value / push.limit
         if self.prune and cost >= self.best[0]:
-            return cost + PRUNED        # its crossings and escapes can only add: it cannot be the best
+            return UNWEIGHED, cost + PRUNED     # its crossings and escapes can only add: it cannot be the best
         crossed = None
         if self.rn is not None:
             added, crossed = self.rn.leaf_costs(occ.candidate_anchors(self.item, placement), self.own, self.depth)
             cost += self.crossing * added
-        if self.esc is not None:
-            crossed, closed, walled = self.esc.closed(self.item, placement, crossed)
-            cost += s.score_escape_crossed * crossed + s.score_escape_closed * closed + s.score_escape_walled * walled
+        crossed, closed, walled = self.esc.closed(self.item, placement, crossed)
+        cost += s.score_escape_crossed * crossed + s.score_escape_closed * closed
         if self.lanes is not None:
             cost += s.score_escape_lane * self.lanes(placement)
-        self.best[0] = min(self.best[0], cost)
-        return cost
+        if not walled:
+            self.best[0] = min(self.best[0], cost)
+        return walled, cost
 
     def native(self, rots, face):
         """The same cost for the native sweep over these turns, or None when
@@ -891,7 +895,7 @@ class Scorer:
         occ, s = self.occ, self.s
         rn = occ.ratsnest()
         mirror = rn.mirror
-        if mirror is None or (self.esc is not None and self.esc.mirror is None):
+        if mirror is None or self.esc.mirror is None:
             return None
         key = (tuple(rots), face)
         hit = self._native.get(key)
@@ -900,13 +904,13 @@ class Scorer:
             centres = occ.reference_pad_centres(self.item)
             targets = [((centres[k].x, centres[k].y), (t.x, t.y), w) for k, t, w in self.targets if k in centres]
             origin = [Placement(Location(0.0, 0.0), r, face) for r in rots]
-            esc = self.esc if self.esc is not None else occ.escapes()
+            esc = self.esc
             hit = occ.native_module().NativeScoring(
                 mirror, targets, [occ.turn_transform(geom, r, face) for r in rots],
                 [occ.candidate_anchors(self.item, pl) for pl in origin],
-                [esc._native_turn(self.item, pl) for pl in origin] if self.esc is not None else [],
-                sorted(self.own), self.crossing, self.esc is not None,
-                (s.score_escape_crossed, s.score_escape_closed, s.score_escape_walled), self.depth,
+                [esc._native_turn(self.item, pl) for pl in origin],
+                sorted(self.own), self.crossing, True,
+                (s.score_escape_crossed, s.score_escape_closed), self.depth,
                 self.prune, PRUNED, self.best[0])
             self._native[key] = hit
         hit.floor = self.best[0]
@@ -4391,6 +4395,34 @@ class Board:
         decl = self._escapes[lane.index]
         return self.geometry.footprint(decl.part).pad(int(lane.number) if lane.number.isdigit() else lane.number)
 
+    def _pad_joins(self, nets, points) -> tuple:
+        """(ref, pad number) of each pad of one of `nets` that copper declared through `points` is drawn onto at the
+        pad: a pad reference with no offset (its centre, or a tap on its side), a lane or a point of one (its pad, whose
+        own copper the lane is), a FreeSpot whose via stands in its pad or is joined to it by its tail. Before the copper
+        is laid the escape judgement counts these pads' way out as made (`Occupancy.planned_joins`, D28)."""
+        out = set()
+        for p in points:
+            if isinstance(p, FreeSpot):
+                if not (p.in_pad or p.tail):
+                    continue
+                p = p.near
+            pad = None
+            if isinstance(p, Lane):
+                pad = self._lane_pad(p)
+            elif isinstance(p, LanePoint):
+                pad = self._lane_pad(p.lane)
+            elif isinstance(p, PadRef) and not (p.dx or p.dy or p.lx or p.ly):
+                pad = self.geometry.pad(p.part, p.key)
+            elif isinstance(p, CellPadRef) and not (p.dx or p.dy):
+                pad = self.geometry.cell_pad(p.cell, net=p.net, number=p.number, ref_prefix=p.ref_prefix)
+            if pad is not None and pad.net in nets:
+                out.add((pad.owner, pad.number))
+        return tuple(sorted(out))
+
+    def _set_planned_joins(self, occ: Occupancy, intents) -> None:
+        """The pads `intents` (declared copper not yet laid) will join, for the escape judgement (D28)."""
+        occ.planned_joins = frozenset(j for c in intents for j in c.joins)
+
     def _escape_pin(self, esc: Escape, pin) -> str:
         decl = self._escapes[esc.index]
         n = self._escape_number(decl.part, pin)
@@ -4421,6 +4453,7 @@ class Board:
                 return [via]
             intent = self._copper_intent("via %s" % net, net, Priority.DEFAULT, plan, [decl.part], decl.why,
                                          form="lane %s %s" % (decl.key, n))     # the escape itself is in the context
+            intent.joins = self._pad_joins({net}, [lane])
             decl.via_intents[n] = intent
         return intent
 
@@ -4483,7 +4516,7 @@ class Board:
             raise ValueError("pin %s's lane runs at 45, and has no line to stand a pad on" % lane.number)
         return geom.line
 
-    def _escape_layout(self, occ, decl: EscapeDecl, placement=None):
+    def _escape_layout(self, occ, decl: EscapeDecl, placement=None, *, context=None):
         """The escape laid out for the part where it stands in `occ`, or at a
         candidate `placement`. A pin off the row's way out, or a way out off
         the board's axes, is an EscapeError."""
@@ -4509,7 +4542,28 @@ class Board:
                 way = ((box.center.x - body.x) / d, (box.center.y - body.y) / d)
             return (round(way[0], 6) + 0.0, round(way[1], 6) + 0.0)
         axis, lands = row_way(decl.key, list(decl.pins), boxes, way_of)
-        return Layouter(decl, pads, axis, _LaneEnv(self, occ, decl, pads, face), lands).lay_out()
+        return Layouter(decl, pads, axis, _LaneEnv(self, occ, decl, pads, face, context=context), lands).lay_out()
+
+    def _declared_lanes_blocked(self, occ, plan):
+        """Raw declared escape failures on this occupancy, independent of weight.
+
+        Fresh context binds keepouts and via checks to the candidate view.
+        Already drawn physical copper remains authoritative; this judgement
+        does not regenerate or relocate unowned escape tracks.
+        """
+        if not self._escapes:
+            return 0
+        context = _CopperContext(self, occ)
+        context.plan = plan
+        count = 0
+        for decl in self._escapes:
+            if decl.ref in occ.pending or decl.ref not in occ.items:
+                continue
+            try:
+                count += len(self._escape_layout(occ, decl, context=context).blocked())
+            except EscapeError:
+                count += len(decl.pins)
+        return count
 
     def _lane_pricer(self, occ, plan, i):
         """A candidate's lane cost (see Scorer): how many of the lanes the part's
@@ -4976,12 +5030,15 @@ class Board:
         oy = sum(p.y for p in own) / len(own) - current.location.y if own else 0.0
         return Placement(Location(round(cx - ox, 3), round(cy - oy, 3)), rotation, face)
 
-    def _scorer(self, item, occ: Occupancy, targets: list, prune: bool = True, pushes=(), lanes=None):
+    def _scorer(self, item, occ: Occupancy, targets: list, prune: bool = True, pushes=(), lanes=None, *, plan):
         """A candidate's cost: each connection's weight times its length,
         `score.crossing` for each ratsnest crossing its airwires would add,
         the escape weights, score.push times each push's modelled
         value over its limit, and `score.escape_lane` for each declared
         escape lane it would block (`lanes`). See `Scorer`."""
+        if self.settings.place_search_wire == 'mst':
+            from .score_search import MSTScorer
+            return MSTScorer(self, occ, item, plan=plan, pushes=pushes, lanes=lanes, prune=prune)
         return Scorer(self.settings, item, occ, targets, prune, pushes, lanes)
 
     def _push_source_point(self, occ: Occupancy, plan: Plan, source) -> Location:
@@ -5487,22 +5544,21 @@ class Board:
                 step.say("split", facts=facts)
 
     def _report_escapes(self, occ: Occupancy, plan: Plan):
-        """Escapes left crossed at a pin row, and pads the path search finds
-        closed toward what they join or walled off (escapes.py); and each
-        differential pair whose two halves' airwires cross. Measured at
-        `score.escape_depth`, whatever depth the search used: the run score
-        counts these, and a shallower corridor is crossed less without being
-        any easier to route."""
-        from .escapes import Escapes
-        depth = occ.settings.score_escape_depth
-        esc = occ.escapes() if depth == occ.escapes().depth else Escapes(occ, mirror=False, depth=depth)
+        """Escapes left crossed at a pin row; pads whose cheapest way out the surface-lane judgement finds is a via,
+        a lane away from what they join, or none (escapes.py `Escapes.found`, placemat's own rule); and each
+        differential pair whose two halves' airwires cross. Crossed escapes are measured at `score.escape_depth`,
+        whatever depth the search used: the run score counts these, and a shallower corridor is crossed less without
+        being any easier to route."""
+        from .escapes import judging
+        esc = judging(occ)
+        found = esc.found()
         rn = occ.ratsnest()
         from .pairs import pair_key
         for e, f in rn.pair_crossings():
             parts = sorted({v.ref for v in (e.a, e.b, f.a, f.b) if v.ref})
             pos, neg = (e.net, f.net) if (pair_key(e.net) or (0, True))[1] else (f.net, e.net)
             plan.findings.append(Finding(C.PAIR_CROSSED, {"pos": pos, "neg": neg, "parts": parts}))
-        for n, e, f in rn.crossed_pair_list(esc.depth):
+        for n, e, f in found["escape_crossed"]:
             ends = []
             for edge in (e, f):
                 mine, other = (edge.a, edge.b) if edge.a.ref == n else (edge.b, edge.a)
@@ -5510,17 +5566,15 @@ class Board:
             ends.sort(key=lambda t: (int(t[0]) if t[0].isdigit() else 1 << 30, t[0]))
             (pa, xa, na), (pb, xb, nb) = ends
             plan.findings.append(Finding(C.ESCAPE_CROSSED, {"ref": n, "pins": [pa, pb], "targets": [[xa, na], [xb, nb]]}))
-        closed, walled = esc.confirmed()
         from . import suggest_facts
-        for ref, number, net, by, joins in closed:
+        for ref, number, net, by in found["escape_via"]:
+            plan.findings.append(self._finding(C.ESCAPE_VIA, suggest_facts.escape_facts(self, occ, plan, ref, number, net, by)))
+        for ref, number, net, by, joins in found["escape_closed"]:
             plan.findings.append(self._finding(C.ESCAPE_CLOSED, dict(
                 suggest_facts.escape_facts(self, occ, plan, ref, number, net, by), joins=list(joins))))
-        for ref, number, net, by, _ in walled:
+        for ref, number, net, by, variant in found["escape_walled"]:
             plan.findings.append(self._finding(C.ESCAPE_WALLED, dict(
-                suggest_facts.escape_facts(self, occ, plan, ref, number, net, by), variant="walled")))
-        for ref, number, net, by in esc.handoffs_walled():
-            plan.findings.append(self._finding(C.ESCAPE_WALLED, dict(
-                suggest_facts.escape_facts(self, occ, plan, ref, number, net, by), variant="handoff")))
+                suggest_facts.escape_facts(self, occ, plan, ref, number, net, by), variant=variant)))
         if not self._draw_outline:
             self._report_vias_unneeded(occ, plan, esc)
         if self._explore is None:           # an explore's variant is scored, and the score does not count this
@@ -5587,11 +5641,46 @@ class Board:
         return ""
 
     def _report_turns(self, occ: Occupancy, plan: Plan) -> None:
+        if occ.congestion_frame() is not None or not self.settings.score_congestion_step:
+            self._report_turns_in_frame(occ, plan)
+            return
+        # A fragment has no physical edge. Freeze the scoring domain around
+        # its complete finite turn set before lifting any item; candidates
+        # never resize this grid, and legality still sees no board boundary.
+        boxes = [shape.box for ref, geom in occ.items.items() if ref not in occ.pending
+                 for shape in geom.shapes if shape.kind in ('pad', 'through')]
+        last = {step.item: step for step in plan.steps if step.placement is not None}
+        study_turned = self._pin_study_turned(plan)
+        for intent in self._placements():
+            if intent.kind not in ('part', 'cell') or intent.key not in last or intent.tangent is not None or intent.outward:
+                continue
+            if self._place_calls.get(intent.key, (None, None, {}, ''))[3] == 'ring':
+                continue
+            item = self.geometry.cells[intent.key] if intent.kind == 'cell' else intent.item
+            own = frozenset(fp.ref for fp in members_of(item))
+            if own & study_turned or occ._lift_owners(own) & occ.pending:
+                continue
+            base = occ._geometry(item).reference
+            centre = occ.body_box(item, base).center
+            here = last[intent.key].placement.rotation % 360.0
+            others, _ = self._turn_choices(intent, here)
+            for rotation in others:
+                turn = dataclasses.replace(base, rotation=base.rotation + rotation - here)
+                turned = occ.body_box(item, turn).center
+                candidate = dataclasses.replace(turn, location=Location(
+                    base.location.x + centre.x - turned.x, base.location.y + centre.y - turned.y))
+                geometries, _ = occ.placed_geometries(item, candidate)
+                boxes.extend(shape.box for geom in geometries.values() for shape in geom.shapes
+                             if shape.kind in ('pad', 'through'))
+        frame = Box.union(boxes) if boxes else Box(0.0, 0.0, 0.0, 0.0)
+        with occ.congestion_domain(frame):
+            self._report_turns_in_frame(occ, plan)
+
+    def _report_turns_in_frame(self, occ: Occupancy, plan: Plan) -> None:
         """Each placed part or cell that another turn would serve better where it stands: the turn held at the same body
-        centre, legal there, judged on the search's own wire and crossing terms (`Scorer`) - its links' weighted pad-to-pad
-        length and the weighted crossings of its airwires. It must come out lower on the two together, and either shorten the
-        links by `place.turn_gain_mm` and `place.turn_gain_share` of their weighted length or remove
-        `place.turn_crossings_min` weighted crossings. A searched item is judged at the other turns its declaration allows;
+        centre, legal there, judged on the common objective's exact signed change (`Delta`). Its gain must reach
+        `place.turn_gain_mm` and `place.turn_gain_share` of its own wire/link contribution, without increasing walled pads.
+        A searched item is judged at the other turns its declaration allows;
         one whose turn is fixed at every turn it could take (`_turn_choices`). A `turn.better` notice, judged once on the
         finished board; a turn something holds (`_turn_held_by`) is said with `held_by` and no edit. A part the pin map
         study turns is left to that advice. A turn that follows the spot (a tangent's, facing out, a ring member's) has
@@ -5602,8 +5691,8 @@ class Board:
         for st in plan.steps:
             if st.placement is not None:
                 last[st.item] = st
-        placed = {r for r in occ.items if r not in occ.pending}
-        rn = occ.ratsnest() if s.score_crossing > 0 else None
+        from .score_delta import Delta
+        from .escapes import native_judge
         for i in self._placements():
             if i.kind not in ("part", "cell") or i.tangent is not None or i.outward:
                 continue
@@ -5625,16 +5714,9 @@ class Board:
             own = frozenset(fp.ref for fp in members_of(item))
             if own & turned:
                 continue
-            targets = self._targets(item, occ, placed)
-            if not targets:
-                continue
-
-            def measured(q):
-                pads = occ.candidate_pad_locations(item, q)
-                lengths = [(pads[k].distance(t), w) for k, t, w in targets if k in pads]
-                cross = rn.leaf_costs(occ.candidate_anchors(item, q), own, s.place_escape_depth)[0] if rn is not None else 0.0
-                return lengths, cross
-
+            lifted = occ._lift_owners(own)
+            if lifted & occ.pending:
+                continue                    # temporary lifts are sets, not nested scopes
             def legal(q):
                 if not i.freedom.decided:
                     return occ.legal(item, q, self.clearance) is None
@@ -5643,43 +5725,84 @@ class Board:
                                      by_corners=True) is None
 
             base = occ._geometry(item).reference
-            now, cross_now = measured(base)
-            weighted_now = sum(d * w for d, w in now)
             centre = occ.body_box(item, base).center
             best = None
-            for rot in others:
-                turn = dataclasses.replace(base, rotation=base.rotation + rot - here)
-                c = occ.body_box(item, turn).center
-                q = dataclasses.replace(turn, location=Location(base.location.x + centre.x - c.x,
-                                                                base.location.y + centre.y - c.y))
-                then, cross = measured(q)
-                saved = sum((a - b) * w for (a, w), (b, _) in zip(now, then))
-                fewer = cross_now - cross
-                gain = saved + s.score_crossing * fewer
-                if gain <= 1e-9:
+            occ.lift(lifted)
+            try:
+                # Legality first: an item no other turn is legal for is not scored at all.
+                turns = []
+                for turn_index, rot in enumerate(others, 1):
+                    turn = dataclasses.replace(base, rotation=base.rotation + rot - here)
+                    c = occ.body_box(item, turn).center
+                    q = dataclasses.replace(turn, location=Location(base.location.x + centre.x - c.x,
+                                                                    base.location.y + centre.y - c.y))
+                    if legal(q):
+                        turns.append((turn_index, rot, q))
+                if not turns:
                     continue
-                on_length = saved >= s.place_turn_gain_mm and saved >= s.place_turn_gain_share * weighted_now
-                if not (on_length or fewer >= s.place_turn_crossings_min):
+                delta = Delta(self, occ, item, plan.links, plan=plan)
+                delta.escape_native = native_judge()
+                if not delta.scorable(base):
                     continue
-                if best is not None and gain <= best[0]:
-                    continue
-                if not legal(q):
-                    continue
-                best = (gain, rot, q, now, then, saved, cross - cross_now)
+                from .prepared_escape import prepare
+                rotations = [base.rotation] + [base.rotation + rot - here for rot in others]
+                # No rest cache: a handful of turns judged in full costs less than judging the rest board first.
+                prepared, _ = prepare(delta, rotations, base.face)
+
+                def measured(q, turn):
+                    if prepared is None:
+                        # The walled count signed from the rest board: it serves the same comparison, and spares
+                        # judging every rest pad for an absolute count.
+                        return delta.relative(q)
+                    raw, crossed, vias, closed, walled, _, _ = prepared.evaluate(q, turn)
+                    terms = dict(zip(('airwire', 'crossings', 'link', 'link_over', 'area', 'congestion'), raw))
+                    terms.update(escape_crossed=s.score_escape_crossed * crossed,
+                                 escape_via=s.score_escape_via * vias,
+                                 escape_closed=s.score_escape_closed * closed,
+                                 push=0.0, escape_lane=0.0)
+                    # These absolute escape counts serve only a difference
+                    # between two candidates on the same frozen snapshot.
+                    # Their baseline constants cancel; they are not Change.
+                    return terms, walled
+
+                now, now_walled = measured(base, 0)
+                own_wire = max(0.0, now['airwire'] + now['link'])
+                for turn_index, rot, q in turns:
+                    if not delta.scorable(q):
+                        continue
+                    then, then_walled = measured(q, turn_index)
+                    change = {term: then[term] - value for term, value in now.items()}
+                    gain = -sum(change.values())
+                    if then_walled > now_walled or gain <= 1e-9:
+                        continue
+                    if gain < s.place_turn_gain_mm or gain < s.place_turn_gain_share * own_wire:
+                        continue
+                    if best is not None and gain <= best[0]:
+                        continue
+                    best = (gain, rot, q, change)
+            finally:
+                occ.unlift(lifted)
             if best is None:
                 continue
-            gain, rot, q, now, then, saved, delta = best
-            short = [a - b for (a, _), (b, _) in zip(now, then) if b < a - 1e-6]
-            long_ = [b - a for (a, _), (b, _) in zip(now, then) if b > a + 1e-6]
+            gain, rot, q, change = best
             facts = {
                 "item": i.key, "kind": i.kind, "rotation_deg": round(here, 3), "to_deg": round(rot, 3),
                 "turn_deg": round((rot - here) % 360.0, 3), "face": p.face.value,
-                "shorter": {"links": len(short), "mm": round(float(sum(short)), 3)},
-                "longer": {"links": len(long_), "mm": round(float(sum(long_)), 3)},
-                "weighted_mm": round(saved, 3), "crossings_delta": round(delta, 3), "gain": round(gain, 3),
+                "change": {term: round(value, 3) for term, value in change.items()}, "gain": round(gain, 3),
                 "rotations_given": bool(i.rotations), "rotation_given": bool(i.rotation_given), "fixed": fixed,
                 "at": [round(q.location.x, 4), round(q.location.y, 4)]}
             held = self._turn_held_by(i, st, fixed)
+            if not held:
+                # The edit changes rotation only. A body-centred candidate
+                # that requires moving an origin/pad/edge anchor is advice,
+                # never an executable promise to reproduce this gain.
+                dx, dy = q.location.x - base.location.x, q.location.y - base.location.y
+                origin_moves = i.at is not None and (abs(dx) > 1e-9 or abs(dy) > 1e-9)
+                axis_moves = i.pinned_by == 'at' and (
+                    (i.pin_x is not None and abs(dx) > 1e-9) or (i.pin_y is not None and abs(dy) > 1e-9))
+                if origin_moves or axis_moves or i.pin is not None or i.cell_pin is not None \
+                        or any(v is not None for v in (i.edge, i.run, i.rim, i.beside, i.row_of)):
+                    held = 'anchor'
             if held:
                 facts["held_by"] = held
             plan.findings.append(self._finding(C.TURN_BETTER, facts))
@@ -5731,6 +5854,8 @@ class Board:
                 if not l.within_limit:
                     plan.findings.append(self._finding(C.LINK_OVER, self._link_over_facts(l)))
                     self._late_suggestions.append((plan.findings[-1], lambda f, l=l: self._measure_link_over(occ, plan, l, f)))
+            else:
+                l.achieved_mm = None            # a board resolved again keeps no length from the last resolve
             plan.links.append(l)
 
     def _link_over_facts(self, l) -> dict:
@@ -6083,6 +6208,7 @@ class Board:
                 return []
             return ops
         intent = self._copper_intent("track %s" % name, net, priority, plan, refs, why, bridge, only=self._only(only, "track"))
+        intent.joins = self._pad_joins({name}, ([begins] if begins is not None else []) + list(points))
         if any(isinstance(it, LabelKey) for p in points if isinstance(p, Past) for it in p.items):
             self._late_copper.add(intent.index)     # a label gives way to every part placed after it: planned after the search
         self._copper_uses[intent.index] = tuple(p.index for p in points if isinstance(p, CopperIntent))
@@ -6261,7 +6387,9 @@ class Board:
                     return []
             return pair_ops(p_name, n_name, layer, w, g, start, centre, end, self.via_drill, self.via_size,
                             via_step, chamfer, self._clearance(p_name, n_name), sfaces, efaces)
-        return self._copper_intent("pair %s/%s" % (p_name, n_name), net_p, priority, plan, refs, why, bridge, only=self._only(only, "pair"))
+        intent = self._copper_intent("pair %s/%s" % (p_name, n_name), net_p, priority, plan, refs, why, bridge, only=self._only(only, "pair"))
+        intent.joins = self._pad_joins({p_name, n_name}, [sp, sn, ep, en])
+        return intent
 
     def vias(self, net, pad=None, *, along=None, count: int | None = None, pitch: float | None = None,
              size: float | None = None, drill: float | None = None,
@@ -6350,6 +6478,7 @@ class Board:
                 return vias + [tail]
             # "via row": a track may end on it, as on one via()
             intent = self._copper_intent("via row %s" % name, net, priority, plan, _refs_in([along]), why, only=self._only(only, "vias"))
+            intent.joins = self._pad_joins({name}, [along])      # its tail joins the pad
             return intent
         owner, number, _, _ = self._pad_ref(pad)
         k = len(self._pad_fields)
@@ -6384,6 +6513,7 @@ class Board:
                     ops.append(a.tail)
             return ops
         intent = self._copper_intent("vias %s" % name, net, priority, plan, _refs_in([pad]), why, only=self._only(only, "vias"))
+        intent.joins = self._pad_joins({name}, [pad])
         self._late_copper.add(intent.index)         # planned after the search: its part's grid gives way as items are placed
         return intent
 
@@ -6483,6 +6613,7 @@ class Board:
             ctx.via_at[intent.index] = where    # a track may end on it
             return [via] + ops
         intent = self._copper_intent("via %s" % name, net, priority, plan, refs, why, only=self._only(only, "via"))
+        intent.joins = self._pad_joins({name}, [at])
         if isinstance(at, Past) and any(isinstance(it, LabelKey) for it in at.items):
             self._late_copper.add(intent.index)     # a label gives way to every part placed after it: planned after the search
         if isinstance(at, FreeSpot):
@@ -6806,8 +6937,9 @@ class Board:
         # (polygon, layers, the nets it lets through): a keepout's allow= lets its nets' vias stand in it
         forbidding = [(k.poly, k.layers, frozenset(k.allow)) for k in (ctx.plan.keepouts.values() if ctx.plan else ())
                       if "vias" in k.excludes]
-        forbidding += [(poly, ra.layers, ra.allow) for pairs in occ._cell_rule_areas.values() for ra, poly in pairs
-                       if "vias" in ra.excludes]
+        forbidding += [(area.polygon, area.layers, area.source.allow)
+                       for owner, areas in occ._cell_rule_areas.items() if owner not in occ.pending for area in areas
+                       if "vias" in area.source.excludes]
         forbidding += [(ra.polygon, ra.layers, ra.allow) for ra in self.geometry.rule_areas
                        if ra.cell is None and "vias" in ra.excludes]
         return holes, bare, forbidding
@@ -7813,6 +7945,7 @@ class Board:
         if self._explore is not None:
             import random as _random
             self._order_rng = _random.Random("%d:order" % self._explore.seed)
+        self._step_found = {}               # step key -> the findings its settle made (`_retry_unplaced` takes them back)
         self._escape_laid = {}              # every escape is laid out again, when its part is placed
         self._escape_kept = {}
         self._escape_waits, self._escape_named, self._settled = None, {}, set()
@@ -7900,6 +8033,7 @@ class Board:
         held = self._frame_planes if self._fit else set()
         fixed_copper = [c for c in self._copper if c.freedom.decided and c.index not in held]
         other_copper = [c for c in self._copper if not c.freedom.decided and c.index not in held]
+        self._set_planned_joins(occ, self._copper)      # none of it laid yet
         placed: set = set()
         if clock is not None:
             clock.new_pass(len(placements), self._firm_pass_no, plan)
@@ -8069,6 +8203,7 @@ class Board:
             plan._items[obj.key] = obj.item
             if self._fit and not obj.freedom.decided:
                 occ.board_box = self._outline = self._fit_room(occ, plan, obj)
+            found_from = len(plan.findings)
             if chain["replaying"]:
                 step = self._replay_settle(occ, plan, previous[position], obj)
                 record["steps"].append(dict(previous[position]))     # a copy: this resolve may record its rooms in it
@@ -8106,6 +8241,7 @@ class Board:
                 step.seconds = lap.stamp()
             if partial is not None:
                 partial.append(record["steps"][-1])
+            self._step_found[obj.key] = plan.findings[found_from:]     # what a retry of the item takes back
             step.notes = tuple(why_now) + step.notes
             tier = []
             if not obj.freedom.decided:
@@ -8227,6 +8363,8 @@ class Board:
         self._check_pitch(plan)
         occ.set_rooms([])       # the real copper replaces what the passes planned
         self._plan_copper(occ, ctx, fixed_copper, plan, progress, slot="fixed")
+        laid = {id(c) for c in fixed_copper}
+        self._set_planned_joins(occ, [c for c in self._copper if id(c) not in laid])
         for key, moved in self._room_unsettled:
             plan.findings.append(self._finding(C.FIXED_ROOM_UNSETTLED, {
                 "copper": key, "moved_mm": moved, "passes": self.settings.place_firm_passes}))
@@ -8247,6 +8385,8 @@ class Board:
         # be the most important thing on a board, and it does not wait behind a
         # tier of cells for being a single part. What it needs decides.
         place_ranked(RANK_CELL, RANK_LOOSE)
+        if self.settings.place_search_wire == "mst" and self.settings.place_retry_rounds > 0:
+            self._retry_unplaced(occ, plan, placed, progress, on_step)     # D27: room for what the search left unplaced, before cleanup
         if self.settings.cleanup_enabled:
             before = reuse.get("cleanup") if (reuse and chain["replaying"]) else None
             if before is not None and before.get("key") == chain["key"]:
@@ -8259,6 +8399,7 @@ class Board:
         occ.set_rooms([])
         occ.rooms_apply = False
         self._plan_copper(occ, ctx, other_copper, plan, progress, slot="other")
+        self._set_planned_joins(occ, [c for c in self._copper if c.index in held])
         if routes:
             self._draw_adopted(occ, ctx, plan, routes, progress)
         if self._fit:
@@ -8268,7 +8409,10 @@ class Board:
             frame = self._fit_bound(grown)
             self._check_fit_content(occ, plan, frame)
             plan.outline = self._outline = occ.board_box = frame
+            plan.fitted_axes = (self._fit_axis in (None, Axis.X), self._fit_axis in (None, Axis.Y))     # None: both fit
+            plan.fit_margin = self._fit_margin
             self._plan_copper(occ, ctx, [c for c in self._copper if c.index in held], plan, progress, slot="held")
+        self._set_planned_joins(occ, ())    # the finished board: every pad is judged by the copper laid
         self._check_keepouts(plan)
         plan.rudy = self._rudy(occ, plan)
         self._report_links(occ, plan, placed)
@@ -8410,7 +8554,7 @@ class Board:
         width = min((c.track_width for c in classes), default=0.2)
         pitch = width + (self.geometry.default_clearance or 0.2)
         return rudy(pads, box, max(1, len(self.geometry.layers)), pitch,
-                    skip=self._plane_nets() | self._free_nets)
+                    skip=self._plane_nets() | self._free_nets, box=self.settings.score_congestion_box)
 
     @staticmethod
     def _time_facts(spent) -> dict:
@@ -8626,15 +8770,7 @@ class Board:
         positioned against - no label, and no other declaration whose place
         refers to it."""
         intents = {i.key: i for i in self._placements()}
-        held = self._paired_refs() | {d.ref for d in self._escapes}     # lanes were laid where it stands
-        for i in self._intents:
-            held |= set(getattr(i, "needs", ()) or ())
-        for entry in self._labels:
-            for obj in (entry[1],) + tuple(entry[12] or ()):
-                if isinstance(obj, (PadRef, CellPadRef)):
-                    held.add(self._pad_ref(obj)[0])
-                else:
-                    held |= {fp.ref for fp in members_of(self._item(obj)[0])}
+        held = self._positioned_against()
         # A locked item keeps its spot, and inside an explore variant a focused
         # item keeps the spot it drew: that spot is what a lock records.
         kept = set(self._lock_held) | (set(self._explore.focus) if self._explore is not None else set())
@@ -8650,6 +8786,21 @@ class Board:
             if key in placed and sat.ref not in held and key not in kept:
                 out[key] = sat
         return out
+
+    def _positioned_against(self) -> set:
+        """The refs of the parts something else was positioned against: a pair's, a declared escape's (its lanes were
+        laid where it stands), another declaration's place or push (`needs`), a label's. Moving one after the search
+        would leave what was positioned against it behind."""
+        held = self._paired_refs() | {d.ref for d in self._escapes}
+        for i in self._intents:
+            held |= set(getattr(i, "needs", ()) or ())
+        for entry in self._labels:
+            for obj in (entry[1],) + tuple(entry[12] or ()):
+                if isinstance(obj, (PadRef, CellPadRef)):
+                    held.add(self._pad_ref(obj)[0])
+                else:
+                    held |= {fp.ref for fp in members_of(self._item(obj)[0])}
+        return held
 
     def _cleanup_limits(self, plan: Plan) -> dict:
         """{satellite key: (footprint, (its pin, its own pad, mm))} for every
@@ -8696,10 +8847,19 @@ class Board:
         intents = {i.key: i for i in self._placements()}
         limits = {k: lim for k, (_, lim) in self._cleanup_limits(plan).items() if k in movable}
         every = (0.0, 90.0, 180.0, 270.0)
+        # The one-score search's cleanup judges each move and swap by the run score's change (D26); the pull
+        # estimate's keeps its own objective.
+        one_score = (lambda fp: self._scorer(fp, occ, [], prune=True, plan=plan)) \
+            if s.place_search_wire == 'mst' else None
+        from . import score
+        before = sum(score.whole(self, occ, plan).values()) if one_score is not None else None
         r = cleanup(occ, movable, pins, list(self._links), self.clearance, s.cleanup_passes,
                     s.cleanup_search_radius, s.cleanup_search_step,
                     turns={k: self._turns(intents[k]) if k in intents else every for k in movable},
-                    limits=limits, settings=s)
+                    limits=limits, settings=s, one_score=one_score)
+        if one_score is not None:
+            # The cost cleanup judged by: the board's one score (`score.whole`), before and after.
+            r.cost_before, r.cost_after = before, sum(score.whole(self, occ, plan).values())
         swapped = {}
         for a, b in r.swaps:
             swapped.setdefault(a, []).append(b)
@@ -8720,6 +8880,53 @@ class Board:
             step.say("cleanup", swapped_with=swapped_with, moved_mm=moved)
         plan.cleanup = {"moves": len(r.moves), "swaps": len(r.swaps), "passes": r.passes,
                         "cost_before": round(r.cost_before, 3), "cost_after": round(r.cost_after, 3)}
+
+    # ------------------------------------------------------------------ retry what the search left unplaced (D27)
+    # Refusals that say an item had no room: something placed, a keep-out or a via in the way. A step left unplaced
+    # for its time, its budget, an arrangement it does not offer or its riders is not tried again.
+    _ROOM_CODES = frozenset(("courtyard_overlap", "courtyard_over", "claimed_courtyard", "drawn_overlap", "drawn_near",
+                             "copper_near", "hole_to_hole", "hole_copper", "lead_under", "npth_cuts", "npth_near",
+                             "reservation", "cannot_give_way", "via_ban"))
+    _RULE_FORMS = frozenset(("time_limit", "budget", "arrangement_missing", "rides", "riders_alone", "turns"))
+
+    def _retry_items(self, occ: Occupancy) -> dict:
+        """{step key: intent} of the items a retry may lift or try again: parts and cells placed by the plain search
+        (`_solvable`: no hint, line, edge, rim or band of their own) that nothing was positioned against
+        (`_positioned_against`), that have no fanout, that carry no riders and ride nothing, push nothing and are pushed
+        by nothing, emit or sense nothing, are no end of declared copper that keeps room, and are neither locked nor an
+        explore's focus."""
+        held = self._positioned_against() | {fp.ref for _, fp, *_ in self._fanouts}    # its pin room was laid where it stood
+        if occ.rooms_apply:
+            held |= {r for c in self._copper for r in (c.owners or ())}
+        ann = self._annotations
+        if ann:
+            held |= set(ann.sources) | set(ann.sensitives)
+        focus = set(self._explore.focus) if self._explore is not None else set()
+        out = {}
+        for i in self._placements():
+            if not isinstance(i, PlaceIntent) or not self._solvable(i):
+                continue
+            if i.key in self._rider_of or i.key in self._ride_groups or i.key in self._lock or i.key in focus \
+                    or getattr(i, "pushes", ()):
+                continue
+            if {fp.ref for fp in members_of(i.item)} & held:
+                continue
+            out[i.key] = i
+        return out
+
+    def _retry_unplaced(self, occ: Occupancy, plan: Plan, placed: set, progress=None, on_step=None) -> list:
+        """D27: each searched item left unplaced for want of room is tried again, the placed items in the way of a room
+        lifted and placed again after it (retry.py). Each try is a "retry" step of the plan, and its record is in
+        `plan.retry`."""
+        from . import retry
+        host = _RetryHost(self, occ, plan, placed, progress, on_step)
+        if not host.items:
+            return []
+        records = retry.retry_unplaced(host, self.settings.place_retry_rounds, self.settings.place_retry_lift)
+        if records:
+            plan.retry = records
+        return records
+
 
     def _settle_in_pocket(self, occ: Occupancy, i: PlaceIntent, plan: Plan, clr) -> Step:
         """Nothing this item connects to is placed and no hint was given: put
@@ -10275,8 +10482,8 @@ class Board:
             else:
                 hint = Placement(current.location, i.rotation, i.face)
             score = None
-            if targets:
-                anchor_score = self._scorer(spec.anchor, occ, targets, prune=self._pick(i) is None)
+            if targets or self.settings.place_search_wire == 'mst':
+                anchor_score = self._scorer(spec.anchor, occ, targets, prune=self._pick(i) is None, plan=plan)
 
                 def score(members):
                     return anchor_score(members[spec.anchor.inst])
@@ -10900,14 +11107,14 @@ class Board:
             self._tight.pop(i.key, None)
             if before is not None:
                 self._tight[i.key] = before
-        priced = bool(targets or push_sources or any(x[6] for x in laid))
+        priced = self.settings.place_search_wire == 'mst' or bool(targets or push_sources or any(x[6] for x in laid))
         out = []
         for ident, j, p, chose, why, resolution, lanes, tight in laid:
-            score = None
+            score, walled = None, 0
             if why is None and priced:
-                score = self._scorer(j.item, occ, targets, prune=False, pushes=push_sources, lanes=lanes)(p) \
-                    + (resolution.cost if resolution is not None else 0.0)
-            out.append(_Trial(ident, j, p, chose, why, score, tight))
+                walled, score = self._scorer(j.item, occ, targets, prune=False, pushes=push_sources, lanes=lanes, plan=plan)(p)
+                score += resolution.cost if resolution is not None else 0.0
+            out.append(_Trial(ident, j, p, chose, why, score, tight, walled))
         return out
 
     def _take_tight(self, key: str, t: "_Trial") -> None:
@@ -10920,7 +11127,9 @@ class Board:
         """A decided cell that may take more than one arrangement, at its spot (`_firm_trials`). Each legal one is compared at its
         total (`_total_at`: its score, `score.arrangement` for one other than the default, `score.back_face`); the lowest wins and
         a tie keeps the one tried first. A non-default arrangement must also beat the default's total by
-        `place.arrangement_margin` (`_margin`) when the default is legal, as a searched cell's must. With nothing to score, the
+        `place.arrangement_margin` (`_margin`) when the default is legal, as a searched cell's must. One that walls off fewer
+        pads (`_Trial.walled`) wins before the totals are compared, and the margin is asked only of one that walls as many as
+        the default. With nothing to score, the
         first legal one stands. When none is legal it is a firm collision as for a cell with one arrangement: the default stands
         where its declaration puts it (the first `arrangements=` names when it does not name the default), and its `fixed.part`
         finding carries every other arrangement's refusal under `arrangements`. The one taken is recorded in `_arr_choice`."""
@@ -10947,11 +11156,11 @@ class Board:
         for t in legal:
             mine = total.get(t.ident)
             if t.ident and mine is not None and margin is not None and default_total is not None \
-                    and default_total - mine < margin:
+                    and t.walled == default.walled and default_total - mine < margin:
                 if mine < default_total and (held is None or mine < held[0]):
                     held = (mine, t.ident)
                 continue
-            if best is None or (mine is not None and mine < total[best.ident]):
+            if best is None or (mine is not None and (t.walled, mine) < (best.walled, total[best.ident])):
                 best = t
         scored = best.score is not None
         blamed = None
@@ -11024,8 +11233,9 @@ class Board:
     def _scan_arrangements(self, occ, i, plan, placed, ids, **kw) -> "_Scanned":
         """Scan item `i` in each arrangement of `ids` ("" the default), in order, each an ordinary scan of the arranged cell (its own
         geometry, sweeper, scorer, seed and lanes), the front before the back. A non-default arrangement costs `score.arrangement`
-        more and is taken only when its best score plus that is strictly below the best so far, or when nothing earlier has a legal
-        spot; the best so far, less the cost, is the next scorer's pruning floor. The default's scan takes no floor, so its score
+        more and is taken only when its best spot walls off fewer pads than the best so far (`ScanResult.walled`), or as many at a
+        score plus that strictly below it, or when nothing earlier has a legal spot; the best so far, less the cost, is the next
+        scorer's pruning floor when it walls none. The default's scan takes no floor, so its score
         is known whenever it has a legal spot. An unscored search (no links, pushes or lanes to price) takes the first arrangement
         with a legal spot and scans no further. Each scan has the step's budget afresh; the step's time limit stops between scans.
         `kw` are `_scan_one`'s keywords but `j`.
@@ -11059,7 +11269,8 @@ class Board:
                     and not (kw["wide_push"] or kw["wide_tangent"]):
                 hint = self._seed_hint(j.item, occ, kw["targets"], i.rotation, i.face)      # laid from the arranged item's pads
             extra = cost if ident else 0.0
-            floor = best[0] if best is not None and ident else None
+            # the best so far prunes the next scan only when it walls no pad: a spot that walls none beats it at any cost
+            floor = best[0][1] if best is not None and ident and not best[0][0] else None
             self._collect_into = [] if draw is not None else None
             try:
                 t = self._scan_one(occ, j, plan, placed, **{**kw, "hint": hint}, floor=floor, cost=extra)
@@ -11070,24 +11281,27 @@ class Board:
             if r is None or r.chosen is None:
                 continue
             back = self.settings.score_back_face if j.either else 0.0
-            pool += [(c[0] + extra + (back if c[3].face is Face.BACK else 0.0), c[1], c[2], c[3], ident, t) for c in got or ()]
+            pool += [((c[0][0], c[0][1] + extra + (back if c[3].face is Face.BACK else 0.0)), c[1], c[2], c[3], ident, t)
+                     for c in got or ()]
             if t.score is None:
-                best = (0.0, ident, t)                  # unscored: the first with a spot stands, nothing else is scanned
+                best = ((0, 0.0), ident, t)             # unscored: the first with a spot stands, nothing else is scanned
                 break
-            total = self._standing_total(t, extra)
+            total = (r.walled, self._standing_total(t, extra))     # (pads walled off, total), compared in that order
             if not ident:
                 default_total = total
-            elif margin is not None and default_total is not None and default_total - total < margin:
-                if total < default_total and (held is None or total < held[0]):
-                    held = (total, ident)
+            elif margin is not None and default_total is not None and default_total[0] == total[0] \
+                    and default_total[1] - total[1] < margin:
+                if total < default_total and (held is None or total[1] < held[0]):
+                    held = (total[1], ident)
                 continue
             if best is None or total < best[0]:
                 best = (total, ident, t)
-        within = self._within(held, default_total, margin) if best is not None and not best[1] and not pool else None
+        within = self._within(held, default_total[1] if default_total is not None else None, margin) \
+            if best is not None and not best[1] and not pool else None
         if pool:
             pool.sort(key=lambda c: c[:3])
             total, _, _, chosen, ident, t = draw(pool)  # explore.draw weighs by the total and the rank: the rest rides along
-            self._stand_drawn(t, chosen, total - (cost if ident else 0.0))
+            self._stand_drawn(t, chosen, total[1] - (cost if ident else 0.0), total[0])
             best = (total, ident, t)
         return self._chosen_scan(i, tried, best, cost, within)
 
@@ -11103,14 +11317,14 @@ class Board:
             return None
         return {"id": held[1], "by": round(default_total - held[0], 3), "margin": margin}
 
-    def _stand_drawn(self, t, chosen: Placement, total: float) -> None:
+    def _stand_drawn(self, t, chosen: Placement, total: float, walled: int) -> None:
         """Stand `t` (a `_Tried`) at the spot an explore drew from the pool, `total` its score with `score.back_face` and without
-        the arrangement's cost: its result becomes that face's own scan's, at the drawn spot, and its face note what that face
-        says."""
+        the arrangement's cost, `walled` the pads it walls off: its result becomes that face's own scan's, at the drawn spot,
+        and its face note what that face says."""
         back = chosen.face is Face.BACK and t.j.either
         raw = total - (self.settings.score_back_face if back else 0.0)
         own = (t.faces or {}).get(chosen.face, t.result)
-        t.result = dataclasses.replace(own, chosen=chosen, score=raw, cut=own.cut or t.result.cut)
+        t.result = dataclasses.replace(own, chosen=chosen, score=raw, walled=walled, cut=own.cut or t.result.cut)
         if t.j.either:
             t.face_note = self._back_face_note(t.faces[Face.FRONT], raw) if back else None
 
@@ -11277,7 +11491,8 @@ class Board:
             accept = ahead if accept is None else (lambda c, a=accept, b=ahead: a(c) or b(c))
         lanes = self._lane_pricer(occ, plan, j)
         score = self._scorer(j.item, occ, targets, prune=self._pick(j) is None and accept is None,
-                             pushes=push_sources, lanes=lanes) if targets or push_sources or lanes else None
+                             pushes=push_sources, lanes=lanes, plan=plan) \
+            if targets or push_sources or lanes or self.settings.place_search_wire == 'mst' else None
         if score is not None and floor is not None and hasattr(score, "best"):
             score.best[0] = min(score.best[0], floor - cost)
         # A seeded item lands on the pads that pull it; it must be free to step at least its own size clear of them.
@@ -11308,7 +11523,8 @@ class Board:
         `i`. A fixed face is one scan. Face.EITHER
         scans the front and then the back, each at its own turn of the hint (`reseed`: the targets a
         seeded hint was made from, laid again for the back's pads), and takes the back only where
-        its score plus `score.back_face` is less than the front's, or the front has no legal spot.
+        it walls off fewer pads than the front's spot (`ScanResult.walled`), or as many at a score plus
+        `score.back_face` less than the front's, or the front has no legal spot.
         An unscored search takes the front when it has a spot: the back costs more and nothing else
         tells them apart. A failure carries both faces' refusals. `turns_at` is the front's SpotTurns and
         `turns_on(face)` makes the back's: a tangent turn depends on the face, as the item is mirrored there."""
@@ -11328,13 +11544,14 @@ class Board:
             back_hint = self._seed_hint(i.item, occ, reseed, i.rotation, Face.BACK)
         else:
             back_hint = Placement(hint.location, hint.rotation, Face.BACK)
-        if front.chosen is not None and hasattr(score, "best"):
+        if front.chosen is not None and not front.walled and hasattr(score, "best"):
             score.best[0] = min(score.best[0], front.score - cost)      # a back spot must beat the front's by it
         back_turns = turns_on(Face.BACK) if turns_at is not None and turns_on is not None else turns_at
         back = scan(occ, i.item, back_hint, radius, i.step, turns, clr, score=score, pick=pick, accept=accept,
                     turns_at=back_turns, within=within)
         faces = {Face.FRONT: front, Face.BACK: back}
-        if back.chosen is not None and back.score < PRUNED and (front.chosen is None or back.score + cost < front.score):
+        if back.chosen is not None and back.score < PRUNED and \
+                (front.chosen is None or (back.walled, back.score + cost) < (front.walled, front.score)):
             return back, self._back_face_note(front, back.score), faces
         if front.chosen is not None:
             return front, None, faces
@@ -11431,10 +11648,11 @@ class Board:
                                push_sources: list) -> Step:
         """The item stays on its point and its turn is searched: each turn `rotations=` names, in each arrangement of a cell, is
         laid as the declaration lays it, kept when the item is legal there as a decided place is judged, and scored as a search
-        scores a candidate (links, pushes, escape lanes, a via giving way) with its arrangement's scorer. The lowest score plus
-        `score.arrangement` (for an arrangement other than the default) wins; a tie goes to the arrangement tried first, then
-        the turn nearest `rotation=`, then the smaller angle. A non-default arrangement must also beat the default's lowest by
-        `place.arrangement_margin` (`_margin`) when the default has a legal turn. With nothing to score, the first arrangement
+        scores a candidate (links, pushes, escape lanes, a via giving way) with its arrangement's scorer. A turn that walls off
+        fewer pads (`Scorer`) wins, then the lowest score plus `score.arrangement` (for an arrangement other than the default);
+        a tie goes to the arrangement tried first, then the turn nearest `rotation=`, then the smaller angle. A non-default
+        arrangement must also beat the default's lowest by `place.arrangement_margin` (`_margin`) when the default has a legal
+        turn and it walls off as many pads. With nothing to score, the first arrangement
         with a legal turn stands and those after it are not laid."""
         turns = sorted({float(r) % 360.0 for r in i.rotations})
         ids = self._arrangement_ids(i)
@@ -11456,7 +11674,8 @@ class Board:
             accept = self._accept(j)            # the items riding it, asked of each turn that is otherwise legal
             lanes = self._lane_pricer(occ, plan, j)
             score = self._scorer(j.item, occ, targets, prune=exposed is None and accept is None, pushes=push_sources,
-                                 lanes=lanes) if targets or push_sources or lanes else None
+                                 lanes=lanes, plan=plan) \
+                if targets or push_sources or lanes or self.settings.place_search_wire == 'mst' else None
             scored = scored or score is not None
             extra = arr_cost if ident else 0.0
             best = None
@@ -11472,13 +11691,15 @@ class Board:
                     by_arrangement.setdefault(ident, Counter())[key] += 1
                     reasons.setdefault((ident, key), why)
                     continue
-                cost = (score(p) if score is not None else 0.0) + (resolution.cost if resolution is not None else 0.0)
+                walled, cost = score(p) if score is not None else (0, 0.0)
+                cost += resolution.cost if resolution is not None else 0.0
                 away = abs((rot - declared + 180.0) % 360.0 - 180.0)
-                found.append((cost + extra, k, away, rot, cost, p, chose, ident, j))
-                best = cost + extra if best is None else min(best, cost + extra)
-            rows.append(self._arrangement_row(ident, best if score is not None else None, best is not None))
+                found.append(((walled, cost + extra), k, away, rot, cost, p, chose, ident, j))
+                best = (walled, cost + extra) if best is None else min(best, (walled, cost + extra))
+            rows.append(self._arrangement_row(ident, best[1] if score is not None and best is not None else None,
+                                              best is not None))
             if not ident and best is not None and score is not None:
-                default_total = best
+                default_total = best        # (pads walled off, total)
             if score is None and best is not None:
                 break                           # unscored: the first arrangement with a legal turn stands
         if not found:
@@ -11489,9 +11710,12 @@ class Board:
                                                       for (a, _), w in reasons.items()])
         margin, held = self._margin(i), None
         if margin is not None and default_total is not None:
-            short = lambda f: f[7] and default_total - f[0] < margin      # an arrangement not the margin better than the default
-            held = min(((f[0], f[7]) for f in found if short(f) and f[0] < default_total), default=None)
+            # an arrangement walling off as many pads as the default, and not the margin better than it
+            short = lambda f: f[7] and f[0][0] == default_total[0] and default_total[1] - f[0][1] < margin
+            held = min(((f[0][1], f[7]) for f in found if short(f) and f[0] < default_total), default=None)
             found = [f for f in found if not short(f)]
+        if default_total is not None:
+            default_total = default_total[1]
         _, k, away, rot, cost, p, chose, ident, j = min(found, key=lambda f: f[:4])
         notes = [chose] if chose else []
         notes.append(step_text.record("turned", rot=rot, of=len(turns), cost=cost if scored else None,
@@ -11517,6 +11741,208 @@ def _slot_of(fellows: list, i: "PlaceIntent") -> int:
     """Where `i` stands among the declarations sharing its freedom, found by key: a cell searched in an arrangement is not equal
     to its declaration."""
     return [x.key for x in fellows].index(i.key)
+
+
+class _RetryHost:
+    """The board side of a retry (retry.py's Host), after the searched tier: the items that may be lifted or tried
+    again, their rooms, lifting and placing them as place_one does, the board's standing, and the board put back."""
+
+    def __init__(self, board: "Board", occ: Occupancy, plan: Plan, placed: set, progress=None, on_step=None):
+        self.board, self.occ, self.plan, self.placed, self.progress, self.on_step = board, occ, plan, placed, progress, on_step
+        self.settings = board.settings
+        self.touched: list = []         # the steps a try has changed, in order: streamed again when it is undone
+        self.items = board._retry_items(occ)
+        self.order = {s.item: n for n, s in enumerate(plan.steps)}
+
+    def _owners(self, key: str) -> set:
+        """A step's item's refs, and a cell's name: what is lifted with it."""
+        item = self.items[key].item
+        refs = {fp.ref for fp in members_of(item)}
+        return refs | {item.name} if isinstance(item, CellGeom) else refs
+
+    def unplaced(self) -> list:
+        """The items it may try again that the search left unplaced for want of room, in the order they were searched."""
+        b = self.board
+        out = []
+        for s in self.plan.steps:
+            if s.item not in self.items or s.placement is not None or not s.unplaced:
+                continue
+            forms = {r.get("form") for r in s.unplaced}
+            if forms & b._RULE_FORMS:
+                continue
+            if any(r.get("code") in b._ROOM_CODES for r in s.unplaced) or \
+                    forms & {"pocket", "no_pocket"} and self._fits_board(self.items[s.item]):
+                out.append(s.item)
+        return out
+
+    def _fits_board(self, i) -> bool:
+        """Whether the item's body fits the board's box at one of its turns and faces: a pocket refusal is about room
+        only then."""
+        box = self.occ.board_box
+        if box is None:
+            return False
+        for face in self.board._faces_of(i):
+            for rot in self.board._turns(i):
+                body = self.occ.origin_body_box(i.item, rot, face)
+                if body.width <= box.width and body.height <= box.height:
+                    return True
+        return False
+
+    def rooms(self, key: str, most: int, want: int, skip=frozenset()) -> list:
+        from . import retry
+        b, occ = self.board, self.occ
+        i = self.items[key]
+        movable = {}
+        for k in self.items:
+            step = self.plan.step(k)
+            if k != key and step.placement is not None and not self.items[k].required:     # a required item is never lifted
+                for o in self._owners(k):
+                    movable[o] = k
+        hint = None
+        for f in b._step_found.get(key, ()):
+            if f.cause is C.UNPLACED_SEARCH and f.facts.get("at"):
+                hint = Location(*f.facts["at"])
+        if hint is None:
+            box = occ.board_box
+            hint = box.center if box is not None else Location(0.0, 0.0)
+        step = max(i.step, b.settings.place_pocket_step)
+        return retry.rooms(occ, i.item, b._turns(i), b._faces_of(i), hint, movable, self.order, step, most, want,
+                           clearance=b.clearance, skip=skip)
+
+    def standing(self):
+        """The board as `score.rank` compares it: the plan's measures and their validity tier."""
+        from . import score
+        m = score.plan_measures(self.board, self.plan)
+        return score.Standing(m, score.Validity.of(m))
+
+    def save(self):
+        self.touched = []
+        plan = self.plan
+        held = {k: (list(v) if isinstance(v, list) else dict(v) if isinstance(v, dict) else set(v)
+                    if isinstance(v, set) else v) for k, v in plan.__dict__.items()}
+        steps = [(s, dict(s.__dict__)) for s in plan.steps]
+        return self.board._snapshot(), held, steps, self.occ.checkpoint(), set(self.placed)
+
+    def restore(self, saved) -> None:
+        board_state, held, steps, occ_state, placed = saved
+        self.board._restore(board_state)
+        plan = self.plan
+        for k in [k for k in plan.__dict__ if k not in held]:
+            del plan.__dict__[k]
+        for k, v in held.items():
+            now = plan.__dict__.get(k)
+            if isinstance(v, list) and isinstance(now, list):
+                now[:] = v
+            elif isinstance(v, dict) and isinstance(now, dict) or isinstance(v, set) and isinstance(now, set):
+                now.clear()
+                now.update(v)
+            else:
+                plan.__dict__[k] = v
+        for s, d in steps:
+            s.__dict__.clear()
+            s.__dict__.update(d)
+        self.occ.rollback(occ_state)
+        self.placed.clear()
+        self.placed.update(placed)
+        if self.on_step:                    # a viewer was sent the try's steps: it is sent them as they are again
+            for key in dict.fromkeys(self.touched):
+                self.on_step(plan, plan.step(key))
+        self.touched = []
+
+    def lift(self, keys) -> None:
+        """The items off the board: pending again, their cells' rule areas no longer reserved, no turn recorded."""
+        occ, plan = self.occ, self.plan
+        for key in keys:
+            item = self.items[key].item
+            owners = self._owners(key)
+            occ.lift(owners)
+            if isinstance(item, CellGeom):
+                tag = "cell:%s" % item.name
+                occ.reservations = [r for r in occ.reservations if r.source != tag]
+                occ.fill_areas = {k: v for k, v in occ.fill_areas.items() if k != item.name}
+                self.board._cell_placements.pop(key, None)
+            self.placed.difference_update(owners)
+            plan.turns.pop(key, None)
+
+    def place(self, key: str, at: Placement | None = None) -> bool:
+        """The item searched again on the board as it stands - by its own search, or with `at` round that spot
+        (`place.radius`) by the same scorer - its step and findings in place of the last ones, and committed as place_one
+        commits it. Whether it was placed."""
+        b, occ, plan, placed = self.board, self.occ, self.plan, self.placed
+        obj = self.items[key]
+        k = next(n for n, s in enumerate(plan.steps) if s.item == key)
+        old = plan.steps[k]
+        gone = {id(f) for f in b._step_found.get(key, ())}
+        if b._fit:
+            occ.board_box = b._outline = b._fit_room(occ, plan, obj)
+        if at is not None:
+            # as `_recorded_settle` searches: within the step's budget, past the user labels that give way
+            occ.labels_yield = bool(plan.__dict__.get("_label_parts"))
+            occ.step_budget = SearchBudget(getattr(obj, "budget", None) or b.settings.place_step_budget)
+            try:
+                score = b._scorer(obj.item, occ, [], prune=True, lanes=b._lane_pricer(occ, plan, obj), plan=plan)
+                result = scan(occ, obj.item, at, b.settings.place_radius, obj.step, tuple(b._turns(obj)), b.clearance,
+                              score=score)
+            finally:
+                occ.labels_yield, occ.step_budget = False, None
+            if result.chosen is None:
+                return False
+            step = b._step(obj, result.chosen, result.moved_mm,
+                           [step_text.record("retry_room", at=[at.location.x, at.location.y])])
+            b._step_found[key] = []
+            plan.findings[:] = [f for f in plan.findings if id(f) not in gone]
+        else:
+            plan.findings[:] = [f for f in plan.findings if id(f) not in gone]
+            found_from = len(plan.findings)
+            b._step_t0, b._step_item = time.monotonic(), key
+            try:
+                step, _ = b._recorded_settle(occ, obj, plan, placed)
+            finally:
+                b._step_t0 = None
+            b._step_found[key] = plan.findings[found_from:]
+        for n in old.notes:                 # what its last settle counted: its seeding and its pocket
+            if n.get("kind") == "seeded":
+                for net in n.get("nets") or ():
+                    plan.seeded_by_net[net] -= 1
+                    if not plan.seeded_by_net[net]:
+                        del plan.seeded_by_net[net]
+        if old.pocket is not None and key in plan.pocketed:
+            plan.pocketed.remove(key)
+        step.notes = tuple(n for n in old.notes if n.get("kind") in step_text.TIER) + step.notes
+        if obj.faces_note:
+            step.say(obj.faces_note)
+        step.seconds = old.seconds
+        plan.steps[k] = step
+        self.touched.append(key)
+        if step.placement is None:
+            if self.on_step:
+                self.on_step(plan, step)
+            return False
+        order = plan.turns.get(key, {}).get("order", len(plan.turns))
+        plan.turns[key] = dict(b._turn_of(occ, obj, step.placement, placed), order=order)
+        occ.commit(obj.item, step.placement)
+        b._record_arranged_thinned(occ, plan, obj, step.placement)
+        placed.update(fp.ref for fp in members_of(obj.item))
+        b._labels_give_way(occ, plan, obj.item, step.placement, True)
+        if obj.kind == "cell":
+            b._cell_placements[key] = step.placement
+            taken = b._stamped_region_cost(occ, obj.item)
+            if taken >= 0.05:
+                step.say("stamped_regions", area_mm2=taken)
+        if self.on_step:
+            self.on_step(plan, step)
+        return True
+
+    def record(self, rec: dict) -> None:
+        """A try, as a step of its own in the plan: what it lifted, what it placed, and whether it was kept."""
+        step = Step("retry %s %d" % (rec["item"], rec["seed"]), "retry", None)
+        step.say("retry", item=rec["item"], seed=rec["seed"], lifted=rec["lifted"], placed=rec["placed"],
+                 kept=rec["kept"], at=rec["room"]["at"], unplaced_before=sum(rec["before"]["unplaced"]),
+                 unplaced_after=sum(rec["after"]["unplaced"]), score_before=rec["before"]["score"],
+                 score_after=rec["after"]["score"])
+        self.plan.steps.append(step)
+        if self.progress:
+            self.progress(_fmt(step))
 
 
 @contextlib.contextmanager
@@ -11937,6 +12363,7 @@ class _Trial:
     why: object
     score: float | None
     tight: float | None = None      # how much nearer than its box a Beside laid it (`Board._tight`), None when not nearer
+    walled: int = 0                 # the pads it walls off there (`Scorer`), compared before the score
 
 
 @dataclass
@@ -12084,8 +12511,9 @@ class _LaneEnv:
     """What a laid-out escape asks of the board (lanes.py): the clearances the
     script's rules give, and what already stands where a lane or a via would."""
 
-    def __init__(self, board: "Board", occ, decl: EscapeDecl, pads: dict, face: Face):
+    def __init__(self, board: "Board", occ, decl: EscapeDecl, pads: dict, face: Face, *, context=None):
         self.board = board
+        self.context = context
         self.occ = getattr(occ, "_occ", occ)            # a candidate's view reads the real occupancy's copper
         self.layer = face.copper
         s = board.settings
@@ -12097,6 +12525,7 @@ class _LaneEnv:
         self.own = [sh for shapes in pads.values() for sh in shapes]
         self.ref = decl.ref
         self._obstacles = None
+        self._holes = None
 
     def clearance(self, net_a: str, net_b: str, owner_b=None) -> float:
         if owner_b:
@@ -12113,7 +12542,7 @@ class _LaneEnv:
     def via_site(self, at: Location, net: str, size: float, drill: float):
         """Why a via of `net` may not stand at `at` among what is placed (the
         edge, other nets' copper, holes, keepouts), or None."""
-        ctx = self.board.__dict__.get("_escape_ctx") or _CopperContext(self.board, self.occ)
+        ctx = self.context or self.board.__dict__.get("_escape_ctx") or _CopperContext(self.board, self.occ)
         if self._obstacles is None:
             self._obstacles = self.board._via_obstacles(ctx)
         return self.board._via_site_why(ctx, at, net, size, drill, self._obstacles)
@@ -12126,14 +12555,14 @@ class _LaneEnv:
         out = list(occ.copper_conflicts(shape))
         if self.ref in occ.pending:                     # a candidate: its own pads are not in the occupancy yet
             out += [why for o in self.own if (why := occ._conflict(shape, o, None, exact=True))]
-        for ref, g in occ.items.items():
-            if ref in occ.pending:
-                continue
-            for o in g.shapes:
-                if o.kind == "npth" and shape.box.overlaps(o.box, gap=occ._copper_reach):
-                    why = occ._conflict(shape, o, None, exact=True)
-                    if why:
-                        out.append(why)
+        if self._holes is None:                         # the placed items' unplated holes, in the items' order
+            self._holes = [o for ref, g in occ.items.items() if ref not in occ.pending
+                           for o in g.shapes if o.kind == "npth"]
+        for o in self._holes:
+            if shape.box.overlaps(o.box, gap=occ._copper_reach):
+                why = occ._conflict(shape, o, None, exact=True)
+                if why:
+                    out.append(why)
         return out
 
 

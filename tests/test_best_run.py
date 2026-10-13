@@ -1,6 +1,6 @@
 """A run is kept as the best one only when it is better, and better is a
 ruling rather than a feeling. Pure: no KiCad, no board."""
-from placemat import report
+from placemat import report, score
 from placemat.report import RunRecord
 
 ITEMS = ("mcu", "buck5", "j_usb", "c_bulk")
@@ -10,9 +10,9 @@ def _rec(run_id="a1", placed=4, drc=9, findings=15, airwire=5790.0, items=ITEMS,
          landed=None, status="ok", unplaced=None, crossings=0):
     landed = items if landed is None else landed
     unplaced = max(0, len(items) - placed) if unplaced is None else unplaced
-    measures = {"unplaced": {"default": unplaced} if unplaced else {}, "drc": drc, "link_excess": 0.0,
+    measures = {"v": score.MEASURES_VERSION, "unplaced": {"default": unplaced} if unplaced else {}, "drc": drc, "link_excess": 0.0,
                 "findings": {"label": findings} if findings else {}, "airwire_mm": airwire,
-                "crossings": {"signal": crossings, "plane": 0}}
+                "crossings": {"plain+plain": crossings, "plane": 0}}
     return RunRecord(run_id=run_id, board="b", status=status,
                      placements={i: {"x": 0, "y": 0} for i in landed},
                      steps=[{"item": i} for i in items],
@@ -29,13 +29,34 @@ def test_completeness_outweighs_everything_else_at_the_default_weights():
     assert report.is_better(whole, part) and not report.is_better(part, whole)
 
 
-def test_each_thing_that_went_wrong_is_weighed_not_ranked_in_a_fixed_order():
-    """One DRC violation costs 200 mm of wire at the defaults: a run with one
-    more violation but 300 mm less airwire is better, with 100 mm less it is
-    not. The order of old - DRC before everything - is a matter of weights."""
+def test_a_drc_error_is_counted_before_the_run_score_not_weighed_in_it():
+    """D13: a DRC error makes a board unbuildable, so it is counted in the validity tier before the run score: one
+    more violation is worse however much shorter the wire, one fewer better however much longer."""
     base = _rec(drc=12, findings=12, airwire=5083)
-    assert report.is_better(_rec(drc=13, findings=12, airwire=4783), base)
-    assert not report.is_better(_rec(drc=13, findings=12, airwire=4983), base)
+    assert not report.is_better(_rec(drc=13, findings=12, airwire=4783), base)
+    assert report.is_better(_rec(drc=11, findings=12, airwire=6083), base)
+    said = report.regression(_rec(drc=13, findings=12, airwire=4783), _rec(run_id="b7", drc=12, airwire=5083))
+    assert said and "drc_new 13 (best 12)" in said and "b7" in said
+
+
+def test_an_invalid_run_never_replaces_a_valid_best(tmp_path):
+    """D12: a run with a DRC error does not take the place of a clean one, however short its wire."""
+    path = tmp_path / "best.json"
+    report.update_best(path, _rec(run_id="clean", drc=0, airwire=5000))
+    assert report.update_best(path, _rec(run_id="dirty", drc=1, airwire=100)) is False
+    assert report.best_for(path, report.family_of(_rec())).run_id == "clean"
+
+
+def test_a_routed_run_is_ranked_by_closure_before_the_score():
+    def routed(clean, airwire, phases=()):
+        r = _rec(drc=0, airwire=airwire)
+        r.metrics["closure_clean"] = clean
+        r.metrics["route"] = {"phases": [{"final_closure_clean": c} for c in phases]}
+        return r
+    assert report.is_better(routed(0.95, 6000), routed(0.9, 5000))
+    assert report.is_better(routed(0.9, 6000, (1.0, 0.8)), routed(0.95, 5000, (0.9, 1.0)))
+    said = report.regression(routed(0.9, 5000), routed(0.95, 6000))
+    assert said and "clean closure 0.9" in said
 
 
 def test_a_run_that_improves_wire_without_regressing_drc_is_better():

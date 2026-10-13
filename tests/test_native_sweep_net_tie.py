@@ -47,7 +47,7 @@ def _scan(occ, item, native, monkeypatch, rotations=(0, 90), radius=6.0, step=0.
 
     def score(cand):
         legal.add((cand.location.x, cand.location.y, cand.rotation))
-        return cand.location.x + 0.37 * cand.location.y
+        return 0, cand.location.x + 0.37 * cand.location.y
     res = placer.scan(occ, item, geom_hint, radius, step, rotations=rotations, score=score)
     unscored = placer.scan(occ, item, geom_hint, radius, step, rotations=rotations)
     return (res.chosen, unscored.chosen, res.tried, sum(res.rejected.values()), legal, len(calls))

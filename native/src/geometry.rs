@@ -82,6 +82,32 @@ pub(crate) fn point_segment_distance_below(p: Point, a: Point, b: Point, best: f
     crate::exact::hypot(ex, ey)
 }
 
+/// Whether `point_segment_distance(p, a, b) < r`, answered by the square root of the sum of squares when that is
+/// clearly on one side of `r` (it is within a few units in the last place of the exact distance; 1e-14 relative is
+/// many), and by the exact distance otherwise.
+#[inline]
+pub(crate) fn point_segment_within(p: Point, a: Point, b: Point, r: f64) -> bool {
+    let (ax, ay) = a;
+    let (bx, by) = b;
+    let (px, py) = p;
+    let (dx, dy) = (bx - ax, by - ay);
+    let (ex, ey) = if dx == 0.0 && dy == 0.0 {
+        (px - ax, py - ay)
+    } else {
+        let t = ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy);
+        let t = t.max(0.0).min(1.0);
+        (px - (ax + t * dx), py - (ay + t * dy))
+    };
+    let rough = (ex * ex + ey * ey).sqrt();
+    if rough > r * (1.0 + 1e-14) {
+        return false;
+    }
+    if rough < r * (1.0 - 1e-14) {
+        return true;
+    }
+    crate::exact::hypot(ex, ey) < r
+}
+
 fn within(p: Point, x0: f64, y0: f64, x1: f64, y1: f64) -> bool {
     x0 <= p.0 && p.0 <= x1 && y0 <= p.1 && p.1 <= y1
 }

@@ -4173,12 +4173,12 @@ function pinRotsHTML(f) {
   const fi = ((plan() || {}).findings || []).indexOf(f); if (fi < 0) return "";
   const many = (facts.refs || []).length > 1, was = facts.present && facts.present.total, on = S.pinmap && S.pinmap.fi === fi ? S.pinmap.r : -1;
   const n2 = v => v == null ? "-" : pnum(Math.round(v * 100) / 100);
-  const body = rows.map((r, i) => { const save = was != null ? was - r.total : null;
+  const body = rows.map((r, i) => { const save = was != null && r.total != null ? was - r.total : null;
     return "<tr" + (i === on ? ' class="on"' : "") + ' data-act="pmrot" data-pmrot="' + fi + ":" + i + '" title="draw the airwires of this pose and list its map; nothing is resolved or written">' +
       "<td>" + esc(pinTurnWord(r.turns, many)) + (i === facts.best ? " " + pill("best", "good") : "") + (i === 0 ? " " + pill("present") : "") + "</td>" +
       "<td>" + n2(r.weighted) + "</td><td>" + (r.length_mm == null ? "-" : Number(r.length_mm).toFixed(1) + " mm") + "</td><td>" + (r.bend_deg == null ? "-" : pnDeg(r.bend_deg)) + "</td>" +
       "<td>" + n2(r.total) + '</td><td class="' + (save > 1e-9 ? "gain" : "") + '">' + n2(save) + "</td></tr>"; }).join("");
-  return '<div class="pmrots"><table><tr><th>turn</th><th>crossings</th><th>length</th><th>bends</th><th>total</th><th>saving</th></tr>' + body + "</table>" +
+  return '<div class="pmrots"><table><tr><th>turn</th><th>generator crossings</th><th>generator length</th><th>generator bends</th><th>' + (facts.score_scope === "placement" ? "common score" : "generator total") + '</th><th>signed gain</th></tr>' + body + "</table>" +
     (on >= 0 && rows[on] ? pinMapList(rows[on]) : "") + "</div>";
 }
 // A pose's row clicked: drawn, or taken away when it is the one drawn.
@@ -4220,8 +4220,10 @@ function xvPinsHTML(X) {
     const here = shown && shown.seed === m.seed, v = xvBySeed(m.seed) || {seed: m.seed};
     const groups = (m.groups || []).map((g, i) => {
       if (g.slow) return "<div>" + pill("slow", "warn") + " " + esc(refs(g) + " ran past its guard after " + g.steps + " of " + g.budget_steps + " steps, no map") + "</div>";
-      const on = here && X.pin && X.pin.seed === m.seed && X.pin.g === i;
-      return "<div>" + esc(refs(g) + " " + pnum(g.present.weighted) + " -> " + pnum(g.best.weighted) + " crossings") +
+      const on = here && X.pin && X.pin.seed === m.seed && X.pin.g === i, common = g.score_scope === "placement";
+      const before = common ? g.present.total : g.present.weighted, after = common ? g.best.total : g.best.weighted;
+      return "<div>" + esc(refs(g) + " " + (before == null ? "unmeasured" : pnum(before)) + " -> " + (after == null ? "unmeasured" : pnum(after)) + (common ? " common placement score (independent proposal)" : " generator crossings (diagnostic only)")) +
+        (g.common && !g.common.actionable ? " " + pill("diagnostic only", "warn") : "") +
         (here ? ' <button data-xpa="' + m.seed + ":" + i + '" class="' + (on ? "on" : "") + '" aria-pressed="' + (on ? "true" : "false") + '" title="draw the airwires before and after this map and list it">Map</button>' : "") +
         (on ? pinMapList(g) : "") + "</div>";
     }).join("");

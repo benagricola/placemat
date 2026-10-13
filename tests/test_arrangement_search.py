@@ -5,9 +5,18 @@ import pytest
 from placemat import arrangement_note as N
 from placemat.arranged_geometry import attach
 from placemat.layout import Board
-from placemat.settings import Settings
+from placemat.settings import Settings as _Settings
 from placemat.values import Cell, Location, Near, Part
 from tests.arrangement_support import OBSTACLE, east_doc, stamped_geometry, with_arrangement
+from tests.fixtures import unturned_findings
+
+
+def Settings():
+    """These tests pin the pull estimate (`place.search_wire` "clique"): their unscored cases ("nothing to score") and
+    margins were written for it, and the one-score search scores every candidate. Task 16 removes the pull estimate and
+    revisits them."""
+    return dataclasses.replace(_Settings(), place_search_wire="clique")
+
 
 NEAR = dict(radius=8.0, step=0.5)
 
@@ -234,7 +243,9 @@ def test_an_arrangement_whose_front_is_pruned_and_whose_back_wins_is_noted_by_th
     def pruned_front(occ, item, hint, *a, **k):
         r = real(occ, item, hint, *a, **k)
         if getattr(item, "arrangement", "") == "c_in.east" and r.chosen is not None:
-            r.score = r.score + layout.PRUNED if hint.face is Face.FRONT else 1.0     # the front cut by the floor, the back cheap
+            front = hint.face is Face.FRONT                 # the front cut by the floor (unweighed), the back cheap
+            r.score = r.score + layout.PRUNED if front else 1.0
+            r.walled = layout.UNWEIGHED if front else 0
         return r
     monkeypatch.setattr(layout, "scan", pruned_front)
     b = board((60.0, 30.0), dataclasses.replace(Settings(), score_back_face=2.0))
@@ -681,7 +692,8 @@ def test_a_rider_is_judged_in_the_search_where_the_arrangement_lays_it():
     b.place(Part("r9"), at=Beside(Cell("mod"), Edge.EAST))
     plan = b.resolve()
     assert plan.step("r9").placement is not None and not plan.box("r9").overlaps(plan.box("obst"))
-    assert not [f for f in plan.findings if f.facts.get("item") == "r9"]
+    # r9's turn notice is a real gain (a crossing fewer for 1.5 mm of wire), which this test is not about
+    assert not [f for f in unturned_findings(plan) if f.facts.get("item") == "r9"]
 
 
 def test_a_rider_that_meets_the_default_wherever_it_goes_does_not_stop_an_arrangement_it_fits():
@@ -693,7 +705,9 @@ def test_a_rider_that_meets_the_default_wherever_it_goes_does_not_stop_an_arrang
     b.place(Part("r9"), at=Centre(X(pad), Y(pad)))
     plan = b.resolve()
     assert plan.placement("mod").arrangement == "c_in.east" and plan.step("r9").placement is not None
-    assert not [f for f in plan.findings if f.facts.get("item") in ("mod", "r9")]
+    # the cell's turn notice is congestion alone (two steps, for 4 mm more wire and a crossing more): advice the run
+    # score gives, which this test is not about
+    assert not [f for f in unturned_findings(plan) if f.facts.get("item") in ("mod", "r9")]
 
 
 def test_the_escape_lane_pricer_is_asked_of_each_arranged_item(monkeypatch):

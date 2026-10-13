@@ -11,9 +11,7 @@ section for each hand-written pattern a newer form replaces.
 
 - **Routing phases.** Routing phases expose `route --phase NAME [--only]`, per-phase reports in the console, watch and studio,
   and `run --route-rank PHASE[,PHASE...]` for routed explore variants.
-
 - **Routing phases.** `settings <board> --example` writes example routing phases for the board; without a board it writes signals.
-
 - **Routing phases.** `settings <board> --example` ends its example phases with a phase `pours` naming the board's
   pour nets. Nothing joined a pour net's pads to its pour unless a phase named the net; this phase does. A
   placemat.toml written by an earlier `--example` has no such phase: add one after the others to join them,
@@ -23,52 +21,45 @@ section for each hand-written pattern a newer form replaces.
       nets = ["GND"]
 
   naming the board's pour nets.
+- **`escape_via` finding and two settings.** `escape_via` (warning) names a pad that can leave toward what it joins
+  only by a via, with `ref`, `part`, `pin`, `net`, `by` (what closes its straight lanes) and `side`; it costs `score.escape_via`
+  (10.0 mm). `score.escape_reach` (3.0 mm) is how far round a pad its way out is looked for.
 
 ### Changed
 
 - **Routing phases.** Net clearance comes from the capture's clearance field. Trapped-pad findings are `setup.net_clearance`.
-
 - **Routing phases.** A join's width is measured along the copper that joins its two pads, through any pour fill or
   pad on the way; a join whose path cannot be measured is `width_unknown` and is not counted clean.
-
 - **Routing phases.** Two footprints may share a reference: the route goes ahead and says so with a
   `setup.duplicate_reference` warning.
-
 - **Routing phases.** Pair phase widths come from net classes; omit an explicit phase width.
-
 - **Routing phases.** A phase that names a pour net joins its pads to the pour by via drops first: a via in each pad
   no copper joins to the pour, or beside it with a short track, at the net class's sizes; a pad a cell's via or other
   copper already joins is left as it is. Pads still apart after that are routed to the pour by a track each group.
   `route.json`'s phase record gives what the call did as `pour_joins`.
   Before, the router laid the whole net as tracks, pad to pad, re-routing pads already on the pour. Scripts need no
   change.
-
 - **Routing phases.** A phase's connections are judged against the DRC errors the phase added: an error its input
   board already had (a footprint's own pad against its own hole, say) no longer marks every connection of that
   net as not clean. Scripts need no change.
-
 - **Routing phases.** A `current_paths` phase no longer routes the pour nets it picks up. The pour carries such a
   net's current, so its connections are asked of the pour: one the pour joins is listed as left to it, one it does
   not join is open in the phase's closure and named in the route's line. Before, the phase routed the whole pour net as tracks at the widest current width, which could take the board's
   room from every later phase. A pour net a phase names (`nets`, a class, `connections`) is still routed. Scripts
   need no change.
-
 - **Routing phases.** On a board with inner copper layers, `settings <board> --example` gives the example current phase
   `layers` set to the board's outer copper layers. A placemat.toml written by an earlier `--example` keeps its current
   phase on every layer: add `layers = ["F.Cu", "B.Cu"]` (the board's outer layers) to that phase to match.
-
 - **A route that fails keeps the placed board.** When `run --route` places the board and the route then fails or is
   refused, the layout folder keeps the placed, unrouted board instead of going back to the last run's, and the run
   says so; `run.json`'s `failure.layout` is `placed_unrouted`. Run the same command again to route it: the route
   takes the phases the failed one finished. A failure before the board is written still puts the folder back
   (`failure.layout` `restored`). Scripts need no change.
-
 - **A route that is stopped keeps the placed board.** A stop (Ctrl-C, SIGTERM, SIGHUP, `--max-time`) during the route
   of `run --route` keeps the placed, unrouted board in the layout folder instead of going back to the last run's, and
   the run says so; the run is recorded as `stopped`, with `failure.layout` `placed_unrouted`. Run the same command
   again to resume the route from the phases it finished. A stop in any other stage still puts the folder back.
   Scripts need no change.
-
 - **A route needs routing phases.** `placemat route`, `run --route` and explore's `--route-best` route the project's
   `[[route.phase]]` tables in order and refuse a project with none. Start from the example phases
   (`placemat settings <board> --example`), or write the one phase that routes what the old fixed stages' main pass did:
@@ -84,13 +75,67 @@ section for each hand-written pattern a newer form replaces.
   left open and how the final board judges it; the report also has `vias`, `track_mm`, `segments`, `drc_new` and
   `widths_failed`. The route's work folder keeps a phase's files as `p<i>_*`; a route kept from an earlier version
   routes again.
-
 - **A route needs its router named.** placemat no longer falls back to a router folder of its own: set `[route]
   router_dir` in placemat.toml or `$KRT_DIR` to the KiCadRoutingTools checkout. With neither, `placemat route` and
   `run --route` refuse (`router_unset`, naming both); a folder without the router is refused as `router_not_found`.
   placemat's own tests read files outside the repository from `$KRT_DIR` (the router) and `$MNB_ECOSYSTEM` (the
   multi-board project some tests read boards and footprints from), and skip, saying which, when they are unset.
   Scripts need no change.
+- **Runs, explore variants and the bench are ranked by tiers (`score.rank`).** First validity: unplaced parts (high
+  priority, then default, then low), real DRC violations, required widths a routed board misses and critical findings
+  (`fixed`, `copper`, `escape_walled`), as counts; a valid run ranks above an invalid one, and an invalid run never
+  becomes the best of a valid one. Then, for routed runs, each phase's clean closure and the clean closure; then, for
+  two valid fully routed runs, fewer vias, less routed copper and fewer track segments, in that order (the router's own
+  quality key); then the run score. A run with one more DRC violation than the best is worse however much shorter its
+  wire. The run score itself no longer counts unplaced parts, DRC violations or those findings, so its numbers are lower
+  where a run had any. A routed run records `vias`, `copper_mm` and `segments` in its measures. The regression finding
+  names the tier that decided it. `explore.route_best`'s `--accept` takes the routed variant that ranks first. Scripts
+  need no change.
+- **The placement search takes a spot that walls no pad over any that walls one.** A walled pad was 400 mm in the
+  search's cost; it is now compared first: a candidate that walls off a pad loses to any that does not, whatever their
+  costs, and the soft cost decides between the rest. A cell's arrangements, an either-face item's two faces and the
+  cleanup's moves and swaps compare the same way. Placements can move where a walled pad was worth less than the wire
+  it saved. Scripts need no change.
+- **`[explore] congestion_step` is now `[score] congestion_step`; congestion counts in every run's score.** A
+  placemat.toml (or `--set`) that sets `explore.congestion_step` is refused with `explore.congestion_step is now
+  score.congestion_step`; set the same value there. Run scores are measured anew: the airwire is the length of the nets
+  that pull (planes and free nets leave it, a controlled-impedance net's length counts `score.impedance` times), each
+  declared link adds its weight times its pad-to-pad length (`score.link`), a crossing is priced by its nets' kinds, and
+  a fitted frame adds its area (`score.area`). A best run recorded before this release is not compared: the next run
+  takes its place.
+- **Escape findings are judged by the cheapest way out.** `escape_closed` and `escape_walled` (and the run score's
+  terms for them) no longer come from 1.5 mm corridors. Each pad is judged by the exact path search within
+  `score.escape_reach` (3.0 mm): a surface route toward what it joins is free; else a via beside the pad is the new
+  `escape_via`; else a surface route another way is `escape_closed`; else the pad is `escape_walled`. This is placemat's
+  own rule, not a KiCad rule. A pad that could leave only by a via was counted as having its way out; it is now
+  `escape_via`. A pad of a plane's or free net is reported only when it is walled. Crossed escapes are unchanged.
+  Scripts need no change.
+
+### Fixed
+
+- **Per-net current matching.** Per-net `Pm.I` matches the whole net name or the last path part, as `Pm.KeepOut`
+  does. Module currents now reach `/sheet/VCC` and `CELL.VCC` without capture changes.
+- **A route's item ids are the same in every run.** pcbnew gives an item its file names no id (an older KiCad format
+  leaves many out) a random one as it loads, so the route's working copy, and the DRC that names a violation's items
+  by id, differed from run to run. Every board placemat loads to route, clean up or write is now loaded with KiCad's
+  id generator seeded from the file. Scripts need no change.
+- **Of two close same-net router vias, the one kept is chosen by the copper on it.** The route's cleanup kept
+  whichever the routed file listed first. It now keeps the via more copper ends on (first copper a merge cannot move: tracks the route was given, and arcs),
+  then the lower x and y, and a net whose merge would part its pads or come within clearance of another net is tried
+  the other way round before both vias are kept. Scripts need no change.
+- **The 3D model self-test leaves no folder in the temporary directory.** Each studio start that checked KiCad's model
+  export left a `placemat-3d-*` folder behind; thousands built up. It now goes when the check ends.
+- **A pad the script's declared copper will join is not walled before that copper is laid** (D28). The placement search, the retry, cleanup and the turn check judged pads before the script's tracks and vias were laid, so a pad walled in by parts but joined by a declared track (or a via in it, a `vias` grid or row, a lane's via) counted as walled there, though the finished board does not count it. Such a pad is now judged as joined until the copper is laid; the finished board judges every pad by the copper laid, as before. A board whose declared tracks join pads in crowded places may place differently, and cleanup no longer pays run score to unwall such a pad.
+- **Under the one-score search the cleanup pass judges a move or swap by the run score** (D26). A change is kept when it walls fewer pads than the board before it, whatever else it costs, or walls as many and lowers the run score, its change worked out as the search's (wire, crossings, links, push, area, congestion and the escape grades); one that walls more is refused. It was kept when the moved parts' wire and link length got shorter. A move that shortens wire but raises the run score (crowding a congested region, crossing more airwires) is no longer made, and a pushed item is no longer moved against its push: placements and run scores move against earlier runs. `metrics.cleanup`'s `cost_before` and `cost_after` are the board's run score under the one-score search. `place.search_wire = "clique"` keeps the old cleanup with the pull estimate.
+- **Items the one-score search leaves unplaced for want of room are tried again** (`place.retry_rounds`, default 2 tries per item; `place.retry_lift`, default 4 items lifted at most). A try lifts the placed items in the way of a room, places the item there and them again, and is kept only when the board then ranks above the board before it (fewer parts unplaced by priority, then a lower run score); else the board is put back. Boards that left items unplaced may now place more of them, and the items lifted for them stand elsewhere: placements and run scores move against earlier runs. Each try is a `retry` step of the run and `metrics.retry` counts them. `place.retry_rounds = 0` places as before.
+- **The placement search is the one-score search** (`place.search_wire = "mst"` by default; `"clique"` is the pull estimate, kept until it is removed). A scan scores each candidate on the run score's terms but the escape grades and the walled check, then scores the best `place.escape_spots` (default 8) of them that wall no pad beyond the lifted board's walled pads in full and takes the best of those. Placements and run scores move against runs recorded under the pull estimate; `place.search_wire = "clique"` restores the old search for a comparison. A larger `place.escape_spots` gives more candidates the escape grades, at their cost; one at least the scan's candidate count scores every candidate in full.
+- **A net's RUDY box is at least `score.congestion_box` (3.0 mm) each way.** It was one 0.5 mm cell, so a short net along one axis put its whole wire into a strip one cell wide, and a small turn that widened it could lower the worst cell by several `score.congestion_step` steps: tens of mm of run score, and `turn.better` notices, from a sub-millimetre change of wire. The floor applies to the search, the run score (`rudy_steps`), the turn check and `metrics.rudy` alike. On the bench modules the worst cell falls by about a half (`rudy_steps` 290 to 144 summed), so a run score recorded before reads higher than the same placement scores now; `score.congestion_box = 0.5` restores the old figures.
+- **Run measures are version 3** (`measures.v`), as `rudy_steps` is counted on the floored net box. A run, explore variant, bench row or reference placement recorded under version 2 is not compared with a new one (`report.comparable`, `fixtures/bench.py`, `place_ref`): a stored best from before reads as absent and the next run takes its place, as a version 1 record did at version 2. Changing `score.congestion_box` or `score.congestion_step` later does not re-rank stored runs, which keep the `rudy_steps` they were recorded with.
+- **Pin advice now requires a current common physical judgment.** Standalone study records are explicitly generator-only (`score_scope="generator"`, `generator_gain`, `common_unavailable`) and offer no executable map or turn. Plan-bound rows expose common `total`, validity and refusal records, with generator breakdowns labeled separately. Update clients reading facts v4: generator weighted crossings are not common saving, unknown totals are `null`, and validity repairs can have negative soft gain. Independent module/group gains cannot certify a combined stamp.
+- **Saved pin advice is rejudged before a longer search compares it.** Its old scalar does not survive changes to weights or geometry as evidence. Legacy proof-less advice refuses with `common_proof_missing`; unsupported cell rebasing refuses with `cell_advice_rebase_unavailable`; malformed saved payloads return stable `incoming_*_invalid` codes. Regenerate advice from a current plan rather than editing the stored total.
+- **An explore's pin remap records are in run-score millimetres.** With `--rank-remapped`, each variant's `remap` is the pin map study's best maps judged together on the board by the run score: `saving` is the run-score gain of that combined judgment (0 when it changes the validity tier, which `reason` "validity repair" and the signed `gain` say), and each group's `present` and `best` are run-score totals, where they were weighted crossings. `remap.crossings` and the route entry's `remapped.crossings` are gone; `remap` adds `gain`, `actionable`, `reason`, `baseline` and `final`. A variant is routed with its remap made only when `actionable` is true. A reader of these records that took `saving` as weighted crossings times `score.crossing`, or `present`/`best` as crossing counts, reads run-score mm now.
+- **`pins.pair_weight`, `pins.impedance_weight` and `pins.length_weight` are retired.** Set `score.crossing_pair_net` and `score.impedance` for both placement and pin candidate generation. The generator normalizes airwire to crossing units as `1 / score.crossing`, or zero when that price is zero. The old independent values are refused with a message naming their replacement; remove them from `placemat.toml` and `--set`. Pin cache records now bind every shared generator weight.
+- **`place.turn_crossings_min` is retired.** Crossings now contribute their `[score]` price to the same exact change as wire, links, area, congestion and escapes. Set `place.turn_gain_mm` for the minimum run-score gain and `place.turn_gain_share` for the minimum share of the item's wire/link contribution. A turn that increases walled pads is refused. `turn.better` facts replace `shorter`, `longer`, `weighted_mm` and `crossings_delta` with signed per-term `change` and total `gain`; clients reading those facts must migrate. A body-centred alternative that would move a position anchor has `held_by="anchor"` and no executable edit; the notice states that its position anchor would need changing. Invalid candidates outside the fixed congestion domain are skipped without certifying a score or dropping existing invalid-board findings.
 
 ### Removed
 
@@ -108,36 +153,20 @@ section for each hand-written pattern a newer form replaces.
                                                 nets = ["GND"]
 
   A net its pour serves is routed alone with the pour handed to the router, as an island was.
-
 - **Routing phases.** `[route] pair_layers`: use a phase with `pairs = true` and `layers`.
-
 - **Routing phases.** `[route] net_halos`: state the net type's `clearance` field in the capture.
   `setup.net_halo` is now `setup.net_clearance`.
-
 - **Routing phases.** Fixed route stages and their report fields: phase results live in `route.json`'s
   `phases`; old top-level `pairs`, `islands`, `islands_missing`, `island_layers`,
   `class_stages`, `pair_layers`, `pair_layers_refused` and `net_halos*` are gone.
-
 - **Routing phases.** Routing no longer selects differential pairs from net classes. Capture
   `DiffPair` instances or explicit phase pairs select them; classes retain geometry.
-
-### Fixed
-
-- **Per-net current matching.** Per-net `Pm.I` matches the whole net name or the last path part, as `Pm.KeepOut`
-  does. Module currents now reach `/sheet/VCC` and `CELL.VCC` without capture changes.
-
-- **A route's item ids are the same in every run.** pcbnew gives an item its file names no id (an older KiCad format
-  leaves many out) a random one as it loads, so the route's working copy, and the DRC that names a violation's items
-  by id, differed from run to run. Every board placemat loads to route, clean up or write is now loaded with KiCad's
-  id generator seeded from the file. Scripts need no change.
-
-- **Of two close same-net router vias, the one kept is chosen by the copper on it.** The route's cleanup kept
-  whichever the routed file listed first. It now keeps the via more copper ends on (first copper a merge cannot move: tracks the route was given, and arcs),
-  then the lower x and y, and a net whose merge would part its pads or come within clearance of another net is tried
-  the other way round before both vias are kept. Scripts need no change.
-
-- **The 3D model self-test leaves no folder in the temporary directory.** Each studio start that checked KiCad's model
-  export left a `placemat-3d-*` folder behind; thousands built up. It now goes when the check ends.
+- **`score.unplaced`, `score.unplaced_high`, `score.unplaced_default`, `score.unplaced_low`, `score.drc`, `score.fixed`,
+  `score.copper` and `score.escape_walled`.** What makes a board unbuildable is no longer weighed in the run score: it
+  is the validity tier of the one board comparison (`score.rank`), counted before closure and the run score. A
+  placemat.toml (or `--set`) that sets one is refused with `score.<key> is retired; ... counts in the validity tier of
+  the board comparison (score.rank), before closure and the run score, with no weight`; delete the line. There is
+  nothing to set in its place.
 
 ## To 0.99.36
 

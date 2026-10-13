@@ -83,10 +83,11 @@ def test_a_cell_at_90_degrees_gives_both_levers_the_cell_turned_on_the_board_and
     assert "re-lay module Mcu with U1 at 180 degrees in its frame" in f
     assert "next run re-places the board" in f
     assert "module Mcu's capture, which its 2 stamps share" in f
-    best_advice = sg.suggest(f.cause, f.facts)[0]
-    assert "turn cell logic to 270 degrees on the board" in best_advice.text
-    assert "re-lay module Mcu with U1 at 180 degrees in its frame" in best_advice.text
-    assert "turn U1 to" not in best_advice.text
+    assert sg.suggest(f.cause, f.facts) == []
+    diagnostic = sg.pin_advice_text(sg.pin_advice(f.facts, f.facts["best"]))
+    assert "turn cell logic to 270 degrees on the board" in diagnostic
+    assert "re-lay module Mcu with U1 at 180 degrees in its frame" in diagnostic
+    assert "turn U1 to" not in diagnostic
 
 
 def two_stamps():
@@ -166,8 +167,11 @@ def test_a_resolve_gives_the_study_each_placed_cell_its_members_envelope_and_rot
     assert (c.members, c.rotation, c.face, c.flipped, c.stamps) == (("C1", "U1"), 90.0, "front", False, 1)
     assert c.envelope == Box.union([occ.courtyard_box("U1"), occ.courtyard_box("C1")])
     assert placed.parts["U1"].cell == "c" and placed.parts["R1"].cell == ""
-    (f,) = [f for f in plan.findings if f.cause is C.PINS_REMAP]
-    assert f.facts["cell"] == "c"
+    # the study's best map here does not lower the run score (Task 13's rescoring), so the cell is read from the
+    # summary, which reports every studied group, rather than from a pins.remap finding
+    from placemat import pinmap
+    (g,) = pinmap.plan_summary(b, plan)
+    assert g["turns"][0]["cell"] == "c"
 
 
 def test_a_cells_module_is_read_from_the_generators_log_beside_the_board(tmp_path):
@@ -210,8 +214,8 @@ def test_an_explore_line_names_the_cell_turn():
     turn = {"ref": "U1", "turn_deg": 90.0, "rotation_deg": 90.0, "face": "front", "flip": False, "cell": "logic",
             "module": "Mcu", "stamps": 1, "cell_rotation_deg": 180.0, "module_rotation_deg": 90.0}
     report = {"pin_maps": [{"seed": 0, "score": 12.0, "seconds": 0.1, "groups": [
-        {"refs": ["U1"], "present": {"weighted": 6.0}, "best": {"weighted": 2.0}, "turns": [turn]}]}]}
-    assert pin_map_lines(report)[0] == ("  pin map, seed 0 at 12.0 mm: U1 6 -> 2 weighted crossings after remapping, "
+        {"refs": ["U1"], "present": {"total": 6.0}, "best": {"total": 2.0}, "turns": [turn]}]}]}
+    assert pin_map_lines(report)[0] == ("  pin map, seed 0 at 12.0 mm: U1 6.0 -> 2.0 common placement score after remapping, "
                                         "with cell logic turned to 180 degrees")
 
 
@@ -274,7 +278,8 @@ def test_the_relay_lever_says_it_relays_every_stamp():
     found, _ = study_findings(pads, parts, {}, frozenset(), {}, {}, settings(), cells=cells)
     f = next(f for f in found if f.cause is C.PINS_REMAP)
     assert "which re-lays all 2 of its stamps" in f
-    assert "which re-lays all 2 of its stamps" in sg.suggest(f.cause, f.facts)[0].text
+    assert sg.suggest(f.cause, f.facts) == []
+    assert "which re-lays all 2 of its stamps" in sg.pin_advice_text(sg.pin_advice(f.facts, f.facts["best"]))
 
 
 def series_in_cell():
@@ -421,8 +426,8 @@ def test_a_controlled_impedances_length_counts_impedance_weight_times_so_a_cell_
     (g,) = study(rf, s)
     turned = next(r for r in g.results if r.poses[0][1] == 180.0)
     assert turned.breakdown.impedance_length_mm > g.present.impedance_length_mm + 5.0     # RF goes round the cell
-    extra = s.pins_length_weight * (s.pins_impedance_weight - 1.0)
-    assert g.present.total == pytest.approx(g.present.weighted + s.pins_length_weight * g.present.length_mm
+    extra = (1.0 / s.score_crossing) * (s.score_impedance - 1.0)
+    assert g.present.total == pytest.approx(g.present.weighted + (1.0 / s.score_crossing) * g.present.length_mm
                                             + s.pins_bend_weight * g.present.bend_deg
                                             + extra * g.present.impedance_length_mm)
     assert best_turn(rf, s) == 0.0

@@ -152,7 +152,7 @@ def main(argv) -> int:
                 print("    %-5s %s: placed %s, DRC %d, findings %d, airwire %.1f, crossings %d signal + %d plane, "
                       "link excess %.2f" % (label, rec.run_id, rec.metrics.get("placed"), m["drc"],
                                             rec.metrics.get("findings") or 0, m["airwire_mm"],
-                                            m["crossings"]["signal"], m["crossings"]["plane"], m["link_excess"]))
+                                            score.signal_crossings(m), (m["crossings"] or {}).get("plane", 0), m["link_excess"]))
     print("%d famil%s kept a different run" % (changed, "y" if changed == 1 else "ies"))
     return 0
 

@@ -64,11 +64,11 @@ def test_a_spent_budget_stops_the_scan_and_says_how_far_it_got(sweep):
 
 def test_a_spent_budget_takes_the_best_spot_found_so_far(sweep):
     occ, item, hint = _board()
-    best = _scan(occ, item, hint, None, score=lambda cand: cand.location.x + 0.001 * cand.location.y)
+    best = _scan(occ, item, hint, None, score=lambda cand: (0, cand.location.x + 0.001 * cand.location.y))
     assert best.chosen is not None
     # the coarse pass alone is a sixteenth of the grid: spend just that
     coarse = placer._grid_offsets(12.0, 0.8)
-    cut = _scan(occ, item, hint, len(coarse) * len(TURNS), score=lambda cand: cand.location.x + 0.001 * cand.location.y)
+    cut = _scan(occ, item, hint, len(coarse) * len(TURNS), score=lambda cand: (0, cand.location.x + 0.001 * cand.location.y))
     assert cut.cut is not None and cut.chosen is not None
     assert cut.tried <= len(coarse) * len(TURNS) and cut.tried < best.tried
 
@@ -154,7 +154,7 @@ def test_a_give_way_resolve_charges_the_budget_what_it_judged(monkeypatch):
             return res
         monkeypatch.setattr(giveway, "resolve", resolve)
         occ.step_budget = placer.SearchBudget(10 ** 9)
-        placer.scan(occ, item, hint, 5.0, 0.25, rots, None, score=lambda c: c.location.x * 0.013 + c.location.y * 0.007,
+        placer.scan(occ, item, hint, 5.0, 0.25, rots, None, score=lambda c: (0, c.location.x * 0.013 + c.location.y * 0.007),
                     pick=lambda ranked: ranked[0])
         return occ.step_budget.judged, spent
 

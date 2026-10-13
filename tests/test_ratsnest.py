@@ -5,7 +5,7 @@ import random
 
 import pytest
 
-from placemat.ratsnest import Anchor, Ratsnest, crossings, mst, segments_cross
+from placemat.ratsnest import KIND_PLANE, Anchor, Ratsnest, crossings, mst, segments_cross
 
 
 def A(ref, x, y, number="1"):
@@ -72,7 +72,7 @@ def test_segments_cross_only_where_they_properly_intersect():
 def test_crossings_count_each_pair_of_different_nets_once_and_never_one_net_with_itself():
     edges = mst("A", [A("a1", 0, 0), A("a2", 2, 2)]) + mst("B", [A("b1", 0, 2), A("b2", 2, 0)]) \
         + mst("C", [A("c1", 1, -1), A("c2", 1, 3)])
-    n, per_net = crossings(edges)
+    n, per_net, _ = crossings(edges)
     assert n == 3 and per_net == {"A": 2, "B": 2, "C": 2}
     same = mst("A", [A("x", 0, 0), A("y", 2, 2), A("z", 0, 2), A("w", 2, 0)])
     assert crossings(same)[0] == 0
@@ -80,8 +80,8 @@ def test_crossings_count_each_pair_of_different_nets_once_and_never_one_net_with
 
 def test_a_crossing_is_weighted_by_the_lighter_of_its_two_nets():
     edges = mst("SIG", [A("a", 0, 0), A("b", 2, 2)]) + mst("GND", [A("g1", 0, 2), A("g2", 2, 0)])
-    assert crossings(edges, weights={"GND": 0.0})[0] == 0.0
-    assert crossings(edges, weights={"GND": 0.25})[0] == 0.25
+    assert crossings(edges, kinds={"GND": KIND_PLANE}, prices=(1.0, 1.0, 1.0, 0.0, 1.0))[0] == 0.0
+    assert crossings(edges, kinds={"GND": KIND_PLANE}, prices=(1.0, 1.0, 1.0, 0.25, 1.0))[0] == 0.25
 
 
 def test_the_ratsnest_counts_what_a_candidate_would_add_as_a_leaf_join():
@@ -164,13 +164,13 @@ def test_a_pairs_own_crossing_weighs_the_pair_weight():
     n = mst("D_N", [Anchor("U1", "2", 0, 10), Anchor("R2", "1", 10, 0)])
     assert crossings(p + n)[0] == 1
     partners = {"D_P": "D_N", "D_N": "D_P"}
-    assert crossings(p + n, partners=partners, pair_weight=25.0)[0] == 25.0
+    assert crossings(p + n, partners=partners, prices=(1.0, 1.0, 1.0, 1.0, 25.0))[0] == 25.0
     other = mst("X", [Anchor("U1", "3", 0, 10), Anchor("R3", "1", 10, 0)])
-    assert crossings(p + other, partners=partners, pair_weight=25.0)[0] == 1
+    assert crossings(p + other, partners=partners, prices=(1.0, 1.0, 1.0, 1.0, 25.0))[0] == 1
 
 
 def test_a_candidate_leaf_crossing_its_partner_weighs_the_pair_weight():
-    rn = Ratsnest({}, partners={"D_P": "D_N", "D_N": "D_P"}, pair_weight=25.0)
+    rn = Ratsnest({}, partners={"D_P": "D_N", "D_N": "D_P"}, prices=(1.0, 1.0, 1.0, 1.0, 25.0))
     rn.set_net("D_P", [Anchor("U1", "1", 0, 0), Anchor("R1", "1", 10, 10)])
     rn.set_net("D_N", [Anchor("U1", "2", 0, 10)])
     # R2's pad for D_N at (10, 0): its leaf (10,0)-(0,10) crosses D_P's airwire

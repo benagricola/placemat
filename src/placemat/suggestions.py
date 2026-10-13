@@ -1203,7 +1203,8 @@ def pin_advice(f: dict, i: int) -> dict:
     totals."""
     r = f["rotations"][i]
     return {"refs": list(f["refs"]), "rotation": i, "turns": r["turns"], "map": r["map"], "total": r["total"],
-            "weighted": r["weighted"]}
+            "weighted": r["weighted"], "score_scope": f.get('score_scope', 'generator'),
+            "common": r.get('common'), "generator": r.get('generator', {})}
 
 
 def pin_advice_text(advice: dict) -> str:
@@ -1236,8 +1237,15 @@ def pins_remap(f, settings):
     one saves anything. No edit: the map is made in the capture and the turn in the script, by the agent or the user."""
     if not f.get("rotations"):
         return []
+    if (f.get('score_scope') != 'placement' or not f.get('common', {}).get('actionable')
+            or f.get('stamp_refusal')):
+        return []
     picks = [f["best"]]
-    if f["best"] != 0 and f["rotations"][0]["total"] < f["present"]["total"] - 1e-9:
+    here = f['rotations'][0]
+    if (f["best"] != 0 and here.get('common', {}).get('total') is not None
+            and not here['common'].get('refusals')
+            and here["total"] < f["present"]["total"] - 1e-9
+            and here['common']['validity'] == f['common']['finalists'][f['best']]['validity']):
         picks.append(0)
     return [Pick(pin_advice_text(pin_advice(f, i)), (), "pins", "advice", advice=pin_advice(f, i)) for i in picks]
 
@@ -1259,9 +1267,8 @@ def turn_better(f, settings):
         return []                       # the script holds the turn for a reason it states: said, not offered
     if f.get("rotations_given"):
         return [_set("place", item, "rotations", {"list": [{"num": to}]}, text, "turn")]
-    why = ("A run's finding (turn.better): turned %g degrees where it stood, %s %s's links came %s mm shorter in weighted "
-           "length, with %g weighted crossings %s." % (f["turn_deg"], f["kind"], item, _mm(f["weighted_mm"]),
-                                                       abs(f["crossings_delta"]), "fewer" if f["crossings_delta"] < 0 else "more"))
+    why = ("A run's finding (turn.better): turned %g degrees where it stood, %s %s lowers the run score by %s." %
+           (f['turn_deg'], f['kind'], item, _mm(f['gain'])))
     return [_set("place", item, "rotation", _const(_name(item, "rotation", "deg"), to, why), text, "turn")]
 
 
@@ -1348,6 +1355,11 @@ def escape_closed(f, settings):
 @case(C.ESCAPE_CROSSED)
 def escape_crossed(f, settings):
     return []
+
+
+@case(C.ESCAPE_VIA)
+def escape_via(f, settings):
+    return []               # the finding names what closes its lanes
 
 
 @case(C.ESCAPE_LANE)

@@ -1,15 +1,15 @@
 """The pin map study, end to end: from a placed board to its `pins.remap` and `setup.pins` findings.
 
-For each part whose capture gives it a `Pm.PinPool` (pinmap_rules), the study (pinmap_core: the native core, or its
-Python twin) finds how many weighted
-ratsnest crossings a better assignment of its nets to its pins would save, at its present rotation and at each pose in
-`pins.rotations`; when the best saves at least `pins.gain_min` of the present total it is a `pins.remap` notice, whose
-facts carry every pose's best map and the airwires before and after (finding_text renders the sentence; the suggestion
-builder offers the map and the rotation). Nothing is written to the board or the capture.
+Parts with `Pm.PinPool` generate candidate assignments from the study's
+crossing and bend objective. With a current plan, complete physical finalists
+are judged by common placement validity and score before advice is offered.
+The standalone generator retains its diagnostic maps and gain, but offers no
+executable map or turn without a common current-board judgment.
 
-It runs once on the finished board of a run or a preview (Board._report_pin_maps), on the best variants of an explore
-(explore._pin_maps), and with a longer budget from `placemat apply <id> --search`. What it reads is digested; a study
-whose digest matches the last one kept (`Board.pin_study_cache`) reuses its findings."""
+Plan-bound findings, explore summaries and longer advice rebuild that physical
+context. Generator-only diagnostics may use `Board.pin_study_cache`; common
+finalist judgments are never reused from it. Nothing here writes a board.
+"""
 from __future__ import annotations
 
 import hashlib
@@ -24,7 +24,7 @@ from .pinmap_input import Placed, PlacedCell, PlacedPad, PlacedPart, build, cell
 from .pinmap_rules import Problem, has_pools, natural
 from .values import Box
 
-CACHE_VERSION = 3
+CACHE_VERSION = 5
 # `[pins]` settings a kept result does not depend on: the explore's and the probe's, and the wall-clock guard (a study
 # that trips it is never kept, so a kept result is always complete)
 _NOT_READ = ("pins_explore_top", "pins_probe_budget_steps", "pins_guard_ms")
@@ -63,11 +63,11 @@ def _turns(inp, poses) -> list:
         part = inp.part(ref)
         face = part.face if not flip else ("back" if part.face == "front" else "front")
         rotation = (turn - part.rotation) if flip else (part.rotation + turn)
-        rec = {"ref": ref, "turn_deg": round(turn, 3), "rotation_deg": round(rotation % 360.0, 3), "face": face,
-               "flip": bool(flip)}
+        rec = {"ref": ref, "turn_deg": turn, "rotation_deg": rotation % 360.0, "face": face,
+               "flip": bool(flip), "pivot": [part.cx, part.cy]}
         if part.cell:
             c = inp.cell(part.cell)
-            rec.update(_cell_facts(inp, ref), cell_rotation_deg=round((c.rotation + turn) % 360.0, 3),
+            rec.update(_cell_facts(inp, ref), cell_rotation_deg=(c.rotation + turn) % 360.0,
                        module_rotation_deg=module_rotation(inp, ref, turn))
         out.append(rec)
     return out
@@ -170,7 +170,7 @@ def withheld(inp, refs, settings) -> bool:
     return share["placed"] < share["of"] and share["placed"] < settings.pins_placed_share_min * share["of"]
 
 
-def group_facts(inp, g, copper, settings) -> dict | None:
+def group_facts(inp, g, copper, settings, evaluator=None) -> dict | None:
     """The facts of a group's `pins.remap` finding, or None when no pose saves `pins.gain_min` of the present total
     (a study that ran out before a first map always has one, saying so). A group whose present map breaks a pin rule
     (`present_breaks`) always has one: its best map moves the barred nets, whatever that costs."""
@@ -181,16 +181,28 @@ def group_facts(inp, g, copper, settings) -> dict | None:
         return dict(base, rotations=[], best=0, routed=[], before=[])
     if not g.results:
         return None
-    best = min(range(len(g.results)), key=lambda i: (g.results[i].breakdown.total, i))
-    gain = g.present.total - g.results[best].breakdown.total
-    if (gain <= 1e-9 or gain < settings.pins_gain_min * g.present.total) and not base["present_breaks"]:
-        return None
+    selection = evaluator.select(inp, g) if evaluator is not None else None
+    if selection is not None:
+        if not selection.actionable and selection.reason != 'unmeasured candidate':
+            return None
+        best = selection.best
+        base.update(score_scope='placement', common=selection.record())
+        base['present'] = dict(base['present'], generator=dict(base['present']), total=selection.baseline.record()['total'])
+    else:
+        best = min(range(len(g.results)), key=lambda i: (g.results[i].breakdown.total, i))
+        gain = g.present.total - g.results[best].breakdown.total
+        if (gain <= 1e-9 or gain < settings.pins_gain_min * g.present.total) and not base["present_breaks"]:
+            return None
+        base.update(score_scope='generator', generator_gain=gain, common_unavailable=True)
     rows = []
     for r in g.results:
         moved = _map(inp, refs, g.present_assign, r.assign)
         rows.append(dict(r.breakdown.to_json(), turns=_turns(inp, r.poses), map=moved,
                          routed=sorted({m["net"] for m in moved} & copper), paths=_paths(r.paths),
                          breaks=_still(base["present_breaks"], r.assign), groups=[x.to_json() for x in r.groups]))
+        if selection is not None:
+            rows[-1].update(generator=r.breakdown.to_json(), common=selection.finalists[len(rows) - 1].record(),
+                            total=selection.finalists[len(rows) - 1].record()['total'])
     out = dict(base, rotations=rows, best=best, routed=rows[best]["routed"], before=_paths(g.present_paths),
                present_groups=[x.to_json() for x in g.present_groups])
     celled = _celled(inp, refs)
@@ -216,7 +228,9 @@ def _stamp_maps(inp, facts_of: list, kept: dict) -> None:
     part in a cell; a stamp that ran out before a first map, or waits on placement, has no best map and is left out."""
     by_module: dict = {}
     for ref, facts in kept.items():
-        if facts is not None and (facts.get("withheld") or not facts["first_map"]):
+        if facts is not None and (facts.get("withheld") or not facts["first_map"]
+                                  or (facts.get("score_scope") == "placement"
+                                      and not facts["common"]["actionable"])):
             continue
         c = inp.cell(inp.part(ref).cell)
         moves = _moves(facts, ref) if facts is not None else []
@@ -236,10 +250,10 @@ def _stamp_maps(inp, facts_of: list, kept: dict) -> None:
 
 def digest(inp, problems, copper, settings) -> str:
     """What a study's result depends on: the input, the problems, the nets with copper, the `[pins]` settings and the
-    plane weight, the release and the findings' schemas."""
+    shared generator weights, the release and the findings' schemas."""
     from . import __version__, finding_text, reuse
     keys = {k: v for k, v in json.loads(settings.json()).items()
-            if (k.startswith("pins_") and k not in _NOT_READ) or k == "score_crossing_plane"}
+            if (k.startswith("pins_") and k not in _NOT_READ) or k in ("score_crossing_plane", "score_crossing", "score_crossing_pair_net", "score_impedance")}
     text = "\0".join([str(CACHE_VERSION), __version__, finding_text.schemas_digest(), reuse.canonical(inp),
                       reuse.canonical(list(problems)), ",".join(sorted(copper)), json.dumps(keys, sort_keys=True)])
     return hashlib.sha256(text.encode()).hexdigest()
@@ -274,19 +288,22 @@ def _keep(path, d: str, findings) -> None:
 
 
 def study_findings(pads, parts, names, quiet, partners, netclasses, settings, copper=frozenset(), cache=None,
-                   cells=None, unplaced=()) -> tuple:
+                   cells=None, unplaced=(), evaluator=None) -> tuple:
     """(findings, record) of the study of a placed board: `setup.pins` for each problem and for each net the present
     map puts on a pin its own rule bars (`present_breaks`), `pins.remap` for each group
     with a map worth having, and `setup.pins` `study_slow` for each group past its wall-clock guard (no map). `cache`, a
     path, holds the last study's digest and findings: a match is reused; a study with a group past its guard is not
-    kept. `record` is what a run keeps: {"seconds", "reused", "groups", "parts"}, empty when nothing was studied."""
+    kept. Without `evaluator`, findings are explicitly generator-only diagnostics
+    and cannot produce executable advice. An evaluator judges complete physical
+    finalists in the current plan; those judgments bypass the findings cache.
+    `record` is what a run keeps: {"seconds", "reused", "groups", "parts"}, empty when nothing was studied."""
     t0 = time.perf_counter()
     inp, problems = build(pads, parts, names, quiet, partners, netclasses, settings.pins_follow_series,
                           tuple(settings.pins_follow_prefixes), cells, unplaced)
     if inp is None and not problems:
         return [], {}
     d = digest(inp, problems, copper, settings)
-    hit = _cached(cache, d) if cache is not None else None
+    hit = _cached(cache, d) if cache is not None and evaluator is None else None
     n_parts = len(inp.parts) if inp is not None else 0
     if hit is not None:
         return hit, {"seconds": round(time.perf_counter() - t0, 3), "reused": True, "groups": None, "parts": n_parts}
@@ -299,6 +316,7 @@ def study_findings(pads, parts, names, quiet, partners, netclasses, settings, co
                       for net, pin, key in part.slots.breaks]
         pb = problem_of(inp, settings.pins_exit_mm)
         kept = {}
+        selected = []
         for refs in linked_groups(inp):
             if withheld(inp, refs, settings):
                 facts = withheld_facts(inp, refs, settings)
@@ -312,16 +330,36 @@ def study_findings(pads, parts, names, quiet, partners, netclasses, settings, co
                     slow = True
                     continue
                 found += [Finding(C.SETUP_PINS, Problem(ref, "", "", "no_legal_map", net).facts()) for ref, net in g.problems]
-                facts = group_facts(inp, g, copper, settings)
+                facts = group_facts(inp, g, copper, settings, evaluator)
+                if evaluator is not None and facts is not None and facts.get("common", {}).get("actionable"):
+                    selected.append((g.refs, g.results[facts["best"]]))
             groups += 1
             celled = _celled(inp, refs)
             if celled is not None:
                 kept[celled] = facts
             if facts is not None:
                 found.append(facts)
-        _stamp_maps(inp, [f for f in found if isinstance(f, dict)], kept)
+        facts_of = [f for f in found if isinstance(f, dict)]
+        if evaluator is None:
+            _stamp_maps(inp, facts_of, kept)
+        else:
+            baseline = evaluator.evaluate(inp)
+            combined = evaluator.evaluate(inp, tuple(selected))
+            proved = (bool(selected) and not baseline.refusals and not combined.refusals
+                      and combined.key < baseline.key)
+            if proved:
+                _stamp_maps(inp, facts_of, kept)
+            for facts in facts_of:
+                if not facts.get("cell"):
+                    continue
+                facts["stamp_common"] = {"baseline": baseline.record(), "final": combined.record(),
+                                          "actionable": proved}
+                if not proved or facts.get("stamp_maps"):
+                    facts["stamp_refusal"] = {"code": "module_stamp_proof_missing" if not proved else
+                                               "module_stamp_choices_incompatible", "facts": {"cell": facts["cell"]}}
+
         found = [Finding(C.PINS_REMAP, f) if isinstance(f, dict) else f for f in found]
-    if cache is not None and not slow:
+    if cache is not None and not slow and evaluator is None:
         _keep(cache, d, found)
     return found, {"seconds": round(time.perf_counter() - t0, 3), "reused": False, "groups": groups, "parts": n_parts}
 
@@ -391,10 +429,11 @@ def plan_findings(board, plan) -> list:
     from .pairs import board_pairs
     placed = placed_from_plan(board, plan)
     quiet = frozenset(board._plane_nets()) | frozenset(board._free_nets)
+    from .pinmap_common import Finalists
     found, record = study_findings(placed.pads, placed.parts, board.geometry.pin_names, quiet,
                                    board_pairs(board.geometry.netclasses), board.geometry.netclasses, board.settings,
                                    copper_nets(board.geometry, plan), board.pin_study_cache, cells=placed.cells,
-                                   unplaced=placed.unplaced)
+                                   unplaced=placed.unplaced, evaluator=Finalists(board, plan))
     plan.pin_study = record
     return found
 
@@ -413,7 +452,17 @@ def study_failed(plan, error: BaseException) -> Finding:
     return Finding(C.SETUP_PINS, dict(Problem("", "", "", "study_failed", "").facts(), **plan.pin_study["error"]))
 
 
-def plan_summary(board, plan, refs=None, settings=None) -> list:
+def _plan_input(board, plan, settings):
+    from .pairs import board_pairs
+    placed = placed_from_plan(board, plan)
+    quiet = frozenset(board._plane_nets()) | frozenset(board._free_nets)
+    inp, _ = build(placed.pads, placed.parts, board.geometry.pin_names, quiet, board_pairs(board.geometry.netclasses),
+                   board.geometry.netclasses, settings.pins_follow_series, tuple(settings.pins_follow_prefixes),
+                   placed.cells, placed.unplaced)
+    return inp
+
+
+def _plan_choices(board, plan, refs=None, settings=None):
     """Each studied group's present score and its best, with the pose and the map, for an explore's report and a longer
     study: no findings, nothing kept. A group past its wall-clock guard has no map: `slow` true, with `guard_ms`,
     `steps` and `budget_steps`. `before` and `paths` are the group's airwires under the present map and the best, as a
@@ -421,17 +470,14 @@ def plan_summary(board, plan, refs=None, settings=None) -> list:
     board's (a longer budget)."""
     if not has_pools(board.geometry.footprints):
         return []
-    from .pairs import board_pairs
     from .pinmap_core import linked_groups, movable_count, problem_of, study_group
     settings = settings or board.settings
-    placed = placed_from_plan(board, plan)
-    quiet = frozenset(board._plane_nets()) | frozenset(board._free_nets)
-    inp, _ = build(placed.pads, placed.parts, board.geometry.pin_names, quiet, board_pairs(board.geometry.netclasses),
-                   board.geometry.netclasses, settings.pins_follow_series, tuple(settings.pins_follow_prefixes),
-                   placed.cells, placed.unplaced)
+    inp = _plan_input(board, plan, settings)
     if inp is None:
         return []
     pb = problem_of(inp, settings.pins_exit_mm)
+    from .pinmap_common import Finalists
+    evaluator = Finalists(board, plan, settings)
     out = []
     for group in linked_groups(inp):
         if refs and not set(group) & set(refs):
@@ -445,25 +491,177 @@ def plan_summary(board, plan, refs=None, settings=None) -> list:
             continue
         if not g.results:
             continue                # no matching: no map to give
-        i = min(range(len(g.results)), key=lambda k: (g.results[k].breakdown.total, k))
+        selection = evaluator.select(inp, g)
+        out.append((g, selection))
+    return inp, out
+
+
+def plan_summary(board, plan, refs=None, settings=None) -> list:
+    """Independent group judgments in the current common placement context.
+
+    Generator breakdowns are diagnostics; adoption of several groups requires
+    a separate simultaneous judgment.
+    """
+    choices = _plan_choices(board, plan, refs, settings)
+    if not choices:
+        return []
+    inp, groups = choices
+    out = []
+    for entry in groups:
+        if isinstance(entry, dict):
+            out.append(entry)
+            continue
+        g, selection = entry
+        i = selection.best
         r = g.results[i]
-        out.append({"refs": list(g.refs), "present": g.present.to_json(), "best": r.breakdown.to_json(), "rotation": i,
-                    "turns": _turns(inp, r.poses), "map": _map(inp, g.refs, g.present_assign, r.assign),
+        out.append({"refs": list(g.refs), "present": selection.baseline.record(),
+                    "best": selection.finalists[i].record(), "common": selection.record(),
+                    "score_scope": "placement", "independent": True,
+                    "generator": {"present": g.present.to_json(), "best": r.breakdown.to_json()},
+                    "rotation": i, "turns": _turns(inp, r.poses),
+                    "map": _map(inp, g.refs, g.present_assign, r.assign),
                     "searched": g.searched, "of": g.of, "budget_out": g.budget_out, "steps": g.steps,
                     "budget_steps": g.budget_steps, "before": _paths(g.present_paths), "paths": _paths(r.paths)})
     return out
 
 
+def plan_remap(board, plan):
+    """Judge chosen independent finalists simultaneously before placement ranking.
+
+    No sum of independent gains certifies the combined physical candidate.
+    """
+    choices = _plan_choices(board, plan)
+    if not choices:
+        return None
+    inp, studies = choices
+    from .pinmap_common import Finalists
+    evaluator = Finalists(board, plan)
+    baseline = evaluator.evaluate(inp)
+    picked, groups = [], []
+    for entry in studies:
+        if isinstance(entry, dict):
+            continue
+        group, selection = entry
+        if not selection.actionable:
+            continue
+        candidate = group.results[selection.best]
+        picked.append((group.refs, candidate))
+        groups.append({"refs": list(group.refs), "present": selection.baseline.total,
+                       "best": selection.finalists[selection.best].total,
+                       "map": _map(inp, group.refs, group.present_assign, candidate.assign),
+                       "turns": _turns(inp, candidate.poses), "reason": selection.reason})
+    final = evaluator.evaluate(inp, tuple(picked))
+    measured = not (baseline.refusals or final.refusals)
+    # Ranking's scalar shortcut is allowed only within the same validity tier.
+    gain = baseline.total - final.total if measured else 0.0
+    actionable = bool(picked) and measured and final.key < baseline.key
+    scalar_gain = gain if actionable and final.validity.key() == baseline.validity.key() else 0.0
+    return {"scope": "placement", "saving": scalar_gain, "gain": gain,
+            "baseline": baseline.record(), "final": final.record(),
+            "actionable": actionable, "groups": groups,
+            "reason": ("validity repair" if actionable and final.validity.key() < baseline.validity.key()
+                       else "common objective gain" if actionable else "no certified combined improvement")}
+
+
+def _incoming_advice_problem(advice):
+    """Validate persisted data before reconstructing any physical proposal."""
+    import math
+    def refusal(field, code):
+        return {"code": code, "facts": {"field": field}}
+    if not isinstance(advice, dict):
+        return refusal("advice", "incoming_advice_invalid")
+    refs = advice.get("refs")
+    if (not isinstance(refs, (list, tuple)) or not refs
+            or any(not isinstance(ref, str) or not ref for ref in refs) or len(set(refs)) != len(refs)):
+        return refusal("refs", "incoming_refs_invalid")
+    maps = advice.get("map")
+    if not isinstance(maps, (list, tuple)):
+        return refusal("map", "incoming_map_invalid")
+    for move in maps:
+        if (not isinstance(move, dict) or not isinstance(move.get("net"), str) or not move["net"]
+                or move.get("ref") not in refs or not isinstance(move.get("to"), dict)
+                or not isinstance(move["to"].get("pin"), str) or not move["to"]["pin"]):
+            return refusal("map", "incoming_map_invalid")
+    turns = advice.get("turns")
+    if not isinstance(turns, (list, tuple)):
+        return refusal("turns", "incoming_pose_invalid")
+    seen = set()
+    for turn in turns:
+        if not isinstance(turn, dict):
+            return refusal("turns", "incoming_pose_invalid")
+        rotation = turn.get("rotation_deg")
+        try:
+            finite = (not isinstance(rotation, bool) and isinstance(rotation, (int, float))
+                      and math.isfinite(rotation))
+        except OverflowError:
+            finite = False
+        ref = turn.get("ref")
+        if (ref not in refs or ref in seen or turn.get("face") not in ("front", "back")
+                or not finite):
+            return refusal("turns", "incoming_pose_invalid")
+        seen.add(ref)
+    return None
+
+
 def longer_advice(board, plan, advice: dict, budget_steps: int) -> tuple:
     """(better advice or None, the group's summary or None): the advice's parts studied again with `budget_steps` for
     each part (`placemat apply <id> --search`), its wall-clock guard scaled with it. The advice is better when its total
-    is below the one it was given with. A study that raises raises here: the caller says so."""
+    is below the incoming map rejudged in this same current context, never its
+    stored total. Legacy generator advice and unsupported cell pose rebasing
+    carry structured refusal codes. A study that raises raises here: the caller says so."""
+    problem = _incoming_advice_problem(advice)
+    if problem is not None:
+        return None, {"incoming_refusal": problem}
     from dataclasses import replace
     was = board.settings
     s = replace(was, pins_budget_steps=budget_steps, pins_guard_ms=was.pins_guard_ms * budget_steps / was.pins_budget_steps)
     g = next((g for g in plan_summary(board, plan, refs=advice["refs"], settings=s)
               if set(g["refs"]) == set(advice["refs"])), None)
-    if g is None or g.get("slow") or g["best"]["total"] >= advice["total"] - 1e-9:
+    if g is None or g.get("slow") or not g["common"]["actionable"]:
+        return None, g
+    if advice.get("score_scope") != "placement":
+        g["incoming_refusal"] = {"code": "common_proof_missing", "facts": {}}
+        return None, g
+    inp = _plan_input(board, plan, s)
+    if inp is None:
+        return None, g
+    from types import SimpleNamespace
+    from .pinmap_common import Finalists
+    assign = {net.net: tuple(net.ends) for net in inp.nets}
+    for move in advice.get("map", ()):
+        if not {"net", "ref", "to"} <= move.keys() or "pin" not in move["to"] or move["ref"] not in advice["refs"]:
+            g["incoming_refusal"] = {"code": "incoming_map_invalid", "facts": {}}
+            return None, g
+        net, ref = move["net"], move["ref"]
+        if net not in assign:
+            g["incoming_refusal"] = {"code": "undeclared_net", "facts": {"net": net}}
+            return None, g
+        assign[net] = tuple((owner, move["to"]["pin"] if owner == ref else number)
+                            for owner, number in assign[net])
+    poses = []
+    by_ref = {part.ref: part for part in inp.parts}
+    for pose in advice.get("turns", ()):
+        if (pose.get("ref") not in by_ref or not {"face", "rotation_deg"} <= pose.keys()
+                or pose["face"] not in ("front", "back")):
+            g["incoming_refusal"] = {"code": "incoming_pose_invalid", "facts": {"ref": pose.get("ref")}}
+            return None, g
+        part = by_ref[pose["ref"]]
+        if part.cell:
+            g["incoming_refusal"] = {"code": "cell_advice_rebase_unavailable", "facts": {"ref": part.ref}}
+            return None, g
+        flip = pose["face"] != part.face
+        turn = pose["rotation_deg"] + part.rotation if flip else pose["rotation_deg"] - part.rotation
+        poses.append((part.ref, turn, flip))
+    incoming = Finalists(board, plan, s).evaluate(inp, ((tuple(advice["refs"]),
+                                                       SimpleNamespace(assign=assign, poses=tuple(poses))),))
+    g["incoming"] = incoming.record()
+    if incoming.refusals:
+        g["incoming_refusal"] = incoming.refusals[0]
+        return None, g
+    from .score import Validity
+    best = g["best"]
+    if (False, Validity(**best["validity"]).key(), best["total"]) >= incoming.key:
         return None, g
     return {"refs": g["refs"], "rotation": g["rotation"], "turns": g["turns"], "map": g["map"],
-            "total": g["best"]["total"], "weighted": g["best"]["weighted"]}, g
+            "total": best["total"], "score_scope": "placement", "common": best,
+            "generator": g["generator"]["best"]}, g

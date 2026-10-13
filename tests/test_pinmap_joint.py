@@ -36,7 +36,7 @@ def test_parts_sharing_a_net_that_may_move_on_both_are_one_group_and_a_held_link
 
 def test_a_joint_study_beats_studying_each_part_alone(native):
     inp = facing_away()
-    s = settings(pins_length_weight=0.1)
+    s = settings(score_crossing=10.0)
     best = lambda g: min(r.breakdown.total for r in g.results)
     joint = study_group(inp, ("U1", "U2"), s, native=native)
     alone = [study_group(inp, (r,), s, native=native) for r in ("U1", "U2")]

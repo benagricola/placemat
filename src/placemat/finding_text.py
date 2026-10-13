@@ -128,6 +128,12 @@ def _escape_walled(f):
     return "%s pin %s (%s): walled off by %s" % (f["ref"], f["pin"], f["net"], _by_list(f["by"]))
 
 
+@renders(C.ESCAPE_VIA, "ref", "pin", "net", "by")
+def _escape_via(f):
+    return "%s pin %s (%s): leaves only by a via, its straight lanes closed by %s" % (
+        f["ref"], f["pin"], f["net"], _by_list(f["by"]))
+
+
 @renders(C.ESCAPE_LANE, "ref", "pin", "net", "blocked")
 def _escape_lane(f):
     return "%s pin %s (%s): its lane is blocked by %s" % (f["ref"], f["pin"], f["net"], "; ".join(_refusal(b) for b in f["blocked"]))
@@ -204,18 +210,14 @@ def _pins_reversed(f):
 
 
 # ------------------------------------------------------------------ turn
-def _links_by(group: dict, word: str) -> str:
-    return "%s %.2f mm %s" % (_plural(group["links"], "link", "links"), group["mm"], word)
-
-
-@renders(C.TURN_BETTER, "item", "kind", "rotation_deg", "to_deg", "turn_deg", "shorter", "longer", "crossings_delta")
+@renders(C.TURN_BETTER, "item", "kind", "rotation_deg", "to_deg", "turn_deg", "change", "gain")
 def _turn_better(f):
-    """A searched item at the same spot turned by `turn_deg`, to `to_deg`: its links that would shorten and lengthen, each
-    `{links, mm}`, and the change in weighted crossings (turned less present)."""
-    bits = [_links_by(g, w) for g, w in ((f["shorter"], "shorter"), (f["longer"], "longer")) if g["links"]]
-    d = f["crossings_delta"]
-    bits.append("%g weighted crossings %s" % (abs(d), "fewer" if d < 0 else "more"))
-    return "%s %s turned %g degrees, to %g degrees: %s" % (f["kind"], f["item"], f["turn_deg"], f["to_deg"], ", ".join(bits))
+    """The largest two signed changes in the common objective."""
+    changed = sorted(f['change'].items(), key=lambda row: (-abs(row[1]), row[0]))
+    bits = ['%s %+.3g' % (term.replace('_', ' '), value) for term, value in changed if value][:2]
+    text = "%s %s turned %g degrees, to %g degrees: gain %g (%s)" % (
+        f['kind'], f['item'], f['turn_deg'], f['to_deg'], f['gain'], ', '.join(bits))
+    return text + ('; this pose requires changing its position anchor' if f.get('held_by') == 'anchor' else '')
 
 
 # ------------------------------------------------------------------ setup
@@ -418,6 +420,21 @@ def _pins_remap(f):
     if not f["first_map"]:
         return "%s: the pin map study had no steps for a first map: its budget is %d steps; pins.budget_steps sets it" % (
             who, f["budget_steps"])
+    if f.get('score_scope') == 'placement':
+        common = f['common']
+        if f.get('stamp_refusal'):
+            return '%s: independent pin choices lack a compatible combined module judgment; no map or turn is advised' % who
+        if not common['actionable']:
+            return "%s: the pin finalists lack a complete current-board judgment; no map or turn is advised" % who
+        if common['reason'] == 'validity repair':
+            text = "%s: a pin map repairs a critical constraint; its run-score gain is %g" % (who, common['gain'])
+        else:
+            text = "%s: a pin map lowers the run score by %g" % (who, common['gain'])
+        changed = [turn for turn in turns if turn['turn_deg'] or turn['flip']]
+        text += ('; ' + at_pose(changed) if changed else ' at its present pose')
+        if f['routed']:
+            text += '; fixed copper remains on: ' + ', '.join(f['routed'])
+        return text
     rs, p = f["rotations"], f["present"]
     here, best = rs[0], rs[f["best"]]
     if here["total"] < p["total"] - 1e-9:
@@ -457,6 +474,8 @@ def _pins_remap(f):
     if f["budget_out"]:
         text += "; the study stopped at its budget of %d steps after %d of %d poses" % (f["budget_steps"], f["searched"],
                                                                                          f["of"])
+    if f.get('score_scope') == 'generator':
+        text += '; generator study only: common-board gain is unavailable, and no map or turn is advised'
     return text
 
 
@@ -1256,7 +1275,7 @@ def subject(cause, facts: dict) -> str:
     """What a finding is about, from its facts: the item, the label, the link, the cell or the net it names, with the pin
     where it is about one. Two findings of one cause about different things differ in it, and one finding keeps its
     subject across resolves, so a try is judged by whether the finding it was for is gone."""
-    if cause in (C.ESCAPE_CLOSED, C.ESCAPE_WALLED, C.ESCAPE_LANE, C.SETUP_LANE_UNUSED, C.ESCAPE_VIA_UNNEEDED):
+    if cause in (C.ESCAPE_CLOSED, C.ESCAPE_WALLED, C.ESCAPE_VIA, C.ESCAPE_LANE, C.SETUP_LANE_UNUSED, C.ESCAPE_VIA_UNNEEDED):
         return "%s.%s" % (facts.get("ref") or facts.get("part", ""), facts.get("pin", ""))
     if cause is C.ESCAPE_CROSSED:
         return "%s %s" % (facts["ref"], "/".join(facts["pins"]))
@@ -1284,6 +1303,7 @@ _PADS = {
     C.LINK_OVER: lambda f: [[f["a"]["ref"], f["a"]["pad"]], [f["b"]["ref"], f["b"]["pad"]]],
     C.ESCAPE_CLOSED: lambda f: [[f["ref"], f["pin"]]],
     C.ESCAPE_WALLED: lambda f: [[f["ref"], f["pin"]]],
+    C.ESCAPE_VIA: lambda f: [[f["ref"], f["pin"]]],
     C.ESCAPE_LANE: lambda f: [[f["ref"], f["pin"]]],
     C.SETUP_LANE_UNUSED: lambda f: [[f["ref"], f["pin"]]],
     C.ESCAPE_VIA_UNNEEDED: lambda f: [[f["ref"], f["pin"]]],
@@ -1347,5 +1367,6 @@ def _setup_centre_flag_default(f):
 # ------------------------------------------------------------------ schema versions of causes whose facts have changed
 FACTS_V[C.FIXED_ROOM_UNSETTLED] = 2     # a firm cell whose arrangement did not settle: item and arrangements, not copper
 FACTS_V[C.ARRANGEMENT_LIMIT] = 2        # excluded: how many combinations the module's exclusions leave out
-FACTS_V[C.PINS_REMAP] = 3               # 2: controlled impedances' length, groups' spread, cohesion and landing;
+FACTS_V[C.PINS_REMAP] = 4               # 2: controlled impedances' length, groups' spread, cohesion and landing;
                                         # 3: steps and budget_steps in place of budget_ms
+                                        # 4: generator scope versus current-board common judgment

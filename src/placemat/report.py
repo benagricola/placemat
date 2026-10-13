@@ -100,13 +100,15 @@ def resolve_run(runs_dir, ref: str) -> Path:
     raise ValueError("%r matches %d runs in %s: %s" % (ref, len(matches), runs_dir, ", ".join(m.name for m in matches)))
 
 
-def airwires_from_drc(drc: dict, quiet=(), partners: dict | None = None) -> dict:
+def airwires_from_drc(drc: dict, quiet=(), partners: dict | None = None, kinds: dict | None = None) -> dict:
     """The ratsnest KiCad reports as unconnected items: count, straight-line
     length, crossings between different nets, and length per net.
     `crossings_quiet` counts the crossings with a `quiet` net's airwire (a
     plane's or a free net's), and `crossings_pair` those between a
     differential pair's two halves (`partners`, from pairs.board_pairs),
-    which the score weighs apart."""
+    which the score weighs apart. `classes` counts the crossings by `ratsnest.crossing_key` (`kinds`, net -> kind, as
+    `occupancy.net_kinds`), the shape of the run score's `crossings` measure."""
+    from .ratsnest import KIND_PLANE, crossing_key
     edges = []
     for u in drc.get("unconnected_items", []):
         items = u.get("items", [])
@@ -123,11 +125,15 @@ def airwires_from_drc(drc: dict, quiet=(), partners: dict | None = None) -> dict
     crossings = quiet_crossings = pair_crossings = 0
     quiet = set(quiet)
     partners = partners or {}
+    kinds = {**(kinds or {}), **{n: KIND_PLANE for n in quiet}}
+    classes: dict = {}
     crossings_per_net: dict = {}
     for i in range(len(edges)):
         for j in range(i + 1, len(edges)):
             if edges[i][0] != edges[j][0] and cross(edges[i], edges[j]):
                 crossings += 1
+                key = crossing_key(kinds, partners, edges[i][0], edges[j][0])
+                classes[key] = classes.get(key, 0) + 1
                 if edges[i][0] in quiet or edges[j][0] in quiet:
                     quiet_crossings += 1
                 elif partners.get(edges[i][0]) == edges[j][0]:
@@ -141,7 +147,7 @@ def airwires_from_drc(drc: dict, quiet=(), partners: dict | None = None) -> dict
         total += d
         per_net[net] = round(per_net.get(net, 0.0) + d, 3)
     return {"count": len(edges), "total_mm": round(total, 3), "crossings": crossings,
-            "crossings_quiet": quiet_crossings, "crossings_pair": pair_crossings, "per_net": per_net,
+            "crossings_quiet": quiet_crossings, "crossings_pair": pair_crossings, "classes": classes, "per_net": per_net,
             "crossings_per_net": dict(sorted(crossings_per_net.items(), key=lambda kv: (-kv[1], kv[0])))}
 
 
@@ -341,33 +347,89 @@ def comparable(rec: RunRecord) -> bool:
     then "regressed" against airwire 0. Presence is the test, not value: zero
     airwire after DRC means everything is joined, and is a real measurement.
     A run recorded before the score (0.32 and earlier) has no measures, so a
-    stored best from then reads as absent and the next run takes its place."""
-    return all(k in rec.metrics for k in ("drc_real", "airwire_mm", "measures"))
+    stored best from then reads as absent and the next run takes its place. So does a run recorded before the
+    current measures (`score.MEASURES_VERSION`): its airwire, crossings and terms were counted another way, so it
+    cannot be ranked against this run."""
+    from . import score as _score
+    return all(k in rec.metrics for k in ("drc_real", "airwire_mm", "measures")) \
+        and (rec.metrics["measures"] or {}).get("v") == _score.MEASURES_VERSION
+
+
+def standing(rec: RunRecord):
+    """A comparable run as `score.rank` compares it: its measures; the DRC's real violations as the errors beyond the
+    baseline (a run records no baseline, so all of them, D14) and the route's failed widths in the validity tier; and,
+    when it was routed, each phase's final clean closure and the clean closure."""
+    from . import score as _score
+    m = rec.metrics["measures"]
+    route = rec.metrics.get("route") or {}
+    drc_new = m.get("drc", 0) if "drc_real" in rec.metrics else None
+    return _score.Standing(m, _score.Validity.of(m, drc_new=drc_new, widths_failed=route.get("widths_failed", 0)),
+                           tuple(p["final_closure_clean"] for p in route.get("phases") or ()),
+                           rec.metrics.get("closure_clean"))
 
 
 def is_better(now: RunRecord, best: RunRecord | None, cfg=None) -> bool:
+    """Whether `now` takes `best`'s place: it ranks above it (`score.rank`), so a tie keeps the best and an invalid run
+    never replaces a valid one (D12)."""
     from . import score as _score
     if not comparable(now):
         return False
     if best is None:
         return True
-    return _score.compare(now.metrics["measures"], best.metrics["measures"], _cfg(cfg))[0] < 0
+    return _score.rank(standing(now), standing(best), _cfg(cfg)) < 0
 
 
-def regression(now: RunRecord, best: RunRecord | None, cfg=None) -> str | None:
-    """How this run's score is worse than the best's, said in numbers with
-    the term that moved it most. None when the run is at least as good."""
+def regression_of(now: RunRecord, best: RunRecord | None, cfg=None) -> dict | None:
+    """How this run ranks below the best (`score.rank`), by the tier that decided it: {"tier": "validity", "now" and
+    "best" each run's `Validity.key()` and "names" its fields}, {"tier": "closures" or "clean" or "quality", "now",
+    "best"}, or {"tier": "score", "now" and "best" the run scores, "term" the one that moved most, "term_now",
+    "term_best"}; each with "best_run". None when the run is at least as good."""
     from . import score as _score
     if best is None or not comparable(now):
         return None
     cfg = _cfg(cfg)
-    a, b = now.metrics["measures"], best.metrics["measures"]
-    sign, term = _score.compare(a, b, cfg)
-    if sign <= 0:
+    a, b = standing(now), standing(best)
+    if _score.rank(a, b, cfg) <= 0:
         return None
-    ta, tb = _score.terms(a, cfg), _score.terms(b, cfg)
+    out = {"best_run": best.run_id}
+    if a.validity.valid != b.validity.valid or a.validity.key() != b.validity.key():
+        return dict(out, tier="validity", now=list(a.validity.key()), best=list(b.validity.key()),
+                    names=["unplaced_high", "unplaced_default", "unplaced_low", "drc_new", "widths_failed", "critical"])
+    routed = a.clean is not None and b.clean is not None
+    if routed and a.closures[:len(b.closures)] != b.closures[:len(a.closures)]:
+        return dict(out, tier="closures", now=list(a.closures), best=list(b.closures))
+    if routed and a.clean != b.clean:
+        return dict(out, tier="clean", now=a.clean, best=b.clean)
+    complete = routed and a.validity.valid and min(a.clean, b.clean) >= 1.0 - 1e-9
+    if complete and _score.quality_key(a.measures) != _score.quality_key(b.measures):
+        return dict(out, tier="quality", now=list(_score.quality_key(a.measures)),
+                    best=list(_score.quality_key(b.measures)))
+    _, term = _score.compare(a.measures, b.measures, cfg)
+    ta, tb = _score.terms(a.measures, cfg), _score.terms(b.measures, cfg)
+    return dict(out, tier="score", now=sum(ta.values()), best=sum(tb.values()), term=term, term_now=ta[term],
+                term_best=tb[term])
+
+
+def regression_text(r: dict) -> str:
+    """A `regression_of` record as a sentence."""
+    if r["tier"] == "validity":
+        moved = ", ".join("%s %d (best %d)" % (n, x, y) for n, x, y in zip(r["names"], r["now"], r["best"]) if x != y)
+        return "more that makes the board unbuildable than the best run (%s): %s" % (r["best_run"], moved)
+    if r["tier"] in ("closures", "clean"):
+        what = "phase closures" if r["tier"] == "closures" else "clean closure"
+        return "%s %s against %s in the best run (%s)" % (what, r["now"], r["best"], r["best_run"])
+    if r["tier"] == "quality":
+        return "routed quality (vias, copper mm, segments) %s against %s in the best run (%s)" % (
+            tuple(r["now"]), tuple(r["best"]), r["best_run"])
     return "score %.1f mm against %.1f in the best run (%s); most of it %s, %.1f -> %.1f mm" % (
-        sum(ta.values()), sum(tb.values()), best.run_id, term, tb[term], ta[term])
+        r["now"], r["best"], r["best_run"], r["term"], r["term_best"], r["term_now"])
+
+
+def regression(now: RunRecord, best: RunRecord | None, cfg=None) -> str | None:
+    """How this run ranks below the best, said in numbers with the tier that decided it (`regression_of`). None when the
+    run is at least as good."""
+    r = regression_of(now, best, cfg)
+    return None if r is None else regression_text(r)
 
 
 def score_line(now: RunRecord, best: RunRecord | None, cfg=None) -> str:

@@ -46,6 +46,20 @@ def test_two_identical_parts_whose_connections_cross_swap():
     assert r.swaps == [("r1", "r2")]
 
 
+def test_a_swap_that_takes_a_limited_link_past_its_limit_is_refused():
+    """The crossing pair of the swap test, with r1 tied by a FREE link with a 3 mm limit to d1 beside it: the swap
+    would take r1 20 mm away, so it is refused, however much wire it saves."""
+    fps = [footprint("J1", 5, 5, inst="j1", nets=("P", "GND")), footprint("J2", 5, 25, inst="j2", nets=("Q", "GND")),
+           footprint("R1", 30, 25, inst="r1", nets=("P", "X")), footprint("R2", 30, 5, inst="r2", nets=("Q", "Y")),
+           footprint("D1", 34, 25, inst="d1", nets=("N5", "N6"))]
+    g, occ = _occ(fps, {"j1": (5, 5), "j2": (5, 25), "r1": (30, 25), "r2": (30, 5), "d1": (34, 25)})
+    link = Link(("R1", "2"), ("D1", "1"), 0, 3.0, "keep r1 by d1", None, None)
+    r = cleanup(occ, {"r1": fps[2], "r2": fps[3]}, _pins(g, {"J1", "J2", "R1", "R2", "D1"}, quiet={"GND"}), [link],
+                None, 3, 0.5, 0.25)
+    assert r.swaps == []
+    assert occ.pad_location("R1", "2").distance(occ.pad_location("D1", "1")) <= 3.0 + 1e-9
+
+
 def test_a_move_stops_where_a_limited_link_would_pass_its_limit():
     """b1's wire pulls it west toward a1; a FREE link with a 3 mm limit ties
     its pad 2 to d1. It moves, but no further than the limit allows."""

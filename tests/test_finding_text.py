@@ -102,6 +102,8 @@ SAMPLES = [
     (C.ESCAPE_CLOSED, {"ref": "U1", "pin": "3", "net": "A", "joins": ["J1"], "by": [OWNER]},
      "U1 pin 3 (A): closed toward J1 by R1"),
     (C.ESCAPE_WALLED, {"variant": "walled", "ref": "U1", "pin": "3", "net": "A", "by": []}, "U1 pin 3 (A): walled off by copper"),
+    (C.ESCAPE_VIA, {"ref": "U1", "pin": "3", "net": "A", "by": [OWNER]},
+     "U1 pin 3 (A): leaves only by a via, its straight lanes closed by R1"),
     (C.ESCAPE_LANE, {"ref": "U1", "pin": "3", "net": "A", "blocked": [Refusal(Code.LANE_PAD, pin="4", gap_mm=0.1, need_mm=0.2).to_json()]},
      "U1 pin 3 (A): its lane is blocked by pad 4 of its own part, 0.100 mm off (needs 0.200)"),
     (C.ESCAPE_VIA_UNNEEDED, {"ref": "U1", "part": "u1", "pin": "3", "net": "A", "layers": ["F.Cu"],
@@ -120,9 +122,9 @@ SAMPLES = [
      "0.300 mm apart, under the 0.381 mm a 0.127 mm track and two clearances need; within 1.00 mm of the airwire every "
      "other way is closed by copper or crosses another net's airwire"),
     (C.TURN_BETTER, {"item": "displayterms", "kind": "cell", "rotation_deg": 270.0, "to_deg": 90.0, "turn_deg": 180.0,
-                     "face": "front", "shorter": {"links": 4, "mm": 2.4}, "longer": {"links": 0, "mm": 0.0},
-                     "weighted_mm": 19.2, "crossings_delta": 0.0, "gain": 19.2, "rotations_given": True, "at": [31.2, 40.4]},
-     "cell displayterms turned 180 degrees, to 90 degrees: 4 links 2.40 mm shorter, 0 weighted crossings more"),
+                     "face": "front", "change": {"link": -19.2}, "gain": 19.2,
+                     "rotations_given": True, "at": [31.2, 40.4]},
+     "cell displayterms turned 180 degrees, to 90 degrees: gain 19.2 (link -19.2)"),
     (C.PINS_REVERSED, {"refs": ["U1", "J1"], "mirror": "U1", "mirror_also": "", "nets": [["SCK", "MOSI", "DC"], ["DC", "MOSI", "SCK"]],
                        "pins": ["22", "23", "24"], "far": [["R5", "1"], ["R6", "1"], ["R7", "1"]], "crossings": 6,
                        "crossings_mirrored": 3, "rules": [{"ref": "U1", "pool": True, "group": "display"},
@@ -313,6 +315,6 @@ def test_a_reservation_is_named_by_what_made_it():
     assert str(ReservedBy("push", "M1", "why", limit=0.3, radius_mm=29.7)) == "push from M1 (limit 0.3 at 29.7 mm): why"
 
 
-def test_the_pin_remap_facts_are_schema_3_since_the_budget_became_steps():
+def test_the_pin_remap_facts_are_schema_4_since_finalists_are_judged_on_the_run_score():
     from placemat.finding_text import facts_version
-    assert facts_version(C.PINS_REMAP) == 3
+    assert facts_version(C.PINS_REMAP) == 4

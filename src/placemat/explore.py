@@ -66,33 +66,31 @@ def focus_keys(board, keys=(), after_line: int | None = None, box=None, baseline
 
 
 def draw(candidates, rng, slack: float, power: float):
-    """One of a scan's legal candidates, best first as (score, distance,
-    rotation, placement): only those within `slack` of the best (a fraction
-    of it; for a best of 0, `slack` millimetres), the one at rank r weighted
-    1 / r ** power, so the best stays the likeliest ([explore] slack and
-    rank_power)."""
-    best = candidates[0][0]
+    """One of a scan's legal candidates, best first as ((walled, cost), distance,
+    rotation, placement): only those that wall off as few pads as the best and
+    cost within `slack` of it (a fraction of it; for a best of 0, `slack`
+    millimetres), the one at rank r weighted 1 / r ** power, so the best stays
+    the likeliest ([explore] slack and rank_power)."""
+    walled, best = candidates[0][0]
     limit = best * (1.0 + slack) if best > 0 else best + slack
-    pool = [c for c in candidates if c[0] <= limit + 1e-12]
+    pool = [c for c in candidates if c[0][0] == walled and c[0][1] <= limit + 1e-12]
     weights = [1.0 / (k + 1) ** power for k in range(len(pool))]
     return rng.choices(pool, weights=weights, k=1)[0]
 
 
 # ------------------------------------------------------------ scoring
-def measure(board, plan, step: float | None = None) -> dict:
-    """A variant's measures for the run score (score.py): its own ratsnest's
-    crossings and airwire, and the worst RUDY cell in `step`s, the measure
-    that agreed with the router (congestion.py). `step` 0 leaves the worst
-    cell out."""
+def measure(board, plan) -> dict:
+    """A variant's measures for the run score (score.py): its own ratsnest's crossings and airwire, its links, a
+    fitted frame's area and the worst RUDY cell in `score.congestion_step` steps, the measure that agreed with the
+    router (congestion.py)."""
     from . import score as _score
-    step = board.settings.explore_congestion_step if step is None else step
-    return _score.plan_measures(board, plan, congestion_step=step or None)
+    return _score.plan_measures(board, plan)
 
 
-def score(board, plan, step: float | None = None) -> float:
+def score(board, plan) -> float:
     """A variant's run score, in millimetres: lower is better."""
     from . import score as _score
-    return _score.total(measure(board, plan, step), board.settings)
+    return _score.total(measure(board, plan), board.settings)
 
 
 def _members(item):
@@ -327,14 +325,15 @@ def explore(make_board, focus, seconds: float, jobs: int | None = None, seeds=No
                     base_board.settings.explore_stop_hard_clear, _score.hard_clear(base_m))
     curve = [dict({"i": 0, "seed": 0, "t": 0.0, "score": baseline, "best": True},
                   **({"score_remapped": ranks[0]} if 0 in ranks else {}))]
-    best_so_far = [ranks.get(0, baseline)]
+    ranking = _variant_order(base_board.settings, ranks)
+    best_so_far = [results[0]]
 
     def note(seed, total, t):
-        """A finished variant on the curve; whether it beat every one before it, by the score it is ranked by."""
-        by = ranks.get(seed, total)
-        better = by < best_so_far[0] - 1e-9
+        """A finished variant on the curve; whether it ranks above every one before it (`_variant_order`)."""
+        row = results.get(seed, (seed, total, {}))
+        better = ranking(row, best_so_far[0]) < 0
         if better:
-            best_so_far[0] = by
+            best_so_far[0] = row
         curve.append(dict({"i": len(curve), "seed": seed, "t": round(t, 3), "score": total, "best": better},
                           **({"score_remapped": ranks[seed]} if seed in ranks else {})))
         return better
@@ -350,7 +349,8 @@ def explore(make_board, focus, seconds: float, jobs: int | None = None, seeds=No
         if routing is not None else None
     rs = {"inflight": None, "pending": None, "started": False, "dead": False}
     partial = lambda: _result(results, baseline, base_m, spent + time.time() - t0, failures, variants, focus, len(procs),
-                              curve, ended_by(), list(routes) if routing is not None else None, ranks)
+                              curve, ended_by(), list(routes) if routing is not None else None, ranks,
+                              base_board.settings)
 
     def dispatch():
         """The waiting best to the routing worker, when it is free."""
@@ -552,12 +552,35 @@ def _end(procs) -> None:
             pr.join(0.5)
 
 
+def _exact(cfg):
+    """`cfg` with no noise band: a variant's measures are its plan's own, not kicad-cli's ratsnest, so they do not vary
+    run to run and any difference in the run score counts."""
+    import dataclasses
+    return dataclasses.replace(cfg, best_airwire_noise=0.0, best_crossing_noise=0.0)
+
+
+def _variant_order(cfg, ranks=None):
+    """Compare placement-ensemble rows by the shared exact `score.placement_key`.
+    `cfg` is retained for callers; each row already carries the objective at
+    those settings. Remapped objectives replace it when supplied. Seed order
+    resolves exact ties independently of worker completion order.
+    """
+    from .score import placement_key
+
+    def cmp(a, b):
+        ka, kb = placement_key(a, ranks), placement_key(b, ranks)
+        return -1 if ka < kb else 1 if ka > kb else 0
+    return cmp
+
+
 def _result(results: dict, baseline, base_m, seconds: float, failures, variants=None, focus=(), jobs=0, curve=None,
-            ended=None, routes=None, ranks=None) -> ExploreResult:
-    """The result, its rows best first by the score each is ranked by: the run score, or with `ranks` (`explore.rank_remapped`,
-    {seed: score_remapped}) that score where a variant has one."""
+            ended=None, routes=None, ranks=None, cfg=None) -> ExploreResult:
+    """The result ordered by `score.placement_key`, shared with its checkpoint."""
+    import functools
+    from .settings import Settings
     ranks = dict(ranks) if ranks else None
-    rows = sorted(results.values(), key=lambda r: ((ranks or {}).get(r[0], r[1]), r[0]))
+    rows = sorted(sorted(results.values(), key=lambda r: r[0]),
+                  key=functools.cmp_to_key(_variant_order(cfg if cfg is not None else Settings(), ranks)))
     return ExploreResult(rows[0][0], rows[0][1], baseline, len(rows), rows, rows[0][2], base_m, round(seconds, 3),
                          list(failures), variants=variants, focus=sorted(focus), jobs=jobs,
                          plain=variants[0]["placements"] if variants else None,
@@ -579,35 +602,12 @@ def _total(board, m) -> float:
 
 
 def remap_of(board, plan) -> dict | None:
-    """What the pin map study's best remap of a resolved variant saves, priced as the run score prices a crossing
-    (`explore.rank_remapped`): {"saving": mm, "crossings": the weighted crossings it removes, "groups"}. A group is
-    counted when its best map removes weighted crossings: {"refs", "present" and "best" (its weighted crossings),
-    "map" and "turns" (pinmap.plan_summary's)}; a turn that turns or flips its part also carries "pivot", the centre of
-    the part's courtyard box, which the study turns it about. A group past its wall-clock guard, or whose best map
-    removes none, adds nothing. None for a board with no `Pm.PinPool` part."""
-    from .pinmap_rules import has_pools
-    if not has_pools(board.geometry.footprints):
-        return None
+    """The pin map study's best maps of a resolved variant, judged together on the run score (`explore.rank_remapped`,
+    pinmap.plan_remap): {"saving": mm, "gain", "baseline", "final", "actionable", "reason", "groups"}. A group is one
+    whose best map lowers the run score: {"refs", "present" and "best" (its run score), "map" and "turns"}; a turn
+    carries "pivot", the point the study turns its part about. None for a board with no `Pm.PinPool` part."""
     from . import pinmap
-    groups, crossings = [], 0.0
-    for g in pinmap.plan_summary(board, plan):
-        if g.get("slow"):
-            continue
-        cut = g["present"]["weighted"] - g["best"]["weighted"]
-        if cut <= 1e-9:
-            continue
-        crossings += cut
-        turns = []
-        for t in g["turns"]:
-            t = dict(t)
-            if t["turn_deg"] or t["flip"]:
-                c = plan.occupancy.courtyard_box(t["ref"]).center
-                t["pivot"] = [round(c.x, 4), round(c.y, 4)]
-            turns.append(t)
-        groups.append({"refs": g["refs"], "present": g["present"]["weighted"], "best": g["best"]["weighted"],
-                       "map": g["map"], "turns": turns})
-    return {"saving": round(board.settings.score_crossing * crossings, 3), "crossings": round(crossings, 3),
-            "groups": groups}
+    return pinmap.plan_remap(board, plan)
 
 
 def ranked(board, plan, total: float) -> dict:
@@ -624,11 +624,11 @@ def ranked(board, plan, total: float) -> dict:
     except BaseException as e:                   # a stop or an interrupt still ends the explore
         if not pinmap.contained(e):
             raise
-        r = {"saving": 0.0, "crossings": 0.0, "groups": [], "error": {"type": type(e).__name__, "message": str(e)}}
+        r = {"saving": 0.0, "actionable": False, "groups": [], "error": {"type": type(e).__name__, "message": str(e)}}
     if r is None:
         return {}
     r["seconds"] = round(time.perf_counter() - t0, 3)
-    return {"score_remapped": round(total - r["saving"], 6), "remap": r}
+    return {"score_remapped": total - r["saving"], "remap": r}
 
 
 def _context_of(make_board):
@@ -742,13 +742,13 @@ def _route_work(make_board, focus, lock, reuse, routing, rq, out, parent):
                         b.resolve(reuse=reuse, explore=Explore(seed, focus), lock=lock)
                     pcb = router.write(make_board, b, p, d)
                     remap = ranked(b, p, 0.0).get("remap")
-                    if remap and remap["groups"]:            # routed as it would stand once the remap is made
-                        entry["remapped"] = dict(router.remap(pcb, remap["groups"]), saving=remap["saving"],
-                                                 crossings=remap["crossings"])
+                    if remap and remap.get("actionable") and remap["groups"]:            # routed as it would stand once the remap is made
+                        entry["remapped"] = dict(router.remap(pcb, remap["groups"]), saving=remap["saving"])
                     r = router.route(pcb, d / "route", exclude_nets=set(routing.exclude), pour_nets=set(p.plane_nets),
                                      quick=True, resume=routing.resume, capture_path=routing.capture)
                 entry.update(closure_clean=r.closure_clean, closure=r.closure, open_before=r.open_before,
-                             open_after=r.open_after, valid=r.valid,
+                             open_after=r.open_after, valid=r.valid, drc_new=r.drc_new, widths_failed=r.widths_failed,
+                             vias=r.vias, copper_mm=r.track_mm, segments=r.segments,
                              phases={p["name"]: p.get("final_closure_clean", p["closure_clean"])
                                      for p in getattr(r, "phases", ())})
             except Exception as e:
@@ -875,6 +875,7 @@ def _parts(script, base, make_board, entries, focus) -> dict:
     import json
     from . import __version__, checkpoint
     from . import reuse as _reuse
+    from .score import MEASURES_VERSION
     settings = json.loads(_reuse.placement_settings(base.settings))
     for k in [k for k in settings if k in ("explore_jobs", "explore_checkpoint_max_variants", "explore_stall_variants",
                                                           "explore_stall_seconds", "explore_stop_hard_clear")]:
@@ -886,6 +887,7 @@ def _parts(script, base, make_board, entries, focus) -> dict:
     return {"script": _script_digest(script), "board": checkpoint.sha(_reuse._geometry_digest(base.geometry)),
             "settings": checkpoint.sha(json.dumps(settings, sort_keys=True)),
             "fab": checkpoint.sha(fab.json()) if fab is not None else "", "version": __version__,
+            "measures": str(MEASURES_VERSION),
             "lock": checkpoint.lock_digest(entries), "focus": checkpoint.sha(",".join(sorted(focus)))}
 
 
@@ -990,7 +992,8 @@ def search(make_board, script, seconds: float, jobs: int | None = None, keys=(),
         report["routes"], report["routes_skipped"] = [], "no_board"
     elif on:
         report["routes"] = result.routes
-        closed = _taken(result.routes, {r[0]: result.rank_of(r[0], r[1]) for r in result.results}, rank=routing.rank if routing else ())
+        closed = _taken(result.routes, {r[0]: r[2] for r in result.results}, base.settings,
+                        rank=routing.rank if routing else ())
         if closed is not None:
             taken = report["taken_seed"] = closed
     if saved(taken):
@@ -1051,13 +1054,25 @@ def _write_variant(make_board, board, plan, folder: Path) -> Path:
     return pcb
 
 
-def _taken(routes: list, scores: dict, rank=()):
-    """The seed of the routed variant with the best clean closure, the better run score (`scores`, {seed: score}) of a
-    tie; None when every route failed."""
-    closed = [r for r in routes if not r.get("error")]
+def _taken(routes: list, measures: dict, cfg, rank=()):
+    """The seed of the routed variant that ranks first (`score.rank`: the validity tier, the clean closure, the quality
+    key once fully routed, the run score, exactly: `_exact`) by its measures (`measures`, {seed: measures}) and its route's
+    clean closure;
+    the earlier seed of a tie; None when every route failed. Named phase priorities precede whole closure within the validity tier."""
+    import functools
+    from . import score as _score
+    closed = sorted((r for r in routes if not r.get("error")), key=lambda r: r["seed"])
     if not closed:
         return None
-    return min(closed, key=lambda r: tuple(-(r.get("phases") or {}).get(name, 0.0) for name in rank) + (-r["closure_clean"], scores.get(r["seed"], r["score"]), r["seed"]))["seed"]
+    cfg = _exact(cfg)
+
+    def standing(r):
+        m = dict(measures.get(r["seed"]) or {})
+        for k in _score.QUALITY_TERMS:
+            if k in r:
+                m[k] = r[k]
+        return _score.Standing(m, _score.Validity.of(m, drc_new=r.get("drc_new"), widths_failed=r.get("widths_failed", 0)), tuple((r.get("phases") or {}).get(name, 0.0) for name in rank), r["closure_clean"])
+    return min(closed, key=functools.cmp_to_key(lambda a, b: _score.rank(standing(a), standing(b), cfg)))["seed"]
 
 
 def _send_done(report, kept: bool, **more) -> None:
@@ -1455,6 +1470,8 @@ def pin_map_lines(report) -> list:
     remapping, and the pose that takes, or that it ran past its wall-clock guard; a variant whose study failed says so. Then the time the study took after the
     explore's own."""
     from .finding_text import at_pose
+    def total(t):                           # a refused judgment has no total
+        return "unmeasured" if t is None else "%.1f" % t
     out = []
     maps = report.get("pin_maps") or ()
     for v in maps:
@@ -1468,8 +1485,8 @@ def pin_map_lines(report) -> list:
                                                          g["steps"], g["budget_steps"]))
                 continue
             turned = [t for t in g["turns"] if t["turn_deg"] or t["flip"]]
-            out.append("  pin map, seed %d at %.1f mm: %s %g -> %g weighted crossings after remapping%s" % (
-                v["seed"], v["score"], " and ".join(g["refs"]), g["present"]["weighted"], g["best"]["weighted"],
+            out.append("  pin map, seed %d at %.1f mm: %s %s -> %s common placement score after remapping%s" % (
+                v["seed"], v["score"], " and ".join(g["refs"]), total(g["present"]["total"]), total(g["best"]["total"]),
                 ", " + at_pose(turned) if turned else ""))
     if maps:
         out.append("  pin map study: %d variant%s in %.2f s, after the explore's time" % (

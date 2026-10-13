@@ -19,7 +19,9 @@ def test_a_better_map_is_a_notice_with_its_facts_and_its_sentence():
     found, record = study(*reversed_four(), settings(pins_rotations=(0.0,)))
     (f,) = found
     assert f.cause is C.PINS_REMAP and f.kind is FindingKind.PINS and f.severity == "notice"
-    assert f == "U1: a pin map with 6 fewer weighted crossings exists at its present rotation"
+    assert f == ("U1: a pin map with 6 fewer weighted crossings exists at its present rotation; "
+                 "generator study only: common-board gain is unavailable, and no map or turn is advised")
+    assert f.facts["score_scope"] == "generator" and f.facts["common_unavailable"]
     facts = json.loads(json.dumps(f.facts))
     assert facts["present"]["among"] == 6 and facts["rotations"][0]["among"] == 0 and facts["best"] == 0
     assert [(m["net"], m["from"]["pin"], m["to"]["pin"]) for m in facts["rotations"][0]["map"]] == [
@@ -41,7 +43,7 @@ def test_a_better_pose_is_named_with_what_it_saves_beside_the_present_one():
     (f,) = study(*facing_away())[0]
     assert f.startswith("U1: a pin map with ") and " exists at its present rotation; at 180 degrees, " in f
     assert f.facts["rotations"][f.facts["best"]]["turns"] == [
-        {"ref": "U1", "turn_deg": 180.0, "rotation_deg": 180.0, "face": "front", "flip": False}]
+        {"ref": "U1", "turn_deg": 180.0, "rotation_deg": 180.0, "face": "front", "flip": False, "pivot": [10.0, 10.0]}]
 
 
 def test_a_map_saving_less_than_the_gain_min_is_no_finding():
@@ -58,7 +60,7 @@ def test_an_entry_the_study_runs_without_is_a_setup_warning():
 
 def test_the_moved_nets_with_copper_now_are_named():
     (f,) = study(*reversed_four(), settings(pins_rotations=(0.0,)), copper=frozenset({"A", "Z"}))[0]
-    assert f.facts["routed"] == ["A"] and f.endswith("; 1 of the nets it moves has copper now: A")
+    assert f.facts["routed"] == ["A"] and "; 1 of the nets it moves has copper now: A" in f
 
 
 def test_a_study_past_its_wall_clock_guard_is_a_warning_with_no_map_and_is_not_kept(tmp_path):
@@ -78,27 +80,15 @@ def test_a_spent_budget_is_said_in_steps():
     found, _ = study(*reversed_four(), settings(pins_rotations=(0.0,), pins_budget_steps=30))
     (f,) = found
     assert (f.facts["budget_out"], f.facts["steps"], f.facts["budget_steps"]) == (True, 30, 30)
-    assert f.endswith("; the study stopped at its budget of 30 steps after 1 of 1 poses")
+    assert "; the study stopped at its budget of 30 steps after 1 of 1 poses" in f
 
 
-def test_the_suggestion_carries_the_map_and_the_turn_and_writes_nothing(tmp_path):
+def test_generator_study_retains_diagnostics_without_executable_advice():
     (f,) = study(*facing_away())[0]
-    best, present = sg.suggest(f.cause, f.facts)
-    assert (best.lever, best.how, best.edits) == ("pins", "advice", ())
-    assert best.text == "Move 2 nets of U1 to the pins in the map, a capture change, and turn U1 to 180 degrees"
-    assert best.advice["turns"][0]["rotation_deg"] == 180.0
-    assert [(m["net"], m["from"]["pin"], m["to"]["pin"]) for m in best.advice["map"]] == [("A", "1", "2"), ("B", "2", "1")]
-    assert present.advice["rotation"] == 0 and "turn" not in present.text
-    assert sg.Suggestion.from_json(best.to_json()) == best
-
-    class _Board:
-        script_file = ""
-        settings = settings()
-    f.suggestions = ()
-    sg.bind([f], _Board())
-    assert [s.id for s in f.suggestions] == ["s1a", "s1b"]
-    with pytest.raises(sg.EditRefused, match="advice"):
-        sg.apply_suggestion(f.suggestions, "s1a", root=tmp_path)
+    assert f.facts["rotations"][f.facts["best"]]["map"]
+    assert f.facts["generator_gain"] > 0
+    assert "no map or turn is advised" in f
+    assert sg.suggest(f.cause, f.facts) == []
 
 
 def test_a_second_study_of_the_same_board_is_reused_and_a_changed_setting_is_not(tmp_path):

@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from placemat import checkpoint, lock
+from placemat import checkpoint, lock, score
 from placemat.explore import search
 from tests import explore_boards as eb
 from tests.test_stop import DRIVER, ROOT, _wait_for
@@ -44,9 +44,9 @@ def test_a_finished_variant_is_a_line_with_the_header_first_and_a_done_line_last
     assert sorted(_seeds_of(lines)) == list(range(1, 10))
     assert lines[-1]["done"] is True and lines[-1]["t"] > 0
     assert all("t" in d and "s" in d for d in lines if "v" in d)
-    # a variant that beat every one before it carries its measures; the others are lean
+    # every variant carries validity evidence so a resume uses the same ranking
     assert any("m" in d for d in lines if "v" in d)
-    assert all("m" not in d for d in lines if "v" in d and d["s"] >= head["baseline"]["score"])
+    assert all("m" in d for d in lines if "v" in d)
 
 
 def test_a_complete_explore_keeps_its_checkpoint_marked_recorded_and_the_best(tmp_path):
@@ -122,6 +122,15 @@ def test_no_resume_starts_over(tmp_path):
     assert _calls(tmp_path / "pids") == 5
 
 
+def test_a_new_measures_version_is_not_the_same_explore(tmp_path, monkeypatch):
+    """Variants scored on another version of the measures are not ranked against new ones: resume refuses."""
+    from placemat import score
+    _search(tmp_path, seeds=range(0, 6), keep_state=True)
+    monkeypatch.setattr(score, "MEASURES_VERSION", score.MEASURES_VERSION + 1)
+    with pytest.raises(checkpoint.ResumeRefused, match="the measures' version changed"):
+        _search(tmp_path, seeds=range(0, 6), resume="yes")
+
+
 def test_a_changed_setting_or_focus_is_not_the_same_explore(tmp_path):
     _search(tmp_path, seeds=range(0, 6), keep_state=True)
     with pytest.raises(checkpoint.ResumeRefused, match="the focus changed"):
@@ -174,3 +183,42 @@ def test_a_real_stop_then_a_resume_skips_the_seeds_already_tried(tmp_path):
                        seeds=range(0, top + 1), checkpoint_dir=tmp_path / "ckpt")
     assert _calls(tmp_path / "pids") == top - len(tried)
     assert report["tried"] == top + 1
+
+
+@pytest.mark.parametrize("failure", [{"findings": {"escape_walled": 1}}, {"drc": 1}])
+def test_checkpoint_keeps_valid_incumbent_over_lower_invalid_score(tmp_path, failure):
+    parts = {k: 'digest' for k in checkpoint.PARTS}
+    ck = checkpoint.Checkpoint(tmp_path / 'state', parts, [])
+    valid = {'v': score.MEASURES_VERSION, 'unplaced': {}, 'findings': {}, 'airwire_mm': 20.0}
+    invalid = dict(valid, airwire_mm=1.0, **failure)
+    payload = {'entries': [], 'orders': []}
+    ck.start(30.0, valid, 60, range(3))
+    ck.variant(1, 20.0, valid, 1.0, payload)
+    ck.variant(2, 1.0, invalid, 2.0, payload)
+    ck.close()
+    assert checkpoint.read_best(ck.dir)['seed'] == 1
+    resumed = checkpoint.Checkpoint(ck.dir, parts, []).load()
+    assert resumed.best_seed == 1
+    from placemat.explore import _variant_order
+    from placemat.settings import Settings
+    assert _variant_order(Settings())(resumed.done[1], resumed.done[2]) < 0
+    assert _variant_order(Settings())((3, 0.0, None), resumed.done[1]) > 0
+
+
+def test_checkpoint_and_result_use_seed_order_on_objective_tie(tmp_path):
+    parts = {k: 'digest' for k in checkpoint.PARTS}
+    ck = checkpoint.Checkpoint(tmp_path / 'state', parts, [])
+    m = {'v': score.MEASURES_VERSION, 'airwire_mm': 20.0}
+    payload = {'entries': [], 'orders': []}
+    ck.start(30.0, m, 60, range(10))
+    ck.variant(9, 20.0, m, 1.0, payload)
+    ck.variant(1, 20.0, m, 2.0, payload)
+    ck.close()
+    assert checkpoint.read_best(ck.dir)['seed'] == 1
+    prior = checkpoint.Checkpoint(ck.dir, parts, []).load()
+    assert prior.best_seed == 1
+    from placemat import explore
+    from placemat.settings import Settings
+    from functools import cmp_to_key
+    rows = [(0, prior.baseline, prior.measures), *prior.done.values()]
+    assert sorted(rows, key=cmp_to_key(explore._variant_order(Settings())))[0][0] == prior.best_seed

@@ -1386,7 +1386,10 @@ is left unplaced instead. An unplaced item pulls nothing and blocks
 nothing, and the finding says what stopped it. A scored scan over a wide
 radius is coarse first (`place.coarse_stride` apart) and fine only round its
 best spots (the best `place.refine_spots` by score, and, where riders
-constrain the spot, the best that they take), so a wide `radius=` costs little. A part the script places
+constrain the spot, the best that they take), so a wide `radius=` costs little. The search scores each
+candidate on the run score's terms but the escape grades (`escape_via`, `escape_closed`) and the walled check; the
+best `place.escape_spots` by that which wall no pad beyond the lifted board's walled pads are scored in full and ranked by the full score, and the
+refinement's seeds and the spot taken come from them (an explore's draw scores every candidate in full). A part the script places
 later is not an obstacle where the generator left it, only once it is
 placed. The step note says which of these happened.
 
@@ -1532,20 +1535,50 @@ courtyard by more than the silk clearance (`footprints`, and
 unaffected. `placemat measure` prints each part's drawn envelope and the layer
 that sets each side.
 
+**Retrying what is left unplaced.** The search places items one at a time, so an item placed early can stand
+in the room a later one needs. Under the one-score search, once every searched item has had its turn, each item of
+the plain search (no `Near`, line, edge, rim or band of its own) left unplaced for want of room is tried again. It
+was left for room when a refusal names something placed, a keep-out or a via, or when no pocket took it although
+its body fits the board at one of its turns; one left for its time, its budget, an arrangement it does not offer or
+its riders is not tried.
+
+A room is a spot on a `place.pocket_step` lattice where the item's courtyards and bodies would come within the
+clearance of no placed item but at most `place.retry_lift` liftable ones, and where it is legal with those lifted.
+Liftable items are parts and cells of the plain search that nothing else was positioned against, with no fanout,
+riders, pushes or exposure annotations, not locked and not required. A spot that needs carried vias to give way is
+passed over. Rooms whose items cover the least area come first, then those nearest the item's seed; a spot nothing
+stands in, which the item's own search did not reach, is a room with nothing to lift.
+
+A try lifts the room's items, searches the item round the room (`place.radius`) by the same scorer, and places the
+lifted ones again by their own searches (failing that, round the nearest spot nothing stands in). It is kept only
+when the board then ranks above the board before it, as boards are ranked (the validity tier, unplaced parts by
+priority first, then the run score within its noise band); else the board is put back exactly. An item gets at most
+`place.retry_rounds` tries, a room once; one a kept try left unplaced gets its own turn. Each try is a `retry` step
+of the run, saying what it lifted and placed and whether it was kept, and `metrics.retry` counts the tries, the kept
+ones and the items they placed. `place.retry_rounds = 0` turns it off. The pull estimate
+(`place.search_wire = "clique"`) does not retry.
+
 **The cleanup pass.** Once every searched item is down, and before the copper
 that joins them is planned, a cleanup pass revisits the plain searched parts:
 each is tried near the middle of what it connects to and round where it
 stands, identical parts (one courtyard, pad count and face) are tried in
 each other's places, and so are two neighbouring two-pad parts of any size (in
-any rotation each may take), keeping a change only when the part's wire (the
-half-perimeter of its nets that pull) plus each declared link's weight times
-its length gets shorter. No change leaves a limited link over its limit and
+any rotation each may take). Under the one-score search (the default) a change
+is judged as a board is ranked: it is kept when it walls fewer pads than the
+board before it, whatever else it costs, or walls as many and lowers the run
+score, its change worked out as the search works out a candidate's (wire,
+crossings, links, push, area, congestion and the escape grades); one that walls
+more is refused. Under the pull estimate (`place.search_wire = "clique"`) it is
+kept only when the part's wire (the half-perimeter of its nets that pull) plus
+each declared link's weight times its length gets shorter. No change leaves a limited link over its limit and
 longer, a part turns only to rotations its declaration allows (all four when
 it gave none), faces stay, and every placement is legal as a search's is. It leaves alone any part with a place of its own (`Near`, an edge, a row,
 a ring, a line), a block or cell member, a labelled part, and a part another
 declaration's place refers to. A moved step says `cleanup: moved D mm` or
 `swapped with K`; `metrics.cleanup` holds the moves, swaps and the cost
-before and after. On the module benchmark it made 21 of 32 modules better and
+before and after: the board's run score (its terms that move as parts move)
+under the one-score search, the wire and link cost above under the pull
+estimate. On the module benchmark it made 21 of 32 modules better and
 none worse, for about 1.7 times the placement's own time; `passes = 3, step =
 0.25` made 23 better for about 3 times, and `radius = 5.0` shortens the wire
 further (median 0.92 of the uncleaned against 0.95) at about 3 times.
@@ -2248,10 +2281,12 @@ radius) is refused at the declaration, not left to fail inside `resolve`.
 cost alongside its links and crossings - so the item moves as far out as
 its other terms allow, not to a hand-picked point. Several pushes on one
 item add their prices. The cleanup pass that follows the search (`cleanup.
-enabled`) does not weigh a push: it may move a pushed item to shorten
-wire, inside what the hard limit still forbids, but never past it - the
-reported value and distance are the search's, not necessarily the
-item's final, cleaned-up position.
+enabled`) weighs a push as the search does under the one-score search (the
+default): a move that lowers the run score with the push's price in it. Under
+the pull estimate it does not weigh a push: it may move a pushed item to
+shorten wire. Either way it stays inside what the hard limit forbids - the
+reported value and distance are the search's, not necessarily the item's
+final, cleaned-up position.
 
 **Order.** The source is placed first: pushing from an item that is
 itself searched waits for it, the same order dependency a position said
@@ -3774,15 +3809,28 @@ folder when each module's script sits in a folder of its own
 
 Every finished run is judged against the best earlier run of the same parts -
 its **family**, the runs whose script asked to place the same items - and
-`.placemat/runs/best.json` keeps one best per family. Better means a lower
-**run score**: one number in millimetres of wire, each thing that can go
-wrong counted and weighted by a `[score]` setting (the table below):
+`.placemat/runs/best.json` keeps one best per family. Better means ranking
+above it (`score.rank`), tier by tier, each tier deciding only when the ones
+before it tie:
 
-- an unplaced part, times its declared priority's multiplier;
-- a real DRC violation;
+1. **Validity**: what makes a board unbuildable, as counts with no weight:
+   parts left unplaced (high priority, then default, then low), real DRC
+   violations (the `real` bucket; warnings such as silkscreen clipped by
+   copper are not counted), required widths a routed board does not meet,
+   and critical findings (a fixed item not legal where put, planned copper
+   that meets another net, a walled-off pad). A valid board ranks above an
+   invalid one, and two invalid boards by those counts in that order, so a
+   run with more of them never becomes the best of one with fewer.
+2. **Closure**, when both runs were routed: each phase's clean closure in
+   order, then the route's clean closure, higher better.
+3. **Routed quality**, when both are valid and fully routed: fewer vias, then
+   less routed copper (mm), then fewer track segments, compared in that order,
+   as the router ranks its own boards.
+4. The **run score**: one number in millimetres of wire, each soft thing that
+   can go wrong counted and weighted by a `[score]` setting (the table below):
+
 - each millimetre a link is past its limit, times the link's weight;
-- each finding by its kind: a fixed item not legal where put, copper that
-  breaks a rule, a label on a part, a crossed, closed or walled-off escape,
+- each finding by its kind: a label on a part, a crossed or closed escape or one that needs a via,
   a declared escape lane that something blocks (`board.escape`), and a setup finding (the same every run, 0 by default);
 - each ratsnest crossing, with a plane's or free net's crossing at
   `score.crossing_plane` of it;
@@ -3793,7 +3841,7 @@ wrong counted and weighted by a `[score]` setting (the table below):
   search prices it, not only what is past the limit;
 - each item a `face=Face.EITHER` search put on the back, `score.back_face`.
 
-A finding's severity does not enter the score. A run records these measures, not its score, so a weight changed in
+A finding's severity does not enter the score; the critical kinds above count in the validity tier instead. A run records these measures, not its score, so a weight changed in
 placemat.toml re-ranks the recorded runs at once, the stored best included.
 Two scores tie within `best.airwire_noise` of the airwire plus
 `best.crossing_noise` of the crossings' term, because kicad-cli picks
@@ -3802,8 +3850,9 @@ with `--no-drc` measured neither, so it is not judged and never becomes a
 best. The run prints a `score` line (each term, beside the
 best's where they differ) and one `best` line - first of its family,
 matches, better than, worse than, or not judged. **A run that comes out
-worse is a finding naming the score and the term that moved it most, and
-`placemat run` exits 1**, so a regression cannot pass unnoticed in a loop. Adding or removing a
+worse is a finding naming the tier that decided it (the validity counts that
+differ, the closures, the routed quality, or the score and the term that moved
+it most), and `placemat run` exits 1**, so a regression cannot pass unnoticed in a loop. Adding or removing a
 part starts a new family. Routing needs
 KiCadRoutingTools at `[route] router_dir`, else `$KRT_DIR`, with its own venv; with neither set, a
 route refuses (`route: no router: set [route] router_dir in placemat.toml or $KRT_DIR ...`, exit 2; with `--json`,
@@ -4586,36 +4635,49 @@ seconds into the explore; `budget`, the time given; `finishing`, a list of `{see
 the explore). Nothing is stopped. The studio's explore view shows `time passed, finishing #41, #42` in yellow beside
 its time, each variant leaving the list as it lands. An explore of fixed seeds has no time to pass.
 
-**Judging a variant.** By the run score (Commands), with the worst congestion
-cell (RUDY) added in steps of `[explore] congestion_step` at
-`score.congestion` each: the measure that agreed with the router in the
-congestion study. Lower wins; it is one weighted sum, not a tiered
-comparison.
+**Judging a variant.** As runs are judged (Commands, `score.rank`): the
+validity tier first (unplaced parts, critical findings; a variant has no
+DRC), then the run score, which counts the worst congestion cell (RUDY) in
+steps of `[score] congestion_step` at `score.congestion` each in every run:
+the measure that agreed with the router in the congestion study. A variant's
+measures are its plan's own, so the score has no noise band here: any lower
+score wins, and a tie keeps the earlier variant.
 
 **What a run says.** `explore  N variants in S s over K focused items:
 score B -> A mm (term b -> a, ...); M items would move`, the terms of the
 score that changed in brackets, then one line per item that would move. `metrics.explore` records it.
-With pin pools on the board, the best `pins.explore_top` variants by run score are studied (the pin map study) under the lock they were ranked under, before an accept; a line per studied group gives its weighted crossings now and after remapping (`pin map, seed 3 at 120.4 mm: U1 40 -> 22 weighted crossings after remapping`, with `, at 90 degrees` added when the best pose turns the part, or `, with cell logic turned to 90 degrees` when it turns the part's cell), and a last line gives the time the study took after the explore's own (`pin map study: 3 variants in 1.20 s, after the explore's time`). The report's `pin_maps` (per variant `seed`, `score`, `groups`, `seconds` for its resolve and study, or `error` when its study raised) sits beside the score and does not change the ranking, unless the explore ranks by it (below).
+With pin pools on the board, the best `pins.explore_top` variants are studied
+under the lock before acceptance. Each group reports its current common
+placement total and its independently judged finalist total (`pin map, seed 3
+at 120.4 mm: U1 140.2 -> 122.4 common placement score after remapping`), with its
+pose when it changes. A total a refused judgment does not have prints as `unmeasured`. These independent
+summary lines cannot certify several maps together. The last line gives the
+study's elapsed time; `pin_maps` records each variant's `seed`, `score`,
+`groups`, `seconds` and any study `error`. Only the combined judgment below
+(`--rank-remapped`) changes the ranking.
 Without `--accept` nothing persists.
 
 **Ranking after the pin remap.** By default a variant is judged on today's pinout, so the explore can pick one that
 is best as the pins stand over one that would be better once its pins were remapped. With `--rank-remapped`
 (`[explore] rank_remapped`, off by default) every variant the explore keeps, the plain placement too, gets the pin
 map study as it finishes, and the variants are ranked, and the best and the new bests (the ones `--route-best` routes)
-chosen, on `score_remapped`: the run score less what the variant's best remap saves. The saving is the weighted
-crossings the best map removes (the study's `present` less its `best` weighted crossings, summed over the groups
-whose best map removes some) at `score.crossing` each, the run score's price of a crossing (4 mm by default). A
-variant's record and `variant` event keep `score` as before and add `score_remapped` and `remap` (`saving` in mm,
-`crossings`, `seconds` the study took, and `groups`: per group `refs`, `present`, `best`, `map` and `turns`, or
-`error` when the study raised, the variant then ranked at its run score). The report, the record and `explore_done`
-add `baseline_remapped` and `best_remapped`; `best` stays the run score of the variant ranked best, and the run says
-`ranked after each variant's pin remap: 130.2 -> 118.4 mm, the best's remap saving 8.0 mm` under its first line.
-`pin_maps` entries and route entries carry `score_remapped`. The study runs in the search's workers, as each variant
-finishes, so it counts in the explore's time: about 0.1 s a variant on a large board whose variants take minutes to
-resolve. `--accept` writes the variant's placement as
-always; its remap is not made anywhere but reported for you to make in the capture (`accepted: written to the lock;
-its pin remap is not, make it in the capture`). A board with no `Pm.PinPool` part explores exactly as without it.
-The studio's explore view shows `, 118.4 remapped` beside a variant's score and ranks, plots and follows the best by it.
+chosen, on `score_remapped`: the run score less what the variant's best remaps save. Each group's best map and pose is
+judged on the board by the run score (pinmap.plan_remap), and the groups whose best map lowers it are then judged
+together: `remap.baseline` and `remap.final` are the board before and after all of them, and independent group gains
+are not summed. The saving is the run-score gain of that combined judgment when the validity tier is unchanged, else 0
+(a validity repair keeps its signed `gain` and `reason` "validity repair"). A variant's record and `variant` event
+keep `score` as before and add `score_remapped` and `remap` (`saving` and `gain` in mm, `actionable`, `reason`,
+`baseline`, `final`, `seconds` the study took, and `groups`: per group `refs`, `present`, `best`, `map` and `turns`,
+or `error` when the study raised, the variant then ranked at its run score). The report, the record and
+`explore_done` add `baseline_remapped` and `best_remapped`; `best` stays the run score of the variant ranked best, and
+the run says `ranked after each variant's pin remap: 130.2 -> 118.4 mm, the best's remap saving 8.0 mm` under its
+first line. `pin_maps` entries and route entries carry `score_remapped`; with `--route-best` a variant is routed on
+its board with its remap made on its pads (kicad.remap.apply_remap), and its route entry carries `remapped`. The study
+runs in the search's workers, as each variant finishes, so it counts in the explore's time. `--accept` writes the
+variant's placement as always; its remap is not made anywhere but reported for you to make in the capture (`accepted:
+written to the lock; its pin remap is not, make it in the capture`). A board with no `Pm.PinPool` part explores
+exactly as without it. The studio's explore view shows `, 118.4 remapped` beside a variant's score and ranks, plots
+and follows the best by it.
 
 **Routing as it searches.** The run score's ratsnest crossings do not reliably predict how well a board routes, so a
 run can quick-route its explore's bests as the search finds them and take the one that closes best. With
@@ -4648,8 +4710,11 @@ explore record and its `explore_done` event keep `routes` in the order they came
 `seconds` (its resolve, its board and its route) and `closure_clean`, `closure`, `open_before`, `open_after`, `valid`,
 or `error` (`type`, `message`) - and `taken_seed` when a route closed.
 
-With `--rank-remapped` as well, the best clean closure's ties go to the better `score_remapped`, and a variant whose
-best remap removes crossings is routed with that remap made on the board in its folder (kicad/remap.py): each pad the
+With `--rank-remapped` as well, a variant whose remap is `actionable` (its groups' best maps, judged together on the
+board, lower the run score or repair its validity) is routed with that remap made on the board in its folder
+(kicad/remap.py); a variant whose combined remap is not actionable is routed as it stands. The variant taken is ranked
+as without the setting (`score.rank` on its measures and its route's clean closure): `score_remapped` does not enter.
+The remap is made so: each pad the
 map names takes its new net, a pad a net leaves and none takes has no net, an escape or fanout laid from a pad (its
 net's tracks and vias reaching it end to end, reaching no other pad) takes the pad's new net, and copper that runs on
 to another pad of the old net is deleted for the router to lay again. A part the remap's best pose turns is turned
@@ -4657,7 +4722,8 @@ about the centre of its courtyard box and the copper laid from its pads is delet
 overlap a neighbour. A pose that flips a part or turns a part in a cell is not made: the part keeps its pose with the
 remap's nets on its pads. The script and the capture are untouched. The route's line says `seed 3 at 120.4 mm,
 116.4 mm after its pin remap: ...; routed with its pin remap made on its pads`, and its entry has `remapped`
-(`pads`, `tracks` given a new net, `deleted`, `turned`, `not_turned`, `saving`, `crossings`). A rerun of the same run carries `explore/` over,
+(`pads`, `tracks` given a new net, `deleted`, `turned`, `not_turned`, and `saving`, the remap's run-score saving in mm,
+0 for a validity repair). A rerun of the same run carries `explore/` over,
 so a resumed explore takes the route stages its variants finished. A preview writes no board and routes none
 (`routes: none; a preview writes no board to route`). A quick route of a small module takes about 2 s; on a large
 board about 5 minutes, so a 15-minute explore routes the plain placement and a few of its bests.
@@ -4764,7 +4830,7 @@ checkpoint_max_variants` bounds the lines.
 **The curve and the stopping rules.** Each finished variant is a point
 `{i, seed, t, score, best}` (`i` the order it finished in, plain placement 0;
 `t` seconds since the explore began, over every session of a resumed one;
-`best` true when it beat all before it). The report (`metrics.explore`, the
+`best` true when it ranks above all before it, as variants are judged). The report (`metrics.explore`, the
 record in `.placemat/views/explore/`, the channel's `variant` events) keeps
 `curve`, `found` (`{i, seed, t, score, of_variants, of_seconds}`, the last
 improvement: the time-to-best) and `ended` (`{rule: "budget" | "stall_count" |
@@ -4923,29 +4989,51 @@ A part or cell standing off the axes (at 45 degrees, say) is studied in its own
 frame: its body is its courtyard (or envelope) as turned, its pins face that
 body's sides, and the turns are from where it stands.
 
-**The score.** Built on placemat's ratsnest. The nets come from the pads alone:
+**The generator score.** Built on placemat's ratsnest. The nets come from the pads alone:
 a laid board's tracks, vias and pours are ignored, so a routed net keeps its
 airwire and a first preview and a laid board are scored alike. A pin's airwire
 leaves along its outward normal to a point `pins.exit_mm` past the courtyard's
 box, then goes the shorter way round the box to its target; a net of several
 pads is scored on its minimum spanning tree; a net through a two-pad series
 part (a reference whose leading letters are one of `pins.follow_prefixes`, any case) is followed
-to the far net (`pins.follow_series`). A crossing counts 1, `pins.pair_weight`
-for a differential pair's airwire, `pins.impedance_weight` for a net whose
+to the far net (`pins.follow_series`). A crossing counts 1, `score.crossing_pair_net`
+for a differential pair's airwire, `score.impedance` for a net whose
 class names a KiCad tuning profile, `score.crossing_plane` for a plane's or a
 free net's. The total is the weighted crossings against every other airwire and
-among the studied nets, plus `pins.length_weight` times the airwire length in
+among the studied nets, plus the reciprocal of `score.crossing` (zero when it is zero) times the airwire length in
 mm, plus `pins.bend_weight` times the summed bend in degrees (the angle between
 a pin's outward normal and the bearing to its target), plus the soft groups'
 cohesion. A studied net whose class (or, for a net followed through a series
 part, its far net's class) names a tuning profile counts its length
-`pins.impedance_weight` times over, a differential pair's half too, whether its
+`score.impedance` times over, a differential pair's half too, whether its
 pin may move or not: a turn that lengthens an RF net from a fixed pin or a cell
 member weighs that. The cohesion is `pins.group_weight` times each soft group's spread: the mm its
 neighbouring nets, in the group's written order, stand apart beyond the part's
 pin pitch (the least distance between two of its pads) times the slots between
 them. An intact group costs 0, reversed or not; a split across a corner or
 across pins outside the pool costs the extra distance between the pads.
+
+**Current-board judgment and advice.** Plan-bound findings and summaries rescore
+every kept physical finalist with the common placement objective and validity.
+All lands of a numbered pad share its logical assignment; fixed current copper
+and vias retain their geometry and nets. Original numeric pad obligations stay
+fixed. A finalist that cannot be judged in this context is refused with a code
+and offers no advice. Findings expose `score_scope="placement"`,
+`common` baseline/finalist records and a signed gain; a validity repair is labeled
+separately even when that gain is negative. Multiple module stamp choices need
+one simultaneous physical judgment and compatible module choices before advice.
+
+Standalone studies expose `score_scope="generator"`, `generator_gain` and
+`common_unavailable=true`. Their maps and per-pose airwires remain useful
+read-only diagnostics, but they produce no executable map or turn suggestion.
+The generator's bend/crossing breakdown is never a certified common saving.
+
+Common finalists are rebuilt rather than read from the generator findings cache.
+`apply <id> --search` rejudges the incoming map and new finalists in the same
+current context; its stored total is not comparison evidence. Malformed saved
+advice returns an `incoming_*_invalid` refusal. Legacy advice without common
+proof refuses with `common_proof_missing`; cell pose rebasing currently refuses
+with `cell_advice_rebase_unavailable`. These refusals withhold advice.
 
 **Groups.** A `Pm.PinGroup` is soft unless its name ends in `!` (capture.md,
 "Pin pools"). A soft group's nets move one by one and pay the cohesion; a hard
@@ -4974,9 +5062,9 @@ Python fallback takes longer to get there. A wall-clock guard,
 `budget_steps`) says so, and the group gives no `no_legal_map` problem. A study
 that tripped the guard is not kept for reuse, so a kept result is always
 complete and the guard is not part of its digest.
-What a study reads is digested and kept in
-`.placemat/pinmap/<script>.json`; a run or a preview of an unchanged board
-reuses it. A study that raises leaves the run standing: the error is on
+Generator-only findings may be digested and kept in
+`.placemat/pinmap/<script>.json`. Current plan-bound common judgments bypass
+that findings cache, including on an otherwise unchanged run or preview. A study that raises leaves the run standing: the error is on
 `metrics.pin_study` and a `setup.pins` warning with code `study_failed` (facts
 `type`, `message`) says so, and the run has no pin map findings.
 
@@ -4984,8 +5072,9 @@ reuses it. A study that raises leaves the run standing: the error is on
 module instance) is studied as the cell: each pose turns the whole cell about
 its centre, every member's pads with it, and the body its airwires go round is
 the cell's envelope (its members' courtyards and its own copper), not the
-part's courtyard. The turn is theoretical: the cell stays where it is and
-nothing is checked for collisions or DRC; only the airwires are scored. The
+part's courtyard. Generator turns are theoretical and score only airwires.
+Plan-bound finalists additionally judge actual detached geometry, placement
+legality and copper/pad clashes. The
 part's pins leave by the envelope side their own courtyard side faces; the other
 members' pads leave by the side they are nearest; a net with every pad inside
 the cell and none that may move turns with the cell and is not studied. A pool
@@ -5020,10 +5109,11 @@ takes a studied net on to (with `via` and `far`). When fewer than
 placement (`withheld`), with no suggestion.
 
 **The record.** `run.json`'s `metrics.pin_study` is `{seconds, reused, groups,
-parts}`, or `{error: {type, message}}` when the study raised. `reused` is true
-when the last study's findings were kept, and `groups` is then null. Run and
-preview print it as `pins  3 parts in 2 groups (0.41 s)`, `pins  3 parts, the
-last study reused (0.02 s)` or `pins  the study failed with <type>: <message>`.
+parts}`, or `{error: {type, message}}` when the study raised. `reused` can be
+true for cached standalone generator diagnostics, with `groups` null;
+plan-bound common judgments are rebuilt and report false. Run and preview
+print `pins  3 parts in 2 groups (0.41 s)` or a study failure; the reused
+wording applies only to generator diagnostics.
 
 **`setup.pins`.** A warning, facts `ref`, `key`, `entry`, `code`, `name`
 (and `held_net`, `held_pin`), by `code`:
@@ -5041,16 +5131,14 @@ last study reused (0.02 s)` or `pins  the study failed with <type>: <message>`.
 | `study_failed` | the study raised; `type` and `message` |
 | `study_slow` | the study of the part's group ran past `pins.guard_ms` and gives no map; `refs`, `guard_ms`, `steps` taken and `budget_steps` |
 
-**The finding.** `pins.remap`, a notice, when the best pose saves at least
-`pins.gain_min` of the present total. Its sentence names what each pose saves
-against the present map in the plainest term the pose wins on: weighted
-crossings, else mm of airwire, else degrees of turning; and what it gives up on
-weighted crossings or airwire to win: "U1: a pin map with 8 fewer weighted
-crossings exists at its present rotation; at 90 degrees, 11 fewer weighted
-crossings and 3.2 mm more airwire". A soft group the best map leaves split, 0.05 mm or more, is named with its
-spread ("group lcd ends split, 0.7 mm beyond its pin pitch"), and a map that
-closes a soft group up says so ("group lcd brought together", or "nearer
-together"). A study given no steps (a budget of 0, which only a direct call of
+**The finding.** Plan-bound `pins.remap` notices report common score gain
+when it meets `pins.gain_min`, or a separately labeled validity repair whose
+soft gain may be negative. Refused finalists and incompatible combined
+module choices explicitly advise no map or turn. Standalone generator notices
+retain diagnostic crossing/length/bend comparisons but say common-board gain
+is unavailable and offer no executable advice. Generator breakdowns are nested
+under `generator`; common records contain raw terms, validity and refusals.
+A study given no steps (a budget of 0, which only a direct call of
 the core can give) says so instead. Facts: `ref`, `refs`, `at`, `present` (the present
 map's score), `rotations` (the best map at each pose, the present pose first:
 `total`, `against`, `among` as crossing counts, `weighted`, `length_mm`,
@@ -5060,7 +5148,7 @@ length), `spread_mm` and its term `cohesion`, `groups` (each
 `nets` and `pins` in pin number order), `turns` with `ref`, `turn_deg`, `rotation_deg`, `face` and `flip`,
 `map` as `ref`, `net`, `from` and `to` each `{pin, name}`, `routed`, `paths`
 and `breaks`), `best` (the index of the best pose), `routed` (the best pose's
-moved nets with copper on the board now: a remap means routing them again),
+moved nets with fixed copper now: a proposed map cannot retag or delete it),
 `before` (the airwires now), `present_groups` (the groups as they stand),
 `held` (nets a constraint keeps, with `why` set to
 `fixed`, `allow`, `unplaced` or `in_cell`), `unplaced_ends` (each studied
@@ -5084,11 +5172,13 @@ the turn in the script. In the studio an advice suggestion has only Try, which
 draws the airwires before (dashed) and after (solid) and lists the map; it
 resolves and writes nothing. The finding's panel lists every pose in `rotations`,
 a row each: the turn (a part in a cell by its cell's turn), weighted crossings,
-length in mm, bends, total and the saving against the present map, with the
+generator length in mm and bends, common total (or generator-only total),
+and signed gain against the present map, with the
 best and the present pose marked. A row clicked draws that pose's airwires and
 lists its map as Try does; a second click, a Try, or a change of selection or
 run takes them away. In the studio's explore view each studied variant shows
-its groups' weighted crossings now and after remapping beside its score, `slow`
+its groups' common placement totals now and after remapping as independent
+proposals beside its score, `slow`
 for a group past its guard and `error` for a study that raised; on the variant
 shown, Map draws a group's airwires and lists its map. Each group of an
 explore's `pin_maps` carries `before` and `paths`, its airwires under the
@@ -5096,8 +5186,9 @@ present map and the best, as a finding's `before` and a rotation's `paths` do.
 
 `placemat apply <id> --search` on a pins suggestion studies its parts again, on
 the board as the last run placed it, with `pins.probe_budget_steps` a part. A
-better map is kept as `<id>.1`, as advice, and `--json` gives `{id, study,
-found}`. When the study raises, the command exits 1 with the error (`--json`:
+map that beats the incoming map rejudged in this same current physical context
+is kept as `<id>.1`, as advice; its stored scalar is ignored. `--json` gives
+`{id, study, found}` and a stable refusal `reason` when comparison is unavailable. When the study raises, the command exits 1 with the error (`--json`:
 `error` `{type, message}`, `study` and `found` null). When the parts are no
 longer studied on the board, it exits 1, and `--json` carries `reason:
 "not_studied"`. When the study runs past its wall-clock guard (`pins.guard_ms`
@@ -5138,6 +5229,7 @@ its kind.
 | `copper` (a waypoint drawn pad to pad, stitch vias outside the region left out, the side a stitch row took) | notice | placemat's own choice, said |
 | `escape_walled` | critical | a pad with no way out cannot be routed |
 | `escape_closed` | warning | the way toward what a pad joins is closed; other ways out remain |
+| `escape_via` | warning | a pad that can leave toward what it joins only by a via beside it: it costs a hole, a layer change and the room round the via. Facts: `ref`, `part`, `pin`, `net`, `by` (what closes its straight lanes toward its target, named as `escape_closed` names them), `side` |
 | `escape_crossed` | warning | two escapes cross near a pin row; the router can usually separate them |
 | `escape_lane` | warning | a declared lane is blocked by another net's pad, hole or copper |
 | `escape` (`escape.via_unneeded`) | warning | a module run only (a frame not drawn): a via on an escape lane, from `vias=` or a `board.via` on the lane's copper, whose lane reaches the frame's edge on its own layer without it; the lane can end there as a stub for the parent board's router, and the via takes room near the part. A plane or free net's via is not one. Facts: `ref`, `part`, `pin`, `net`, `layers`, `via` (`kind`: `lane` or `via`, `at`, `key`: the `board.via`'s copper key) |
@@ -5167,7 +5259,42 @@ its kind.
 | `needs` | notice | an if-needed fab option would have cleared a spot; the item's `unplaced` finding is the fault |
 | `pins` (`pins.remap`) | notice | the pin map study found an assignment of a part's nets to its pool pins that saves at least `pins.gain_min` of the present total, or it waits on placement (`pins.placed_share_min`); nothing is changed |
 | `pins` (`pins.reversed`) | notice | two parts joined by `pins.reversed_min` or more lines (a net with only their two pads, or two such nets either side of a series part, as `pins.follow_series` follows them) where a run of lines next to each other along one part lands, on the other part or on the series parts on the way, in the reverse of their order, and mirroring that run on the part's pins leaves fewer crossings among the pair's straight airwires. Mirrored on the part whose `Pm.PinPool` holds the run's pins when that removes crossings. A part the pin map study gives a `pins.remap` for is left to that advice; where the study looked at the part and gave no map (a mirror that saves under `pins.gain_min` of the part's whole total), the sentence says so. Facts: `refs` (the part mirrored first), `mirror`, `mirror_also` (the other part when mirroring there is as good, else ""), `nets` (in the part's order and in the order they land), `pins`, `far` (each landing [ref, pad], in landing order), `crossings`, `crossings_mirrored`, `rules` (per part: `ref`, `pool`, `group`), `studied`, `at` |
-| `turn` (`turn.better`) | notice | a placed part or cell that another turn would serve better at the spot it took: the turn held at the same body centre and legal there (a decided place judged as KiCad will, as a firm item is), judged on the search's own wire and crossing terms, its links' weighted pad-to-pad length (each link's length times its weight) and the weighted crossings of its airwires. The two together must come out lower, and the turn must either shorten the links by `place.turn_gain_mm` and by `place.turn_gain_share` of their weighted length, or remove `place.turn_crossings_min` weighted crossings. A searched item is judged at the other turns its declaration allows (`rotations=`, or the four of a part under `[place] rotations = "all"`); one whose turn is fixed (`rotation=`, a `rotations=` of one turn, a fixed or edge place, or a turn nothing chooses) at every right angle from where it stands, and at the 45s between them when its declared turns include a diagonal. A turn something holds is said with `held_by` and no edit: `lock` (an accepted entry; the suggestion is the release, as advice), `facing`, `turned` or `parallel` (the relation `rotation=` gave it), or `why` (its turn is fixed and its `why=` names a turn: one of `place.turn_held_words`). Judged once on the finished board, not in an explore's variants; nothing moves. An item turned by a tangent, facing out or a ring member has no other turn at its spot; a part the pin map study turns in a `pins.remap` is left to that advice, and a part with a `Pm.PinPool` the study gave no turn for is judged as any other. Facts: `item`, `kind` (`part` or `cell`), `rotation_deg` (where it stands), `to_deg`, `turn_deg` (the difference), `face`, `shorter` and `longer` (each `links`, `mm`: the links the turn shortens and lengthens and by how much in all), `weighted_mm` (the weighted length saved), `crossings_delta` (weighted crossings turned less present), `gain` (in the search's score units), `rotations_given`, `rotation_given`, `fixed`, `held_by` (when something holds it), `at` |
+| `turn` (`turn.better`) | notice | a legal alternative turn at the same body centre that lowers the common run score by at least `place.turn_gain_mm` and `place.turn_gain_share` of its wire/link contribution, without increasing walled pads. Judged once on the finished board. Declared turn choices and held-turn advice (`lock`, `facing`, `turned`, `parallel`, `why`) are preserved; `anchor` withholds edits when the evaluated body-centred pose would require changing an origin, pad, axis or edge position constraint; tangent, outward, ring and pin-study turns are excluded. Facts: `item`, `kind`, `rotation_deg`, `to_deg`, `turn_deg`, `face`, signed per-term `change` (turned less present), `gain`, `rotations_given`, `rotation_given`, `fixed`, `held_by` when applicable, `at`. |
+
+`escape_via`, `escape_closed` and `escape_walled` judge each pad by the cheapest way its track can leave it. This is
+placemat's own rule, not a KiCad rule. A pad is judged when it is not a no-connect pin, its net has another pad placed,
+and no copper of its own net (a track, a via, a pour, another part's pad) already leaves it. Its way out is looked for by
+the exact path search, a track of the net's class kept the net class's clearance from every other net's copper (pads,
+tracks, vias and pours) on any of the pad's own layers, within `score.escape_reach` of the pad's box: a surface route toward the nearest
+other placed pad of its net is free; else a via spot is `escape_via` (`score.escape_via`); else a surface route any way
+is `escape_closed`; else the pad is `escape_walled`. A via spot is a via of the net's class touching the pad's edge
+(along the pin's normal; also to either side, and behind, for a part of two pads or one), and one where a track leaves
+the pin field, clear of every other net's copper on every layer, of unplated holes and of via bans. Straight surface
+lanes from the pad (out of the pin field along the normal, then at 0, 45, 90 ... 315 degrees to the edge of the
+search's window) are tried first, kept a search cell more than the search keeps: a pad whose lane toward its target is
+open is judged free without the search, which would find the same way. A pad of a plane's or free net drops to its
+plane by a via: it is reported only as `escape_walled`, when no via spot and no surface route is open. A pad whose own
+copper (a declared lane, a stub) ends in the air, and a hand-off pin, are judged walled by the path search from where
+that copper ends. A pad that copper of its own net already leaves with a way on (a track that reaches another pad of the
+net, a via in it, a pour over it) is not counted, closed or walled; a track or an escape's lane that ends in the air is
+the pad's way out only as far as it goes, and the pad is walled when no track or via gets on from where the copper ends.
+Before the script's declared tracks and vias are laid (the placement search, the retry, cleanup and the turn check), a
+pad they will join at the pad is judged as it is once they are laid: not counted, closed or walled. That is a pad a
+`board.track` or `board.pair` names as a point with no offset (its centre, or a tap on its side) or starts from by its
+lane, a `board.via` at the pad, or a `FreeSpot` via in it or joined to it by its tail, a lane's via, and the pad of a
+`board.vias` grid or row. The finished board judges every pad by the copper laid, so a declared track that is not drawn
+leaves its pads judged.
+What walls a pad (pads on a layer the pad shares, a through-hole pad on every layer it spans, unplated holes, copper, and
+where a via is wanted the rule areas that forbid vias) is named by owner, "track NET", "via NET", "pour NET" or "the
+escape lane of U1 pin 53". A pad whose net has no other pad on the board (a pin the cell hands off to the board above it;
+not a no-connect net: `NC_...`, `unconnected-(...)`, or a net named under an instance, with a dot) is reported at the
+end of the run when no track or via gets out of it, from the end of its own net's copper on it (a stub, an escape's lane)
+where it has any: "no other pad is on the net, so it leaves the board here, and it is walled off by ...". Such a pin
+keeps no corridor in the placement search; `board.escape` names the pins whose routes out are to be kept.
+`escape_walled` is critical: it has no price in the run score and counts in the validity tier. The placement search
+compares a candidate the same way: one that walls off a pad (by its corridors, `place.escape_depth`) loses to any that
+walls none, then the soft cost decides; so do a cell's arrangements, an either-face item's two faces and the cleanup's
+moves and swaps.
 
 `setup.native` (warning) is on every run, preview and explore where the native module is not in use, so the placement ran in pure Python:
 the same results, 5-10x slower on a large board. Facts: `reason` (`version_mismatch`, `not_installed`, `import_error`),
@@ -5303,7 +5430,7 @@ does not give it and None where it is not in the builder's vocabulary (a coordin
 | `label.sits_on`, `label.no_spot` | the label on each of its other sides |
 | `label.not_drawn`, `label.cell_edge` | none |
 | `escape_walled`, `escape_closed` | a `board.fanout(part, sides=[...])` on the side the pad's way out points at; a `board.escape(...)` keeping the pin's lane clear |
-| `escape_lane`, `escape_crossed`, `pair_crossed` | none |
+| `escape_lane`, `escape_crossed`, `escape_via`, `pair_crossed` | none |
 | `setup.centre_flag_default` | the keyword removed |
 | `setup.frame_reach` | the fit frame's declared width or height made the size that holds the item (not where the item reaches the origin side) |
 | `setup.web` | the board's `web=` lowered to the web it has |
@@ -5455,6 +5582,9 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `place.coarse_stride` | `4` | count | how many steps apart a scored scan's first pass walks |
 | `place.coarse_min_radius_steps` | `12.0` | steps | a scored scan does a coarse pass first when its radius is at least this many steps; below it one fine pass is cheaper |
 | `place.refine_spots` | `3` | count | how many of the best coarse spots get a fine pass: this many by score, and, where the part's riders refuse some spots, this many of those they take |
+| `place.escape_spots` | `8` | count | how many candidates of a scan the one-score search gives the escape grades and the walled check: the best this many by every other term that wall no pad beyond the lifted board's walled pads, going down that order past each that does; the rest rank below them |
+| `place.retry_rounds` | `2` | count | how many times the one-score search tries again for each item it left unplaced for want of room: each try lifts the placed items in the way of one room, places the item and then them again, and is kept only when the board then ranks above the board before it (fewer parts unplaced by priority, then a lower run score); 0 tries none |
+| `place.retry_lift` | `4` | count | the most placed items one retry lifts to make room for an item left unplaced |
 | `place.block_gap_step` | `0.05` | mm | how finely a block's tightest gap is searched |
 | `place.block_gap_reach` | `2.0` | mm | how far a satellite may stand off its pin |
 | `place.copper_room` | `true` | bool | whether placement keeps room for the copper the script declares: a track or via declared between parts is planned provisionally, and a part standing Beside another moves out of its way. False places as before |
@@ -5470,7 +5600,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `place.copper_room_tolerance` | `0.001` | mm | how far a declared track or via may move between two passes and count as settled |
 | `place.beside_step` | `0.01` | mm | the step a part placed Beside is moved out at, when something already placed is in its way, until the collision rule lets it stand, then bisected back to the first spot that stands |
 | `place.beside_reach` | `2.0` | mm | how far past its standoff from the item a part placed Beside may be moved out to clear what is in its way; past it the part stays at the standoff and the collision is reported |
-| `place.escape_depth` | `1.0` | mm | how far each corridor out of a pad runs in the search: it weighs a candidate that crosses, closes or walls off a pad's corridors (`score.escape_*`); the run score measures them at `score.escape_depth` |
+| `place.escape_depth` | `1.0` | mm | how far each corridor out of a pad runs in the search: it weighs a candidate that crosses or closes a pad's corridors (`score.escape_*`), and one that walls a pad off loses to any that does not; the run score measures them at `score.escape_depth` |
 | `place.escape_min_pads` | `1` | count | a part's pads keep escapes when it has at least this many (3 leaves two-pad parts out) |
 | `place.escape_via_step` | `0.05` | mm | the step a `board.escape` lane's via is searched along its lane at, from the row's end, before it is bisected back to the nearest nanometre |
 | `place.escape_via_reach` | `5.0` | mm | how far along its lane, or its axis, a `board.escape` via is searched before it has no legal spot |
@@ -5497,9 +5627,9 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `place.escape_cell` | `0.05` | mm | the grid a pad's path out is searched on |
 | `place.approach_reach` | `8.0` | mm | how far along a pad's airwire toward its nearest target the `escape.pinched` check looks for a gap between two other parts' copper that the pad's track does not fit through |
 | `place.approach_detour` | `2.0` | mm | how far to either side of that airwire a track may go round such a gap, on the pad's layer and crossing no other net's airwire, and still count as a way: a pinch with a way round within it is no `escape.pinched` finding |
-| `place.turn_gain_mm` | `2.0` | mm | the least another allowed turn of a searched part or cell, at the same spot, must shorten its links for a `turn.better` finding, in weighted mm: each link's length times its weight, as the search scores it |
-| `place.turn_gain_share` | `0.05` | share | the least share of the item's weighted link length that turn must save as well, for a `turn.better` finding on length |
-| `place.turn_crossings_min` | `2.0` | count | the fewest weighted crossings another allowed turn must remove for a `turn.better` finding on crossings alone; either way the turn's links and crossings together, as the search prices them, must come out lower |
+| `place.turn_gain_mm` | `2.0` | mm | the least reduction of the common run score for another legal turn at the same body centre to produce a `turn.better` finding |
+| `place.search_wire` | `"mst"` | choice | temporary measured search comparison: mst is the one-score search (the run score's terms, the escape grades on the best `place.escape_spots`); clique is the pull estimate. One of: clique, mst. |
+| `place.turn_gain_share` | `0.05` | share | the least share of the item's wire and declared-link contribution the common run-score gain must reach for a `turn.better` finding |
 | `place.turn_held_words` | `["turn", "turned", "turns", "rotation", "rotated", "rotate", "facing", "faces", "degrees"]` | list | words that, in the `why=` of an item whose turn the script fixes, say the turn was chosen: a better turn is then a `turn.better` notice with `held_by` "why" and no edit |
 | `place.split_min_group` | `2` | count | the least members a group needs to count as one, in a cell's `split` finding |
 | `copper.chamfer` | `1.0` | mm | how far a right angle is cut back into two 45s |
@@ -5548,19 +5678,15 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `explore.spot_slack` | `0.25` | fraction | an explored item draws among spots scoring within this fraction of its best |
 | `explore.swap_chance` | `0.2` | probability | the chance two focused items next in the placement order trade turns |
 | `explore.rank_power` | `1.0` | exponent | an explored item's spot at rank r among its candidates is drawn with weight 1 / r to this power: higher keeps it nearer its best |
-| `explore.congestion_step` | `0.05` | fraction | variants are ranked by the run score, with the worst congestion cell counted in steps of this at `score.congestion` each (0 leaves it out) |
 | `explore.jobs` | `0` | count | worker processes for `--explore`; 0 is the CPU count less one |
 | `explore.stall_variants` | `0` | count | end an explore after this many finished variants without an improvement; 0 is off |
 | `explore.stall_seconds` | `0.0` | seconds | end an explore this many seconds after its last improvement; 0 is off |
 | `explore.stop_hard_clear` | `false` | bool | end an explore when a variant has none of the hard terms (unplaced parts, critical findings) the plain placement had |
 | `explore.checkpoint_max_variants` | `100000` | count | finished variants an explore's checkpoint records; past it a resume tries those again |
 | `explore.route_best` | `false` | bool | a routing worker, one of the explore's jobs, quick-routes the plain placement at the start and each new best by run score as the search finds it (only the latest waits while it is busy; with one job it routes after the search); each closure is said beside its score and `--accept` takes the best clean closure, ties going to the better score. The route in hand and the one waiting when the search ends are finished after it, so the run can last past the explore's time. A run only: a preview writes no board (`--route-best`) |
-| `explore.rank_remapped` | `false` | bool | every variant an explore keeps gets the pin map study, and variants are ranked, and the best chosen, on the run score less what its best pin remap saves: the weighted crossings it removes at `score.crossing` each. With `explore.route_best` a variant is routed on its board with that remap applied to its pads. Nothing changes on a board with no `Pm.PinPool` part (`--rank-remapped`) |
+| `explore.rank_remapped` | `false` | bool | every variant an explore keeps gets the pin map study, and variants are ranked, and the best chosen, on the run score less what its best pin remaps save: the run-score gain of every group's best map and pose, judged together on the board. With `explore.route_best` a variant is routed on its board with those remaps applied to its pads. Nothing changes on a board with no `Pm.PinPool` part (`--rank-remapped`) |
 | `pins.exit_mm` | `0.5` | mm | the pin map study: how far past its part's courtyard a pin's airwire leaves (its exit point) before it may turn |
 | `pins.follow_series` | `true` | bool | the pin map study scores a net that reaches a pin through a two-pad series part (a termination resistor) on to the series part's far net, as one connection |
-| `pins.pair_weight` | `5.0` | weight | the pin map study: what a crossing counts where either airwire is a differential pair's (any other counts 1) |
-| `pins.impedance_weight` | `3.0` | weight | the pin map study: what a crossing counts where either airwire's net class names a tuning profile, a controlled impedance, and how many times over such a net's airwire length counts (a differential pair's half too) |
-| `pins.length_weight` | `0.25` | weight | the pin map study: weighted crossings per mm of the studied nets' airwire (0.25: the run score's 4 mm a crossing) |
 | `pins.bend_weight` | `0.005` | weight | the pin map study: weighted crossings per degree a studied net turns from its pin's outward normal toward its target |
 | `pins.group_weight` | `4.0` | weight | the pin map study: weighted crossings per mm a soft `Pm.PinGroup`'s neighbouring nets stand apart beyond the part's pin pitch |
 | `pins.follow_prefixes` | `["R", "L", "FB"]` | list | the pin map study follows a net on through a two-pad series part only when its reference's leading letters, in any case, equal one of these: a resistor, an inductor, a ferrite bead by default; RT1 is not followed for R, nor a two-pin connector |
@@ -5602,25 +5728,25 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `noise.patterns` | `[]` | list | extra KiCad stderr patterns to suppress, ADDED to the built-ins |
 | `best.airwire_noise` | `0.01` | fraction | how far airwire may move, as a fraction, before a run counts as better or worse than its family's best: kicad-cli picks different ratsnest edges each run for a byte-identical board |
 | `best.crossing_noise` | `0.02` | fraction | how far the crossings' term may move, as a fraction, before a score counts as better or worse: kicad-cli's ratsnest varies run to run |
-| `score.unplaced` | `2000.0` | mm | mm a part left unplaced costs the run score, times its priority's multiplier |
-| `score.unplaced_high` | `2.0` | multiplier | the unplaced multiplier for a part declared `priority=HIGH` |
-| `score.unplaced_default` | `1.0` | multiplier | the unplaced multiplier for a part with no declared priority |
-| `score.unplaced_low` | `0.5` | multiplier | the unplaced multiplier for a part declared `priority=LOW` |
-| `score.drc` | `200.0` | mm | mm a real DRC violation costs |
 | `score.link_over` | `20.0` | mm | mm per millimetre a link is past its limit, times the link's weight |
-| `score.fixed` | `200.0` | mm | mm a decided item (fixed, a cutout, a keepout) not legal where it was put costs |
-| `score.copper` | `200.0` | mm | mm planned copper that meets another net, crosses a keepout or cannot bridge costs |
 | `score.label` | `50.0` | mm | mm a label with a part on it costs |
 | `score.setup` | `0.0` | mm | mm a setup finding costs: the same every run of a script (an undeclared part, a layer the board lacks) |
 | `score.crossing` | `4.0` | mm | mm a ratsnest crossing costs, in the run score and in the search |
 | `score.crossing_plane` | `0.0` | share | a crossing with a plane's or free net's airwire, as a share of `score.crossing`: each of its pads drops to the plane by a via |
 | `score.pair_crossing` | `100.0` | mm | mm a differential pair (a net class's own, board_pairs) crossing itself costs, in place of `score.crossing`: such a pair has to exchange sides to route coupled, so a swap of two identical parts or a turned part is worth wire |
+| `score.crossing_pair_net` | `5.0` | share | what a ratsnest crossing counts, in crossings, where either airwire is a differential pair's half (and not its partner's) |
+| `score.impedance` | `3.0` | share | a net whose class names a tuning profile (a controlled impedance): what its ratsnest crossings count, in crossings, and how many times over its airwire length counts |
 | `score.escape_crossed` | `20.0` | mm | mm two escapes from one part's pins crossing near its pin row cost |
-| `score.escape_depth` | `1.5` | mm | the corridor length the escape findings, and so the run score, are measured at, whatever `place.escape_depth` the search used, so runs at different search depths compare |
-| `score.escape_closed` | `50.0` | mm | mm a pad whose last route toward what it connects to is closed costs |
-| `score.escape_walled` | `400.0` | mm | mm a pad with no route out at all costs. A pad that copper of its own net already leaves with a way on (a track that reaches another pad of the net, a via in it, a pour over it) is not counted, closed or walled; a track or an escape's lane that ends in the air is the pad's way out only as far as it goes, and the pad is walled when no track or via gets on from where the copper ends. What walls a pad (pads on a layer the pad shares, a through-hole pad on every layer it spans, unplated holes, copper, and where a via is wanted the rule areas that forbid vias) is named by owner, "track NET", "via NET", "pour NET" or "the escape lane of U1 pin 53". A pad whose net has no other pad on the board (a pin the cell hands off to the board above it; not a no-connect net: `NC_...`, `unconnected-(...)`, or a net named under an instance, with a dot) is reported at the end of the run when no track or via gets out of it, from the end of its own net's copper on it (a stub, an escape's lane) where it has any: "no other pad is on the net, so it leaves the board here, and it is walled off by ...". Such a pin keeps no corridor in the placement search; `board.escape` names the pins whose routes out are to be kept |
+| `score.escape_depth` | `1.5` | mm | how near a part's pads two escapes' airwires that cross count as crossed (`escape_crossed`), and how far round a hand-off pin or the end of a declared lane the path search looks for a way out, whatever `place.escape_depth` the search used, so runs at different search depths compare |
+| `score.escape_closed` | `50.0` | mm | mm a pad costs that has no surface route toward what it connects to and no via beside it, but a surface route another way (`score.escape_reach`) |
+| `score.escape_reach` | `3.0` | mm | how far round a pad its way out is looked for (the exact path search's window, and the reach of the straight lanes tried first): placemat's own rule, not KiCad's |
+| `score.escape_via` | `10.0` | mm | mm a pad costs whose only way out toward what it joins is a via beside it: no surface route toward its target, but a via of its class fits at the pad's edge or where its track leaves the pin field |
 | `score.escape_lane` | `400.0` | mm | mm a declared `board.escape` lane costs that another net's pad, hole or copper already placed blocks, or whose via has no legal spot: in the search at each candidate, and in the run score as the `escape_lane` finding |
-| `score.congestion` | `10.0` | mm | explore: mm per `explore.congestion_step` of the worst RUDY cell |
+| `score.congestion` | `10.0` | mm | mm per `score.congestion_step` of the worst RUDY cell, in every run's score |
+| `score.congestion_step` | `0.05` | fraction | the worst RUDY cell is counted in steps of this, at `score.congestion` each (0 leaves congestion out) |
+| `score.congestion_box` | `3.0` | mm | each net's RUDY box is at least this wide each way, about its centre (placemat's own rule): a short net along one axis spreads its wire over this width rather than one 0.5 mm cell, so a small turn of it cannot move the worst cell by several steps |
+| `score.link` | `1.0` | multiplier | the run score's link term: each declared link's weight times its pad-to-pad length, times this |
+| `score.area` | `0.25` | mm | mm of score per mm2 of a fitted frame (`board.rect(fit=...)`), on the axes it fits; 0 on a fixed outline |
 | `score.via_share` | `1.0` | mm | mm the search adds to a spot for each carried via that shares a via of its net there |
 | `score.via_move` | `2.0` | mm | mm for each carried via that moves there |
 | `score.via_drop` | `10.0` | mm | mm for each plane drop dropped there |
@@ -5691,13 +5817,14 @@ what they connect to and took a pocket instead; the run prints their names.
 And `metrics.footprints`, in courtyard mode, when any courtyard understates
 its part, and `metrics.cleanup` when the cleanup pass ran. And `metrics.rudy`:
 the placed board's congestion by RUDY - each routed net's wire spread over its
-box on a 0.5 mm grid, against what a cell's layers carry - as
+box, at least `score.congestion_box` each way, on a 0.5 mm grid, against what a cell's layers carry - as
 the worst cell's share of capacity and where it is, the 99th percentile cell
 and the overflow; the run prints the worst cell as `congestion`. On a study
 of the fixture modules the worst cell was the one congestion measure that
 picked the better-routing of two placements more often than chance (about
-three times in four). The search does not weigh it; explore ranks variants
-by it (`score.congestion`).
+three times in four), measured with a one-cell net box and not re-measured
+at `score.congestion_box`. The search, the turn check and every run's score
+weigh it at `score.congestion`, and explore ranks variants by it.
 
 Every verb whose default appears here takes an explicit argument that still
 wins: `board.plane(..., inset=1.0)` beats `copper.plane_inset`.

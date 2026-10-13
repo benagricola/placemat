@@ -23,11 +23,11 @@ def test_the_best_variants_are_studied_in_the_explores_order_and_reported_beside
     maps = _pin_maps(make, [], frozenset({"r1"}), RESULT, {0: (b, b.resolve())})
     assert [(m["seed"], m["score"]) for m in maps] == [(0, 10.0), (2, 11.0), (5, 12.5)] and len(made) == 2
     (g,) = maps[0]["groups"]
-    assert g["refs"] == ["U1"] and g["best"]["weighted"] < g["present"]["weighted"] and g["map"]
+    assert g["refs"] == ["U1"] and g["best"]["total"] < g["present"]["total"] and g["map"]
     report = {"tried": 4, "seconds": 1.0, "focus": ["r1"], "baseline": 10.0, "best": 10.0, "best_seed": 2,
               "moves": [], "accepted": False, "pin_maps": maps}
     lines = _report_lines(report)
-    assert "  pin map, seed 2 at 11.0 mm: U1 6 -> 0 weighted crossings after remapping" in lines
+    assert any("pin map, seed 2 at 11.0 mm: U1" in line and "common placement score" in line for line in lines)
     assert lines[0].endswith("score 10.0 -> 10.0 mm; 0 items would move")
 
 
@@ -74,7 +74,9 @@ def test_an_explore_reports_the_study_of_its_best_variant_first(tmp_path):
     assert all(m["groups"] and m["groups"][0]["refs"] == ["U1"] for m in maps)
 
 
-# seeds 0-7 of `_searched_board` rank 2, 6, 5 first: the best is not seed 0, and the other two are resolved again
+# seeds 0-7 of `_searched_board` rank 6, 5, 7 first: the best is not seed 0, and the other two are resolved again.
+# Under the pull estimate it was 6, 5, 1; the one-score search (the default since Task 15f) scores seed 7 at 27.11
+# and seed 1 at 27.31 (the pull estimate: seed 1 26.95, seed 7 37.29).
 SEEDS = range(0, 8)
 
 
@@ -107,8 +109,8 @@ def test_the_best_variant_is_studied_on_the_plan_the_search_resolved_for_it(tmp_
     make = _Counting()
     calls = _spied(monkeypatch, make)
     report, _ = search(make, tmp_path / "Board_layout.py", seconds=60, jobs=1, seeds=SEEDS)
-    assert report["best_seed"] == 2 and [m["seed"] for m in report["pin_maps"]] == [2, 6, 5]
-    assert calls == [{"entries": [], "seeds": [0, 2], "made": 2}]
+    assert report["best_seed"] == 6 and [m["seed"] for m in report["pin_maps"]] == [6, 5, 7]
+    assert calls == [{"entries": [], "seeds": [0, 6], "made": 2}]
 
 
 def test_with_accept_the_variants_are_studied_under_the_lock_they_were_ranked_under(tmp_path, monkeypatch):
@@ -118,7 +120,7 @@ def test_with_accept_the_variants_are_studied_under_the_lock_they_were_ranked_un
     report, entries = search(_searched_board, script, seconds=60, jobs=1, seeds=SEEDS, accept=True)
     assert report["accepted"] and entries and lock.path_for(script).exists()
     assert [c["entries"] for c in calls] == [[]]
-    assert [m["seed"] for m in report["pin_maps"]] == [2, 6, 5]
+    assert [m["seed"] for m in report["pin_maps"]] == [6, 5, 7]
 
 
 def test_pins_explore_top_sets_how_many_variants_are_studied():
@@ -147,7 +149,7 @@ def test_a_stop_during_the_study_stops_the_explore_with_its_report_and_accepts_n
     with pytest.raises(stop.Stopped) as e:
         search(_searched_board, script, seconds=60, jobs=1, seeds=SEEDS, accept=True)
     r = e.value.explore
-    assert e.value.stage == "explore" and r["stopped"] == "SIGTERM" and r["best_seed"] == 2 and not r["accepted"]
+    assert e.value.stage == "explore" and r["stopped"] == "SIGTERM" and r["best_seed"] == 6 and not r["accepted"]
     assert "pin_maps" not in r and not lock.path_for(script).exists()
 
 

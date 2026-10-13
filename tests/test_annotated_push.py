@@ -4,7 +4,7 @@ import pytest
 
 from placemat.layout import Board
 from placemat.values import Cell, Face, Location, PadRef, Part
-from tests.fixtures import board_geometry, footprint
+from tests.fixtures import board_geometry, footprint, unturned_findings
 
 EMITS = "magnetic:3.2mT@13.5mm^3"
 LIMIT = "magnetic:0.3mT"
@@ -82,7 +82,9 @@ def test_a_source_and_a_limit_of_different_kinds_do_not_pair():
     b.place(Part("m1"), at=Location(10, 10))
     b.place(Part("u2"), at=Location(14, 10))
     plan = b.resolve()
-    assert not _findings_of(plan, "u2")
+    # u2's turn notice is one congestion step (the worst cell on a step boundary) for 0.8 mm less wire: advice the
+    # run score gives, which a test of what pairs is not about
+    assert not [f for f in unturned_findings(plan) if "u2" in f]
     assert not plan.pushes
 
 

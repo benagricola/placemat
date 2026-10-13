@@ -315,7 +315,7 @@ def test_a_tangent_scan_judges_half_the_candidates_of_a_four_turn_scan(monkeypat
     bt = BearingTurns(CENTRE, lambda bearing: (180.0 - bearing) % 360.0, 10.0)
     hint = Placement(Location(C, C - 15.0), 0.0, Face.FRONT)
     ring = lambda x, y: BAND[0] <= math.hypot(x - C, y - C) <= BAND[1]
-    pull = lambda p: abs(p.location.x - C) * 0.01 + abs(p.location.y - C) * 0.013       # a score, so no early stop
+    pull = lambda p: (0, abs(p.location.x - C) * 0.01 + abs(p.location.y - C) * 0.013)      # a score, so no early stop
     tangent = scan(occ, item, hint, 12.0, 0.5, None, 0.2, score=pull, turns_at=bt, within=ring)
     four = scan(occ, item, hint, 12.0, 0.5, (0, 90, 180, 270), 0.2, score=pull, within=ring)
     assert tangent.chosen is not None and four.chosen is not None

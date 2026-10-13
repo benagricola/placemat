@@ -112,7 +112,7 @@ def test_along_a_run_may_be_a_pad_reference(rotation):
     top = b.edge(facing=Edge.NORTH)
     b.place(Part("d1"), at=OnEdge(top, along=X(PadRef(Part("r1"), 1))), rotation=rotation)
     plan = b.resolve()
-    assert placement_findings(plan) == []
+    assert placement_findings(plan, unturned=True) == []        # r1's turn notice is a real gain: a crossing fewer
     assert plan.step("d1").freedom is Freedom.EDGE
     pad = plan.occupancy.pad_location("R1", "1")
     assert plan.box("d1").center.x == pytest.approx(pad.x, abs=0.05)
@@ -128,7 +128,7 @@ def test_along_a_run_may_be_the_mid_of_two_pads(rotation):
     top = b.edge(facing=Edge.NORTH)
     b.place(Part("d1"), at=OnEdge(top, along=Mid(PadRef(Part("r1"), 1), PadRef(Part("r1"), 2))), rotation=rotation)
     plan = b.resolve()
-    assert placement_findings(plan) == []
+    assert placement_findings(plan, unturned=True) == []        # r1's turn notice is a real gain: a crossing fewer
     assert plan.box("d1").center.x == pytest.approx(40.0, abs=0.05)
     assert plan.placement("d1").rotation == pytest.approx(180.0 if rotation is None else 0.0)
 
@@ -234,7 +234,8 @@ def test_a_run_may_be_read_off_a_round_board_too():
     assert not north.straight and north.length == pytest.approx(math.pi * 20.0 / 2.0, rel=0.02)
     b.row([Part("d1"), Part("d2")], north, align="center")
     plan = b.resolve()
-    assert placement_findings(plan) == []
+    # each diode's turn notice is a real gain: a crossing and a pair of crossed escapes fewer
+    assert placement_findings(plan, unturned=True) == []
     for ref in ("D1", "D2"):
         far = max(c.distance(Location(20.0, 20.0)) for c in corners(reach_of(plan, ref)))
         assert far == pytest.approx(19.5, abs=AT_KEEP_IN) and far <= 19.5 + 1e-5      # held to the nanometre

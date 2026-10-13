@@ -14,7 +14,7 @@ def row(placed, findings=0, hpwl=100.0, crossings=0, parts=5):
     return {"placed": placed, "findings": findings, "hpwl": hpwl, "crossings": crossings,
             "measures": {"unplaced": {"default": parts - placed} if parts > placed else {}, "drc": 0,
                          "link_excess": 0.0, "findings": {"label": findings} if findings else {},
-                         "crossings": {"signal": crossings, "plane": 0}, "airwire_mm": hpwl}}
+                         "crossings": {"plain+plain": crossings, "plane": 0}, "airwire_mm": hpwl}}
 
 
 def test_the_verdict_is_the_run_score():
@@ -78,3 +78,16 @@ def test_explore_tally_counts_variants_better_than_the_plain_run():
             "b": {"baseline": 110.0, "best": 110.0, "unplaced": [0, 0]},
             "c": {"baseline": 610.0, "best": 120.0, "unplaced": [1, 0]}}
     assert bench.explore_tally(rows) == {"better": 2, "same": 1, "placed": 1}
+
+
+def test_board_cli_applies_requested_search_setting(monkeypatch, capsys):
+    seen = []
+
+    def run(overrides):
+        seen.append(overrides)
+        return 1.0, {"placed": 2, "findings": 0, "score": 12.5}
+
+    monkeypatch.setattr(bench, "bench_board", run)
+    assert bench.main(["--board", "--set", "place_search_wire=mst"]) == 0
+    assert seen == [{"place_search_wire": "mst"}]
+    assert "score 12.500000" in capsys.readouterr().out

@@ -118,3 +118,63 @@ def bypass_135(ref, inst, nets, cx, cy, size=(0.56, 0.62)):
             turned_pad(ref, inst, 2, nets[1], cx - d, cy - d, *size, 45.0))
     body = Box.union([p.box for p in pads])
     return Footprint(ref, inst, None, ref, Location(cx, cy), 0.0, Face.FRONT, body, body.inflate(0.1), body, pads)
+
+
+# An SOIC-8 (1.27 mm pitch, pads 1.55 x 0.6 with their long side out, pad centres 2.7 mm either side of the middle) and
+# 0402s round its pin 1 for the surface-lane tests. Pins 1..4 run north to south down the west side, 5..8 south to north
+# up the east. At (30, 30) pin 1 is at (27.3, 28.095), its outer edge at x = 26.525, its normal west.
+SOIC_PITCH, SOIC_PAD_L, SOIC_PAD_W, SOIC_ROW = 1.27, 1.55, 0.6, 2.7
+PIN1_EDGE = 30.0 - SOIC_ROW - SOIC_PAD_L / 2       # x of pin 1's outer edge
+PIN1_Y = 30.0 - 1.5 * SOIC_PITCH
+
+
+def soic8(ref="U1", inst="u1", cx=30.0, cy=30.0, nets=None):
+    """The SOIC-8. `nets` maps a pin number to its net (default: net `N<pin>`)."""
+    nets = nets or {}
+    pads = []
+    for k in range(4):
+        y = cy + (k - 1.5) * SOIC_PITCH
+        pads.append(pad(ref, inst, 1 + k, nets.get(1 + k, "N%d" % (1 + k)), cx - SOIC_ROW, y, SOIC_PAD_L, SOIC_PAD_W))
+        pads.append(pad(ref, inst, 8 - k, nets.get(8 - k, "N%d" % (8 - k)), cx + SOIC_ROW, y, SOIC_PAD_L, SOIC_PAD_W))
+    body = Box(cx - 1.95, cy - 2.45, cx + 1.95, cy + 2.45)
+    phys = Box.union([body] + [p.box for p in pads])
+    return Footprint(ref, inst, None, ref, Location(cx, cy), 0.0, Face.FRONT, body, body, phys, tuple(pads))
+
+
+def c0402(ref, inst, nets, cx, cy, across=True):
+    """An 0402: two 0.6 mm square pads 1.0 mm apart, along y when `across` (across a west-facing pin's normal), else
+    along x; the courtyard tight round the pads."""
+    off = ((0.0, -0.5), (0.0, 0.5)) if across else ((-0.5, 0.0), (0.5, 0.0))
+    pads = tuple(pad(ref, inst, k + 1, nets[k], cx + dx, cy + dy, 0.6, 0.6) for k, (dx, dy) in enumerate(off))
+    body = Box.union([p.box for p in pads])
+    return Footprint(ref, inst, None, ref, Location(cx, cy), 0.0, Face.FRONT, body, body, body, pads)
+
+
+def ic_with_cap_board(offset_mm=1.5, lateral_mm=0.0, room=True, pin1_net="SIG", plane=False, **kw):
+    """The SOIC-8 at (30, 30), its pin 1 on `pin1_net` joined to T1 10 mm west, and C1, an 0402 across pin 1's normal
+    `offset_mm` clear of the pin's outer edge and `lateral_mm` south of its centre line. `room=False` adds C2 and C3,
+    0402s along the normal, centred 1.0 mm out from the middle of the pin's edge at 45 degrees either side of the normal
+    and moved 0.7 mm further to that side, clear of C1: they stand across the pin's two diagonal lanes west and leave
+    the via spot at its edge clear. `plane` puts a plane on `pin1_net`, making it quiet. Every part is placed where it is
+    drawn."""
+    from placemat.values import Net
+    fps = [soic8(nets={1: pin1_net}),
+           c0402("C1", "c1", ("CA", "CB"), PIN1_EDGE - offset_mm - 0.3, PIN1_Y + lateral_mm),
+           small_part("T1", "t1", (pin1_net, "TZ"), cx=PIN1_EDGE - 10.0, cy=PIN1_Y)]
+    if not room:
+        d = 1.0 / math.sqrt(2.0)
+        fps += [c0402("C2", "c2", ("DA", "DB"), PIN1_EDGE - d - 0.8, PIN1_Y - d - 0.7, across=False),
+                c0402("C3", "c3", ("EA", "EB"), PIN1_EDGE - d - 0.8, PIN1_Y + d + 0.7, across=False)]
+    b = board_with(fps, keep_going=True, **kw)
+    for fp in fps:
+        b.place(Part(fp.inst), at=fp.location)
+    if plane:
+        b.plane(Net(pin1_net), [CopperLayer.B], why="the net's plane")
+    return b
+
+
+def ic_with_cap(**kw):
+    """`ic_with_cap_board`'s board resolved: (its occupancy, the Escapes the findings are judged with)."""
+    from placemat.escapes import judging
+    occ = ic_with_cap_board(**kw).resolve().occupancy
+    return occ, judging(occ)

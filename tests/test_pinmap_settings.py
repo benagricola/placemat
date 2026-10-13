@@ -8,7 +8,7 @@ from placemat.settings import Settings, SettingsError, load
 
 def test_every_pins_setting_has_its_default():
     s = Settings()
-    assert (s.pins_exit_mm, s.pins_follow_series, s.pins_pair_weight, s.pins_impedance_weight, s.pins_length_weight,
+    assert (s.pins_exit_mm, s.pins_follow_series, s.score_crossing_pair_net, s.score_impedance, (1.0 / s.score_crossing),
             s.pins_bend_weight) == (0.5, True, 5.0, 3.0, 0.25, 0.005)
     assert (s.pins_rotations, s.pins_seeds, s.pins_anneal_moves, s.pins_anneal_start, s.pins_anneal_end) == \
         ((0.0, 90.0, 180.0, 270.0), 1, 100, 1.0, 0.02)
@@ -68,3 +68,14 @@ def test_the_prefixes_setting_says_the_leading_letters_must_equal_a_prefix_in_an
     from placemat.settings import describe
     text = describe("pins_follow_prefixes")
     assert "leading letters" in text and "any case" in text and "starts with" not in text
+
+
+@pytest.mark.parametrize("old, replacement", [("pair_weight", "score.crossing_pair_net"),
+                                               ("impedance_weight", "score.impedance"),
+                                               ("length_weight", "score.crossing")])
+def test_pin_generator_weight_retirement_names_common_score(tmp_path, old, replacement):
+    with pytest.raises(SettingsError, match="pins.%s is retired.*%s" % (old, replacement)):
+        load(tmp_path, overrides={"pins_" + old: 2.0})
+    (tmp_path / "placemat.toml").write_text("[pins]\n%s = 2.0\n" % old)
+    with pytest.raises(SettingsError, match="pins.%s is retired.*%s" % (old, replacement)):
+        load(tmp_path)

@@ -108,7 +108,8 @@ class StandInRouter:
         got = self.closures.get(seed, self.default)
         if isinstance(got, str):
             raise RuntimeError(got)
-        return SimpleNamespace(closure_clean=got[0], closure=got[1], open_before=10, open_after=3, valid=True)
+        # This stand-in deliberately models a verified router with no phases.
+        return SimpleNamespace(closure_clean=got[0], closure=got[1], open_before=10, open_after=3, valid=True, phases=[])
 
 
 def improving(n: int, top: int = 40) -> list:

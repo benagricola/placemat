@@ -81,6 +81,9 @@ def run_metrics(plan, n_place: int, n_copper: int, extent_metrics: dict) -> dict
         metrics["footprints"] = len(plan.footprints)
     if plan.cleanup:
         metrics["cleanup"] = dict(plan.cleanup)
+    if getattr(plan, "retry", None):
+        metrics["retry"] = {"tries": len(plan.retry), "kept": sum(1 for r in plan.retry if r["kept"]),
+                            "items": sorted({r["item"] for r in plan.retry if r["kept"] and r["item"] in r["placed"]})}
     if getattr(plan, "rudy", None) is not None:
         r = plan.rudy
         metrics["rudy"] = {"worst": r.worst, "worst_at": [r.worst_at.x, r.worst_at.y], "p99": r.p99,
@@ -727,15 +730,20 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
                 t0 = time.time()
                 quiet = set(board._plane_nets()) | set(board._free_nets)
                 from .pairs import board_pairs
+                from .occupancy import net_kinds
+                from .ratsnest import KIND_IMPEDANCE
+                kinds = net_kinds(board.geometry, quiet)
                 aw = airwires_from_drc(json.loads((run_dir / "drc.json").read_text()), quiet,
-                                       board_pairs(board.geometry.netclasses))
+                                       board_pairs(board.geometry.netclasses), kinds=kinds)
                 free = plan.occupancy.free_area()
                 metrics.update(drc_metrics(report, aw, free))
                 # KiCad's own ratsnest and DRC replace the plan's estimates in the score
-                metrics["measures"].update(drc=_drc_total(metrics), airwire_mm=aw["total_mm"],
-                                           crossings={"signal": aw["crossings"] - aw["crossings_quiet"],
-                                                      "plane": aw["crossings_quiet"],
-                                                      "pair": aw.get("crossings_pair", 0)})
+                # the airwire of the nets that pull, each once, and the impedance nets' part, as the plan's is
+                pulling = {n: mm for n, mm in aw["per_net"].items() if n not in quiet}
+                metrics["measures"].update(drc=_drc_total(metrics), airwire_mm=round(sum(pulling.values()), 3),
+                                           airwire_impedance_mm=round(sum(
+                                               mm for n, mm in pulling.items() if kinds.get(n) == KIND_IMPEDANCE), 3),
+                                           crossings=dict(aw["classes"]))
                 cong = metrics["congestion"]
                 rec.timing_s["drc"] = round(drc_job.seconds + time.time() - t0, 1)
                 say("check", "%s | airwires %d, %.1f mm, %d crossings, congestion %s  (%.1fs)" % (
@@ -806,6 +814,10 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
                         ", ".join(report.resumed))
                 metrics["route"] = report.as_dict()
                 metrics["closure_clean"] = report.closure_clean
+                # the routed board's vias, copper and tracks, the quality key's terms (score.quality_key): the DRC above
+                # judged the placement before the route, so they are read off the routed copy here
+                from .kicad.route import routed_quality
+                metrics["measures"].update(routed_quality(report.routed_pcb))
                 rec.timing_s["route"] = round(time.time() - t0, 1)
                 say("route", "%s  (%.0fs)" % (report.summary(), rec.timing_s["route"]))
                 from .kicad.route import phase_lines
@@ -959,9 +971,9 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
 
 def _against_best(rec: RunRecord, best_path: Path, say, cfg) -> str | None:
     """Judge a finished run against the best of its family - the runs whose
-    script asked to place the same things - by the run score, and record it
-    if it is the new best. A regression becomes a note naming the score and
-    the term that moved it most.
+    script asked to place the same things - by `score.rank` (validity, closure,
+    routed quality, the run score), and record it if it is the new best. A
+    regression becomes a note naming the tier that decided it.
 
     It is appended after the measures were taken, so the score goes on
     measuring the layout rather than the verdict about it."""

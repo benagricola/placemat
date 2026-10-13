@@ -52,10 +52,14 @@ def hpwl(pads, skip=frozenset()) -> float:
 
 
 def verdict(new: dict, old: dict) -> int:
-    """1 when `new` scores better than `old`, -1 worse, 0 within the noise band."""
+    """1 when `new` ranks above `old` (`score.rank`: the validity tier, then the run score), -1 below, 0 a tie (the run
+    score within its noise band)."""
     from placemat import score
     from placemat.settings import Settings
-    return -score.compare(new["measures"], old["measures"], Settings())[0]
+
+    def standing(row):
+        return score.Standing(row["measures"], score.Validity.of(row["measures"]))
+    return -score.rank(standing(new), standing(old), Settings())
 
 
 def diff(run: dict, base: dict) -> list:
@@ -68,10 +72,12 @@ def diff(run: dict, base: dict) -> list:
             new, old = new_m.get(c), old_m.get(c)
             if new is None and old is None:
                 continue
-            if old is None or "measures" not in old:        # a baseline from before the run score
+            if old is None or not old.get("measures"):     # a baseline from before the run score
                 kind = "new"
             elif new is None:
                 kind = "gone"
+            elif old["measures"].get("v") != (new.get("measures") or {}).get("v"):
+                kind = "new"            # measured another way (score.MEASURES_VERSION): not compared, as report.comparable
             else:
                 kind = {1: "better", -1: "worse", 0: "same"}[verdict(new, old)]
             out.append((c, m, kind))
@@ -173,7 +179,7 @@ def _resolve(g, overrides: dict, planes: set, size) -> dict:
     from placemat import score
     m = score.plan_measures(board, plan)
     return {"placed": len(placed), "findings": len(plan.findings), "hpwl": hpwl(pads, planes),
-            "crossings": m["crossings"]["signal"], "score": round(score.total(m, board.settings), 1), "measures": m}
+            "crossings": score.signal_crossings(m), "score": round(score.total(m, board.settings), 1), "measures": m}
 
 
 def _hand_pads(g) -> list:
@@ -207,10 +213,10 @@ def bench_module(path: str, configs: dict):
     return _name(path), row, seconds
 
 
-def bench_board() -> tuple[float, dict]:
+def bench_board(overrides: dict | None = None) -> tuple[float, dict]:
     """The whole-board fixture's generated board, every cell and loose part
     released to a bare place() (as `ModuleBoard` does for a module) and
-    resolved. Returns (seconds, {placed, findings}).
+    resolved. Returns seconds and placed, findings, score and weight-free measures.
 
     The generated board carries no outline yet (that comes from the write),
     so this borrows the written board's real one: the fixture's own size
@@ -222,7 +228,8 @@ def bench_board() -> tuple[float, dict]:
     from placemat.values import Cell, Part
     g = read_board(BOARD_FIXTURE / "generated" / "layout.kicad_pcb")
     written = read_board(BOARD_FIXTURE / "layout" / "layout.kicad_pcb")
-    b = Board(g, keep_going=True)
+    from placemat.settings import Settings
+    b = Board(g, keep_going=True, settings=dataclasses.replace(Settings(), **(overrides or {})))
     b.outline(written.board_polygon[0], holes=written.board_polygon[1:])
     for name, cell in sorted(g.cells.items()):
         if cell.members:               # a pure parent grouping (all its members in nested cells) has nothing to place
@@ -234,7 +241,10 @@ def bench_board() -> tuple[float, dict]:
     plan = b.resolve()
     dt = time.perf_counter() - t0
     placed = sum(1 for s in plan.steps if s.placement is not None and s.kind in ("part", "cell"))
-    return dt, {"placed": placed, "findings": len(plan.findings)}
+    from placemat import score
+    measures = score.plan_measures(b, plan)
+    return dt, {"placed": placed, "findings": len(plan.findings),
+                "score": score.total(measures, b.settings), "measures": measures}
 
 
 def bench_checks() -> tuple[float, dict]:
@@ -409,8 +419,10 @@ def report(run: dict, base: dict, say=print) -> None:
     for c, m, kind in changes:
         new = run["modules"].get(m, {}).get(c)
         old = base["modules"].get(m, {}).get(c)
-        if kind in ("new", "gone"):
+        if kind in ("new", "gone") and (new is None or old is None or not old.get("measures")):
             say("%-8s %-28s %s" % (c, m, kind))
+        elif kind == "new":
+            say("%s   %s" % (_line(c, m, new, old), kind))
         elif new != old:
             say("%s   %s" % (_line(c, m, new, old), kind))
     for c, counts in sorted(tally(changes).items()):
@@ -494,14 +506,6 @@ def main(argv) -> int:
             ARRANGED_BASELINE.write_text(json.dumps(run, indent=1, sort_keys=True) + "\n")
             print("wrote %s" % ARRANGED_BASELINE.relative_to(ROOT.parent))
         return 0
-    if a.board or a.checks:
-        if a.board:
-            dt, row = bench_board()
-            print("board: %.1f s, placed %d, findings %d" % (dt, row["placed"], row["findings"]))
-        if a.checks:
-            dt, row = bench_checks()
-            print("checks: %.1f s, %d verdicts, %d failing" % (dt, row["verdicts"], row["failing"]))
-        return 0
     if a.update and (a.names or a.config or a.set):
         print("--update needs the whole corpus, every configuration and the settings as they are", file=sys.stderr)
         return 2
@@ -510,6 +514,15 @@ def main(argv) -> int:
         from placemat.settings import Settings
         name, _, value = item.partition("=")
         extra[name] = type(getattr(Settings(), name))(value)
+    if a.board or a.checks:
+        if a.board:
+            dt, row = bench_board(extra)
+            print("board: %.1f s, placed %d, findings %d, score %.6f" %
+                  (dt, row["placed"], row["findings"], row["score"]))
+        if a.checks:
+            dt, row = bench_checks()
+            print("checks: %.1f s, %d verdicts, %d failing" % (dt, row["verdicts"], row["failing"]))
+        return 0
     configs = {k: {**v, **extra} for k, v in CONFIGS.items() if not a.config or k in a.config}
     paths = [p for p in boards() if not a.names or any(n in _name(p) for n in a.names)]
     if a.explore:

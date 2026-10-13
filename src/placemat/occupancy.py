@@ -25,7 +25,7 @@ from .geometry import (_clean, PolyRaster, Polygon, Transform, box_polygon, circ
 from .outline import Outline
 from .placement import Placement
 from .settings import Settings
-from .board_geometry import CellGeom, Footprint, BoardGeometry, stackup_order
+from .board_geometry import CellGeom, Footprint, BoardGeometry, RuleArea, stackup_order
 from .refusals import (Code, EDGE_OF_NATIVE, EdgeFault, EdgeWhy, FLAT_EDGE_MARGIN, Owner, Refusal, ReservedBy, first_word,
                        reserved_by)
 from .rules import ClearanceRules
@@ -429,6 +429,12 @@ def _is_lead(fp, pad) -> bool:
 
 
 
+def _copied(v):
+    """A container copied one level down (what `Occupancy.checkpoint` keeps); anything else as it is."""
+    import copy
+    return copy.copy(v) if isinstance(v, (dict, list, set)) else v
+
+
 def _shift_box(b, dx: float, dy: float):
     return None if b is None else Box(_clean(b.left + dx), _clean(b.top + dy), _clean(b.right + dx), _clean(b.bottom + dy))
 
@@ -466,6 +472,31 @@ class _ShiftedBoxes:
         dx, dy = self.dx, self.dy
         return (b.left + dx < region.right + 1e-6 and region.left < b.right + dx + 1e-6
                 and b.top + dy < region.bottom + 1e-6 and region.top < b.bottom + dy + 1e-6)
+
+
+
+def net_kinds(board_geometry, quiet) -> dict:
+    """net -> its crossing kind (`ratsnest.KIND_*`), the pin study's classes (`pinmap_input.net_kind`): plane for a
+    quiet net, pair for a half of a net-class pair, impedance for a class that names a tuning profile, else plain.
+    Plain nets are left out (the default)."""
+    from .pairs import board_pairs
+    from .pinmap_input import KINDS, net_kind
+    netclasses = board_geometry.netclasses
+    partners = {n: m for n, m in board_pairs(netclasses).items() if n not in quiet and m not in quiet}
+    out = {}
+    for net in set(netclasses) | set(quiet):
+        k = KINDS.index(net_kind(net, quiet, partners, netclasses))
+        if k:
+            out[net] = k
+    return out
+
+
+@dataclass(frozen=True)
+class CellArea:
+    """Immutable source intent with its current-pose polygon and layers."""
+    source: RuleArea
+    polygon: tuple
+    layers: frozenset
 
 
 class Occupancy:
@@ -597,7 +628,9 @@ class Occupancy:
         for ra in geometry.rule_areas:
             self.copper.extend(_rule_area_shapes(ra))
             if ra.cell is not None and "fill" in ra.excludes:
-                self._cell_fill_areas.setdefault(ra.cell, []).append([ra, tuple(ra.polygon)])
+                self._cell_fill_areas.setdefault(ra.cell, []).append(CellArea(ra, tuple(ra.polygon), ra.layers))
+            if ra.cell is not None and ra.excludes & {'parts', 'vias'}:
+                self._cell_rule_areas.setdefault(ra.cell, []).append(CellArea(ra, tuple(ra.polygon), ra.layers))
             if "parts" not in ra.excludes:
                 continue
             if ra.cell is None:
@@ -605,8 +638,6 @@ class Occupancy:
                 if claims:
                     self.reserve(ra.polygon, "rule area %r on the generated board" % ra.name, layer=layer,
                                  courtyard=True)
-            else:
-                self._cell_rule_areas.setdefault(ra.cell, []).append([ra, tuple(ra.polygon)])
 
     def _copper_shapes(self, items, carried: dict) -> list:
         """The shapes of stamped copper `items`: tracks, vias and polygons. A pad travels with its footprint and a zone's fill
@@ -966,6 +997,21 @@ class Occupancy:
                             frozenset())
         return self._transform(read, self.items[ref].reference).apply_location(pad.airwire_end)
 
+    def pad_anchors(self, ref: str):
+        """`pad_anchor` for one part's pads as a function of the pad number, its footprint and its move read once."""
+        fp = self.geometry.footprint(ref)
+        pads = {}
+        for pad in fp.pads:
+            pads.setdefault(pad.number, pad)
+        read = ItemGeometry(frozenset([ref]), Placement(fp.location, fp.rotation, fp.face), (), fp.body_box,
+                            frozenset())
+        move = self._transform(read, self.items[ref].reference)
+
+        def anchor(number: str) -> Location:
+            pad = pads.get(number)
+            return self.pad_location(ref, number) if pad is None else move.apply_location(pad.airwire_end)
+        return anchor
+
     def courtyard_box(self, ref: str) -> Box:
         """The box round a part's courtyard where the part stands NOW: its courtyard box as read, moved and turned as the
         part has moved since (as `pad_anchor` moves a pad's anchor)."""
@@ -1231,6 +1277,7 @@ class Occupancy:
         """Record that `item` now sits at `placement`; later checks see it there. A placement that names an arrangement
         commits the cell as that arrangement stands it. Re-committing a cell with arrangement "" keeps the arrangement the
         cell stands in; it does not revert to the module's default layout."""
+        self._score_revision = self.__dict__.get('_score_revision', 0) + 1
         item = self._arranged(item, placement)
         owners = self._geometry(item).owners
         self._commit(item, placement)
@@ -1238,25 +1285,155 @@ class Occupancy:
             self._ratsnest_refresh(owners)
         if self.__dict__.get("_escapes") is not None:
             self._escapes.refresh(owners)
+        if self.__dict__.get("_congestion") is not None:
+            self._congestion_refresh(owners)
+
+    def _lift_owners(self, refs) -> set[str]:
+        """A whole cell's members and its copper share a temporary lift.
+
+        A partial member move leaves the cell's copper in place. Empty parent
+        groups never acquire ownership of another cell's copper.
+        Like pending itself, lifts are sets, not nested reference-counted scopes:
+        callers must restore the same owner set they lifted.
+        """
+        refs = set(refs)
+        previous = None
+        while previous != refs:
+            previous = refs.copy()
+            for name, cell in self.geometry.cells.items():
+                members = {fp.ref for fp in cell.members}
+                if name in refs:
+                    refs |= members
+                elif members and members <= refs:
+                    refs.add(name)
+        return refs
 
     def lift(self, refs) -> None:
         """Take placed items off the board for a moment: they are no obstacle,
         and the ratsnest and the escapes forget their pads, until `unlift` or
         a commit puts them back."""
-        refs = set(refs)
+        self._score_revision = self.__dict__.get('_score_revision', 0) + 1
+        refs = self._lift_owners(refs)
         self.pending |= refs
         if self.__dict__.get("_ratsnest") is not None:
             self._ratsnest_refresh(refs)
         if self.__dict__.get("_escapes") is not None:
             self._escapes.refresh(refs)
+        if self.__dict__.get("_congestion") is not None:
+            self._congestion_refresh(refs)
 
     def unlift(self, refs) -> None:
-        refs = set(refs)
+        self._score_revision = self.__dict__.get('_score_revision', 0) + 1
+        refs = self._lift_owners(refs)
         self.pending -= refs
         if self.__dict__.get("_ratsnest") is not None:
             self._ratsnest_refresh(refs)
         if self.__dict__.get("_escapes") is not None:
             self._escapes.refresh(refs)
+        if self.__dict__.get("_congestion") is not None:
+            self._congestion_refresh(refs)
+
+    # What placing, lifting and giving way change: the items' shapes, what is pending, the reservations, the board's
+    # copper, the vias that gave way and what they were taken from, and the cells' areas. The ratsnest, the escapes and
+    # the congestion grid are worked out from these and are brought back by refreshing what changed.
+    _STATE = ("items", "pending", "reservations", "copper", "given_way", "_given_by", "_pristine", "_pristine_copper",
+              "needs", "_cell_rule_areas", "_cell_fill_areas", "fill_areas", "field_decls", "rooms", "_rooms_serial",
+              "rooms_apply", "labels_yield", "board_box")
+
+    def checkpoint(self) -> dict:
+        """The board's state as `rollback` puts it back: each container copied, `_given_by`'s lists too."""
+        out = {}
+        for k in self._STATE:
+            if k in self.__dict__:
+                v = self.__dict__[k]
+                out[k] = {via: list(by) for via, by in v.items()} if k == "_given_by" else _copied(v)
+        return out
+
+    def rollback(self, saved: dict) -> None:
+        """Put the board back as `checkpoint` held it, and refresh the ratsnest, the escapes and the congestion grid for
+        every owner whose shapes, copper or pending state differ from it."""
+        now_items, now_pending = self.items, self.pending
+        now_copper = {}
+        for c in self.copper:
+            now_copper.setdefault(c.owner, []).append(c)
+        was_copper = {}
+        for c in saved.get("copper", ()):
+            was_copper.setdefault(c.owner, []).append(c)
+        changed = {r for r in set(now_items) | set(saved["items"]) if now_items.get(r) is not saved["items"].get(r)}
+        changed |= now_pending ^ saved["pending"]
+        changed |= {o for o in set(now_copper) | set(was_copper)
+                    if len(now_copper.get(o, ())) != len(was_copper.get(o, ()))
+                    or any(a is not b for a, b in zip(now_copper.get(o, ()), was_copper.get(o, ())))}
+        for k in self._STATE:
+            if k in saved:
+                v = saved[k]
+                self.__dict__[k] = {via: list(by) for via, by in v.items()} if k == "_given_by" else _copied(v)
+            else:
+                self.__dict__.pop(k, None)
+        self._score_revision = self.__dict__.get('_score_revision', 0) + 1
+        self._changed()
+        changed.discard("")
+        if self.__dict__.get("_ratsnest") is not None:
+            self._ratsnest_refresh(changed)
+        if self.__dict__.get("_escapes") is not None:
+            self._escapes.refresh(changed)
+        if self.__dict__.get("_congestion") is not None:
+            self._congestion_refresh(changed)
+
+    def congestion_frame(self):
+        """The fixed scoring domain, separately from the physical board edge."""
+        return self.__dict__.get('_congestion_frame', self.board_box)
+
+    @contextmanager
+    def congestion_domain(self, frame):
+        """Judge a finite diagnostic candidate set on one shared grid."""
+        keys = ('_congestion_frame', '_congestion', '_congestion_pads')
+        saved = {key: self.__dict__[key] for key in keys if key in self.__dict__}
+        for key in keys:
+            self.__dict__.pop(key, None)
+        self.__dict__['_congestion_frame'] = frame
+        try:
+            yield
+        finally:
+            for key in keys:
+                self.__dict__.pop(key, None)
+            self.__dict__.update(saved)
+
+    def congestion(self):
+        """Live placed-pad RUDY demand on a fixed occupancy frame."""
+        grid = self.__dict__.get("_congestion")
+        frame = self.congestion_frame() or Box(0.0, 0.0, 0.0, 0.0)
+        if grid is None or grid.board != frame:
+            from .congestion import RudyGrid
+            classes = self.geometry.netclasses.values()
+            width = min((c.track_width for c in classes), default=0.2)
+            pitch = width + (self.geometry.default_clearance or 0.2)
+            grid = RudyGrid(frame, max(1, len(self.geometry.layers)), pitch,
+                            self.settings.score_congestion_step, box=self.settings.score_congestion_box)
+            self.__dict__["_congestion"] = grid
+            self.__dict__["_congestion_pads"] = {}
+            self._congestion_refresh(set(self.items))
+        return grid
+
+    def _congestion_refresh(self, refs):
+        pads = self.__dict__["_congestion_pads"]
+        touched = set()
+        for net, points in pads.items():
+            for key in [k for k in points if k[0] in refs]:
+                del points[key]
+                touched.add(net)
+        for ref in refs:
+            geom = self.items.get(ref)
+            if geom is None or ref in self.pending:
+                continue
+            for index, shape in enumerate(geom.shapes):
+                if shape.kind in ("pad", "through") and shape.owner == ref and shape.net \
+                        and shape.net not in self.quiet_nets:
+                    pads.setdefault(shape.net, {})[(ref, index)] = shape.box.center
+                    touched.add(shape.net)
+        grid = self.__dict__["_congestion"]
+        for net in sorted(touched):
+            grid.add_net(net, list(pads.get(net, {}).values()))
 
     def escapes(self):
         """The corridors out of every placed pad (escapes.py), kept as items commit."""
@@ -1270,27 +1447,28 @@ class Occupancy:
     # ------------------------------------------------------------ the ratsnest
     quiet_nets: frozenset = frozenset()     # plane and free nets: their crossings weigh score.crossing_plane
     plane_nets: frozenset = frozenset()     # nets the board declares a plane (a pour, a finger) for: their carried vias are drops
+    # (ref, pad number) of the pads the script's declared tracks and vias not yet laid will join at the pad: the escape
+    # judgement counts their way out as made, as it does once the copper is laid (escapes._planned, D28)
+    planned_joins: frozenset = frozenset()
 
     def ratsnest(self):
         """placemat's ratsnest (ratsnest.py) of every item placed so far, kept
         as items commit: what a candidate's crossings are counted against.
-        A quiet net (a plane's, a free net's) weighs `score.crossing_plane`."""
+        A crossing is priced by its nets' kinds (`ratsnest.crossing_price`)."""
         rn = self.__dict__.get("_ratsnest")
         if rn is None:
             from .pairs import board_pairs
-            from .ratsnest import Ratsnest
-            weights = {n: self.settings.score_crossing_plane for n in self.quiet_nets}
+            from .ratsnest import Ratsnest, prices_of
+            s = self.settings
+            kinds = net_kinds(self.geometry, self.quiet_nets)
             # a pair crossing itself weighs score.pair_crossing; the search
-            # prices the ratsnest's weighted count at score.crossing
+            # prices the ratsnest's count at score.crossing
             partners = {n: m for n, m in board_pairs(self.geometry.netclasses).items()
                         if n not in self.quiet_nets and m not in self.quiet_nets}
-            s = self.settings
-            pair_weight = s.score_pair_crossing / s.score_crossing if s.score_crossing > 0 else 1.0
+            prices = prices_of(s)
             native = _geometry_module._native
-            mirror = native.NativeRatsnest(weights) if native is not None and hasattr(native, "NativeRatsnest") else None
-            if mirror is not None and partners and hasattr(mirror, "set_partners"):
-                mirror.set_partners(sorted(partners.items()), pair_weight)
-            rn = Ratsnest(weights, mirror=mirror, partners=partners, pair_weight=pair_weight)
+            mirror = native.NativeRatsnest() if native is not None and hasattr(native, "NativeRatsnest") else None
+            rn = Ratsnest(kinds, mirror=mirror, partners=partners, prices=prices)
             self.__dict__["_ratsnest"] = rn
             self.__dict__["_rn_anchors"] = {}
             self._ratsnest_refresh(set(self.items))
@@ -1309,36 +1487,79 @@ class Occupancy:
             g = self.items.get(ref)
             if g is None or ref in self.pending or not self.geometry.has_footprint(ref):
                 continue
+            anchor = None
             for s in g.shapes:
                 if s.kind in ("pad", "through") and s.net and s.owner == ref:
-                    a = self.pad_anchor(ref, s.label)
+                    anchor = anchor or self.pad_anchors(ref)
+                    a = anchor(s.label)
                     anchors.setdefault(s.net, {})[(ref, s.label)] = Anchor(ref, s.label, a.x, a.y)
                     touched.add(s.net)
         rn = self.__dict__["_ratsnest"]
         for net in sorted(touched):               # a set of names: the ratsnest keeps its airwires in the order they are set
             rn.set_net(net, sorted(anchors.get(net, {}).values(), key=lambda a: (a.ref, a.number)))
 
+    def candidate_named_anchors(self, item, placement: Placement, *, geometries=None) -> list:
+        """Candidate anchors with the same affine expression and final rounding as commit.
+
+        Rounding a turn at the origin then adding the candidate translation
+        can change raw nearest-target ties and nanometre MST ordering. Use
+        each resulting member reference exactly as pad_anchor does instead.
+        Callers that already assembled a candidate may supply its geometries.
+        """
+        if geometries is None:
+            geometries, _ = self.placed_geometries(item, placement)
+        out = []
+        for ref, geom in geometries.items():
+            fp = self.geometry.footprint(ref)
+            read = ItemGeometry(frozenset([ref]), Placement(fp.location, fp.rotation, fp.face), (), fp.body_box,
+                                frozenset())
+            transform = self._transform(read, geom.reference)
+            seen = set()
+            for shape in geom.shapes:
+                if shape.kind not in ('pad', 'through') or not shape.net or shape.owner != ref \
+                        or shape.label in seen:
+                    continue
+                seen.add(shape.label)
+                pad = next((p for p in fp.pads if p.number == shape.label), None)
+                if pad is None:
+                    raise ValueError(f'candidate pad {ref}.{shape.label} has no source anchor')
+                anchor = transform.apply_location(pad.airwire_end)
+                out.append((shape.net, ref, shape.label, anchor.x, anchor.y))
+        return out
+
     def candidate_anchors(self, item, placement: Placement) -> list:
-        """(net, x, y) of each of the item's pads at a candidate placement,
-        at their airwire anchors: turned and faced once per rotation and face,
-        then shifted."""
-        geom = self._geometry(item)
-        cache = self.__dict__.setdefault("_anchor_cache", {})
-        key = (id(geom), placement.rotation, placement.face)
-        hit = cache.get(key)
-        if hit is None or hit[0] is not geom:
-            t = self._transform(geom, Placement(Location(0.0, 0.0), placement.rotation, placement.face))
-            seen, out = set(), []
-            for s in geom.shapes:
-                if s.kind in ("pad", "through") and s.net and (s.owner, s.label) not in seen \
-                        and self.geometry.has_footprint(s.owner):
-                    seen.add((s.owner, s.label))
-                    a = t.apply_location(self.pad_anchor(s.owner, s.label))
-                    out.append((s.net, a.x, a.y))
-            hit = (geom, out)
-            cache[key] = hit
-        dx, dy = placement.location.x, placement.location.y
-        return [(net, x + dx, y + dy) for net, x, y in hit[1]]
+        """(net, x, y) for the existing leaf scorer and native sweep."""
+        return [(net, x, y) for net, _, _, x, y in self.candidate_named_anchors(item, placement)]
+
+    def candidate_anchor_affines(self, item, placement: Placement) -> list:
+        """Prepared exact two-stage member/read anchor transforms at zero translation.
+
+        Preserve coefficients and expression order: combining affine constants
+        before evaluation can change half-nanometre rounding. Cells round their
+        member reference first; parts use the requested location directly.
+        """
+        origin = Placement(Location(0, 0), placement.rotation, placement.face)
+        geometries, _ = self.placed_geometries(item, origin)
+        cell = not isinstance(item, Footprint)
+        members = self._member_geometries(item) if cell and item.arrangement else self.items
+        transform = self._transform(self._geometry(item), origin) if cell else None
+        out = []
+        def coefficients(t, p):
+            return [t.a, t.b, t.c, t.d, t.tx, t.ty, p.x, p.y]
+        for ref, geom in geometries.items():
+            fp = self.geometry.footprint(ref)
+            read = ItemGeometry(frozenset([ref]), Placement(fp.location, fp.rotation, fp.face), (), fp.body_box,
+                                frozenset())
+            t = self._transform(read, Placement(Location(0, 0), geom.reference.rotation, geom.reference.face))
+            member = coefficients(transform, members[ref].reference.location) if cell else [0.0] * 8
+            seen = set()
+            for shape in geom.shapes:
+                if shape.kind not in ('pad', 'through') or not shape.net or shape.owner != ref or shape.label in seen:
+                    continue
+                seen.add(shape.label)
+                pad = next(p for p in fp.pads if p.number == shape.label)
+                out.append((shape.net, ref, shape.label, [float(cell)] + member + coefficients(t, pad.airwire_end)))
+        return out
 
     def placed_geometries(self, item, placement: Placement) -> tuple[dict, list]:
         """What commit() records for `item` at `placement`, without recording
@@ -1426,27 +1647,29 @@ class Occupancy:
             giveway.undo(self, via)
         self._changed()
 
-    def _commit_cell(self, item, placement: Placement, geom, own) -> None:
+    def _placed_cell_areas(self, item, placement, geom):
+        """Detached area state transformed by the same relative cell pose."""
         t = self._transform(geom, placement)
+        flipped = placement.face != geom.reference.face
+        def moved(stored, excludes):
+            areas = [CellArea(ra, tuple(ra.polygon), ra.layers) for ra in self._arranged_areas(item)
+                     if ra.excludes & excludes] if item.arrangement else stored.get(item.name, ())
+            return [CellArea(area.source, tuple(t.apply(p) for p in area.polygon),
+                             self._flip_layers(area.layers) if flipped else area.layers) for area in areas]
+        return moved(self._cell_rule_areas, {'parts', 'vias'}), moved(self._cell_fill_areas, {'fill'})
+
+    def _commit_cell(self, item, placement: Placement, geom, own) -> None:
         tag = "cell:%s" % item.name
         self.reservations = [r for r in self.reservations if r.source != tag]
-        if item.arrangement:
-            # the arrangement's areas stand in for the stamped ones; its geometry is built in the generated board's frame, so
-            # they are moved from there
-            self._cell_rule_areas[item.name] = [[ra, tuple(ra.polygon)] for ra in self._arranged_areas(item) if "parts" in ra.excludes]
-            self._cell_fill_areas[item.name] = [[ra, tuple(ra.polygon)] for ra in self._arranged_areas(item) if "fill" in ra.excludes]
-        flipped = placement.face != geom.reference.face
-        for pair in self._cell_fill_areas.get(item.name, ()):
-            pair[1] = tuple(t.apply(p) for p in pair[1])
+        rules, fills = self._placed_cell_areas(item, placement, geom)
+        self._cell_rule_areas = {**self._cell_rule_areas, item.name: rules}
+        self._cell_fill_areas = {**self._cell_fill_areas, item.name: fills}
         self.fill_areas = {**self.fill_areas, item.name: [
-            (ra, poly, self._flip_layers(ra.layers) if flipped else ra.layers)
-            for ra, poly in self._cell_fill_areas.get(item.name, ())]}
-        for pair in self._cell_rule_areas.get(item.name, ()):
-            ra, poly = pair
-            poly = tuple(t.apply(p) for p in poly)
-            pair[1] = poly
-            claims, layer = parts_claim(ra.layers, flip=placement.face != geom.reference.face)
-            if claims:
+            (area.source, area.polygon, area.layers) for area in fills]}
+        for area in rules:
+            ra, poly = area.source, area.polygon
+            claims, layer = parts_claim(area.layers)
+            if claims and 'parts' in ra.excludes:
                 what = ("label %r" % ra.name[len("label "):]) if ra.name.startswith("label ") else "rule area %r" % ra.name
                 self.reserve(poly, "%s from the %s cell" % (what, ra.cell), source=tag, layer=layer,
                              courtyard=not ra.name.startswith("label "))
