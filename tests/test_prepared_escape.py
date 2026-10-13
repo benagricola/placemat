@@ -152,7 +152,7 @@ def _minimal_surface_inputs(native):
     candidate = native.PreparedCandidate([((1, 0, 0, 1, 0, 0), [record])])
     delta = native.NativeDelta(native.NativeRatsnest(), ['U1'], [[('S', 'U1', '1', 0, 0)]], ['S'], (4, 3, 5, 0, 2))
     delta.configure_layout([[]], [(0, 0, 1, 1)], None, None, (0, 0, 0, 0))
-    fields = [('U1', [('1', 'S', False)], [(0, 1, 0)])]
+    fields = [('U1', [('1', 'S', False, False)], [(0, 1, 0)])]
     nets = [('S', 1, False, 0.2, 0.1, 0.6, 0.3, 0.4, [0])]
     settings = (0.5, 0.5, 0.2, 1, 0.0005, 0.25, True)
     return [candidate, delta, [], ['U1'], [], [[3]], fields, nets, settings]
@@ -165,7 +165,7 @@ def test_full_prepared_manifest_refuses_malformed_roles_intent_and_changed_snaps
     surface = native.PreparedSurface(*inputs)
     expected = surface.evaluate(inputs[0], inputs[1], 0, 0, 0)
     for index, value in [(4, [1]), (5, [[]]), (5, [[4]]), (5, [[8]]), (5, [[16]]),
-                         (6, []), (6, [('U1', [('2', 'S', False)], [(0, 1, 0)])]),
+                         (6, []), (6, [('U1', [('2', 'S', False, False)], [(0, 1, 0)])]),
                          (7, [('S', 1, False, -0.1, 0.1, 0.6, 0.3, 0.4, [0])]),
                          (7, [('S', 1, False, 0.2, 0.1, 0.6, 0.3, 0.4, [])]),
                          (8, (0.5, 0.5, float('nan'), 1, 0.0005, 0.25, True))]:

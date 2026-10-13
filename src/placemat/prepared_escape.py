@@ -67,9 +67,12 @@ _RECORDS_MAX = 200_000
 
 
 def _field(occ, ref, g):
-    """(its pads' intent, its turn as (rotation, cos, sin)) of a footprint's field where `g` stands."""
+    """(its pads' intent, its turn as (rotation, cos, sin)) of a footprint's field where `g` stands. A pad's intent is
+    (number, net, unconnected, joined by planned copper not yet laid (`escapes._planned`))."""
     pads = _pads_of(g.shapes, ref)
-    intent = [(number, net, _unconnected(occ, ref, number, net)) for number, (net, _, _) in pads.items()]
+    planned = occ.planned_joins
+    intent = [(number, net, _unconnected(occ, ref, number, net), (ref, number) in planned)
+              for number, (net, _, _) in pads.items()]
     radians = math.radians(g.reference.rotation)
     return intent, (g.reference.rotation, math.cos(radians), math.sin(radians))
 
@@ -233,7 +236,7 @@ def prepare(delta, rotations, face, *, rest_cache=False):
     # Original owner/net/wire rules are geometry independent. Net intent must
     # not be weakened by candidate copper or the order in which it is tested.
     nets = sorted({net for pads in pads_by_ref.values() if len(pads) >= occ.settings.place_escape_min_pads
-                   for _, net, _ in pads if net})
+                   for _, net, *_ in pads if net})
     if len(nets) * (len(rest) + len(moving_shapes[0])) > 4_000_000:
         return None, 'pair-clearance snapshot exceeds bounded capacity'
     sizes, geom = _net_sizes(occ), occ.geometry
@@ -285,10 +288,10 @@ def prepare(delta, rotations, face, *, rest_cache=False):
         records = []
         moving_owners = {shape.owner for shape in moving_shapes[0]}
         for ref, pads, _ in fields:
-            if ref in moving_owners or any((ref, number) not in baseline.regions for number, _, _ in pads):
+            if ref in moving_owners or any((ref, number) not in baseline.regions for number, *_ in pads):
                 continue
             cached = []
-            for number, net, unconnected in pads:
+            for number, net, unconnected, _ in pads:
                 key = ref, number
                 # Extra conservative margin for the two-mm blocker buckets
                 # and supplemental depth+1 grid prefilter. The full baseline

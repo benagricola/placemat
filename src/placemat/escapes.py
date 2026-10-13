@@ -111,6 +111,12 @@ def _unconnected(occ, ref: str, number: str, net: str) -> bool:
     return (ref, number) in _marked(occ) or is_no_connect(net)
 
 
+def _planned(occ, ref: str, number: str) -> bool:
+    """Whether the script's planned copper not yet laid (its declared tracks and vias, `Occupancy.planned_joins`) will
+    join the pad at the pad: its way out is made, as it is once that copper is laid (D28)."""
+    return (ref, number) in occ.planned_joins
+
+
 def pad_corridors(occ, ref: str, pads: dict, rotation: float, depth: float) -> list:
     """Corridors for one part's pads: `pads` maps a pad number to (net,
     layers, box) as the part stands (or would stand)."""
@@ -807,7 +813,8 @@ class Escapes:
 
     def _verdict(self, ref: str, number: str, bans, near=None, *, native=False) -> tuple | None:
         """(way, what blocks) for one pad, None when it is not judged: it is unconnected, its net has no other pad placed,
-        or copper of its own net (planned copper, another part's pad) already leaves it: its way out is made.
+        or copper of its own net (planned copper, another part's pad) already leaves it, or the script's copper not yet
+        laid will join it (`_planned`): its way out is made.
 
         The exact path search (`path_out(exact=True)`, a window `score.escape_reach` round the pad) decides, in the
         order of the prices: a surface route toward the target is SURFACE, else an open via spot VIA, else a surface
@@ -831,7 +838,7 @@ class Escapes:
             aim = self._aim(ref, number, net, pads[number][2].center)
             if aim is None:
                 return None
-        if self._joined(ref, number, net) or self._on_own_net_pad(ref, number, net):
+        if self._joined(ref, number, net) or self._on_own_net_pad(ref, number, net) or _planned(occ, ref, number):
             return None
         region = Box.union([pads[number][2]] + [l.box for l in lanes] + [p.box for p in spots])
         foes = self._foes(self._reach(region, net), net, ref, number)
@@ -1102,7 +1109,8 @@ class Escapes:
         """What walls in one pad of `handoffs_walled`, None when it is not such a pad or gets out. `blame` off: an empty
         list for a walled pad, without naming what walls it."""
         occ = self.occ
-        if not net or _net_sizes(occ).get(net, 0) >= 2 or _unconnected(occ, ref, number, net):
+        if (not net or _net_sizes(occ).get(net, 0) >= 2 or _unconnected(occ, ref, number, net)
+                or _planned(occ, ref, number)):
             return None
         own = self._own_copper(ref, number, net)
         if any(s.kind == "through" for s in own):
@@ -1142,7 +1150,7 @@ class Escapes:
         """What closes one pad's declared lane (`lanes_walled`), None when the pad has no such lane or it goes on.
         `blame` off: an empty list for a lane that runs out, without naming what closes it."""
         occ = self.occ
-        if not net or _net_sizes(occ).get(net, 0) < 2:
+        if not net or _net_sizes(occ).get(net, 0) < 2 or _planned(occ, ref, number):
             return None
         own = self._own_copper(ref, number, net)
         if not own or any(s.kind == "through" or not (s.lane or s.wire) for s in own):
@@ -1576,7 +1584,7 @@ class _BaselineMemo:
     """What `EscapeDelta` judges of a lifted board's rest pads, kept from one lifted board of an occupancy to the next:
     each part's lanes, via spots and pads (`Escapes._lanes_of`, read from its own shapes only), and each pad's region,
     way and wall flags. Shapes are compared by identity; the memo holds the last board's, so none is reused. A change
-    of settings, geometry, rules, quiet nets, frame or judging mode starts it again.
+    of settings, geometry, rules, quiet nets, frame, judging mode or the pads planned copper will join starts it again.
 
     A pad's entry is dropped when a shape added or removed since overlaps its region (what `EscapeDelta.difference`
     rejudges its way by). A changed shape within its wall region but clear of its region drops only its wall flags.
@@ -1600,7 +1608,7 @@ class _BaselineMemo:
 
     def sync(self, occ, native) -> None:
         key = (occ.settings, occ.geometry, occ.rules, frozenset(occ.quiet_nets), occ.board_box,
-               occ.settings.score_escape_depth, bool(native))
+               occ.settings.score_escape_depth, bool(native), frozenset(occ.planned_joins))
         # The board as a verdict reads it: the placed items' shapes, the planned copper and vias whose owner is not
         # lifted (`search_near`, the blocker grid), and every rule area that bans vias (`_bans`, `extra_walls`). A lifted
         # cell's copper stays in `occ.copper` but is read by no verdict, so it is not on the board here either: when the

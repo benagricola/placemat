@@ -1447,6 +1447,9 @@ class Occupancy:
     # ------------------------------------------------------------ the ratsnest
     quiet_nets: frozenset = frozenset()     # plane and free nets: their crossings weigh score.crossing_plane
     plane_nets: frozenset = frozenset()     # nets the board declares a plane (a pour, a finger) for: their carried vias are drops
+    # (ref, pad number) of the pads the script's declared tracks and vias not yet laid will join at the pad: the escape
+    # judgement counts their way out as made, as it does once the copper is laid (escapes._planned, D28)
+    planned_joins: frozenset = frozenset()
 
     def ratsnest(self):
         """placemat's ratsnest (ratsnest.py) of every item placed so far, kept

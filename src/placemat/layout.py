@@ -476,6 +476,7 @@ class CopperIntent:
     declared: dict = field(default_factory=dict, metadata={"reuse": False})   # what the declaration gave, as a finding's suggestions read it
     only: tuple = field(default=(), metadata={"omit_default": True})    # the arrangements it exists in, as only= names them; () every one (arrangements.py)
     form: str = field(default="", metadata={"omit_default": True})      # the declaration's arguments in canonical form (_declares_copper): what `plan` reads, which reuse.canonical cannot see into
+    joins: tuple = field(default=(), metadata={"reuse": False, "omit_default": True})  # (ref, pad number) of each pad it is drawn onto at the pad (Board._pad_joins), from its points
 
     def applies_in(self, held: frozenset) -> bool:
         """Whether it exists in an arrangement holding the choice ids `held` (arrangements.Spec.held): `only=` matches by the
@@ -4393,6 +4394,34 @@ class Board:
         decl = self._escapes[lane.index]
         return self.geometry.footprint(decl.part).pad(int(lane.number) if lane.number.isdigit() else lane.number)
 
+    def _pad_joins(self, nets, points) -> tuple:
+        """(ref, pad number) of each pad of one of `nets` that copper declared through `points` is drawn onto at the
+        pad: a pad reference with no offset (its centre, or a tap on its side), a lane or a point of one (its pad, whose
+        own copper the lane is), a FreeSpot whose via stands in its pad or is joined to it by its tail. Before the copper
+        is laid the escape judgement counts these pads' way out as made (`Occupancy.planned_joins`, D28)."""
+        out = set()
+        for p in points:
+            if isinstance(p, FreeSpot):
+                if not (p.in_pad or p.tail):
+                    continue
+                p = p.near
+            pad = None
+            if isinstance(p, Lane):
+                pad = self._lane_pad(p)
+            elif isinstance(p, LanePoint):
+                pad = self._lane_pad(p.lane)
+            elif isinstance(p, PadRef) and not (p.dx or p.dy or p.lx or p.ly):
+                pad = self.geometry.pad(p.part, p.key)
+            elif isinstance(p, CellPadRef) and not (p.dx or p.dy):
+                pad = self.geometry.cell_pad(p.cell, net=p.net, number=p.number, ref_prefix=p.ref_prefix)
+            if pad is not None and pad.net in nets:
+                out.add((pad.owner, pad.number))
+        return tuple(sorted(out))
+
+    def _set_planned_joins(self, occ: Occupancy, intents) -> None:
+        """The pads `intents` (declared copper not yet laid) will join, for the escape judgement (D28)."""
+        occ.planned_joins = frozenset(j for c in intents for j in c.joins)
+
     def _escape_pin(self, esc: Escape, pin) -> str:
         decl = self._escapes[esc.index]
         n = self._escape_number(decl.part, pin)
@@ -4423,6 +4452,7 @@ class Board:
                 return [via]
             intent = self._copper_intent("via %s" % net, net, Priority.DEFAULT, plan, [decl.part], decl.why,
                                          form="lane %s %s" % (decl.key, n))     # the escape itself is in the context
+            intent.joins = self._pad_joins({net}, [lane])
             decl.via_intents[n] = intent
         return intent
 
@@ -6176,6 +6206,7 @@ class Board:
                 return []
             return ops
         intent = self._copper_intent("track %s" % name, net, priority, plan, refs, why, bridge, only=self._only(only, "track"))
+        intent.joins = self._pad_joins({name}, ([begins] if begins is not None else []) + list(points))
         if any(isinstance(it, LabelKey) for p in points if isinstance(p, Past) for it in p.items):
             self._late_copper.add(intent.index)     # a label gives way to every part placed after it: planned after the search
         self._copper_uses[intent.index] = tuple(p.index for p in points if isinstance(p, CopperIntent))
@@ -6354,7 +6385,9 @@ class Board:
                     return []
             return pair_ops(p_name, n_name, layer, w, g, start, centre, end, self.via_drill, self.via_size,
                             via_step, chamfer, self._clearance(p_name, n_name), sfaces, efaces)
-        return self._copper_intent("pair %s/%s" % (p_name, n_name), net_p, priority, plan, refs, why, bridge, only=self._only(only, "pair"))
+        intent = self._copper_intent("pair %s/%s" % (p_name, n_name), net_p, priority, plan, refs, why, bridge, only=self._only(only, "pair"))
+        intent.joins = self._pad_joins({p_name, n_name}, [sp, sn, ep, en])
+        return intent
 
     def vias(self, net, pad=None, *, along=None, count: int | None = None, pitch: float | None = None,
              size: float | None = None, drill: float | None = None,
@@ -6443,6 +6476,7 @@ class Board:
                 return vias + [tail]
             # "via row": a track may end on it, as on one via()
             intent = self._copper_intent("via row %s" % name, net, priority, plan, _refs_in([along]), why, only=self._only(only, "vias"))
+            intent.joins = self._pad_joins({name}, [along])      # its tail joins the pad
             return intent
         owner, number, _, _ = self._pad_ref(pad)
         k = len(self._pad_fields)
@@ -6477,6 +6511,7 @@ class Board:
                     ops.append(a.tail)
             return ops
         intent = self._copper_intent("vias %s" % name, net, priority, plan, _refs_in([pad]), why, only=self._only(only, "vias"))
+        intent.joins = self._pad_joins({name}, [pad])
         self._late_copper.add(intent.index)         # planned after the search: its part's grid gives way as items are placed
         return intent
 
@@ -6576,6 +6611,7 @@ class Board:
             ctx.via_at[intent.index] = where    # a track may end on it
             return [via] + ops
         intent = self._copper_intent("via %s" % name, net, priority, plan, refs, why, only=self._only(only, "via"))
+        intent.joins = self._pad_joins({name}, [at])
         if isinstance(at, Past) and any(isinstance(it, LabelKey) for it in at.items):
             self._late_copper.add(intent.index)     # a label gives way to every part placed after it: planned after the search
         if isinstance(at, FreeSpot):
@@ -7991,6 +8027,7 @@ class Board:
         held = self._frame_planes if self._fit else set()
         fixed_copper = [c for c in self._copper if c.freedom.decided and c.index not in held]
         other_copper = [c for c in self._copper if not c.freedom.decided and c.index not in held]
+        self._set_planned_joins(occ, self._copper)      # none of it laid yet
         placed: set = set()
         if clock is not None:
             clock.new_pass(len(placements), self._firm_pass_no, plan)
@@ -8320,6 +8357,8 @@ class Board:
         self._check_pitch(plan)
         occ.set_rooms([])       # the real copper replaces what the passes planned
         self._plan_copper(occ, ctx, fixed_copper, plan, progress, slot="fixed")
+        laid = {id(c) for c in fixed_copper}
+        self._set_planned_joins(occ, [c for c in self._copper if id(c) not in laid])
         for key, moved in self._room_unsettled:
             plan.findings.append(self._finding(C.FIXED_ROOM_UNSETTLED, {
                 "copper": key, "moved_mm": moved, "passes": self.settings.place_firm_passes}))
@@ -8354,6 +8393,7 @@ class Board:
         occ.set_rooms([])
         occ.rooms_apply = False
         self._plan_copper(occ, ctx, other_copper, plan, progress, slot="other")
+        self._set_planned_joins(occ, [c for c in self._copper if c.index in held])
         if routes:
             self._draw_adopted(occ, ctx, plan, routes, progress)
         if self._fit:
@@ -8366,6 +8406,7 @@ class Board:
             plan.fitted_axes = (self._fit_axis in (None, Axis.X), self._fit_axis in (None, Axis.Y))     # None: both fit
             plan.fit_margin = self._fit_margin
             self._plan_copper(occ, ctx, [c for c in self._copper if c.index in held], plan, progress, slot="held")
+        self._set_planned_joins(occ, ())    # the finished board: every pad is judged by the copper laid
         self._check_keepouts(plan)
         plan.rudy = self._rudy(occ, plan)
         self._report_links(occ, plan, placed)

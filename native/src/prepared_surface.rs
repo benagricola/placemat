@@ -45,8 +45,8 @@ const CONTACT: u8 = 1;
 const PATH: u8 = 2;
 const HOLE: u8 = 4;
 const BAN: u8 = 8;
-// pad number, original net, original unconnected flag
-pub type PadIntent = (String, String, bool);
+// pad number, original net, original unconnected flag, joined by planned copper not yet laid (its way out is made)
+pub type PadIntent = (String, String, bool, bool);
 // ref, pads in original grouping order, (rotation, cos, sin) for each turn
 pub type FieldRecord = (String, Vec<PadIntent>, Vec<(f64, f64, f64)>);
 // net, size, quiet, track width, clearance, via diameter, drill, maximum foe
@@ -56,6 +56,7 @@ struct Pad {
     number: String,
     net: String,
     unconnected: bool,
+    planned: bool,
 }
 // Baseline facts are produced by the independent lifted-board oracle.
 // owner, (number, net, unconnected, way, full influence region, wall, handoff)
@@ -93,8 +94,8 @@ struct Judged {
     handoff: bool,
     facts: Option<PadFacts>,
 }
-// A rest pad across visits: its owner, its number and its field's rotation's bits.
-type MemoKey = (String, String, u64);
+// A rest pad across visits: its owner, its number, its field's rotation's bits and whether planned copper joins it.
+type MemoKey = (String, String, u64, bool);
 
 /// What a run's searches learn about rest pads, kept from one lifted board to the next: each pad's lifted search and
 /// its facts, with the boxes (its guard) that every shape its judgement reads overlaps, and the rest shapes that met
@@ -316,7 +317,7 @@ enum Part {
 impl PreparedSurface {
     fn memo_key(&self, fi: usize, pi: usize, turn: usize) -> MemoKey {
         let field = &self.fields[fi];
-        (field.owner.clone(), field.pads[pi].number.clone(), field.turns[turn].0.to_bits())
+        (field.owner.clone(), field.pads[pi].number.clone(), field.turns[turn].0.to_bits(), field.pads[pi].planned)
     }
 
     /// The run's memo.
@@ -618,7 +619,7 @@ impl PreparedSurface {
             .iter()
             .flat_map(|(owner, pads, _)| {
                 pads.iter()
-                    .map(move |(number, _, _)| (owner.clone(), number.clone()))
+                    .map(move |(number, _, _, _)| (owner.clone(), number.clone()))
             })
             .collect();
         if expected_pads != declared_pads
@@ -672,7 +673,7 @@ impl PreparedSurface {
                         || s.abs() > 1.0
                         || (crate::exact::hypot(*c, *s) - 1.0).abs() > 1e-9
                 })
-                || pads.iter().any(|(number, net, _)| {
+                || pads.iter().any(|(number, net, _, _)| {
                     !numbers.insert(number.clone())
                         || (pads.len() >= minimum && !net.is_empty() && !net_map.contains_key(net))
                 })
@@ -686,10 +687,11 @@ impl PreparedSurface {
                 owner,
                 pads: pads
                     .into_iter()
-                    .map(|(number, net, unconnected)| Pad {
+                    .map(|(number, net, unconnected, planned)| Pad {
                         number,
                         net,
                         unconnected,
+                        planned,
                     })
                     .collect(),
                 fixed,
@@ -1169,9 +1171,9 @@ impl PreparedSurface {
     fn judge_pad(&mut self, py: Python<'_>, candidate: &PreparedCandidate, delta: &mut NativeDelta, turn: usize,
                  fi: usize, pi: usize, lanes: &FieldLanes, index: &RestIndex, gather: bool,
                  profile: &mut Option<Profile>) -> PyResult<Judged> {
-        let (owner, number, net_name, unconnected) = {
+        let (owner, number, net_name, unconnected, planned) = {
             let pad = &self.fields[fi].pads[pi];
-            (self.fields[fi].owner.clone(), pad.number.clone(), pad.net.clone(), pad.unconnected)
+            (self.fields[fi].owner.clone(), pad.number.clone(), pad.net.clone(), pad.unconnected, pad.planned)
         };
         let (mine, b) = &lanes.mines[pi];
         let rest = self.fields[fi].fixed;
@@ -1215,7 +1217,8 @@ impl PreparedSurface {
         let centre = ((b.0 + b.2) / 2.0, (b.1 + b.3) / 2.0);
         let mut guard: Vec<Bounds> = own.iter().map(|&i| self.contacts.shape(candidate, turn, i).bounds).collect();
         let mut way = 4;
-        let eligible = net.size >= 2 && !unconnected && !facts.joined && !facts.on_pad;
+        // Planned copper not yet laid that joins the pad makes its way out, as laid copper does (`facts.joined`).
+        let eligible = net.size >= 2 && !unconnected && !facts.joined && !facts.on_pad && !planned;
         let mut gathered = None;
         if eligible {
             let aim_started = profile.as_ref().map(|_| std::time::Instant::now());
@@ -1334,11 +1337,12 @@ impl PreparedSurface {
         }
         let supplemental_started = profile.as_ref().map(|_| std::time::Instant::now());
         let declared = net.size >= 2
+            && !planned
             && !own.is_empty()
             && !facts.through
             && facts.declared
             && !facts.runs_on;
-        let handoff = net.size < 2 && !unconnected && !facts.through;
+        let handoff = net.size < 2 && !unconnected && !planned && !facts.through;
         let mut wall = false;
         let mut unanswered = false;
         if declared || handoff {

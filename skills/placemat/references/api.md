@@ -5171,6 +5171,12 @@ copper (a declared lane, a stub) ends in the air, and a hand-off pin, are judged
 that copper ends. A pad that copper of its own net already leaves with a way on (a track that reaches another pad of the
 net, a via in it, a pour over it) is not counted, closed or walled; a track or an escape's lane that ends in the air is
 the pad's way out only as far as it goes, and the pad is walled when no track or via gets on from where the copper ends.
+Before the script's declared tracks and vias are laid (the placement search, the retry, cleanup and the turn check), a
+pad they will join at the pad is judged as it is once they are laid: not counted, closed or walled. That is a pad a
+`board.track` or `board.pair` names as a point with no offset (its centre, or a tap on its side) or starts from by its
+lane, a `board.via` at the pad, or a `FreeSpot` via in it or joined to it by its tail, a lane's via, and the pad of a
+`board.vias` grid or row. The finished board judges every pad by the copper laid, so a declared track that is not drawn
+leaves its pads judged.
 What walls a pad (pads on a layer the pad shares, a through-hole pad on every layer it spans, unplated holes, copper, and
 where a via is wanted the rule areas that forbid vias) is named by owner, "track NET", "via NET", "pour NET" or "the
 escape lane of U1 pin 53". A pad whose net has no other pad on the board (a pin the cell hands off to the board above it;
