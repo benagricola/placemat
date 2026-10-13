@@ -491,6 +491,15 @@ def _in_settings(ctx, st):
                    base_clearance=st.base_clearance)
 
 
+def drop_files(work, stem) -> None:
+    """A restored attempt's files under `work` (its boards, their projects, DRCs, task files and summaries), all but
+    the router logs a failure record points to: nothing reads them once the verdict is in, and on a large board they
+    are several boards an attempt."""
+    for f in Path(work).glob(stem + "_*"):
+        if f.is_file() and f.suffix != ".log":
+            f.unlink()
+
+
 def attempt(ctx, index, phase, sel, k, a, call, unit, conns, victims, not_ripped, moves, before) -> tuple:
     """One attempt (spec "The order of calls", "The keep or restore test") on `before`, the board the call left
     as judged: the victims' router copper taken off, the blocked unit routed at phase `index`'s settings
@@ -547,6 +556,8 @@ def attempt(ctx, index, phase, sel, k, a, call, unit, conns, victims, not_ripped
                     [is_clean(j) for j in judged], off)
     else:
         v = Verdict(False, reason)
+    if not v.kept:
+        drop_files(ctx.work, stem)
     record = {"call": k, "attempt": a, "blocked": [dict(c) for c in conns],
               "named": [n.record() for n in unit.named], "victims": list(victims), "not_ripped": list(not_ripped),
               "removed": removed, "rerouted": rerouted, "blocked_records": blocked_records, "kept": v.kept,

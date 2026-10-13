@@ -53,6 +53,7 @@ def test_a_later_phase_moves_an_earlier_phases_copper_and_both_join_clean(toy):
     assert b["joined"] == 1 and a["final_closure_clean"] == 1.0 and b["final_closure_clean"] == 1.0
     assert a["final_joined"] == 1
     assert ("segment", "A", 0, (105.0, 110.0, 125.0, 110.0)) not in copper_items(report.routed_pcb)
+    assert list((report.routed_pcb.parent).glob("p1_0_rip0_*.kicad_pcb"))     # a kept attempt's boards stay
 
 
 @needs_kicad
@@ -66,6 +67,9 @@ def test_an_attempt_that_would_lose_an_earlier_connection_is_restored(toy, monke
     assert report.phases[0]["final_closure_clean"] == 1.0 and report.phases[1]["joined"] == 0
     work = tmp_path / "route"
     assert copper_items(work / "p1_0.kicad_pcb") == copper_items(work / "router_out.kicad_pcb")
+    # the restored attempt's boards, DRCs and task files are gone; its router logs stay (final review finding 10)
+    left = sorted(f.name for f in work.glob("p1_0_rip0_*"))
+    assert left and all(f.endswith(".log") for f in left)
 
 
 @needs_kicad
