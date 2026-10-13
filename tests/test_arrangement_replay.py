@@ -109,10 +109,12 @@ def test_a_partial_log_of_another_version_is_not_read(tmp_path):
 
 
 def given_way_geometry():
-    """c_in.east carries a VIN via that gives way to a GND track on the board (test_arrangement_search's give-way case)."""
+    """c_in.east carries a VIN via that gives way to a GND track on the board (test_arrangement_search's give-way case). r10, on
+    OUT west of the cell, is what the cell takes c_in.east for (`stamped_geometry`)."""
     from tests.fixtures import track
     doc = east_doc(ops=[Via("VIN", Location(6.0, 7.0), 0.3, 0.6)])
-    return with_arrangement(stamped_geometry(partner=(60.0, 30.0), copper=(track("GND", 36.0, 33.4, 40.5, 33.4, w=0.3),)), doc)
+    return with_arrangement(stamped_geometry(partner=(60.0, 30.0), out_partner=(12.0, 30.0),
+                                             copper=(track("GND", 36.0, 33.4, 40.5, 33.4, w=0.3),)), doc)
 
 
 def given_way_board(g):
@@ -120,6 +122,7 @@ def given_way_board(g):
     b.rect(width=80, height=60)
     b.reuse_extra = "t"
     b.place(Part("r8"), at=Location(60.0, 30.0))
+    b.place(Part("r10"), at=Location(12.0, 30.0))
     b.place(Cell("mod"), at=Near(Location(40.0, 30.0), radius=0.0, rotations=(0,)))
     b.place(Part("r9"), at=Near(Location(20.0, 40.0), **NEAR))
     return b

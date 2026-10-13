@@ -78,10 +78,12 @@ def test_a_cell_that_offers_none_is_settled_exactly_as_before():
 
 def test_a_part_placed_beside_the_cell_follows_the_arrangement_it_took():
     from placemat.values import Beside, Edge
-    g = with_arrangement(stamped_geometry(partner=(60.0, 30.0)))
+    # r9, on OUT and placed after the cell, pulls nothing at its trial: r10, on OUT west of it, is what c_in.east is taken for
+    g = with_arrangement(stamped_geometry(partner=(60.0, 30.0), out_partner=(12.0, 30.0)))
     b = Board(g, edge_margin=0.0, keep_going=True)
     b.rect(width=80, height=60)
     b.place(Part("r8"), at=Location(60.0, 30.0))
+    b.place(Part("r10"), at=Location(12.0, 30.0))
     b.place(Cell("mod"), at=AT)
     b.place(Part("r9"), at=Beside(Cell("mod"), Edge.EAST))
     plan = b.resolve()

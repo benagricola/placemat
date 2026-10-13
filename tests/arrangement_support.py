@@ -31,16 +31,22 @@ from placemat.placement import Placement
 from placemat.values import CopperLayer, Face
 
 
-def stamped_geometry(offset=(30.0, 10.0), partner=None, obstacle=None, copper=()):
+def stamped_geometry(offset=(30.0, 10.0), partner=None, obstacle=None, copper=(), out_partner=None):
     """A board holding cell `mod` stamped from a fragment whose c_in stood at (1.0, 3.0) and u1 at (6.0, 3.0), moved by `offset`, and
     a loose part. The fragment's nets are `VIN`, `GND` and `OUT`; the board names them `mod.VIN` and so on. `partner=(x, y)` adds a
-    part `r8` on the cell's VIN net there (the pull a search follows); `obstacle=(x, y, w, h)` adds a part `obst` that fills that box."""
+    part `r8` on the cell's VIN net there (the pull a search follows); `obstacle=(x, y, w, h)` adds a part `obst` that fills that box.
+    `out_partner=(x, y)` adds a part `r10` on the cell's OUT net there. West of the cell it is what the one-score search takes
+    c_in.east for: that arrangement stands u1, and its OUT pad, nearly 4 mm further west in the cell's box. `partner=(60, 30)` alone
+    is not, for a cell centred on (40, 30): the VIN tree spans c_in, u1 and r8 in either arrangement, and c_in.east's is the
+    longer by 0.3 mm."""
     ox, oy = offset
     fps = [footprint("C1", 1.0 + ox, 3.0 + oy, w=3, h=1.6, nets=("mod.VIN", "mod.GND"), cell="mod", inst="mod.c_in"),
            footprint("U1", 6.0 + ox, 3.0 + oy, w=6, h=4, nets=("mod.VIN", "mod.OUT"), cell="mod", inst="mod.u1"),
            footprint("R9", 5, 5, nets=("mod.OUT", "GND"))]
     if partner is not None:
         fps.append(footprint("R8", partner[0], partner[1], w=3, h=1.6, nets=("mod.VIN", "GND"), inst="r8"))
+    if out_partner is not None:
+        fps.append(footprint("R10", out_partner[0], out_partner[1], w=3, h=1.6, nets=("mod.OUT", "GND"), inst="r10"))
     if obstacle is not None:
         x, y, w, h = obstacle
         fps.append(footprint("R7", x, y, w=w, h=h, nets=("GND", "GND"), inst="obst"))
