@@ -10,7 +10,9 @@ SIGNALS = ({"name": "signals"},)
 CAPABILITIES = {"modules": {"route.py": True, "repair_planes.py": True},
                 "flags": {"route.py": ["--connections", "--bus-nets", *TASK_FLAGS],
                           "repair_planes.py": list(REPAIR_FLAGS)},
-                "task_fields": {"route.py": ["net", "from", "to", "widths", *TASK_FIELDS]}}
+                "task_fields": {"route.py": ["net", "from", "to", "widths", *TASK_FIELDS]},
+                "flag_forms": {"repair_planes.py": {"--max-track-width": ["number", "per_layer"]}},
+                "pad_fields": {"repair_planes.py": ["ref", "pad", "fp", "width"]}}
 
 
 def phases(*raw):

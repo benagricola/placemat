@@ -149,7 +149,8 @@ def board_widths(geometry, asks: dict, stage: str, rise_c: float | None = None, 
     """A phase's tracks below its per-layer asked widths, restricted to `only` when supplied.
 
     Each record names the phase and the layer's shortfall, and each track it counts (`stretches`: {"layer", "from",
-    "to", "width_mm"}). Pad neck copper within the router's allowance is reported separately. Current capacity uses IPC-2221 and the board's layer copper thickness.
+    "to", "width_mm"}). Pad neck copper within the router's allowance is reported separately. Current capacity uses
+    IPC-2221 and the board's layer copper thickness.
     """
     from ..checks import COPPER_OZ, TRACK_RISE_C, _layer_k, _layer_oz, ipc2221_current_a
     rise_c = TRACK_RISE_C if rise_c is None else rise_c

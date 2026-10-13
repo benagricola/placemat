@@ -101,6 +101,42 @@ def test_one_width_line_per_connection():
     assert phase_run.one_line_per_connection([call, whole, router] + kept, judged, paths) == kept
 
 
+def test_a_whole_net_record_gives_way_when_its_stretches_lie_on_the_paths_of_two_judged_lines():
+    """The record's stretches split between two connections' joining paths: every stretch is on one of them, so the
+    judged lines stand for it."""
+    from placemat.kicad import phase_run
+    from placemat.route_phase import parse_phases
+    (vin,) = parse_phases(({"name": "vin", "nets": ["VB"], "width": 1.0},))
+    a = {"net": "VB", "from": {"ref": "J1", "pad": "1"}, "to": {"ref": "Q1", "pad": "1"}, "widths": {"F.Cu": 1.0}}
+    b = dict(a, to={"ref": "Q2", "pad": "1"})
+    under = {"joined": True, "violated": False, "under": {"F.Cu": 0.3}}
+    judged = phase_run.judged_widths([vin], [[a, b]], [[under, under]])
+    paths = [[("F.Cu", (0.0, 0.0), (10.0, 0.0))], [("F.Cu", (10.0, 0.0), (10.0, 8.0))]]
+    stretch = {"layer": "F.Cu", "width_mm": 0.3}
+    record = {"net": "VB", "stage": "vin", "layers": [],
+              "stretches": [dict(stretch, **{"from": [0.0, 0.0], "to": [10.0, 0.0]}),
+                            dict(stretch, **{"from": [10.0, 0.0], "to": [10.0, 8.0]})]}
+    assert phase_run.one_line_per_connection([record], judged, paths) == []
+    off = dict(record, stretches=record["stretches"] + [dict(stretch, **{"from": [0.0, 0.0], "to": [0.0, 8.0]})])
+    assert phase_run.one_line_per_connection([off], judged, paths) == [off]
+
+
+def test_path_tracks_names_a_merged_track_whole_and_a_call_stretch_on_it_is_on_the_path(monkeypatch):
+    """The clean-up merges the router's collinear pieces: the final board's path has the merged track, and the
+    call's record still counts its pieces, each of which lies on it."""
+    from placemat.kicad import phase_run
+    from tests.test_route_widths_board import _board, _track
+    geometry = _board(_track((5, 10), (40, 10), 0.2))               # one track, merged from (5-20) and (20-40)
+    monkeypatch.setattr("placemat.kicad.read.read_board", lambda _: geometry)
+    line = {"net": "V", "stage": "p", "from": {"ref": "U1", "pad": "1"}, "to": {"ref": "U2", "pad": "1"},
+            "widths": {"F.Cu": 1.0}}
+    (path,) = phase_run.path_tracks("board.kicad_pcb", [line], {"p": 0.0})
+    assert path == [("F.Cu", (5, 10), (40, 10))]
+    for a, b in (([5, 10], [20, 10]), ([20, 10], [40, 10])):
+        assert phase_run.on_path({"layer": "F.Cu", "from": a, "to": b}, path)
+    assert phase_run.path_tracks("board.kicad_pcb", [], {}) == []
+
+
 def test_a_stretch_lies_on_a_path_when_both_its_ends_are_on_one_track_of_it():
     from placemat.kicad.phase_run import on_path
     path = [("F.Cu", (0.0, 0.0), (10.0, 0.0)), ("F.Cu", (10.0, 0.0), (10.0, 5.0))]

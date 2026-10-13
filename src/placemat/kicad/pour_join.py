@@ -5,15 +5,17 @@ track for each group still apart.
    with a short track, plane_pad_tap.py) taps only the pads KiCad's connectivity finds apart from every pour of the
    net (`--pads`); a pad already joined, by a cell's via or any other copper, is left alone. Its region joins tie
    the pieces of the pour together at the net class's track width (ruling S16), or at the net's current width when
-   a current_paths phase leaves the net to its pour (`join_widths`). Its own multipoint routing of what is still
-   split is off (`--no-join-gate`): that is step 2.
+   a current_paths phase leaves the net to its pour (`join_widths`): then each layer at its own width and each pad
+   tapped at its own (`pad_widths`). Its own multipoint routing of what is still split is off (`--no-join-gate`):
+   that is step 2.
 2. The net's pads are grouped again. The group holding the most pads among those that reach the pour stands for
    the pour (with none reaching it, the largest group). Each other group is routed to it by one pad-to-pad task
    (`--connections`), from its pad nearest a pad of that group to that pad; the pours are still zones, so the
    track may end on the fill.
 
-`join_widths` is the width the joins are laid at, `drop_command` the repair call's command line, `pad_groups` reads the groups off a board (pcbnew), `tasks_to_pour`
-picks the tasks (pure), `new_vias` names the vias a call added, and `join_pour` runs the whole of it for one net."""
+`join_widths` is the width the joins are laid at, `pad_widths` each tap's, `drop_command` the repair call's command
+line, `pad_groups` reads the groups off a board (pcbnew), `tasks_to_pour` picks the tasks (pure), `new_vias` names
+the vias a call added, and `join_pour` runs the whole of it for one net."""
 from __future__ import annotations
 
 import copy
@@ -31,6 +33,9 @@ REPAIR_FLAGS = ("--nets", "--layers", "--via-size", "--via-drill", "--track-widt
                 "--max-track-width", "--escalation", "--no-fix-drc-settings", "--no-kicad-recheck", "--pads",
                 "--no-join-gate", "--no-own-pad-lift", "--net-clearances", "--max-iterations")
 TASK_FLAGS = ("--no-own-pad-lift",)
+# what a current net's drop call adds (route.py pour_flags_lacking, the listing's `flag_forms` and `pad_fields`)
+REPAIR_FORMS = (("--max-track-width", "per_layer"),)
+PAD_FIELDS = ("width",)
 
 
 @dataclass(frozen=True)
@@ -57,13 +62,14 @@ class PadGroup:
 
 
 def drop_command(python, router_dir, pcb_in, pcb_out, net: str, layers, *, track_width: float,
-                 via_size: float | None = None, via_drill: float | None = None, pads_file=None,
+                 layer_widths=None, via_size: float | None = None, via_drill: float | None = None, pads_file=None,
                  clearances_file=None, iterations: int | None = None) -> list:
     """The plane repair call for `net` on a board whose pours of it are zones. Taps (a via in the pad, or beside it
     with a track on `layers`) at the net class's via size and drill (left out when unknown: the repair then takes
-    the board's Default class) and `track_width`, which also caps the region joins (ruling S16). The repair takes
-    one width for every layer: join_pour gives it the widest of the joins' widths. `--escalation off`:
-    no via or clearance below the board's own (the repair's default 'fab' shrinks a tap's via to the fab floor).
+    the board's Default class) and `track_width`, which also caps the region joins (ruling S16). `layer_widths`
+    ((layer, mm), ...): each layer's own cap instead (the fork's per-layer `--max-track-width LAYER=MM,...`); the
+    repair routes at `track_width`, the widest, and lays each layer's copper at no more than its width.
+    `--escalation off`: no via or clearance below the board's own (the repair's default 'fab' shrinks a tap's via to the fab floor).
     `--no-fix-drc-settings`: the board's project rules are not rewritten (the default lowers them to what the repair
     used). `--no-kicad-recheck` and `--no-join-gate`: the repair lays no track for what is still split; join_pour
     routes it by tasks. `--no-own-pad-lift`: a footprint's own copper blocks every net (an antenna's GND pad is not
@@ -76,8 +82,9 @@ def drop_command(python, router_dir, pcb_in, pcb_out, net: str, layers, *, track
         cmd += ["--via-size", "%g" % via_size]
     if via_drill:
         cmd += ["--via-drill", "%g" % via_drill]
+    cap = ",".join("%s=%g" % (l, w) for l, w in layer_widths) if layer_widths else "%g" % track_width
     cmd += ["--track-width", "%g" % track_width, "--min-track-width", "%g" % track_width,
-            "--max-track-width", "%g" % track_width,
+            "--max-track-width", cap,
             "--escalation", "off", "--no-fix-drc-settings", "--no-kicad-recheck", "--no-join-gate",
             "--no-own-pad-lift"]
     if pads_file is not None:
@@ -108,6 +115,22 @@ def join_widths(ctx, net: str, width, layers, ends) -> tuple:
         from ..checks import COPPER_OZ
         return layer_widths(amps, layers, ctx.geometry, ctx.cfg.check_rise_c, COPPER_OZ), "current"
     return _class_widths(ctx.geometry, net, layers), "class"
+
+
+def pad_widths(ctx, net: str, width, layers, groups) -> list:
+    """The tap width of each pad of `groups` (PadGroups), in order: {"ref", "pad", ("fp",) "width", "by"}. A pad
+    at an end of a connection a current_paths phase leaves to this pour (`ctx.pour_currents`) is tapped at its
+    group's join width (join_widths over the group's pads), the widest layer's, which the drop call's per-layer cap
+    narrows on the other layers; any other pad at join_widths' for itself alone, the class width or the phase's own
+    `width`. The repair takes one tap width per pad (the fork's `--pads` `width`)."""
+    on = ctx.pour_currents.get(net) or {}
+    out = []
+    for g in groups:
+        group = join_widths(ctx, net, width, layers, [p.end() for p in g.pads])
+        for p in g.pads:
+            ws, by = group if p.end() in on else join_widths(ctx, net, width, layers, [p.end()])
+            out.append(dict(p.record(), width=round(max(w for _, w in ws), 4), by=by))
+    return out
 
 
 def main_group(groups):
@@ -251,7 +274,8 @@ def join_pour(ctx, board: Path, out: Path, net: str, width, layers, stem: str, p
     for every pad of the net. Returns (record, phase_run.TaskRun): {"net", "pads", "joined_before", "apart_before",
     "tapped", "vias": {"in_pad", "beside", "joins"}, "groups_left", "groups_after", "widths": {layer: mm} and
     "width_by" ("asked" | "current" | "class") of the drops and region joins, "task_width_by": the same for each
-    task, "tasks": [the router's record of each task]}; pads count those inside the board's outline, "tapped"
+    task, "pad_widths": pad_widths' for each pad apart, "tasks": [the router's record of each task]}; pads count
+    those inside the board's outline, "tapped"
     the pads apart before that the drops joined, "groups_left" the groups the tasks were given, "groups_after" the
     net's pad groups on `out` (route_calls' re-check compares it after the phase's later pour calls, ruling S22).
     Each task says its ends are apart (`apart`): KiCad's view decided it, and the router must not answer
@@ -269,14 +293,20 @@ def join_pour(ctx, board: Path, out: Path, net: str, width, layers, stem: str, p
     widths, width_by = join_widths(ctx, net, width, layers, [p.end() for p in apart or
                                                              [q for g in before for q in g.pads]])
     dropped, vias = inp, []
+    taps = pad_widths(ctx, net, width, layers, [g for g in before if not g.joined])
+    # a current net's drops: each layer capped at its own width and each pad tapped at its own (the fork's forms,
+    # route.pour_flags_lacking); any other net's keep the plain forms
+    per_layer = width_by == "current"
     if apart or len(before) > 1:          # a pad apart from the pour, or pieces of the pour apart
         dropped = fresh_output(ctx.work / (stem + "_drops.kicad_pcb"))
         pads_file = ctx.work / (stem + "_drops_pads.json")
-        pads_file.write_text(json.dumps([p.record() for p in apart], indent=1) + "\n")
+        pads_file.write_text(json.dumps([{k: v for k, v in t.items() if k != "by" and (per_layer or k != "width")}
+                                         for t in taps], indent=1) + "\n")
         nc = ctx.geometry.netclasses.get(net) or next(
             (c for c in ctx.geometry.netclasses.values() if c.name == "Default"), None)
         cmd = drop_command(ctx.rpy, ctx.router_dir, inp, dropped, net, layers,
-                           track_width=max(w for _, w in widths), via_size=nc.via_diameter if nc else None,
+                           track_width=max(w for _, w in widths), layer_widths=widths if per_layer else None,
+                           via_size=nc.via_diameter if nc else None,
                            via_drill=nc.via_drill if nc else None, pads_file=pads_file,
                            clearances_file=ctx.clearances_file, iterations=ctx.iterations)
         log = ctx.work / (stem + "_drops.log")
@@ -312,5 +342,5 @@ def join_pour(ctx, board: Path, out: Path, net: str, width, layers, stem: str, p
                        "beside": sum(1 for v in vias if v["tap"] and not v["in_pad"]),
                        "joins": sum(1 for v in vias if not v["tap"])},
               "groups_left": len(pending), "groups_after": groups_after, "widths": dict(widths), "width_by": width_by,
-              "task_width_by": task_by, "tasks": list(run.records)}
+              "task_width_by": task_by, "pad_widths": taps, "tasks": list(run.records)}
     return record, run

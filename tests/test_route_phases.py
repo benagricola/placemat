@@ -781,14 +781,22 @@ def test_a_pour_phase_joins_a_net_a_current_paths_phase_leaves_to_its_pour_at_it
     report = rig.route(*first, pours, pour_nets={"VIN"})
     calls = rig.calls()
     drops = next(c for c in calls if _drops(c))
-    for flag in ("--track-width", "--min-track-width", "--max-track-width"):
+    for flag in ("--track-width", "--min-track-width"):
         assert float(drops[drops.index(flag) + 1]) == pytest.approx(max(want.values()))
+    cap = drops[drops.index("--max-track-width") + 1]
+    taps = json.loads(open(drops[drops.index("--pads") + 1]).read())
+    if current:     # each layer capped at its own width, and the carrier pad apart tapped at the current width
+        assert cap == ",".join("%s=%g" % kv for kv in want.items())
+        assert taps == [{"ref": "U1", "pad": "3", "width": pytest.approx(max(want.values()))}]
+    else:           # the old forms: one number, and no width on a pad
+        assert float(cap) == pytest.approx(0.2) and taps == [{"ref": "U1", "pad": "3"}]
     (track,) = [c for c in calls if "--connections" in c and "VIN" in open(c[c.index("--connections") + 1]).read()]
     (task,) = json.loads(open(track[track.index("--connections") + 1]).read())
     assert task["widths"] == pytest.approx(want)
     (joined,) = report.phases[-1]["pour_joins"]
     by = "current" if current else "class"
     assert joined["widths"] == pytest.approx(want) and joined["width_by"] == by and joined["task_width_by"] == [by]
+    assert joined["pad_widths"] == [{"ref": "U1", "pad": "3", "width": pytest.approx(max(want.values())), "by": by}]
     if current:
         assert want["F.Cu"] > 0.2
 
@@ -848,6 +856,30 @@ def test_a_phase_naming_a_pour_net_drops_vias_first_then_routes_only_the_pads_st
             "vias": {"in_pad": 0, "beside": 0, "joins": 0}, "groups_left": 1}
     assert [t["status"] for t in joined["tasks"]] == ["routed"]
     assert [o["outcome"] for o in p["open"]] == ["routed"]          # the stand-in lays no copper
+
+
+@needs_kicad
+@pytest.mark.parametrize("current", [True, False])
+def test_a_router_without_the_per_layer_and_per_pad_widths_is_refused_only_for_a_current_pour_net(rig, current):
+    """Round 3: a pour net a current_paths phase leaves to its pour is joined with a width per layer and per pad;
+    a router without those forms is refused for it, and still routes a pour net that carries no stated current."""
+    from placemat.kicad.route import refused_text
+    from tests.phase_helpers import CAPABILITIES
+    caps = json.loads(json.dumps(CAPABILITIES))
+    del caps["flag_forms"], caps["pad_fields"]
+    (rig.router / "krt_capabilities.py").write_text("print(%r)\n" % json.dumps(caps))
+    _vin_pour(rig.pcb, 125.6, 127)
+    pours = {"name": "pours", "nets": ["VIN"]}
+    if not current:
+        assert rig.route(pours, pour_nets={"VIN"}).phases[0]["pour_joins"][0]["width_by"] == "class"
+        return
+    with pytest.raises(RouteRefused) as e:
+        rig.route({"name": "current", "current_paths": True, "width": "current"}, pours, pour_nets={"VIN"})
+    assert e.value.code == "router_old"
+    assert e.value.facts["missing"] == [{"module": "repair_planes.py", "flag": "--max-track-width", "form": "per_layer"},
+                                        {"module": "repair_planes.py", "pad_field": "width"}]
+    assert ("repair_planes.py --max-track-width as LAYER=MM, repair_planes.py --pads field 'width'"
+            in refused_text(e.value.code, e.value.facts))
 
 
 @needs_kicad

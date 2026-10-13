@@ -125,9 +125,13 @@ def refused_text(code: str, facts: dict) -> str:
                                            for t in facts["tasks"]))
 
     elif code == "router_old":
-        facts = dict(facts, missing=", ".join(
-            "%s %s" % (m["module"], m["flag"] if "flag" in m else "task field %r" % m["field"])
-            for m in facts["missing"]))
+        def said(m):
+            if "form" in m:
+                return "%s as %s" % (m["flag"], {"per_layer": "LAYER=MM"}.get(m["form"], m["form"]))
+            if "pad_field" in m:
+                return "--pads field %r" % m["pad_field"]
+            return m["flag"] if "flag" in m else "task field %r" % m["field"]
+        facts = dict(facts, missing=", ".join("%s %s" % (m["module"], said(m)) for m in facts["missing"]))
     elif code == "router_owned":
         facts = dict(facts, where="[route]" if facts.get("phase") is None else "phase %r" % facts["phase"])
     elif code == "capture":
@@ -1140,17 +1144,28 @@ def _router_lacks(rpy, router_dir_path, phases) -> list:
     return [m for m in router_capable(rpy, router_dir_path) if buses or not m.endswith(":--bus-nets")]
 
 
-def pour_flags_lacking(caps) -> list:
+def pour_flags_lacking(caps, current=False) -> list:
     """The flags a pour net's calls give the router (pour_join.REPAIR_FLAGS on its plane repair, TASK_FLAGS on its
     tasks) and the task fields its tasks carry (TASK_FIELDS, the listing's `task_fields`) that its capability listing
     (router_capabilities) does not have, as {"module", "flag"} or {"module", "field"} records; every one when it has
-    no listing."""
-    from .pour_join import REPAIR_FLAGS, TASK_FIELDS, TASK_FLAGS
-    flags = (caps or {}).get("flags") or {}
-    fields = ((caps or {}).get("task_fields") or {}).get("route.py") or ()
-    return [{"module": mod, "flag": f} for mod, want in (("repair_planes.py", REPAIR_FLAGS), ("route.py", TASK_FLAGS))
-            for f in want if f not in (flags.get(mod) or ())] + \
+    no listing. `current`: a pour net a current_paths phase leaves to its pour is joined too, whose drops take a
+    width per layer and per pad (pour_join.join_pour), so the plane repair's per-layer `--max-track-width`
+    (`flag_forms`, {"module", "flag", "form"}) and its `--pads` `width` (`pad_fields`, {"module", "pad_field"}) are
+    asked as well."""
+    from .pour_join import PAD_FIELDS, REPAIR_FLAGS, REPAIR_FORMS, TASK_FIELDS, TASK_FLAGS
+    caps = caps or {}
+    flags = caps.get("flags") or {}
+    fields = (caps.get("task_fields") or {}).get("route.py") or ()
+    out = [{"module": mod, "flag": f} for mod, want in (("repair_planes.py", REPAIR_FLAGS), ("route.py", TASK_FLAGS))
+           for f in want if f not in (flags.get(mod) or ())] + \
         [{"module": "route.py", "field": f} for f in TASK_FIELDS if f not in fields]
+    if current:
+        forms = (caps.get("flag_forms") or {}).get("repair_planes.py") or {}
+        pads = (caps.get("pad_fields") or {}).get("repair_planes.py") or ()
+        out += [{"module": "repair_planes.py", "flag": f, "form": form} for f, form in REPAIR_FORMS
+                if form not in (forms.get(f) or ())]
+        out += [{"module": "repair_planes.py", "pad_field": f} for f in PAD_FIELDS if f not in pads]
+    return out
 
 
 def new_error_count(before_json, after_json, is_real) -> int | None:
@@ -1368,7 +1383,7 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
                 on = pour_currents.setdefault(t.net, {})
                 for end in (tuple(t.start), tuple(t.end)):
                     on[end] = max(on.get(end, 0.0), t.amps)
-    lacking = pour_flags_lacking(caps) if chosen_pours else []
+    lacking = pour_flags_lacking(caps, current=bool(chosen_pours & set(pour_currents))) if chosen_pours else []
     if lacking:                     # a phase names a pour net: its calls need the router's plane repair flags
         raise RouteRefused("router_old", router=str(router_dir_path), missing=lacking)
     counted = excluded | (pours - chosen_pours)          # what the closure leaves out

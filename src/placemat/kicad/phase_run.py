@@ -1131,7 +1131,8 @@ def route_calls(ctx, index, phase, sel, board) -> PhaseOutcome:
                 _copy_project(got, nxt)
         elif call.kind == "pour":
             from .pour_join import join_pour
-            joined, run = join_pour(ctx, board, nxt, call.nets[0], own_width(phase, call), layers, stem, phase.name, common)
+            joined, run = join_pour(ctx, board, nxt, call.nets[0], own_width(phase, call), layers, stem, phase.name,
+                                    common)
             pour_joins.append(joined)
             pour_calls.append((call, stem, joined))
             out.summaries += [(phase.name, k, s) for s in run.summaries]
@@ -1184,7 +1185,8 @@ def route_calls(ctx, index, phase, sel, board) -> PhaseOutcome:
             if len(pad_groups(board, call.nets[0])) <= joined["groups_after"]:
                 continue
             nxt = ctx.work / (stem + "r.kicad_pcb")
-            again, run = join_pour(ctx, board, nxt, call.nets[0], own_width(phase, call), layers, stem + "r", phase.name, common)
+            again, run = join_pour(ctx, board, nxt, call.nets[0], own_width(phase, call), layers, stem + "r",
+                                   phase.name, common)
             joined["rejoin"] = again
             out.summaries += [(phase.name, len(calls) + rejoins, s) for s in run.summaries]
             connections = superseded(connections, run.records)      # the rejoin's answer stands
@@ -1354,9 +1356,9 @@ def judged_widths(phases, asked, final_judged) -> list:
                 continue
             low = min(r["min_mm"] for r in rows)
             line = {"net": o["net"], "stage": phase.name, "from": dict(o["from"]), "to": dict(o["to"]),
-                    "widths": dict(o["widths"]), "requested_mm": max(o["widths"].values()), "delivered_min_mm": low, "length_under_mm": None,
-                    "length_mm": None, "share": None, "declared": True, "max_a": None, "bottleneck_mm": low,
-                    "layers": rows, "source": "judged"}
+                    "widths": dict(o["widths"]), "requested_mm": max(o["widths"].values()), "delivered_min_mm": low,
+                    "length_under_mm": None, "length_mm": None, "share": None, "declared": True, "max_a": None,
+                    "bottleneck_mm": low, "layers": rows, "source": "judged"}
             key = _pair_key(o)
             if phase.name not in stages.setdefault(key, []):
                 stages[key].append(phase.name)

@@ -58,8 +58,11 @@ section for each hand-written pattern a newer form replaces.
   (by a thin join or a narrow stretch of the pour) is `under`, no longer clean. A phase with no width of its own
   (`nets`, a class, or `connections` at the class widths) that joins the net to its pour lays each group's task at
   the current width of the largest current ending on a pad of that group, and the class width for a group with
-  none; its drops and the joins of the pour's pieces take the widest of the groups apart. Each `pour_joins` record
-  gives the width as `widths`, `width_by` and `task_width_by`. Scripts need no change; such a net's phase closure
+  none. Its drops and the joins of the pour's pieces lay each layer at its own current width, and each pad apart is
+  tapped at its own width: a carrier pad at its group's current width, any other pad at the class width. This needs
+  the placemat fork's plane repair at 4a3f8791 or later (per-layer `--max-track-width`, a `width` on `--pads`
+  ends); an older one is refused as `router_old` for such a net. Each `pour_joins` record gives the widths as
+  `widths`, `width_by`, `task_width_by` and `pad_widths`. Scripts need no change; such a net's phase closure
   may read lower, and its pour joins are wider.
 
 - **Routing phases.** A connection the router answers `joined_narrow` is clean when placemat's own measure, along the

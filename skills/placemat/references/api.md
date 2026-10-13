@@ -3879,7 +3879,8 @@ gets a record, whichever call laid the copper (a later phase that asked no width
 `source` `judged`, `stage` the phase that asked it, `stages` every phase that asked that pad pair under its width
 (the record of the largest need stands for them, one record per connection), `from` and `to` its pads, `layers`
 ({`layer`, `need_mm`, `min_mm`, `by`}: `current` for a phase sized from currents, else `asked`), `requested_mm` and
-`delivered_min_mm`, `widths` (the widths asked of it), and null lengths. It replaces the per-call records of the
+`delivered_min_mm`, `widths` ({layer: mm}, every width asked of the connection, the layers it met included), and
+null lengths. It replaces the per-call records of the
 phases that asked it: the router's record of the same connection, a task call's record of its net when the call
 routed that connection, and a whole-net call's record of its net when every track that record counts under width
 (its `stretches`, {`layer`, `from`, `to`, `width_mm`}) lies on the joining path of such a connection. A whole-net
@@ -4015,9 +4016,14 @@ joined at its current width instead of the net class's whenever the phase that j
 (a `nets` or class phase with no `width`, or a `connections` phase whose tasks take the class widths). Each group's
 task takes the width the `current_paths` phase asks for the largest current among its connections that end on a
 pad of that group, on each of this phase's layers (IPC-2221 at `[check] rise_c`); a group with no such pad takes the
-net class's width, and a phase's own width stands over both. The drops and the joins of the pour's pieces take one
-width for the call, the widest of those of the groups apart from the pour (of every group when only the pour's
-pieces are apart). Which pads are joined is KiCad's judgement (its connectivity with the zones refilled), and each task
+net class's width, and a phase's own width stands over both. The drops and the joins of the pour's pieces are
+routed at the widest layer's width of the groups apart from the pour (of every group when only the pour's pieces
+are apart), and each layer's copper is laid at no more than that layer's own width. Each pad apart is tapped at its
+own width: a pad at an end of such a connection at its group's current width, any other pad (a decoupling
+capacitor's) at the net class's width or the phase's own; the per-layer width caps a tap too. This needs the placemat
+fork's plane repair with `--max-track-width` per layer and a `width` on each `--pads` end; a router without them is
+refused (`router_old`) when a phase joins such a net, and a pour net with no stated current keeps the single-width
+call. Which pads are joined is KiCad's judgement (its connectivity with the zones refilled), and each task
 tells the router so: the router routes it even where its own model takes the pads for joined, and answers `routed`
 only when its copper joins the task's ends; otherwise the task is `failed`, its `evidence.diagnosis`
 `joined_by_pour_only` (the router counted the ends joined through a pour KiCad does not) or
@@ -4093,7 +4099,8 @@ last phase's board is `router_out.kicad_pcb`, and `routed.kicad_pcb` is made fro
   task each); `groups_after` (its pad groups when the call was done); `widths` ({layer: mm}, the width its joins
   and the joins of the pour's pieces were laid at) and `width_by` (`asked`: the phase's own width; `current`: the
   current width of a net a `current_paths` phase leaves to its pour; `class`: the net class's track width);
-  `task_width_by` (the same, for each task in order); `tasks` (the
+  `task_width_by` (the same, for each task in order); `pad_widths` (each pad apart from the pour, {`ref`, `pad`,
+  `width` (mm, its tap's width), `by`}); `tasks` (the
   router's record of each task, as in `connections`); `rejoin`, a record of the same fields, when a later call of
   the phase split the net and it was joined once more; and `groups_final`, its pad groups when the phase was done.
   An open connection's `outcome` and `evidence` come from the latest task that answered it. The phase line says the
