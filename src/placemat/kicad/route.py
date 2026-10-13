@@ -1601,11 +1601,61 @@ def _pour_join_said(j) -> str:
     return out
 
 
+_RESTORED = {"blocked_not_clean": "not joined clean", "net_open_rose": "%s left with more open items",
+             "off_layer": "copper off its phase's layers",
+             "router_failed": "the router failed", "router_refused": "the router refused a task",
+             "router_timeout": "the router timed out"}
+_NOT_MOVED = {"too_many_victims": "too many nets named", "limit": "attempt limit", "tried": "same nets restored before",
+              "stopped": "an earlier attempt's router call failed", "victim_width_unknown": "a moved connection's width unknown",
+              "victim_end_not_pad": "a moved connection's end is no pad", "blocked_width_unknown": "width unknown",
+              "blocked_end_not_pad": "an end is no pad", "joined_since": "joined by an earlier attempt"}
+
+
+def _blocked_said(a: dict) -> str:
+    return ", ".join("%s %s-%s" % (b["net"], _phase_end(b["from"]), _phase_end(b["to"])) for b in a["blocked"])
+
+
+def _restored_why(a: dict) -> str:
+    """Why a rip attempt was restored, from its record."""
+    reason = a["reason"]
+    if reason == "obligation_worse" and a.get("worse"):
+        w = a["worse"][0]
+        return "%s %s-%s %s" % (w["net"], _phase_end(w["from"]), _phase_end(w["to"]),
+                                "would no longer be clean" if w["after"] == "joined" else "would be open")
+    if reason == "drc_new":
+        n = a.get("drc_new", 0)
+        return "%d new DRC error%s" % (n, "" if n == 1 else "s")
+    if reason == "net_open_rose":
+        return _RESTORED[reason] % next(iter(a.get("open_rose") or {"a net": 0}))
+    return _RESTORED.get(reason, reason.replace("_", " "))
+
+
+def _rip_said(p: dict) -> str:
+    """A phase's rip attempts and skipped nets as its line says them."""
+    out = ""
+    rip = p.get("rip") or {}
+    for a in rip.get("attempts") or ():
+        victims = ", ".join(a["victims"])
+        if a["kept"]:
+            owners = list(dict.fromkeys(r["phase"] for r in a["rerouted"]))
+            n = len(a["rerouted"])
+            out += "; moved earlier copper: %s joined after moving %s (%s, %d connection%s)" % (
+                _blocked_said(a), victims, ", ".join(owners), n, "" if n == 1 else "s")
+        else:
+            out += "; restored: %s after moving %s: %s" % (_blocked_said(a), victims, _restored_why(a))
+    for s in rip.get("skipped") or ():
+        if s["reason"] != "no_victim":
+            out += "; not moved for %s: %s" % (s["net"], _NOT_MOVED.get(s["reason"], s["reason"].replace("_", " ")))
+    return out
+
+
 def phase_lines(phases: list, without_copper=(), pour_routed_by=None) -> list:
     """Each phase's line. `pour_routed_by`: {pour net: the first phase that routes it in a pour call}
     (RouteReport.pour_routed_by); a net a phase left to its pour that a later phase routes says so."""
+    from .rip_reroute import moves_of
     out = []
     names = [p["name"] for p in phases]
+    ripped = [p if "rip" in p else dict(p, rip={"attempts": [], "skipped": []}) for p in phases]   # records of older runs
     for i, p in enumerate(phases):
         line = "phase %s (%s): %d of %d joined clean (%.1f%%), %.0f s%s" % (
             p["name"], p["selector"], p["joined"], p["asked"], 100 * p["closure_clean"], p["seconds"],
@@ -1647,6 +1697,14 @@ def phase_lines(phases: list, without_copper=(), pour_routed_by=None) -> list:
             line += "; " + _pour_join_said(j)
             if j.get("rejoin"):
                 line += "; %s split by a later call, joined again: %s" % (j["net"], _pour_join_said(j["rejoin"]))
+        line += _rip_said(p)
+        by_mover = {}
+        for j, r in moves_of(ripped, i):
+            nets = by_mover.setdefault(names[j], [])
+            if r["net"] not in nets:
+                nets.append(r["net"])
+        for mover, nets in by_mover.items():
+            line += "; moved by phase %s: %s" % (mover, ", ".join(nets))
         out.append(line)
     if without_copper:
         out.append("earlier phases with no copper on this board: " + ", ".join(without_copper))

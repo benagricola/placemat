@@ -231,3 +231,29 @@ def test_the_final_judgement_reads_an_earlier_phases_moved_records():
     assert rr.moved_records(phases, 0) == [moved] and rr.moved_records(phases, 2) == []
     # every earlier phase's rows of a moved net go, whichever phase owns the moved connection (finding F7)
     assert rr.moved_nets(phases) == {(0, "V"), (1, "V")}
+
+
+def test_the_phase_lines_say_what_was_moved_restored_and_not_tried():
+    from placemat.kicad.route import phase_lines
+    end = lambda r, p: {"ref": r, "pad": p}
+    kept = {"call": 1, "attempt": 0, "kept": True, "reason": None, "victims": ["V"],
+            "blocked": [{"net": "N", "from": end("J1", "2"), "to": end("U2", "1")}],
+            "rerouted": [{"net": "V", "phase": "legs", "index": 0}] * 6, "worse": []}
+    lost = {"call": 1, "attempt": 1, "kept": False, "reason": "obligation_worse", "victims": ["W"],
+            "blocked": [{"net": "M", "from": end("A", "1"), "to": end("B", "2")}], "rerouted": [],
+            "worse": [{"phase": "legs", "net": "W", "from": end("C", "1"), "to": end("D", "2"),
+                       "before": "clean", "after": "open"}]}
+    drc = dict(lost, attempt=2, reason="drc_new", drc_new=2, worse=[])
+    one = dict(lost, attempt=3, reason="drc_new", drc_new=1, worse=[])
+    skipped = [{"call": 1, "net": "K", "named": [], "not_ripped": [], "reason": "too_many_victims"},
+               {"call": 1, "net": "Q", "named": [], "not_ripped": [], "reason": "no_victim"}]
+    base = {"selector": "rest", "joined": 1, "asked": 2, "closure_clean": 0.5, "seconds": 3.0, "open": []}
+    lines = phase_lines([dict(base, name="legs", rip={"attempts": [], "skipped": []}),
+                         dict(base, name="signals", rip={"attempts": [kept, lost, drc, one], "skipped": skipped})])
+    assert lines[0].endswith("; moved by phase signals: V")
+    assert "; moved earlier copper: N J1.2-U2.1 joined after moving V (legs, 6 connections)" in lines[1]
+    assert "; restored: M A.1-B.2 after moving W: W C.1-D.2 would be open" in lines[1]
+    assert "after moving W: 2 new DRC errors" in lines[1]
+    assert "after moving W: 1 new DRC error" in lines[1] and "1 new DRC errors" not in lines[1]
+    assert "; not moved for K: too many nets named" in lines[1] and "for Q" not in lines[1]
+    assert "(" not in lines[1].split("; restored")[1]          # no bracketed plurals
