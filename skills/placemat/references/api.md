@@ -1566,13 +1566,7 @@ is judged as a board is ranked: it is kept when it walls fewer pads than the
 board before it, whatever else it costs, or walls as many and lowers the run
 score, its change worked out as the search works out a candidate's (wire,
 crossings, links, push, area, congestion and the escape grades); one that walls
-more is refused. The changes are made best first: each round scores every part's
-best move (its best spot by that ranking, so a move that unwalls a pad is the
-cheapest that does) and every offered swap against the board as it stands, and
-makes only the one that ranks the board highest, a tie going to the earlier part
-(moves in part order, then swaps). It stops when no change ranks above the board,
-or after `cleanup.passes` times the number of movable parts changes; `metrics.
-cleanup`'s `passes` counts the rounds. Under the pull estimate (`place.search_wire = "clique"`) it is
+more is refused. Under the pull estimate (`place.search_wire = "clique"`) it is
 kept only when the part's wire (the half-perimeter of its nets that pull) plus
 each declared link's weight times its length gets shorter. No change leaves a limited link over its limit and
 longer, a part turns only to rotations its declaration allows (all four when
@@ -5672,7 +5666,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `preview.px_per_mm` | `40.0` | px/mm | the preview PNG's resolution, pixels per millimetre of the drawing |
 | `preview.model_edge_px` | `1568` | pixels | the long edge, in pixels, an image is scaled to before the model reading it sees it - an assumption about that model, which placemat cannot know; the preview reports the resolution the model would then see. 0 reports nothing |
 | `cleanup.enabled` | `true` | bool | after the searched tier, move and swap plain searched parts where that shortens their wire and declared links |
-| `cleanup.passes` | `2` | count | passes over the movable parts; one that changes nothing ends it. Under the one-score search, which makes the best change first, at most this many times the movable parts' count of changes |
+| `cleanup.passes` | `2` | count | passes over the movable parts; one that changes nothing ends it |
 | `cleanup.search_radius` | `3.0` | mm | how far round its optimal region, and round where it stands, a part is searched |
 | `cleanup.search_step` | `0.5` | mm | that search's step |
 | `cleanup.swap_neighbours` | `4` | count | each part is offered a swap with this many of its nearest movable neighbours: both lifted, each searched round the other's old spot |
