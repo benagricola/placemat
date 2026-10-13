@@ -1561,15 +1561,22 @@ that joins them is planned, a cleanup pass revisits the plain searched parts:
 each is tried near the middle of what it connects to and round where it
 stands, identical parts (one courtyard, pad count and face) are tried in
 each other's places, and so are two neighbouring two-pad parts of any size (in
-any rotation each may take), keeping a change only when the part's wire (the
-half-perimeter of its nets that pull) plus each declared link's weight times
-its length gets shorter. No change leaves a limited link over its limit and
+any rotation each may take). Under the one-score search (the default) a change
+is judged as a board is ranked: it is kept when it walls fewer pads than the
+board before it, whatever else it costs, or walls as many and lowers the run
+score, its change worked out as the search works out a candidate's (wire,
+crossings, links, push, area, congestion and the escape grades); one that walls
+more is refused. Under the pull estimate (`place.search_wire = "clique"`) it is
+kept only when the part's wire (the half-perimeter of its nets that pull) plus
+each declared link's weight times its length gets shorter. No change leaves a limited link over its limit and
 longer, a part turns only to rotations its declaration allows (all four when
 it gave none), faces stay, and every placement is legal as a search's is. It leaves alone any part with a place of its own (`Near`, an edge, a row,
 a ring, a line), a block or cell member, a labelled part, and a part another
 declaration's place refers to. A moved step says `cleanup: moved D mm` or
 `swapped with K`; `metrics.cleanup` holds the moves, swaps and the cost
-before and after. On the module benchmark it made 21 of 32 modules better and
+before and after: the board's run score (its terms that move as parts move)
+under the one-score search, the wire and link cost above under the pull
+estimate. On the module benchmark it made 21 of 32 modules better and
 none worse, for about 1.7 times the placement's own time; `passes = 3, step =
 0.25` made 23 better for about 3 times, and `radius = 5.0` shortens the wire
 further (median 0.92 of the uncleaned against 0.95) at about 3 times.
@@ -2270,10 +2277,12 @@ radius) is refused at the declaration, not left to fail inside `resolve`.
 cost alongside its links and crossings - so the item moves as far out as
 its other terms allow, not to a hand-picked point. Several pushes on one
 item add their prices. The cleanup pass that follows the search (`cleanup.
-enabled`) does not weigh a push: it may move a pushed item to shorten
-wire, inside what the hard limit still forbids, but never past it - the
-reported value and distance are the search's, not necessarily the
-item's final, cleaned-up position.
+enabled`) weighs a push as the search does under the one-score search (the
+default): a move that lowers the run score with the push's price in it. Under
+the pull estimate it does not weigh a push: it may move a pushed item to
+shorten wire. Either way it stays inside what the hard limit forbids - the
+reported value and distance are the search's, not necessarily the item's
+final, cleaned-up position.
 
 **Order.** The source is placed first: pushing from an item that is
 itself searched waits for it, the same order dependency a position said
