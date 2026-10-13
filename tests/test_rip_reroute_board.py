@@ -46,3 +46,18 @@ def test_removing_a_victim_takes_its_router_copper_and_leaves_script_copper_and_
     assert not any(n == "FB" and e == (112.0, 110.0, 125.0, 110.0) for n, e in left)
     assert out.with_suffix(".kicad_pro").exists()
     assert copper_items(routed) - copper_items(out)        # the source board is not written
+
+
+@needs_kicad
+def test_a_pair_is_first_joined_on_the_first_board_whose_copper_joins_it(tmp_path):
+    pytest.importorskip("pcbnew")
+    boards = []
+    for i in range(3):
+        d = tmp_path / ("b%d" % i)
+        d.mkdir()
+        b = _two_part_board(d)
+        if i:
+            _add_track(b, "FB", (110, 110), (125, 110))
+        boards.append(b)
+    assert rr.first_joined([(("U1", "2"), ("J1", "1"))], boards) == [1]
+    assert rr.first_joined([(("U1", "2"), ("J1", "1"))], boards[:1]) == [None]

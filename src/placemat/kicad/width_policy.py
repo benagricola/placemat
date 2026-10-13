@@ -147,13 +147,9 @@ def resolve(rpy, router_dir, pcb, phases, selections, cfg, log: Path, env=None, 
         return failed("malformed", problem=e.problem, log=str(log))
 
 
-def apply(obligations, selections, phases, policy):
-    """The obligations with the router's widths. A phase with its own tasks keeps the tasks' widths (S9: a pour routes
-    at the widest task width, but each task's obligation keeps its own); any other obligation takes its net's width
-    in its phase, or none with `width_policy_unknown` and `width_policy_failure` {code, facts} saying why."""
-    if len(obligations) != len(selections) or len(selections) != len(phases):
-        raise ValueError("width policy obligation/selection/phase count mismatch")
-    failure = policy.get("failure")
+def entries(policy) -> dict:
+    """{(phase name, net): entry} of the answer's records; two records of one phase that disagree on a net's widths
+    make it {"status": "unknown", "widths": None, "conflict": True}."""
     records = {}
     for record in policy["policies"]:
         for net, entry in record["by_net"].items():
@@ -162,6 +158,17 @@ def apply(obligations, selections, phases, policy):
                 records[key] = {"status": "unknown", "widths": None, "conflict": True}
             elif key not in records:
                 records[key] = entry
+    return records
+
+
+def apply(obligations, selections, phases, policy):
+    """The obligations with the router's widths. A phase with its own tasks keeps the tasks' widths (S9: a pour routes
+    at the widest task width, but each task's obligation keeps its own); any other obligation takes its net's width
+    in its phase, or none with `width_policy_unknown` and `width_policy_failure` {code, facts} saying why."""
+    if len(obligations) != len(selections) or len(selections) != len(phases):
+        raise ValueError("width policy obligation/selection/phase count mismatch")
+    failure = policy.get("failure")
+    records = entries(policy)
     out = []
     for obs, sel, phase in zip(obligations, selections, phases):
         own = []

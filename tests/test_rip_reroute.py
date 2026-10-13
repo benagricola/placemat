@@ -85,3 +85,69 @@ def test_a_phases_settings_are_its_clearances_layers_and_flags(tmp_path, monkeyp
     assert got.clearances_file == tmp_path / "p0_1_rip0_v0_net_clearances.json" and got.clearances_file.exists()
     assert got.common["neckdown"] is False and got.common["extra_args"] == ("--via-cost", "9")
     assert got.common["clearances"] == got.clearances_file
+
+
+def _ob(net, a, b, widths=None):
+    return {"net": net, "from": {"ref": a[0], "pad": a[1]}, "to": {"ref": b[0], "pad": b[1]},
+            "widths": widths if widths is not None else {"F.Cu": 0.2, "B.Cu": 0.2}}
+
+
+def test_the_asked_moves_are_the_victims_joined_obligations_owned_by_the_earliest_phase_asking():
+    legs = [_ob("V", ("U1", "1"), ("J1", "1"), {"F.Cu": 1.2})]
+    signals = [_ob("V", ("J1", "1"), ("U1", "1")), _ob("V", ("U1", "1"), ("C1", "1")), _ob("V", ("C2", "1"), ("U1", "1")),
+               _ob("N", ("Q1", "1"), ("Q2", "1"))]
+    moves, why = rr.asked_moves({"V"}, [legs, signals], 1, [[True], [True, True, False, False]])
+    assert why is None
+    assert [(m.owner, m.obligation["to"]["ref"], m.asked) for m in moves] == [(0, "J1", True), (1, "C1", True)]
+    assert moves[0].obligation["widths"] == {"F.Cu": 1.2}
+
+
+def test_an_obligation_that_cannot_be_a_task_stops_the_moves():
+    assert rr.asked_moves({"V"}, [[_ob("V", ("U1", "1"), ("J1", "1"), {})]], 0, [[True]])[1] == "victim_width_unknown"
+    loose = dict(_ob("V", ("U1", "1"), ("J1", "1")), to={"ref": None, "pad": None, "at": [1.0, 2.0]})
+    assert rr.asked_moves({"V"}, [[loose]], 0, [[True]])[1] == "victim_end_not_pad"
+
+
+def test_joins_no_phase_asks_are_moved_too():
+    moves, _ = rr.asked_moves({"V"}, [[_ob("V", ("U1", "1"), ("J1", "1"))]], 0, [[True]])
+    open0 = [_ob("V", ("J1", "1"), ("U1", "1")), _ob("V", ("U1", "1"), ("R1", "2")), _ob("V", ("R1", "1"), ("R2", "1")),
+             _ob("W", ("A", "1"), ("B", "1"))]
+    got = rr.unasked_pairs({"V"}, open0, moves, [True, True, False, True])
+    assert [(o["from"]["ref"], o["to"]["ref"]) for o in got] == [("U1", "R1")]
+
+
+def test_a_phases_width_answer_for_a_net():
+    receipt = {"policies": [{"name": "signals", "kind": "nets",
+                             "by_net": {"V": {"status": "known", "widths": {"F.Cu": 0.5, "B.Cu": 0.5}},
+                                        "U": {"status": "unknown", "widths": None}}}]}
+    assert rr.receipt_widths(receipt, "signals", "V") == {"F.Cu": 0.5, "B.Cu": 0.5}
+    assert rr.receipt_widths(receipt, "signals", "U") is None and rr.receipt_widths(receipt, "legs", "V") is None
+    two = {"policies": receipt["policies"] + [{"name": "signals", "kind": "pairs",
+                                                "by_net": {"V": {"status": "known", "widths": {"F.Cu": 0.3, "B.Cu": 0.3}}}}]}
+    assert rr.receipt_widths(two, "signals", "V") is None          # two records disagree, as width_policy.apply reads it
+
+
+def test_a_moved_task_keeps_its_current():
+    from placemat.kicad.phase_select import Selection, Task
+    sel = Selection("legs", "current_paths", tasks=(Task("V", ("U1", "1"), ("J1", "1"), (("F.Cu", 1.2),), amps=2.0),),
+                    layers=("F.Cu",))
+    o = _ob("V", ("J1", "1"), ("U1", "1"), {"F.Cu": 1.2})
+    assert rr.task_amps(sel, o) == 2.0
+    assert rr.task_of(o, ("F.Cu",), amps=2.0).amps == 2.0
+    moves, _ = rr.asked_moves({"V"}, [[o]], 0, [[True]], selections=[sel])
+    assert moves[0].amps == 2.0
+
+
+def test_an_owners_calls_carry_its_widths_layers_and_buses():
+    from placemat.kicad.phase_run import PhaseSettings
+    from placemat.kicad.phase_select import Selection
+    sel = Selection("legs", "current_paths", buses=(("S", "T", "Q"), ("W", "X")), layers=("F.Cu",))
+    st = PhaseSettings({}, 0.2, None, {}, ("F.Cu",))
+    moves = [rr.Move(0, _ob("V", ("U1", "1"), ("J1", "1"), {"F.Cu": 1.2}), True),
+             rr.Move(0, _ob("S", ("U1", "4"), ("J1", "4"), {"F.Cu": 0.2}), True),
+             rr.Move(0, _ob("T", ("U1", "5"), ("J1", "5"), {"F.Cu": 0.2}), True),
+             rr.Move(0, _ob("W", ("U1", "6"), ("J1", "6"), {"F.Cu": 0.2}), True)]
+    calls = rr.owner_calls(sel, moves, st)
+    # a bus cut to one moved net (W) is no bus: W goes with the plain tasks
+    assert [(c.kind, c.nets, sorted(t.net for t in c.tasks)) for c in calls] == [
+        ("bus_tasks", ("S", "T"), ["S", "T"]), ("tasks", (), ["V"]), ("tasks", (), ["W"])]

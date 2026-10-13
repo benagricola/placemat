@@ -143,3 +143,101 @@ def remove_copper(src, dst, victims, script_keys) -> dict:
     with quiet_stderr():
         board.Save(str(dst))
     return dict(out, track_mm=round(mm, 3))
+
+
+@dataclass(frozen=True)
+class Move:
+    owner: int                  # the phase index whose settings it is rerouted at
+    obligation: dict            # {"net", "from", "to", "widths"}
+    asked: bool                 # an obligation of `owner`; False: a join no phase asks (spec, "unasked")
+    amps: float | None = None   # the owner task's current (current_paths), so the reroute's width rows say "current"
+
+
+def asked_moves(victims, asked, upto, joined, selections=None) -> tuple:
+    """The obligations of phases 0..upto on a victim net that are joined on the failing call's board (`joined[k]`,
+    aligned with `asked[k]`), each pad pair once, owned by the earliest phase that asks it (spec "The removed
+    connections"), each with the current of its owner's task (task_amps) when `selections` are given. (moves, None),
+    or ([], reason) when one cannot be a task: `victim_end_not_pad`, `victim_width_unknown`. pour_served obligations
+    are on pour nets, never victims."""
+    from .phase_run import _pair_key
+    out, seen = [], set()
+    for k in range(upto + 1):
+        for o, j in zip(asked[k], joined[k]):
+            if o["net"] not in victims or not j or o.get("pour_served"):
+                continue
+            key = _pair_key(o)
+            if key in seen:
+                continue
+            seen.add(key)
+            if not (o["from"].get("ref") and o["to"].get("ref")):
+                return [], "victim_end_not_pad"
+            if not o.get("widths"):
+                return [], "victim_width_unknown"
+            amps = task_amps(selections[k], o) if selections is not None else None
+            out.append(Move(k, {f: o[f] for f in ("net", "from", "to", "widths")}, True, amps))
+    return out, None
+
+
+def unasked_pairs(victims, input_open, moves, joined_on_board) -> list:
+    """The route's input-board open connections (`input_open`) on a victim net that are joined on the failing call's
+    board (`joined_on_board`, aligned) and whose pad pair no move has: joins a call made that no phase asks."""
+    from .phase_run import _pair_key
+    have = {_pair_key(m.obligation) for m in moves}
+    return [o for o, j in zip(input_open, joined_on_board)
+            if o["net"] in victims and j and o["from"].get("ref") and o["to"].get("ref") and _pair_key(o) not in have]
+
+
+def first_joined(pairs, boards) -> list:
+    """For each pad pair ((ref, pad[, fp]), (ref, pad[, fp])), the index of the first board in `boards` whose copper
+    joins it (phase_run.joined_pairs), or None."""
+    from .phase_run import joined_pairs
+    out = [None] * len(pairs)
+    for i, b in enumerate(boards):
+        todo = [n for n, v in enumerate(out) if v is None]
+        if not todo:
+            break
+        for n, j in zip(todo, joined_pairs(b, [pairs[n] for n in todo])):
+            if j:
+                out[n] = i
+    return out
+
+
+def receipt_widths(receipt, phase_name, net) -> dict | None:
+    """The router's width per layer for `net` in phase `phase_name` (kicad/width_policy.py's receipt), read as
+    width_policy.apply reads it (width_policy.entries); None when it has none, it is unknown, or two records
+    disagree."""
+    from .width_policy import entries
+    entry = entries(receipt).get((phase_name, net))
+    return dict(entry["widths"]) if entry and entry.get("status") == "known" else None
+
+
+def task_amps(sel, o) -> float | None:
+    """The current of the owner Selection's task with the obligation's pad pair (current_paths), else None."""
+    from .phase_run import _pair_key
+    from .phase_select import end_record
+    key = _pair_key(o)
+    for t in sel.tasks:
+        if _pair_key({"net": t.net, "from": end_record(t.start), "to": end_record(t.end)}) == key:
+            return t.amps
+    return None
+
+
+def task_of(o, layers, amps=None):
+    """An obligation as a --connections task, its widths in the layer order of the owner phase."""
+    from .phase_run import _end_pair
+    from .phase_select import Task
+    return Task(o["net"], _end_pair(o["from"]), _end_pair(o["to"]), tuple((l, o["widths"][l]) for l in layers), amps)
+
+
+def owner_calls(sel, moves, settings) -> list:
+    """An owner phase's calls for its moved connections: plan_calls on a Selection of just those tasks at its layers,
+    with its buses cut to the moved nets, so they group by (clearance, widths), widest clearance first, as its own task
+    calls do (phase_run.plan_calls)."""
+    from .phase_run import plan_calls
+    from .phase_select import Selection
+    tasks = tuple(task_of(m.obligation, settings.layers, m.amps) for m in moves)
+    nets = {t.net for t in tasks}
+    # a bus keeps only its moved nets; one with fewer than two is no bus, and its net goes with the plain tasks
+    buses = tuple(b for b in (tuple(n for n in bus if n in nets) for bus in sel.buses) if len(b) >= 2)
+    own = Selection(sel.phase, "rip", tasks=tasks, buses=buses, layers=settings.layers)
+    return plan_calls(own, settings.clearance_map, settings.base_clearance, set())
