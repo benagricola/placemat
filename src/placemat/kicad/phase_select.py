@@ -122,7 +122,16 @@ def layer_widths(amps: float, layers, geometry, rise_c: float, copper_oz: float)
 
 
 def _pads_on(fp, net) -> list:
-    return sorted({p.number for p in fp.pads if p.net == net}, key=lambda n: (len(n), n))
+    """`fp`'s pad numbers on `net`, one for each group of pads the part joins inside (`Footprint.jumper_groups`)."""
+    numbers = sorted({p.number for p in fp.pads if p.net == net}, key=lambda n: (len(n), n))
+    seen = set()
+    out = []
+    for n in numbers:
+        group = next((g for g in fp.jumper_groups if n in g), None)
+        if group is None or group not in seen:
+            out.append(n)
+            seen.add(group)
+    return out
 
 
 def current_tasks(geometry, nets, layers, rise_c, copper_oz) -> tuple:

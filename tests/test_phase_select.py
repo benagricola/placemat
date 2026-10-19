@@ -124,6 +124,13 @@ def test_current_tasks_span_every_pad_of_both_parts():
     assert {(t.start, t.end) for t in tasks} == {(("J1", "1"), ("Q2", "1")), (("J1", "1"), ("Q2", "2"))} and not missing
 
 
+def test_current_tasks_reach_one_pad_of_pads_the_part_joins_inside():
+    two = replace(footprint("Q2", 20, 10, nets=("VB", "VB"), fields={"Pm.I": "4A"}), jumper_groups=(("1", "2"),))
+    j1 = footprint("J1", 5, 10, nets=("VB", "GND"), fields={"Pm.I": "4A"})
+    tasks, missing = current_tasks(board_geometry([j1, two]), ["VB"], LAYERS, 10.0, 1.0)
+    assert [(t.start, t.end) for t in tasks] == [(("J1", "1"), ("Q2", "1"))] and not missing
+
+
 def test_a_pairs_selection_from_the_capture_lists_each_physical_pair_once():
     from placemat.capture_nets import Capture
     cap = Capture("x", "d", {"name": "g"}, frozenset({"interfaces"}), {}, {},

@@ -447,6 +447,38 @@ def _net_tie_groups(fp) -> tuple:
     return tuple(sorted(groups))
 
 
+def _jumper_groups(fp) -> tuple:
+    """The pad numbers of each group the part joins inside its package: its
+    jumper_pad_groups, and under duplicate_pad_numbers_are_jumpers each number
+    that several pads share. The groups are read from the footprint's own text
+    form (pcbnew's writer), as FOOTPRINT::JumperPadGroups comes back from the
+    bindings as a pointer Python cannot read. Only a footprint with two pads on
+    one net is read."""
+    import re
+    nets = [p.GetNetCode() for p in fp.Pads() if p.GetNetCode() > 0]
+    if len(nets) == len(set(nets)):
+        return ()
+    groups = set()
+    if fp.GetDuplicatePadNumbersAreJumpers():
+        numbers = [p.GetNumber() for p in fp.Pads() if p.GetNumber()]
+        groups |= {(n,) for n in numbers if numbers.count(n) > 1}
+    io = pcbnew.PCB_IO_KICAD_SEXPR()
+    io.Format(fp)
+    text = io.GetStringOutput(True)
+    start = text.find("(jumper_pad_groups")
+    if start >= 0:
+        depth = 0
+        for end in range(start, len(text)):
+            depth += {"(": 1, ")": -1}.get(text[end], 0)
+            if depth == 0:
+                break
+        for body in re.findall(r"\(([^()]*)\)", text[start + len("(jumper_pad_groups"):end]):
+            numbers = tuple(sorted(n for n in re.findall(r'"([^"]*)"', body) if n))
+            if len(numbers) >= 2:
+                groups.add(numbers)
+    return tuple(sorted(groups))
+
+
 def _footprint(board, fp, excess_mm, cell, err_nm: int = CLEAR_ERR_NM) -> Footprint:
     pos = fp.GetPosition()
     copper, copper_shapes = _copper_art(fp, err_nm)
@@ -461,6 +493,7 @@ def _footprint(board, fp, excess_mm, cell, err_nm: int = CLEAR_ERR_NM) -> Footpr
                      bom_excluded=fp.IsExcludedFromBOM(), board_only=fp.IsBoardOnly(),
                      net_tie_pads=frozenset(p.GetNumber() for p in fp.Pads() if fp.IsNetTie() and fp.GetNetTiePads(p)),
                      net_tie_groups=_net_tie_groups(fp),
+                     jumper_groups=_jumper_groups(fp),
                      models=_models(fp),
                      silk=_silk(fp, err_nm), mask=_mask(fp, err_nm), fab=_fab(fp),
                      copper=copper, copper_shapes=copper_shapes,

@@ -84,6 +84,7 @@ class Footprint:
     board_only: bool = field(default=False, compare=False)      # on the board only, not the schematic (FOOTPRINT::IsBoardOnly)
     net_tie_pads: frozenset = field(default=frozenset(), compare=False)   # pad numbers in a net-tie group (FOOTPRINT::GetNetTiePads)
     net_tie_groups: tuple = field(default=(), compare=False)   # the groups, each its pad numbers (FOOTPRINT::MapPadNumbersToNetTieGroups); () reads net_tie_pads as one
+    jumper_groups: tuple = field(default=(), compare=False)   # pad numbers the part joins inside its package, each group its numbers (KiCad 10 jumper_pad_groups; a number shared by several pads under duplicate_pad_numbers_are_jumpers is a group of its own)
     models: tuple = field(default=(), compare=False)   # ((file, offset xyz, rotation xyz, scale xyz, shown, opacity), ...): its 3D models
     courtyard_drawn: bool = field(default=True, compare=False)   # False when it draws none: courtyard_box is then its physical box (kicad/read.py courtyard_box)
     uuid: str = field(default="", compare=False)   # KiCad's own identity of the footprint (m_Uuid): tells apart two that share a reference
