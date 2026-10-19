@@ -5,6 +5,20 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## To 0.100.1
+
+### Changed
+
+- **Pads a part joins inside its package are one connection.** KiCad 10 footprints can name internal connections:
+  `(jumper_pad_groups ("1" "6") ("3" "4"))`, or `(duplicate_pad_numbers_are_jumpers yes)` for pads sharing a number
+  (from a symbol's `jumper_pin_groups`). A flow-through ESD array is one: its in and out pins carry one net and meet
+  inside the package. The routing phases reach one pad of each group, and the router counts a group's pads as
+  connected: it reports no open between them and lays no copper bridging them outside the package. A differential
+  pair through such a part routes up to one side and on from the other. Before, the pair was reported open at the
+  part and the router bridged the pins on the board. Nothing in a script changes. A part without groups in its
+  symbol is routed as before; add the groups to the symbol (or footprint) and update the PCB to use them. Needs the
+  router at fork commit 8167c1c2 or later.
+
 ## To 0.100.0
 
 ### New
