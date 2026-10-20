@@ -1,7 +1,8 @@
 # A tagged release (v0.31.0, ...): the suite with and without the native
 # module, then prebuilt native wheels for Linux (x86_64, aarch64) and Apple
 # Silicon, placemat's own wheel and sdist, all attached to the tag's GitHub
-# Release. An existing tag can also be rebuilt with workflow_dispatch.
+# Release. An existing tag can also be rebuilt with workflow_dispatch, with
+# the suite skipped when skip_tests is set.
 name: release
 
 on:
@@ -13,6 +14,11 @@ on:
         description: Existing release tag to build and publish (v0.100.0, ...)
         required: true
         type: string
+      skip_tests:
+        description: Build and publish without running the suite
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -30,6 +36,7 @@ env:
 
 jobs:
   test:
+    if: ${{ !inputs.skip_tests }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -72,6 +79,7 @@ jobs:
 
   native-wheels:
     needs: test
+    if: ${{ !cancelled() && (needs.test.result == 'success' || needs.test.result == 'skipped') }}
     strategy:
       matrix:
         include:
@@ -102,6 +110,7 @@ jobs:
 
   placemat:
     needs: test
+    if: ${{ !cancelled() && (needs.test.result == 'success' || needs.test.result == 'skipped') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -117,6 +126,7 @@ jobs:
 
   release:
     needs: [native-wheels, placemat]
+    if: ${{ !cancelled() && needs.native-wheels.result == 'success' && needs.placemat.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
