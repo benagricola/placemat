@@ -242,7 +242,10 @@ impl Env<'_, '_> {
             return Ok(false);
         }
         let tie = self.tie_of(net, None, None);
-        let ring = Item { shape: shape(Kind::Copper, 0, self.board_layers, net, "via", ring, true, tie), extra: Extra::default() };
+        let ring = Item {
+            shape: shape(Kind::Copper, 0, self.board_layers, net, "via", ring, true, tie),
+            extra: Extra::default(),
+        };
         let hole = Item {
             shape: shape(Kind::Hole, 3, 0, net, "via", circle_polygon(at, drill / 2.0), false, None),
             extra: Extra::default(),
@@ -1327,9 +1330,29 @@ pub type PyFrame = (P, P, bool, bool);
 /// router's grid step, the lanes' copper layer as a bit and its faces, every copper layer as bits, the board's, the
 /// cap steps of a track's end, how far from a box another's copper is looked for).
 pub type PyEnv = (f64, f64, f64, f64, u32, u8, u32, u32, usize, f64);
+/// The boxes of the places a layout asked the board about, kept to say whether a candidate that changes the board comes
+/// near any of them (`layout._asked_near`).
+#[pyclass]
+pub struct Asked {
+    boxes: Vec<Bounds>,
+}
+
+#[pymethods]
+impl Asked {
+    /// Whether any of the boxes lies within `reach` of any of `changed`.
+    fn near(&self, changed: Vec<Bounds>, reach: f64) -> bool {
+        self.boxes.iter().any(|&b| changed.iter().any(|&c| crate::shapes::box_overlaps(b, c, reach)))
+    }
+
+    /// The boxes, as (left, top, right, bottom).
+    fn boxes(&self) -> Vec<Bounds> {
+        self.boxes.clone()
+    }
+}
+
 /// What comes of a layout: (whether it could not be laid out, the lanes blocked, the boxes asked about), and with
 /// `full` each lane's (number, points, tracks, via, whether blocked).
-pub type PyLaid = (bool, usize, Vec<Bounds>, Option<Vec<(String, Vec<P>, Vec<(P, P)>, Option<P>, bool)>>);
+pub type PyLaid = (bool, usize, Asked, Option<Vec<(String, Vec<P>, Vec<(P, P)>, Option<P>, bool)>>);
 
 #[allow(clippy::too_many_arguments)]
 pub fn lay_out(
@@ -1376,10 +1399,46 @@ pub fn lay_out(
             let lanes = full.then(|| {
                 laid.lanes.iter().map(|l| (l.number.clone(), l.points.clone(), l.tracks.clone(), l.via, l.blocked)).collect()
             });
-            Ok(Some((false, laid.blocked(), asked, lanes)))
+            Ok(Some((false, laid.blocked(), Asked { boxes: asked }, lanes)))
         }
-        Err(Failure::Refused(Refused::Escape)) => Ok(Some((true, 0, asked, None))),
+        Err(Failure::Refused(Refused::Escape)) => Ok(Some((true, 0, Asked { boxes: asked }, None))),
         Err(Failure::Refused(Refused::Unsupported)) => Ok(None),
         Err(Failure::Python(e)) => Err(e),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_coordinate_is_rounded_away_from_the_row_to_the_nanometre() {
+        assert_eq!(away(1.0000004, 1.0), 1.000001);
+        assert_eq!(away(1.0000004, -1.0), 1.0);
+        assert_eq!(away(1.0 + 1e-10, 1.0), 1.0, "float noise under 1e-9 mm is not rounded up");
+    }
+
+    #[test]
+    fn a_right_angle_is_cut_back_along_both_legs_and_a_short_leg_cuts_less() {
+        let corner = [(0.0, 0.0), (2.0, 0.0), (2.0, 2.0)];
+        assert_eq!(chamfer_cuts(&corner, 0.5), vec![(0.0, 0.0), (1.5, 0.0), (2.0, 0.5), (2.0, 2.0)]);
+        assert_eq!(chamfer_cuts(&corner, 5.0), vec![(0.0, 0.0), (1.0, 0.0), (2.0, 1.0), (2.0, 2.0)]);
+        assert_eq!(chamfer_cuts(&corner, 0.0), corner.to_vec());
+        let diagonal = [(0.0, 0.0), (1.0, 1.0), (2.0, 1.0)];
+        assert_eq!(chamfer_cuts(&diagonal, 0.5), diagonal.to_vec(), "a turn made of 45s is drawn as meant");
+    }
+
+    #[test]
+    fn a_polyline_has_a_leg_for_each_pair_of_points_that_differ() {
+        assert_eq!(legs(&[(0.0, 0.0), (0.0, 0.0), (1.0, 0.0)]), vec![((0.0, 0.0), (1.0, 0.0))]);
+        assert!(legs(&[(1.0, 1.0)]).is_empty());
+    }
+
+    #[test]
+    fn a_lane_runs_along_an_axis_or_at_45_by_the_distance_asked() {
+        assert_eq!(run((1.0, 1.0), (0.0, -1.0), 2.0), (1.0, -1.0));
+        assert_eq!(run((1.0, 1.0), (-1.0, 0.0), 2.0), (-1.0, 1.0));
+        let (x, y) = run((0.0, 0.0), (SQ2 / 2.0, SQ2 / 2.0), 2.0);
+        assert!((x - SQ2).abs() < 1e-12 && (y - SQ2).abs() < 1e-12);
     }
 }

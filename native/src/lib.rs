@@ -448,11 +448,13 @@ struct NativeHeld {
 #[pymethods]
 impl NativeHeld {
     #[new]
-    #[pyo3(signature = (shapes, extras, reach, touch, vias_block_courtyards, silk_clearance, component_spacing, default_clearance, net_clearance, hole_to_hole, hole_clearance, epsilon, rules=None, tie_epsilon=0.0005, ties=None))]
+    #[pyo3(signature = (shapes, extras, holes, bare, reach, touch, vias_block_courtyards, silk_clearance, component_spacing, default_clearance, net_clearance, hole_to_hole, hole_clearance, epsilon, rules=None, tie_epsilon=0.0005, ties=None))]
     #[allow(clippy::too_many_arguments)]
     fn new(
         shapes: Vec<PyShape>,
         extras: Vec<PyExtra>,
+        holes: Vec<lanes::Hole>,
+        bare: Vec<lanes::Bare>,
         reach: f64,
         touch: f64,
         vias_block_courtyards: bool,
@@ -475,19 +477,24 @@ impl NativeHeld {
             rules, gap: 0.0, drawn_gap: 0.0, hole_to_hole, hole_clearance, max_clearance, epsilon,
             tie_eps: tie_eps(tie_epsilon),
         };
-        Ok(NativeHeld { held: std::sync::Arc::new(lanes::Held::new(items, cfg, reach)) })
+        Ok(NativeHeld { held: std::sync::Arc::new(lanes::Held::new(items, holes, bare, cfg, reach)) })
     }
 
-    /// This board less the shapes at `hidden` (indices into `shapes`) and with `shapes` more.
-    #[pyo3(signature = (hidden, shapes, extras, ties=None))]
-    fn view(&self, hidden: Vec<usize>, shapes: Vec<PyShape>, extras: Vec<PyExtra>, ties: Option<PyTies>)
+    /// This board less the shapes at `hidden` (indices into `shapes`), the holes at `hidden_holes` and the unplated
+    /// ones at `hidden_bare`, and with `shapes`, `holes` and `bare` more.
+    #[pyo3(signature = (hidden, shapes, extras, hidden_holes, holes, hidden_bare, bare, ties=None))]
+    #[allow(clippy::too_many_arguments)]
+    fn view(&self, hidden: Vec<usize>, shapes: Vec<PyShape>, extras: Vec<PyExtra>, hidden_holes: Vec<usize>,
+            holes: Vec<lanes::Hole>, hidden_bare: Vec<usize>, bare: Vec<lanes::Bare>, ties: Option<PyTies>)
         -> PyResult<NativeLaneView> {
         let items = build_items(&shapes, extras, ties)?;
-        Ok(NativeLaneView { view: lanes::View::new(self.held.clone(), &hidden, items) })
+        Ok(NativeLaneView {
+            view: lanes::View::new(self.held.clone(), &hidden, items, &hidden_holes, holes, &hidden_bare, bare),
+        })
     }
 }
 
-/// What a via's site is judged against beside the copper (`Board._via_obstacles`).
+/// The areas that forbid a via's site (`Board._via_obstacles`).
 #[pyclass]
 struct NativeViaObstacles {
     obs: lanes::ViaObstacles,
@@ -496,10 +503,9 @@ struct NativeViaObstacles {
 #[pymethods]
 impl NativeViaObstacles {
     #[new]
-    fn new(holes: Vec<(f64, f64, f64, String)>, bare: Vec<(f64, f64, f64)>, forbidding: Vec<(Vec<Point>, Vec<String>)>)
-        -> Self {
+    fn new(forbidding: Vec<(Vec<Point>, Vec<String>)>) -> Self {
         let forbidding = forbidding.into_iter().map(|(poly, allowed)| (poly, allowed.into_iter().collect())).collect();
-        NativeViaObstacles { obs: lanes::ViaObstacles { holes, bare, forbidding } }
+        NativeViaObstacles { obs: lanes::ViaObstacles { forbidding } }
     }
 }
 
@@ -1495,6 +1501,7 @@ fn placemat_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<NativeViaObstacles>()?;
     m.add_class::<NativeLaneView>()?;
     m.add_class::<lane_layout::Rules>()?;
+    m.add_class::<lane_layout::Asked>()?;
     m.add_class::<NativeSweepSeen>()?;
     m.add_class::<NativeBoard>()?;
     m.add_class::<NativeRatsnest>()?;

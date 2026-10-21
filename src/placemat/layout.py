@@ -4461,12 +4461,16 @@ class Board:
         fp = self.geometry.footprint(decl.part)
         if placement is None:
             g = occ.items[fp.ref]
+            cache = self.__dict__.setdefault("_escape_parts_cache", {})         # the part as it stands, for every candidate
+            hit = cache.get((decl.index, id(g)))
+            if hit is not None and hit[0] is g:
+                return hit[1]
             shapes, rotation, face, body = g.shapes, g.reference.rotation, g.reference.face, g.body.center
         else:
             shapes = occ.shifted_shapes(fp, placement)
             rotation, face = placement.rotation, placement.face
             body = occ.shifted_body_box(fp, placement).center
-        pads: dict = {}
+        pads = _Pads()
         for s in shapes:
             if s.kind in ("pad", "through") and s.owner == fp.ref:
                 pads.setdefault(s.label, []).append(s)
@@ -4480,6 +4484,10 @@ class Board:
                 way = ((box.center.x - body.x) / d, (box.center.y - body.y) / d)
             return (round(way[0], 6) + 0.0, round(way[1], 6) + 0.0)
         axis, lands = row_way(decl.key, list(decl.pins), boxes, way_of)
+        if placement is None:
+            if len(cache) > 64:
+                cache.clear()
+            cache[(decl.index, id(g))] = (g, (pads, axis, lands, face))
         return pads, axis, lands, face
 
     def _escape_layout(self, occ, decl: EscapeDecl, placement=None, *, context=None, asked=None):
@@ -6908,7 +6916,12 @@ class Board:
         # clearance from the hole's edge as well as the hole-to-hole rule
         bare = [(sh.box.center, sh.box.width) for o, g in occ.items.items() if o not in occ.pending
                 for sh in g.shapes if sh.kind == "npth"]
-        # (polygon, layers, the nets it lets through): a keepout's allow= lets its nets' vias stand in it
+        return holes, bare, self._via_forbidding(ctx)
+
+    def _via_forbidding(self, ctx) -> list:
+        """The keepouts and rule areas that forbid a via, as (polygon, layers, the nets it lets through)."""
+        occ = ctx.occ
+        # a keepout's allow= lets its nets' vias stand in it
         forbidding = [(k.poly, k.layers, frozenset(k.allow)) for k in (ctx.plan.keepouts.values() if ctx.plan else ())
                       if "vias" in k.excludes]
         forbidding += [(area.polygon, area.layers, area.source.allow)
@@ -6916,7 +6929,7 @@ class Board:
                        if "vias" in area.source.excludes]
         forbidding += [(ra.polygon, ra.layers, ra.allow) for ra in self.geometry.rule_areas
                        if ra.cell is None and "vias" in ra.excludes]
-        return holes, bare, forbidding
+        return forbidding
 
     def _via_off_board(self, occ, box: Box) -> Refusal | None:
         """Why a via whose copper lies in `box` may not stand where it does for the board's edge and cutouts, or None."""
@@ -12608,22 +12621,25 @@ class _Riding:
 
 
 _UNSET = object()
+
+
+class _Pads(dict):
+    """The pads of an escape's part by number (`Board._escape_parts`), and `native`, what a native layout is handed of them."""
+    native = None
 _CONFLICT_MEMO = 400_000       # answers kept for escape layouts before they are dropped and asked afresh
 
 
 def _asked_near(asked, changed, hull, reach: float) -> bool:
-    """Whether any of the `changed` boxes (their union `hull`) comes within `reach` of an `asked` box."""
+    """Whether any of the `changed` boxes (their union `hull`) comes within `reach` of an `asked` box. `asked` holds boxes,
+    and the native layout's `Asked` of the boxes it asked about."""
     if not changed:
         return False
-    near = [b for b in asked if b.overlaps(hull, gap=reach)]
-    return any(b.overlaps(c, gap=reach) for b in near for c in changed)
-
-
-def _native_obstacles(obstacles: tuple) -> tuple:
-    """`Board._via_obstacles` as `LaneView.via_obstacles` takes it."""
-    holes, bare, forbidding = obstacles
-    return ([(c.x, c.y, dia, hole_net) for c, dia, _, hole_net in holes], [(c.x, c.y, width) for c, width in bare],
-            [(list(poly), list(allowed)) for poly, _, allowed in forbidding])
+    boxes = [b for b in asked if isinstance(b, Box)]
+    near = [b for b in boxes if b.overlaps(hull, gap=reach)]
+    if any(b.overlaps(c, gap=reach) for b in near for c in changed):
+        return True
+    moved = [(c.left, c.top, c.right, c.bottom) for c in changed]
+    return any(a.near(moved, reach) for a in asked if not isinstance(a, Box))
 
 
 def _lane_rules(board: "Board"):
@@ -12692,6 +12708,9 @@ class _LaneEnv:
         shape = _shape_of(op)
         if self.asked is not None:
             self.asked.append(shape.box)
+        view = self._native()
+        if view is not None and view.copper_free(shape) and not self._beside(shape):
+            return []
         return list(self.occ.copper_conflicts(shape)) + self._beside(shape)
 
     def _beside(self, shape: Shape) -> list:
@@ -12702,8 +12721,9 @@ class _LaneEnv:
         if self.ref in occ.pending:                     # a candidate: its own pads are not in the occupancy yet
             out += [why for o in self.own if (why := occ._conflict(shape, o, None, exact=True))]
         if self._holes is None:                         # the placed items' unplated holes, in the items' order
-            self._holes = [o for ref, g in occ.items.items() if ref not in occ.pending
-                           for o in g.shapes if o.kind == "npth"]
+            view = self._native()
+            self._holes = view.npth if view is not None else [o for ref, g in occ.items.items() if ref not in occ.pending
+                                                              for o in g.shapes if o.kind == "npth"]
         for o in self._holes:
             if shape.box.overlaps(o.box, gap=occ._copper_reach):
                 why = occ._conflict(shape, o, None, exact=True)
@@ -12730,19 +12750,20 @@ class _LaneEnv:
         d = layouter.decl
         decl = (list(d.pins), d.turn is not None, list(d.vias), d.depth, d.run, list(d.widths), list(d.pairs), d.chamfer,
                 list(d.chamfers.items()), d.via_size, d.via_drill)
-        pads = [(n, [(list(sh.poly), (sh.box.left, sh.box.top, sh.box.right, sh.box.bottom), sh.net, sh.owner)
-                     for sh in shapes]) for n, shapes in layouter.pads.items()]
-        if self._obstacles is None:
-            self._obstacles = board._via_obstacles(ctx)
+        pads = getattr(layouter.pads, "native", None)
+        if pads is None:
+            pads = [(n, [(list(sh.poly), (sh.box.left, sh.box.top, sh.box.right, sh.box.bottom), sh.net, sh.owner)
+                         for sh in shapes]) for n, shapes in layouter.pads.items()]
+            if isinstance(layouter.pads, _Pads):
+                layouter.pads.native = pads
         if self._native_obstacles is None:
-            self._native_obstacles = view.via_obstacles(*_native_obstacles(self._obstacles))
+            self._native_obstacles = view.via_obstacles(board._via_forbidding(ctx))
         layer, faces = _native_layers(frozenset([self.layer])), _native_faces(
             frozenset([self.layer.face]) if self.layer.face else frozenset())
         env = (self.step, self.reach, self.hole_to_hole, self.grid_step, layer, faces, _native_layers(frozenset(CopperLayer)),
                _native_layers(frozenset(board.geometry.layers)), active().geometry_cap_steps, occ._copper_reach)
-        if self._holes is None:                         # the placed items' unplated holes, in the items' order
-            self._holes = [o for ref, g in occ.items.items() if ref not in occ.pending
-                           for o in g.shapes if o.kind == "npth"]
+        if self._holes is None:
+            self._holes = view.npth
 
         def off_board(left, top, right, bottom):
             return board._via_off_board(occ, Box(left, top, right, bottom)) is not None
@@ -12751,7 +12772,7 @@ class _LaneEnv:
                             sorted(occ._tie_nets) if occ._tie_refs else None,
                             self.own if self.ref in occ.pending else [], self._holes, self._native_obstacles, off_board, full)
         if laid is not None and self.asked is not None:
-            self.asked.extend(Box(*b) for b in laid[2])
+            self.asked.append(laid[2])
         return laid
 
     def free(self, op) -> bool:
@@ -12778,11 +12799,8 @@ class _LaneEnv:
             self.asked.append(box)
         if board._via_off_board(self.occ, box) is not None:
             return False
-        if self._obstacles is None:
-            self._obstacles = board._via_obstacles(ctx)
         if self._native_obstacles is None:
-            holes, bare, forbidding = self._obstacles
-            self._native_obstacles = view.via_obstacles(*_native_obstacles(self._obstacles))
+            self._native_obstacles = view.via_obstacles(board._via_forbidding(ctx))
         return view.via_free(Shape("via", "copper", frozenset(), frozenset(board.geometry.layers), net, ring, box, wire=True),
                              hole_shape("via", at, drill, net), self._native_obstacles, at, net, size, drill)
 

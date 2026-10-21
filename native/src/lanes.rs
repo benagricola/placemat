@@ -45,19 +45,26 @@ pub enum Pool {
     Hole,
 }
 
-/// The shapes of a board as the escape layouts ask of them, in a grid.
+/// A drilled hole: its centre, diameter and net (`Board._via_obstacles`).
+pub type Hole = (f64, f64, f64, String);
+/// An unplated hole: its centre and diameter.
+pub type Bare = (f64, f64, f64);
+
+/// The shapes of a board as the escape layouts ask of them, in a grid, and its drilled holes.
 pub struct Held {
     grid: ShapeGrid,
     extra: Vec<Extra>,
     cfg: ConflictConfig,
     /// `Occupancy._copper_reach`: how far from a box another's copper is looked for.
     reach: f64,
+    holes: Vec<Hole>,
+    bare: Vec<Bare>,
 }
 
 impl Held {
-    pub fn new(items: Vec<Item>, cfg: ConflictConfig, reach: f64) -> Held {
+    pub fn new(items: Vec<Item>, holes: Vec<Hole>, bare: Vec<Bare>, cfg: ConflictConfig, reach: f64) -> Held {
         let (shapes, extra): (Vec<Shape>, Vec<Extra>) = items.into_iter().map(|i| (i.shape, i.extra)).unzip();
-        Held { grid: ShapeGrid::new(shapes), extra, cfg, reach }
+        Held { grid: ShapeGrid::new(shapes), extra, cfg, reach, holes, bare }
     }
 
     pub fn cfg(&self) -> &ConflictConfig {
@@ -65,11 +72,25 @@ impl Held {
     }
 }
 
-/// A `Held` board less the shapes at `hidden` and with `extras` more.
+/// A `Held` board less the shapes and holes that are hidden and with some more.
 pub struct View {
     held: Arc<Held>,
     hidden: Vec<bool>,
     extras: Vec<Item>,
+    hidden_holes: Vec<bool>,
+    holes: Vec<Hole>,
+    hidden_bare: Vec<bool>,
+    bare: Vec<Bare>,
+}
+
+fn mask(len: usize, hidden: &[usize]) -> Vec<bool> {
+    let mut mask = vec![false; len];
+    for &i in hidden {
+        if let Some(m) = mask.get_mut(i) {
+            *m = true;
+        }
+    }
+    mask
 }
 
 fn within(a: Bounds, b: Bounds, gap: f64) -> bool {
@@ -77,14 +98,12 @@ fn within(a: Bounds, b: Bounds, gap: f64) -> bool {
 }
 
 impl View {
-    pub fn new(held: Arc<Held>, hidden: &[usize], extras: Vec<Item>) -> View {
-        let mut mask = vec![false; held.grid.shapes.len()];
-        for &i in hidden {
-            if let Some(m) = mask.get_mut(i) {
-                *m = true;
-            }
+    pub fn new(held: Arc<Held>, hidden: &[usize], extras: Vec<Item>, hidden_holes: &[usize], holes: Vec<Hole>,
+               hidden_bare: &[usize], bare: Vec<Bare>) -> View {
+        View {
+            hidden: mask(held.grid.shapes.len(), hidden), extras, hidden_holes: mask(held.holes.len(), hidden_holes),
+            holes, hidden_bare: mask(held.bare.len(), hidden_bare), bare, held,
         }
-        View { held, hidden: mask, extras }
     }
 
     pub fn cfg(&self) -> &ConflictConfig {
@@ -231,12 +250,9 @@ fn read_shape(s: &Shape) -> Option<Vec<K>> {
     Some(ties::move_shapes(shapes, m))
 }
 
-/// What a via's site is judged against beside the copper (`Board._via_obstacles`): the centre, diameter and net of
-/// every drilled hole, the centre and diameter of every unplated one, and the outline and the nets let through of
-/// every area that forbids vias.
+/// What a via's site is judged against beside the copper and the holes of the board (`Board._via_obstacles`): the
+/// outline and the nets let through of every area that forbids vias.
 pub struct ViaObstacles {
-    pub holes: Vec<(f64, f64, f64, String)>,
-    pub bare: Vec<(f64, f64, f64)>,
     pub forbidding: Vec<(Vec<Point>, HashSet<String>)>,
 }
 
@@ -251,7 +267,9 @@ pub fn via_site_free(view: &View, ring: &Item, hole: &Item, c: Point, net: &str,
     }
     let cfg = view.held.cfg();
     let (hole_to_hole, hole_clearance) = (cfg.hole_to_hole, cfg.hole_clearance);
-    for (x, y, dia, hole_net) in &obs.holes {
+    let held = &*view.held;
+    let holes = held.holes.iter().zip(&view.hidden_holes).filter(|(_, hidden)| !**hidden).map(|(h, _)| h);
+    for (x, y, dia, hole_net) in holes.chain(&view.holes) {
         let d = exact::hypot(c.0 - x, c.1 - y);
         if d - (drill + dia) / 2.0 < hole_to_hole - 1e-9 {
             return false;
@@ -260,7 +278,8 @@ pub fn via_site_free(view: &View, ring: &Item, hole: &Item, c: Point, net: &str,
             return false;
         }
     }
-    for (x, y, dia) in &obs.bare {
+    let bare = held.bare.iter().zip(&view.hidden_bare).filter(|(_, hidden)| !**hidden).map(|(b, _)| b);
+    for (x, y, dia) in bare.chain(&view.bare) {
         let d = exact::hypot(c.0 - x, c.1 - y);
         if d - (drill + dia) / 2.0 < hole_to_hole - 1e-9 || d - (size + dia) / 2.0 < hole_clearance - 1e-9 {
             return false;

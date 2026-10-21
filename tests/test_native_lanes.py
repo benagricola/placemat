@@ -1,9 +1,16 @@
 """An escape's layout asks the board whether a lane's track or a via's site meets anything placed, thousands of times; the
 native module answers from a grid of the board's pads and copper (native/src/lanes.rs). For tracks and vias of every
 angle and size over parts, tracks, vias, pours, holes, a net tie and a rule area that forbids vias, the answer is the one
-`Occupancy.copper_conflicts` and `Board._via_site_why` give, on the board itself and on the view a candidate makes of it."""
+`Occupancy.copper_conflicts` and `Board._via_site_why` give, on the board itself and on the view a candidate makes of it.
+
+The native module lays the escape out too (native/src/lane_layout.rs), when the search prices a candidate by the lanes it
+blocks. For every kind of escape (a row turned across, at a corner, not at all, with vias that jog, pairs, a part turned
+45, a pin drawn as two lands) on the board as it stands and with a part in each of many places, it lays out the lanes
+Layouter.lay_out does, to the last bit, finds the same of them blocked, and asks about the same places.
+`PLACEMAT_LANE_FUZZ=N` runs N random declarations in place of the default 48."""
 import dataclasses
 import math
+import os
 import random
 
 import pytest
@@ -15,7 +22,7 @@ from placemat.occupancy import Occupancy, ban_shape, hole_shape
 from placemat.placement import Placement
 from placemat.score_delta import Delta
 from placemat.settings import Settings
-from placemat.values import CopperLayer, Face, Location, Part
+from placemat.values import Box, CopperLayer, Face, Location, Part
 from tests.conftest import needs_native
 from tests.fixtures import board_geometry, footprint, pad
 from tests.test_pad_on_pad_edge import _part, _tie
@@ -173,6 +180,38 @@ def test_a_candidate_view_is_asked_as_the_board_it_is():
             assert native.copper_free(shape) == (not view.copper_conflicts(shape)), (at, op)
 
 
+def test_a_via_site_on_a_candidate_view_is_judged_against_the_holes_it_moves():
+    from tests.escape_fixtures import board_with
+    th = dataclasses.replace(footprint("T1", 50.0, 50.0, w=3.0, h=1.0, nets=("VOUT", "SENSE"), through=True),
+                             npth=((Location(50.0, 51.5), 0.8),))
+    fixed = dataclasses.replace(footprint("T2", 36.0, 33.0, w=3.0, h=1.0, nets=("A", "B"), through=True),
+                                npth=((Location(36.0, 34.4), 0.7),))
+    b = board_with([qfn(nets=PD_NETS), th, fixed], keep_going=True)
+    for inst, at in (("pd", (30, 30)), ("t1", (50, 50)), ("t2", (36, 33))):
+        b.place(Part(inst), at=Location(*at))
+    plan = b.resolve()
+    occ = plan.occupancy
+    occ.add_copper(_via("E", (33.0, 29.0)))
+    item = b.geometry.footprint("T1")
+    occ.lift({"T1"})
+    delta = Delta(b, occ, item, plan.links, plan=plan)
+    rnd = random.Random(3)
+    seen = {True: 0, False: 0}
+    for _ in range(12):
+        at = Placement(Location(rnd.uniform(26, 38), rnd.uniform(26, 38)), rnd.choice([0.0, 90.0]), Face.FRONT)
+        view, _, _ = delta._view(at)
+        ctx = _CopperContext(b, view)
+        env = _LaneEnv(b, view, type("Decl", (), {"ref": "ZZ"})(), {}, Face.FRONT, context=ctx)
+        assert env._native() is not None
+        for _ in range(60):
+            where = Location(at.location.x + rnd.uniform(-3, 3), at.location.y + rnd.uniform(-3, 3))
+            size, drill = rnd.choice([(0.45, 0.2), (0.6, 0.3), (0.8, 0.4)])
+            want = env.via_site(where, "E", size, drill) is None
+            seen[want] += 1
+            assert env.via_free(where, "E", size, drill) == want, (at, where, size)
+    assert seen[True] > 20 and seen[False] > 20, seen
+
+
 def _moved(op, dx, dy):
     if isinstance(op, Track):
         return dataclasses.replace(op, start=Location(op.start.x + dx, op.start.y + dy),
@@ -214,7 +253,10 @@ def _both(board, occ, decl, placement=None, context=None):
                 got = _signature(layouter.lay_out())
             except EscapeError:
                 got = "refused"
-        mine.append((got, sorted({(b.left, b.top, b.right, b.bottom) for b in asked})))
+        boxes = set()
+        for a in asked:
+            boxes.update(a.boxes() if not isinstance(a, Box) else [(a.left, a.top, a.right, a.bottom)])
+        mine.append((got, sorted(boxes)))
     return mine
 
 
@@ -226,7 +268,10 @@ def _same(a, b, why):
 def _fan(turned, extra=(), **kw):
     """The QFN-56 (turned 45 or not) with a pad part to move about, as a board and the part; `extra` parts are placed
     where they are drawn."""
-    cap = one_pad("C1", "c1", "GND", 20.0, 20.0, other=("BYP", 0.9, 0.0))
+    cap = dataclasses.replace(one_pad("C1", "c1", "GND", 20.0, 20.0, other=("BYP", 0.9, 0.0)),
+                              npth=((Location(20.0, 21.2), 0.5),))
+    peg = dataclasses.replace(one_pad("P1", "p1", "PEG", 22.6, 31.4), npth=((Location(23.3, 31.9), 0.6),))
+    extra = (peg, *extra)
     if turned:
         b = board_with([qfn56(), cap, *extra], track=TRACK56, clearance=CLEAR56, keep_going=True, **kw)
         b.place(Part("mcu"), at=Location(30, 30), rotation=45)
@@ -286,6 +331,16 @@ def _scenes():
         b.escape(Part("mcu"), [5, 6, 7], turn=Edge.SOUTH, depth=0.6, vias=[6], why="a part turned 45, a set depth")
         return b, cap
     add("turned-depth", deep, (28.0, 36.0, 28.0, 40.0))
+
+    def corner_pin():
+        from tests.test_escape_corner_pin import corner_qfn
+        cap = one_pad("C1", "c1", "GND", 20.0, 20.0, other=("BYP", 0.9, 0.0))
+        b = board_with([corner_qfn(), cap], keep_going=True)
+        b.place(Part("pd"), at=Location(30, 30))
+        b.place(Part("c1"), at=Location(20.0, 20.0))
+        b.escape(Part("pd"), [24, 23, 22], turn=Edge.NORTH, vias=[23], why="a pin drawn as two lands")
+        return b, cap
+    add("corner-pin", corner_pin, (31.5, 38.0, 22.0, 29.0))
 
     def south():
         b, cap = _fan(False, via_size=0.45, via_drill=0.20)
@@ -379,3 +434,94 @@ def test_the_lanes_blocked_at_a_placement_of_the_part_are_counted_as_python_coun
     monkeypatch.setattr(Occupancy, "lane_view", lambda self: None)
     assert native == prices()
     assert len(set(native)) > 1, native
+
+
+ROWS = {"south": range(1, 15), "east": range(15, 29), "north": range(29, 43), "west": range(43, 57)}
+
+
+def _random_scene(rnd):
+    """A QFN-56 (turned 45 or not) with a random escape declared on one of its rows, and a pad part to move about: the board,
+    or None where the declaration is refused or does not resolve."""
+    turned = rnd.random() < 0.4
+    via = rnd.choice([(0.45, 0.20), (0.5, 0.25), (0.6, 0.3)])
+    cap = one_pad("C1", "c1", "GND", 20.0, 20.0, other=("BYP", 0.9, 0.0))
+    kw = dict(track=TRACK56, clearance=CLEAR56, keep_going=True, via_size=via[0], via_drill=via[1])
+    if turned:
+        b = board_with([qfn56(), cap], **kw)
+        b.place(Part("mcu"), at=Location(30, 30), rotation=45)
+    else:
+        b = board_with([qfn56(), cap], **kw)
+        b.place(Part("mcu"), at=Location(30, 30))
+    b.place(Part("c1"), at=Location(20.0, 20.0))
+    row = list(ROWS[rnd.choice(sorted(ROWS))])
+    n = rnd.randint(1, 5)
+    first = rnd.randrange(0, len(row) - n + 1)
+    pins = row[first:first + n]
+    if rnd.random() < 0.5:
+        pins = pins[::-1]
+    opts = dict(turn=rnd.choice([None, Edge.NORTH, Edge.EAST, Edge.SOUTH, Edge.WEST, Corner.NE, Corner.NW, Corner.SE,
+                                 Corner.SW]))
+    if rnd.random() < 0.6:
+        opts["vias"] = rnd.sample(pins, rnd.randint(1, len(pins)))
+    if rnd.random() < 0.3:
+        opts["depth"] = rnd.choice([0.3, 0.6, 1.0])
+    if rnd.random() < 0.3:
+        opts["run"] = rnd.choice([0.5, 1.0, 2.0])
+    if rnd.random() < 0.3:
+        opts["widths"] = {rnd.choice(pins): rnd.choice([0.1, 0.2, 0.3])}
+    if rnd.random() < 0.3:
+        opts["chamfer"] = rnd.choice([0.0, 0.1, 0.3])
+    if len(pins) > 1 and opts["turn"] is not None and rnd.random() < 0.3:
+        order = sorted(pins, key=lambda p: pins.index(p))
+        k = rnd.randrange(len(order) - 1)
+        opts["pairs"] = [(order[k], order[k + 1])]
+    try:
+        b.escape(Part("mcu"), pins, why="random", **opts)
+        b.resolve()
+    except (ValueError, EscapeError):
+        return None
+    return b, (turned, pins, opts)
+
+
+@pytest.mark.parametrize("seed", range(int(os.environ.get("PLACEMAT_LANE_FUZZ", "48"))))
+def test_a_native_layout_is_the_layout_python_makes_for_any_declaration(seed):
+    rnd = random.Random(1000 + seed)
+    made = _random_scene(rnd)
+    if made is None:
+        pytest.skip("the declaration is refused or does not resolve")
+    b, what = made
+    plan = b.resolve()
+    occ = plan.occupancy
+    decl = b._escapes[0]
+    item = b.geometry.footprint("C1")
+    occ.lift({"C1"})
+    delta = Delta(b, occ, item, plan.links, plan=plan)
+    _same(*_both(b, occ, decl), "the board as it stands %r" % (what,))
+    for _ in range(12):
+        at = Placement(Location(rnd.uniform(20.0, 40.0), rnd.uniform(20.0, 40.0)), rnd.choice([0.0, 90.0]), Face.FRONT)
+        view, _, _ = delta._view(at)
+        _same(*_both(b, view, decl, context=_CopperContext(b, view)), "a pad part at %r, %r" % (at.location, what))
+
+
+def test_without_the_native_module_a_candidate_is_priced_as_with_it(monkeypatch):
+    from placemat import geometry
+    from types import SimpleNamespace
+    b, cap = _fan(False)
+    b.escape(Part("mcu"), [44, 45, 46, 47], turn=Corner.NW, vias=[45], why="west fan")
+    b.settings = dataclasses.replace(b.settings, score_escape_lane=1.0)
+    plan = b.resolve()
+    occ = plan.occupancy
+    item = b.geometry.footprint("C1")
+    occ.lift({"C1"})
+    rnd = random.Random(11)
+    spots = [Placement(Location(rnd.uniform(21.5, 27.5), rnd.uniform(26.0, 36.0)), rnd.choice([0.0, 90.0]), Face.FRONT)
+             for _ in range(30)]
+
+    def counts():
+        delta = Delta(b, occ, item, plan.links, plan=plan)
+        return [b._lanes_blocked_each(delta._view(at)[0], plan) for at in spots]
+    with_native = [{k: v[0] for k, v in each.items()} for each in counts()]
+    monkeypatch.setattr(geometry, "_native", None)
+    without = [{k: v[0] for k, v in each.items()} for each in counts()]
+    assert with_native == without
+    assert any(n for each in with_native for n in each.values())

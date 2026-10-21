@@ -117,12 +117,49 @@ def _native_extra(s: Shape) -> tuple:
             tuple(s.circle) if s.circle else None, drawn)
 
 
+class _LaneHoles:
+    """The drilled holes (kind "hole") or the unplated ones (kind "npth") of a board's items and copper, as a via's site is
+    judged against them (`Board._via_obstacles`): each as (x, y, diameter, net), and where the shapes of an item or the
+    copper of an owner stand among them."""
+
+    def __init__(self, kind: str):
+        self.kind = kind
+        self.circles: list = []
+        self.at: dict = {}              # an item's ref -> where its holes stand among the circles
+        self.copper_at: dict = {}       # the owner of copper -> where its holes stand
+        self.of: dict = {}
+
+    def add(self, owner: str, sh: Shape, copper: bool = False) -> None:
+        """`sh` of `owner`, an item or (with `copper`) the owner of copper, if it is a hole of this kind."""
+        if sh.kind != self.kind:
+            return
+        c = sh.box.center
+        if sh.kind == "hole":                   # the circle the polygon was drawn from: its box is short of it when turned
+            self.circles.append((c.x, c.y, 2 * max(math.dist((c.x, c.y), p) for p in sh.poly), sh.net))
+        else:
+            self.circles.append((c.x, c.y, sh.box.width))
+        (self.copper_at if copper else self.at).setdefault(owner, []).append(len(self.circles) - 1)
+        if not copper:
+            self.of.setdefault(owner, []).append(sh)
+
+    def slots(self, owners, copper: bool = False) -> list:
+        """Where the holes of the items `owners`, or with `copper` the copper of those, stand among the circles."""
+        at = self.copper_at if copper else self.at
+        return [i for o in owners for i in at.get(o, ())]
+
+    def shapes(self, skip=()) -> list:
+        """The shapes of the owners but `skip`."""
+        return [sh for o, shapes in self.of.items() if o not in skip for sh in shapes]
+
+
 class LaneView:
     """A board as an escape's layout asks of it (`Occupancy.lane_view`): whether a lane's track or a via's site meets
-    anything placed, answered natively with the answer `copper_conflicts` and `Board._via_site_why` give."""
+    anything placed, answered natively with the answer `copper_conflicts` and `Board._via_site_why` give. `npth` are the
+    placed items' unplated holes."""
 
     def __init__(self, occ: "Occupancy", view):
         self.occ, self.view = occ, view
+        self.npth: list = []
 
     def copper_free(self, shape: Shape) -> bool:
         """Whether `copper_conflicts(shape)` finds nothing."""
@@ -131,10 +168,10 @@ class LaneView:
                                      _native_extra(shape), occ._native_ties([shape]))
 
     @staticmethod
-    def via_obstacles(holes: list, bare: list, forbidding: list):
-        """What `via_free` judges a via's site against beside the copper: the (x, y, diameter, net) of each drilled hole,
-        the (x, y, diameter) of each unplated one, the (outline, nets let through) of each area that forbids vias."""
-        return _geometry_module._native.NativeViaObstacles(holes, bare, forbidding)
+    def via_obstacles(forbidding: list):
+        """What `via_free` judges a via's site against beside the copper and the board's holes: the (outline, nets let
+        through) of each area that forbids vias."""
+        return _geometry_module._native.NativeViaObstacles([(list(poly), list(allowed)) for poly, _, allowed in forbidding])
 
     @staticmethod
     def rules(clearance, width, pair_gap):
@@ -1218,7 +1255,7 @@ class Occupancy:
         copper in the pool}, what it stands on), cached while the board is as it was; None without a native module
         that has one, or where a shape in the pool is one it cannot hold."""
         native = _geometry_module._native
-        if native is None or not hasattr(native, "NativeHeld"):
+        if native is None or not (hasattr(native, "NativeHeld") and hasattr(native, "Rules")):
             return None
         stand = self._lane_stand()
         hit = self._native_obstacle_cache.get(_LANE_KEY)
@@ -1228,20 +1265,26 @@ class Occupancy:
         slots: dict = {}
         copper: dict = {}
         n = 0
+        holes, bare = _LaneHoles("hole"), _LaneHoles("npth")
         for owner, g in self.items.items():
             if owner not in self.pending:
                 for o in g.shapes:
                     if o.kind in _COPPERISH:
                         slots.setdefault(owner, []).append(n)
                         n += 1
+                    holes.add(owner, o)
+                    bare.add(owner, o)
         for k, o in enumerate(self.copper):
             copper.setdefault(o.owner, []).append(n + k)
+            if o.owner not in self.pending:
+                holes.add(o.owner, o, True)
         shapes, extras, ties = self._lane_shapes(pool)
         try:
-            held = native.NativeHeld(shapes, extras, self._copper_reach, ties=ties, **self._lane_kwargs())
+            held = native.NativeHeld(shapes, extras, holes.circles, bare.circles, self._copper_reach, ties=ties,
+                                     **self._lane_kwargs())
         except ValueError:
             held = None
-        entry = (held, pool, slots, copper, stand)
+        entry = (held, pool, slots, copper, stand, holes, bare)
         self._native_obstacle_cache[_LANE_KEY] = entry
         return entry if held is not None else None
 
@@ -1261,18 +1304,32 @@ class Occupancy:
         entry = base._lane_base()
         if entry is None:
             return None
-        hidden, extras = [], []
+        hidden, extras, hidden_holes, holes, hidden_bare, bare = [], [], [], _LaneHoles("hole"), [], _LaneHoles("npth")
+        npth = entry[6].shapes()
         if over is not None:
             _, geometries, copper, owners = over
             changed = (base.pending - self.pending) | set(geometries)
-            _, _, slots, held_copper, _ = entry
+            _, _, slots, held_copper, _, held_holes, held_bare = entry
             hidden = [i for ref in changed for i in slots.get(ref, ())] + [i for o in owners for i in held_copper.get(o, ())]
             if len(self.copper) != len(base.copper) - sum(len(held_copper.get(o, ())) for o in owners) + len(copper):
                 return None                 # the view was changed after it was made
-            extras = [o for ref in changed if ref not in self.pending and ref in self.items
-                      for o in self.items[ref].shapes if o.kind in _COPPERISH] + list(copper)
+            here = [(ref, self.items[ref].shapes) for ref in changed if ref not in self.pending and ref in self.items]
+            extras = [o for _, shapes in here for o in shapes if o.kind in _COPPERISH] + list(copper)
+            hidden_holes = held_holes.slots(changed) + held_holes.slots(owners, True)
+            hidden_bare = held_bare.slots(changed)
+            for ref, shapes in here:
+                for o in shapes:
+                    holes.add(ref, o)
+                    bare.add(ref, o)
+            for o in copper:
+                if o.owner not in self.pending:
+                    holes.add(o.owner, o, True)
+            npth = held_bare.shapes(changed) + bare.shapes()
         shapes, extra, ties = self._lane_shapes(extras)
-        return LaneView(self, entry[0].view(hidden, shapes, extra, ties))
+        view = LaneView(self, entry[0].view(hidden, shapes, extra, hidden_holes, holes.circles, hidden_bare,
+                                            bare.circles, ties))
+        view.npth = npth
+        return view
 
     def copper_through(self, shape: Shape) -> list:
         """The copper of other nets `shape` overlaps or touches: placed pads and planned copper that have a net, as shapes. Not a

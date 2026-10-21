@@ -941,7 +941,6 @@ class Layouter:
             if getattr(lane, "blocked_why", None):
                 geom.blocked.append(lane.blocked_why)
             for op in (*tracks, *((via,) if via else ())):
-                if not env.free(op):
-                    geom.blocked += env.hits(op)
+                geom.blocked += env.hits(op)
             out[n] = geom
         return Layout(out, list(self.order))
