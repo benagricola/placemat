@@ -935,7 +935,7 @@ def phase_record(phase, index, sel, obligations, judged, seconds, calls, pairs=N
 def open_connections(pcb_path, drc_json) -> list:
     """Each connection the DRC reports open (`unconnected_items`), named by its two ends' pads. KiCad gives each item's
     uuid; a pad end is that pad, a track, via or zone end is the first pad (by ref, pad) joined to it through copper
-    (CONNECTIVITY_DATA.GetConnectedPads), and an end that is no pad and joins none is {"ref": None, "pad": None,
+    (CONNECTIVITY_DATA.GetConnectedItems: the whole copper the item is part of), and an end that is no pad and joins none is {"ref": None, "pad": None,
     "at": [x, y]} (mm, the DRC's position). A pad end of a footprint whose reference another footprint shares also
     names the footprint's uuid, {"ref", "pad", "fp"}. The net is the item's own, never read from the description. Ends
     are in (ref, pad) order."""
@@ -973,7 +973,8 @@ def open_connections(pcb_path, drc_json) -> list:
             return "", loose
         if it.GetClass() == "PAD":
             return it.GetNetname(), named(key(it))
-        joined = sorted(key(p) for p in cn.GetConnectedPads(it))
+        # GetConnectedPads gives only the pads the item touches itself; a lane's leg past its riser touches none
+        joined = sorted(key(p) for p in cn.GetConnectedItems(it) if p.GetClass() == "PAD")
         return it.GetNetname(), (named(joined[0]) if joined else loose)
 
     out = []

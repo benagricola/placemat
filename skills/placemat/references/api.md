@@ -726,7 +726,12 @@ neither along a board axis nor at 45 to them is refused.
   steps use that size). The vias are placed innermost lane first, each at the first spot along its lane, from the row's turn-side end,
   that keeps the clearance from every pad of the part, every other lane and
   the vias already placed, and from what is placed on the board (the edge,
-  other nets' copper, holes, keepouts). A lane with none ends level with
+  other nets' copper, holes, keepouts). Where no spot within
+  `place.escape_via_reach` keeps clear of what is placed, the via stands at the
+  first spot clear of the part's pads and the other vias, and the lane is an
+  `escape_lane` finding; a via left there that would stand on another net's
+  copper is not drawn (a `copper` finding names what it would stand on), nor is
+  a track that ends on it. A lane with none ends level with
   the outermost via, or one step past the row's turn-side end where the
   escape has none; `run=` (mm past that end, or each 45's length) sets the
   end of such lanes instead.
