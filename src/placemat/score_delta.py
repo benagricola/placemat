@@ -52,7 +52,8 @@ class Delta:
         self.cross_prices = tuple(p * cfg.score_crossing for p in prices_of(cfg)[:4]) + (cfg.score_pair_crossing,)
         self.base_link = score._links_mm(board, occ, plan, self.links)
         self.base_push = score._pushes(board, occ, plan)
-        self.base_lane = board._declared_lanes_blocked(occ, plan)
+        self.lanes_each = board._lanes_blocked_each(occ, plan) if board._escapes else {}
+        self.base_lane = sum(n for n, _ in self.lanes_each.values())
         self.others_box = score._placed_content(occ, plan)
         self.base_area = score._frame_area(board, occ, plan)
         if board.settings.score_congestion_step and self._congestion_frame is None:
@@ -137,6 +138,19 @@ class Delta:
             view.__dict__.pop(key, None)
         return view, geometries, copper
 
+    def _lanes_blocked(self, view, geometries, copper) -> int:
+        """The declared escapes' blocked lanes on a candidate's view: an escape the candidate comes nowhere near keeps
+        its count on the lifted board."""
+        if not self.board._escapes:
+            return 0
+        owners = self.occ._geometry(self.item).owners
+        changed = [sh.box for g in geometries.values() for sh in g.shapes] + [sh.box for sh in copper]
+        changed += [sh.box for sh in self.occ.copper if sh.owner in owners]
+        name = getattr(self.item, "name", None)
+        for areas in (view._cell_rule_areas.get(name, ()), self.occ._cell_rule_areas.get(name, ())):
+            changed += [Box.of_points(area.polygon) for area in areas]
+        return self.board._declared_lanes_blocked(view, self.plan, base=self.lanes_each, changed=changed)
+
     def _candidate_ratsnest(self, added, changed):
         """Reuse the proved sparse trees rather than rebuilding every MST.
 
@@ -209,7 +223,7 @@ class Delta:
                  'link': cfg.score_link * (link - self.base_link[0]),
                  'link_over': cfg.score_link_over * (excess - self.base_link[1]),
                  'push': cfg.score_push * (score._pushes(self.board, view, self.plan) - self.base_push),
-                 'escape_lane': cfg.score_escape_lane * (self.board._declared_lanes_blocked(view, self.plan)
+                 'escape_lane': cfg.score_escape_lane * (self._lanes_blocked(view, geometries, copper)
                                                         - self.base_lane),
                  'area': 0.0, 'congestion': 0.0}
         if self.board._fit:

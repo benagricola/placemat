@@ -13,6 +13,7 @@ from __future__ import annotations
 import dataclasses
 import functools
 from contextlib import contextmanager
+import contextlib
 import math
 import types
 from dataclasses import dataclass, field
@@ -1078,6 +1079,21 @@ class Occupancy:
         one (the NPTH branch of `_conflict`), as KiCad's DRC does. Placement's own questions keep to pads and copper."""
         kinds = ("pad", "through", "copper", "hole", "npth") if check else ("pad", "through", "copper")
         out = []
+        held = self.__dict__.get("_held_pools")
+        if held is not None:
+            memo, hs = self._held_memo, hash((shape, check))
+            for o in self._held_pool(held, kinds).near(shape.box, self._copper_reach):
+                if o is shape:
+                    continue
+                hit = memo.get((hs, id(o)))
+                if hit is not None and hit[1] is o and hit[0] == (shape, check):
+                    why = hit[2]
+                else:
+                    why = self._conflict(shape, o, None, exact=True, check=check)
+                    memo[(hs, id(o))] = ((shape, check), o, why)
+                if why:
+                    out.append(why)
+            return out
         for owner, g in self.items.items():
             if owner in self.pending:
                 continue                        # not placed yet: its pads are nowhere
@@ -1095,10 +1111,53 @@ class Occupancy:
                 out.append(why)
         return out
 
+    @contextlib.contextmanager
+    def held(self, memo: dict | None = None):
+        """While the board is not changed: `copper_conflicts` and `hole_conflicts` read an index of the placed shapes
+        and the copper, built the first time each is asked, in place of filtering every shape for every question.
+        `memo`, a dict kept across holds of boards with this occupancy's rules, keeps each answer for a pair of shapes:
+        a shape asked about again (an escape's lane laid out again beside another candidate) against the same shape
+        on the board is answered as before."""
+        if self.__dict__.get("_held_pools") is not None:
+            yield self
+            return
+        self._held_pools = {}
+        self._held_memo = memo if memo is not None else {}
+        try:
+            yield self
+        finally:
+            del self._held_pools
+            del self._held_memo
+
+    def _held_pool(self, held: dict, kinds, copper_too: bool = True) -> "ShapeIndex":
+        """The placed items' shapes of `kinds`, then the copper (all of it, or with `copper_too` off only its `kinds`),
+        in the order the unheld loops read them."""
+        pool = held.get((kinds, copper_too))
+        if pool is None:
+            pool = held[(kinds, copper_too)] = ShapeIndex(
+                [o for owner, g in self.items.items() if owner not in self.pending for o in g.shapes if o.kind in kinds]
+                + [o for o in self.copper if copper_too or o.kind in kinds])
+        return pool
+
     def copper_through(self, shape: Shape) -> list:
         """The copper of other nets `shape` overlaps or touches: placed pads and planned copper that have a net, as shapes. Not a
         clearance question: where `copper_conflicts` asks how near, this asks whether it is a short."""
         out = []
+        held = self.__dict__.get("_held_pools")
+        if held is not None:
+            memo, hs = self._held_memo, hash((hole, "hole"))
+            for o in self._held_pool(held, _COPPERISH, copper_too=False).near(hole.box, self._copper_reach):
+                if o is hole:
+                    continue
+                hit = memo.get((hs, id(o)))
+                if hit is not None and hit[1] is o and hit[0] == (hole, "hole"):
+                    why = hit[2]
+                else:
+                    why = self._conflict(hole, o, None)
+                    memo[(hs, id(o))] = ((hole, "hole"), o, why)
+                if why:
+                    out.append(why)
+            return out
         pools = [g.shapes for owner, g in self.items.items() if owner not in self.pending] + [self.copper]
         for pool in pools:
             for o in pool:
@@ -1123,6 +1182,21 @@ class Occupancy:
         """Every pad or copper of another net within the hole clearance of
         `hole`, a candidate drill (`hole_shape`)."""
         out = []
+        held = self.__dict__.get("_held_pools")
+        if held is not None:
+            memo, hs = self._held_memo, hash((hole, "hole"))
+            for o in self._held_pool(held, _COPPERISH, copper_too=False).near(hole.box, self._copper_reach):
+                if o is hole:
+                    continue
+                hit = memo.get((hs, id(o)))
+                if hit is not None and hit[1] is o and hit[0] == (hole, "hole"):
+                    why = hit[2]
+                else:
+                    why = self._conflict(hole, o, None)
+                    memo[(hs, id(o))] = ((hole, "hole"), o, why)
+                if why:
+                    out.append(why)
+            return out
         pools = [g.shapes for owner, g in self.items.items() if owner not in self.pending] + [self.copper]
         for pool in pools:
             for o in pool:

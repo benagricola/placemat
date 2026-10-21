@@ -4455,10 +4455,11 @@ class Board:
             raise ValueError("pin %s's lane runs at 45, and has no line to stand a pad on" % lane.number)
         return geom.line
 
-    def _escape_layout(self, occ, decl: EscapeDecl, placement=None, *, context=None):
+    def _escape_layout(self, occ, decl: EscapeDecl, placement=None, *, context=None, asked=None):
         """The escape laid out for the part where it stands in `occ`, or at a
         candidate `placement`. A pin off the row's way out, or a way out
-        neither along the board's axes nor at 45 to them, is an EscapeError."""
+        neither along the board's axes nor at 45 to them, is an EscapeError.
+        `asked`, a list, gets the box of every place the layout asked the board about."""
         fp = self.geometry.footprint(decl.part)
         if placement is None:
             g = occ.items[fp.ref]
@@ -4481,28 +4482,59 @@ class Board:
                 way = ((box.center.x - body.x) / d, (box.center.y - body.y) / d)
             return (round(way[0], 6) + 0.0, round(way[1], 6) + 0.0)
         axis, lands = row_way(decl.key, list(decl.pins), boxes, way_of)
-        return Layouter(decl, pads, axis, _LaneEnv(self, occ, decl, pads, face, context=context), lands).lay_out()
+        env = _LaneEnv(self, occ, decl, pads, face, context=context, asked=asked)
+        return Layouter(decl, pads, axis, env, lands).lay_out()
 
-    def _declared_lanes_blocked(self, occ, plan):
+    def _declared_lanes_blocked(self, occ, plan, *, base=None, changed=()):
         """Raw declared escape failures on this occupancy, independent of weight.
 
         Fresh context binds keepouts and via checks to the candidate view.
         Already drawn physical copper remains authoritative; this judgement
         does not regenerate or relocate unowned escape tracks.
+
+        `base` is `_lanes_blocked_each` of the board a candidate view was made
+        from, and `changed` the boxes of what the candidate adds or takes away:
+        an escape whose layout asked about no place within reach of them is laid
+        out as on that board, and keeps its count there.
         """
         if not self._escapes:
             return 0
-        context = _CopperContext(self, occ)
-        context.plan = plan
-        count = 0
+        return sum(n for n, _ in self._lanes_blocked_each(occ, plan, base=base, changed=changed).values())
+
+    def _lanes_blocked_each(self, occ, plan, *, base=None, changed=()) -> dict:
+        """{escape index: (blocked lanes, the boxes its layout asked about)} of the escapes whose part is placed in
+        `occ`; `base` and `changed` as `_declared_lanes_blocked`'s."""
+        context = None
+        reach = occ._copper_reach + self.geometry.hole_to_hole + self.geometry.hole_clearance
+        hull = Box.union(changed) if changed else None
+        out = {}
         for decl in self._escapes:
             if decl.ref in occ.pending or decl.ref not in occ.items:
                 continue
+            was = (base or {}).get(decl.index)
+            if was is not None and not _asked_near(was[1], changed, hull, reach):
+                out[decl.index] = was
+                continue
+            if context is None:
+                context = _CopperContext(self, occ)
+                context.plan = plan
+            asked: list = []
             try:
-                count += len(self._escape_layout(occ, decl, context=context).blocked())
+                with occ.held(self._conflict_memo(occ)):        # a layout asks of a board that stays as it is
+                    n = len(self._escape_layout(occ, decl, context=context, asked=asked).blocked())
             except EscapeError:
-                count += len(decl.pins)
-        return count
+                n = len(decl.pins)
+            out[decl.index] = (n, asked)
+        return out
+
+    @staticmethod
+    def _conflict_memo(occ) -> dict:
+        """The answers escape layouts got for pairs of shapes (`Occupancy.held`) on `occ`, and on the candidate views
+        copied from it after it was made; dropped when it grows past `_CONFLICT_MEMO` answers."""
+        memo = occ.__dict__.get("_lane_conflicts")
+        if memo is None or len(memo) > _CONFLICT_MEMO:
+            memo = occ._lane_conflicts = {}
+        return memo
 
     def _lane_pricer(self, occ, plan, i):
         """A candidate's lane cost (see Scorer): how many of the lanes the part's
@@ -12560,12 +12592,24 @@ class _Riding:
         return Box.union([s.box for s in self.pad_shapes(ref, number, land)]).center
 
 
+_CONFLICT_MEMO = 400_000       # answers kept for escape layouts before they are dropped and asked afresh
+
+
+def _asked_near(asked, changed, hull, reach: float) -> bool:
+    """Whether any of the `changed` boxes (their union `hull`) comes within `reach` of an `asked` box."""
+    if not changed:
+        return False
+    near = [b for b in asked if b.overlaps(hull, gap=reach)]
+    return any(b.overlaps(c, gap=reach) for b in near for c in changed)
+
+
 class _LaneEnv:
     """What a laid-out escape asks of the board (lanes.py): the clearances the
     script's rules give, and what already stands where a lane or a via would."""
 
-    def __init__(self, board: "Board", occ, decl: EscapeDecl, pads: dict, face: Face, *, context=None):
+    def __init__(self, board: "Board", occ, decl: EscapeDecl, pads: dict, face: Face, *, context=None, asked=None):
         self.board = board
+        self.asked = asked                              # a list: the box of each place asked about
         self.context = context
         self.occ = getattr(occ, "_occ", occ)            # a candidate's view reads the real occupancy's copper
         self.layer = face.copper
@@ -12595,6 +12639,8 @@ class _LaneEnv:
     def via_site(self, at: Location, net: str, size: float, drill: float):
         """Why a via of `net` may not stand at `at` among what is placed (the
         edge, other nets' copper, holes, keepouts), or None."""
+        if self.asked is not None:
+            self.asked.append(Box.of_points(via_ring(at, size)))
         ctx = self.context or self.board.__dict__.get("_escape_ctx") or _CopperContext(self.board, self.occ)
         if self._obstacles is None:
             self._obstacles = self.board._via_obstacles(ctx)
@@ -12605,6 +12651,8 @@ class _LaneEnv:
         pads and copper of other nets within their clearance, and unplated holes."""
         occ = self.occ
         shape = _shape_of(op)
+        if self.asked is not None:
+            self.asked.append(shape.box)
         out = list(occ.copper_conflicts(shape))
         if self.ref in occ.pending:                     # a candidate: its own pads are not in the occupancy yet
             out += [why for o in self.own if (why := occ._conflict(shape, o, None, exact=True))]

@@ -5,6 +5,16 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## To 0.100.4
+
+### Changed
+
+- **Faster search beside declared escapes.** The search prices each candidate spot by the declared escape lanes it
+  would block, and laid every placed escape out again for every candidate. An escape a candidate comes nowhere
+  near now keeps its count without being laid out again; one it comes near is laid out against an indexed board,
+  and each answer a lane's copper check got is kept for the next layout. On a board with 27 escaped lanes beside
+  an MCU, cells searched after the MCU placed 4 to 60 times faster. Scripts need no change.
+
 ## To 0.100.3
 
 ### New
