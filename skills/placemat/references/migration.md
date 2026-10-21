@@ -5,6 +5,17 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## To 0.100.5
+
+### Changed
+
+- **Escape lanes laid out natively while searching.** When the search prices a candidate spot by the declared
+  escape lanes it would block, the escapes it comes near are now laid out by the native module, with the same
+  lanes, vias and blocked counts as before. The escape that is placed and drawn is still laid out as before. On a
+  board with 27 escaped lanes beside an MCU, cells searched after the MCU placed 3 to 30 times faster than on
+  0.100.4, and the board placed the same. Without the native module the search lays the escapes out as before.
+  Scripts need no change.
+
 ## To 0.100.4
 
 ### Changed
