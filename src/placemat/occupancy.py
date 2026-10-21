@@ -136,6 +136,26 @@ class LaneView:
         the (x, y, diameter) of each unplated one, the (outline, nets let through) of each area that forbids vias."""
         return _geometry_module._native.NativeViaObstacles(holes, bare, forbidding)
 
+    @staticmethod
+    def rules(clearance, width, pair_gap):
+        """The script's clearances, track widths and pair gaps, asked of Python once each by a native layout."""
+        return _geometry_module._native.Rules(clearance, width, pair_gap)
+
+    def lay_out(self, rules, decl: tuple, pads: list, lands: list, frame: tuple, env: tuple, tie_nets, own: list,
+                npth: list, obstacles, off_board, full: bool = False):
+        """An escape laid out natively (native/src/lane_layout.rs): None where the native module has no layout to
+        give, else (whether it cannot be laid out, how many lanes meet something placed, the boxes of the places it
+        asked about), and with `full` each lane's (number, points, tracks, via, whether it meets something placed).
+        `own` are the part's own pads where it is a candidate, `npth` the placed items' unplated holes."""
+        occ = self.occ
+        if not hasattr(self.view, "lay_out"):
+            return None
+        shapes = [_to_native_shape(o, occ._body_refs, occ._leads, occ._margins) for o in own]
+        holes = [_to_native_shape(o, occ._body_refs, occ._leads, occ._margins) for o in npth]
+        return self.view.lay_out(rules, decl, pads, lands, frame, env, tie_nets, shapes, [_native_extra(o) for o in own],
+                                 holes, [_native_extra(o) for o in npth], obstacles, off_board,
+                                 occ._native_ties(own, every=True) if own else None, full)
+
     def via_free(self, ring: Shape, hole: Shape, obstacles, at: Location, net: str, size: float,
                  drill: float) -> bool:
         """Whether a via's copper `ring` and drill `hole` at `at` meet no copper and none of `obstacles` (a
@@ -1247,6 +1267,8 @@ class Occupancy:
             changed = (base.pending - self.pending) | set(geometries)
             _, _, slots, held_copper, _ = entry
             hidden = [i for ref in changed for i in slots.get(ref, ())] + [i for o in owners for i in held_copper.get(o, ())]
+            if len(self.copper) != len(base.copper) - sum(len(held_copper.get(o, ())) for o in owners) + len(copper):
+                return None                 # the view was changed after it was made
             extras = [o for ref in changed if ref not in self.pending and ref in self.items
                       for o in self.items[ref].shapes if o.kind in _COPPERISH] + list(copper)
         shapes, extra, ties = self._lane_shapes(extras)

@@ -34,12 +34,12 @@ from .cutouts import EdgeWhy
 from .refusals import Code, Refusal, ReservedBy
 from .findings import Finding, FindingCause as C, Findings
 from .giveway import FIELD_PREFIX, enabled as giveway_enabled, field_via_id, pad_via_id
-from .occupancy import LABEL_SOURCE, Occupancy, Shape, ban_shape, ShapeIndex, TOUCH, _polygon_area, hole_shape, parts_claim
+from .occupancy import LABEL_SOURCE, LaneView, Occupancy, Shape, ban_shape, ShapeIndex, TOUCH, _native_faces, _native_layers, _polygon_area, hole_shape, parts_claim
 from .cutouts import Arc, Cutouts, Path, _turned, crosses as _crosses, flatten_path_legs, inside as _in_loop, loop_gap, signed_area
 from .outline import Outline, Run, rect_outline
 from . import exposure
 from .placement import Placement
-from .settings import Settings
+from .settings import Settings, active
 from .arrangements import (DEFAULT_SPEC, Alt, Enumeration, Exclusion, Group, GroupOption, Option, Spec, check_keywords, check_name,
                            enumerate_specs, merged_call, only_holds, units)
 from .placer import UNWEIGHED, BandTurns, BearingTurns, BlockSpec, SearchBudget, SpotTurns, ScanResult, _grid, _pin_normal, facing_rotation, pad_way_out, pad_row_end, way_out_side, parallel_rotation, _reason_key, box_centered_placement, cell_pad_anchored_placement, pad_box_at, cell_origin_anchored_placement, disc_placement, pad_anchored_placement, sweep_standoff, edge_placement, layout_block, pockets, run_placement, scan, scan_block
@@ -4455,11 +4455,9 @@ class Board:
             raise ValueError("pin %s's lane runs at 45, and has no line to stand a pad on" % lane.number)
         return geom.line
 
-    def _escape_layout(self, occ, decl: EscapeDecl, placement=None, *, context=None, asked=None):
-        """The escape laid out for the part where it stands in `occ`, or at a
-        candidate `placement`. A pin off the row's way out, or a way out
-        neither along the board's axes nor at 45 to them, is an EscapeError.
-        `asked`, a list, gets the box of every place the layout asked the board about."""
+    def _escape_parts(self, occ, decl: EscapeDecl, placement=None) -> tuple:
+        """(the part's pads by number, the row's way out, its lands, the face the part stands on) of an escape's part where it
+        stands in `occ`, or at a candidate `placement`. A pin off the row's way out is an EscapeError."""
         fp = self.geometry.footprint(decl.part)
         if placement is None:
             g = occ.items[fp.ref]
@@ -4482,8 +4480,31 @@ class Board:
                 way = ((box.center.x - body.x) / d, (box.center.y - body.y) / d)
             return (round(way[0], 6) + 0.0, round(way[1], 6) + 0.0)
         axis, lands = row_way(decl.key, list(decl.pins), boxes, way_of)
+        return pads, axis, lands, face
+
+    def _escape_layout(self, occ, decl: EscapeDecl, placement=None, *, context=None, asked=None):
+        """The escape laid out for the part where it stands in `occ`, or at a
+        candidate `placement`. A pin off the row's way out, or a way out
+        neither along the board's axes nor at 45 to them, is an EscapeError.
+        `asked`, a list, gets the box of every place the layout asked the board about."""
+        pads, axis, lands, face = self._escape_parts(occ, decl, placement)
         env = _LaneEnv(self, occ, decl, pads, face, context=context, asked=asked)
         return Layouter(decl, pads, axis, env, lands).lay_out()
+
+    def _escape_blocked(self, occ, decl: EscapeDecl, placement=None, *, context=None, asked=None) -> int:
+        """How many lanes of the escape `_escape_layout` lays out are blocked; all of them where it cannot be laid out
+        (an EscapeError). Laid out natively where the native module has the board, as `_escape_layout` would."""
+        try:
+            pads, axis, lands, face = self._escape_parts(occ, decl, placement)
+            env = _LaneEnv(self, occ, decl, pads, face, context=context, asked=asked)
+            layouter = Layouter(decl, pads, axis, env, lands)
+            laid = env.lay_out(layouter)
+            if laid is not None:
+                return len(decl.pins) if laid[0] else laid[1]
+            with occ.held(self._conflict_memo(occ)):        # a layout asks of a board that stays as it is
+                return len(layouter.lay_out().blocked())
+        except EscapeError:
+            return len(decl.pins)
 
     def _declared_lanes_blocked(self, occ, plan, *, base=None, changed=()):
         """Raw declared escape failures on this occupancy, independent of weight.
@@ -4519,12 +4540,7 @@ class Board:
                 context = _CopperContext(self, occ)
                 context.plan = plan
             asked: list = []
-            try:
-                with occ.held(self._conflict_memo(occ)):        # a layout asks of a board that stays as it is
-                    n = len(self._escape_layout(occ, decl, context=context, asked=asked).blocked())
-            except EscapeError:
-                n = len(decl.pins)
-            out[decl.index] = (n, asked)
+            out[decl.index] = (self._escape_blocked(occ, decl, context=context, asked=asked), asked)
         return out
 
     @staticmethod
@@ -4545,15 +4561,7 @@ class Board:
             return None
 
         def price(placement: Placement) -> int:
-            n = 0
-            for decl in decls:
-                try:
-                    laid = self._escape_layout(occ, decl, placement)
-                except EscapeError:
-                    n += len(decl.pins)
-                    continue
-                n += len(laid.blocked())
-            return n
+            return sum(self._escape_blocked(occ, decl, placement) for decl in decls)
         return price
 
     def _escapes_named(self, obj, seen: set | None = None) -> set:
@@ -12611,6 +12619,28 @@ def _asked_near(asked, changed, hull, reach: float) -> bool:
     return any(b.overlaps(c, gap=reach) for b in near for c in changed)
 
 
+def _native_obstacles(obstacles: tuple) -> tuple:
+    """`Board._via_obstacles` as `LaneView.via_obstacles` takes it."""
+    holes, bare, forbidding = obstacles
+    return ([(c.x, c.y, dia, hole_net) for c, dia, _, hole_net in holes], [(c.x, c.y, width) for c, width in bare],
+            [(list(poly), list(allowed)) for poly, _, allowed in forbidding])
+
+
+def _lane_rules(board: "Board"):
+    """The script's clearances, track widths and pair gaps as a native layout asks for them (`LaneView.rules`), kept
+    while the script's rules stand as they are."""
+    hit = board.__dict__.get("_lane_rules_cache")
+    if hit is None or hit[0] != len(board._rules):
+        def clearance(a, b, owner):
+            return _pad_clearance(board, a, b, owner) if owner else _net_clearance(board, a, b)
+
+        def pair_gap(net):
+            return board.geometry.netclass(net).diff_pair_gap or clearance(net, net, "")
+        hit = board._lane_rules_cache = (len(board._rules), LaneView.rules(clearance, lambda net: board._width(net, None),
+                                                                          pair_gap))
+    return hit[1]
+
+
 class _LaneEnv:
     """What a laid-out escape asks of the board (lanes.py): the clearances the
     script's rules give, and what already stands where a lane or a via would."""
@@ -12687,6 +12717,43 @@ class _LaneEnv:
             self._lane_view = self.occ.lane_view()
         return self._lane_view
 
+    def lay_out(self, layouter, full: bool = False):
+        """The layout `layouter` makes, laid out natively: None where Python is to lay it out (the native module cannot
+        answer for the board, or does not lay out), else (whether it cannot be laid out, how many lanes meet something
+        placed, the boxes of the places it asked about), and with `full` each lane's (number, points, tracks, via,
+        whether it meets something). The boxes of the places asked about are added to `asked`."""
+        view = self._native()
+        board, occ = self.board, self.occ
+        ctx = self.context or board.__dict__.get("_escape_ctx") or _CopperContext(board, occ)
+        if view is None or ctx.occ is not occ or ctx.planned_vias or ctx.planned_tails or ctx.batch_tracks or ctx.batch_ops:
+            return None
+        d = layouter.decl
+        decl = (list(d.pins), d.turn is not None, list(d.vias), d.depth, d.run, list(d.widths), list(d.pairs), d.chamfer,
+                list(d.chamfers.items()), d.via_size, d.via_drill)
+        pads = [(n, [(list(sh.poly), (sh.box.left, sh.box.top, sh.box.right, sh.box.bottom), sh.net, sh.owner)
+                     for sh in shapes]) for n, shapes in layouter.pads.items()]
+        if self._obstacles is None:
+            self._obstacles = board._via_obstacles(ctx)
+        if self._native_obstacles is None:
+            self._native_obstacles = view.via_obstacles(*_native_obstacles(self._obstacles))
+        layer, faces = _native_layers(frozenset([self.layer])), _native_faces(
+            frozenset([self.layer.face]) if self.layer.face else frozenset())
+        env = (self.step, self.reach, self.hole_to_hole, self.grid_step, layer, faces, _native_layers(frozenset(CopperLayer)),
+               _native_layers(frozenset(board.geometry.layers)), active().geometry_cap_steps, occ._copper_reach)
+        if self._holes is None:                         # the placed items' unplated holes, in the items' order
+            self._holes = [o for ref, g in occ.items.items() if ref not in occ.pending
+                           for o in g.shapes if o.kind == "npth"]
+
+        def off_board(left, top, right, bottom):
+            return board._via_off_board(occ, Box(left, top, right, bottom)) is not None
+        laid = view.lay_out(_lane_rules(board), decl, pads, list(layouter.lands.items()),
+                            (layouter.u, layouter.t, layouter.diagonal, layouter.oblique), env,
+                            sorted(occ._tie_nets) if occ._tie_refs else None,
+                            self.own if self.ref in occ.pending else [], self._holes, self._native_obstacles, off_board, full)
+        if laid is not None and self.asked is not None:
+            self.asked.extend(Box(*b) for b in laid[2])
+        return laid
+
     def free(self, op) -> bool:
         """Whether `hits(op)` is empty."""
         view = self._native()
@@ -12715,9 +12782,7 @@ class _LaneEnv:
             self._obstacles = board._via_obstacles(ctx)
         if self._native_obstacles is None:
             holes, bare, forbidding = self._obstacles
-            self._native_obstacles = view.via_obstacles(
-                [(c.x, c.y, dia, hole_net) for c, dia, _, hole_net in holes], [(c.x, c.y, width) for c, width in bare],
-                [(list(poly), list(allowed)) for poly, _, allowed in forbidding])
+            self._native_obstacles = view.via_obstacles(*_native_obstacles(self._obstacles))
         return view.via_free(Shape("via", "copper", frozenset(), frozenset(board.geometry.layers), net, ring, box, wire=True),
                              hole_shape("via", at, drill, net), self._native_obstacles, at, net, size, drill)
 

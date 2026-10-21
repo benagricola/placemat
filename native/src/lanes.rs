@@ -87,6 +87,10 @@ impl View {
         View { held, hidden: mask, extras }
     }
 
+    pub fn cfg(&self) -> &ConflictConfig {
+        self.held.cfg()
+    }
+
     /// Whether `probe` meets any shape of `pool` within reach of it.
     pub fn meets(&self, probe: &Item, pool: Pool) -> bool {
         let h = &*self.held;
@@ -105,7 +109,7 @@ impl View {
 
 /// `Occupancy._conflict(probe, o, None, exact=True)`, as a yes or no: for two pieces of copper the exact one,
 /// else the placement search's own rule.
-fn conflicts(probe: &Item, o: &Shape, ox: &Extra, pool: Pool, cfg: &ConflictConfig) -> bool {
+pub(crate) fn conflicts(probe: &Item, o: &Shape, ox: &Extra, pool: Pool, cfg: &ConflictConfig) -> bool {
     let both = probe.shape.kind.is_copperish() && o.kind.is_copperish();
     match pool {
         Pool::Hole if !o.kind.is_copperish() => false,

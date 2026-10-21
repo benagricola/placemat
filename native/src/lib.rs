@@ -18,6 +18,7 @@ mod fill;
 mod geometry;
 mod giveway;
 mod judge;
+mod lane_layout;
 mod lanes;
 mod pinmap;
 mod pinmap_geom;
@@ -538,6 +539,40 @@ impl NativeLaneView {
         let ring = build_items(&[ring], vec![ring_extra], ties)?.pop().unwrap();
         let hole = build_items(&[hole], vec![hole_extra], None)?.pop().unwrap();
         Ok(lanes::via_site_free(&self.view, &ring, &hole, at, net, size, drill, &obstacles.obs))
+    }
+
+    /// An escape laid out on this board (native/src/lane_layout.rs, `Layouter.lay_out`): None where Python is to lay it
+    /// out, else (whether it cannot be laid out, how many lanes meet something placed, the boxes of the places it asked
+    /// the board about), and with `full` each lane's (number, points, tracks, via, whether it meets something).
+    #[pyo3(signature = (rules, decl, pads, lands, frame, env, tie_nets, own, own_extra, npth, npth_extra, obstacles, off_board, own_ties=None, full=false))]
+    #[allow(clippy::too_many_arguments)]
+    fn lay_out(
+        &self,
+        py: Python<'_>,
+        mut rules: PyRefMut<'_, lane_layout::Rules>,
+        decl: lane_layout::PyDecl,
+        pads: lane_layout::PyPads,
+        lands: Vec<(String, Vec<usize>)>,
+        frame: lane_layout::PyFrame,
+        env: lane_layout::PyEnv,
+        tie_nets: Option<Vec<String>>,
+        own: Vec<PyShape>,
+        own_extra: Vec<PyExtra>,
+        npth: Vec<PyShape>,
+        npth_extra: Vec<PyExtra>,
+        obstacles: &NativeViaObstacles,
+        off_board: &Bound<'_, PyAny>,
+        own_ties: Option<PyTies>,
+        full: bool,
+    ) -> PyResult<Option<lane_layout::PyLaid>> {
+        let own = build_items(&own, own_extra, own_ties)?;
+        let npth = build_items(&npth, npth_extra, None)?;
+        // a layout the port cannot make is Python's to make, not a PanicException that no `except Exception` catches
+        let laid = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            lane_layout::lay_out(py, &self.view, &mut rules, decl, pads, lands, frame, env, tie_nets, own, npth,
+                                 &obstacles.obs, off_board, full)
+        }));
+        laid.unwrap_or(Ok(None))
     }
 }
 
@@ -1459,6 +1494,7 @@ fn placemat_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<NativeHeld>()?;
     m.add_class::<NativeViaObstacles>()?;
     m.add_class::<NativeLaneView>()?;
+    m.add_class::<lane_layout::Rules>()?;
     m.add_class::<NativeSweepSeen>()?;
     m.add_class::<NativeBoard>()?;
     m.add_class::<NativeRatsnest>()?;

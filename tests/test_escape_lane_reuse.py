@@ -22,11 +22,11 @@ def _lifted():
 def _count(b, occ, item, plan, at, monkeypatch):
     delta = Delta(b, occ, item, plan.links, plan=plan)
     laid = []
-    real = b._escape_layout
-    monkeypatch.setattr(b, "_escape_layout", lambda *a, **k: laid.append(1) or real(*a, **k))
+    real = b._escape_blocked
+    monkeypatch.setattr(b, "_escape_blocked", lambda *a, **k: laid.append(1) or real(*a, **k))
     view, geometries, copper = delta._view(Placement(at, 0.0, occ._geometry(item).reference.face))
     got = delta._lanes_blocked(view, geometries, copper)
-    monkeypatch.setattr(b, "_escape_layout", real)
+    monkeypatch.setattr(b, "_escape_blocked", real)
     return got, b._declared_lanes_blocked(view, plan), len(laid)
 
 
