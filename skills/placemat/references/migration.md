@@ -24,7 +24,7 @@ section for each hand-written pattern a newer form replaces.
   ```
 
   A script that kept a pair out of its later phases by `!` globs can drop them. Needs the router at fork commit
-  9631918f or later for `max_uncoupled_mm`.
+  3403e024 or later for `max_uncoupled_mm`.
 
 ## To 0.100.1
 
