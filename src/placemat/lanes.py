@@ -204,9 +204,15 @@ class _Lane:
 
 def turn_direction(turn, u: tuple, key: str) -> tuple:
     """((tx, ty), diagonal): the unit vector along the row toward the turn side, and whether
-    the lanes run at 45, for a row whose way out is the unit vector `u`. A turn along the
-    way out, or a corner that is not on it, is an EscapeError."""
+    the lanes run at 45 to the row, for a row whose way out is the unit vector `u`. A turn along the
+    way out, or a corner that is not on it, is an EscapeError.
+
+    A row whose way out is at 45 to the board's axes (a part turned 45) turns the same ways: an Edge
+    on its way out (`Edge.SOUTH` from a row facing south-east) runs its lanes along that board axis, at
+    45 to the row; a Corner across it runs them along the row."""
     ux, uy = u
+    if oblique(u):
+        return _oblique_turn(turn, u, key)
     way = {(0.0, -1.0): "north", (0.0, 1.0): "south", (1.0, 0.0): "east", (-1.0, 0.0): "west"}[(float(ux), float(uy))]
     if turn is None:
         return (-uy, ux), False
@@ -224,11 +230,43 @@ def turn_direction(turn, u: tuple, key: str) -> tuple:
     return (sx - out * ux, sy - out * uy), True
 
 
+def oblique(u: tuple) -> bool:
+    """Whether the unit vector `u` runs at 45 to the board's axes."""
+    return abs(abs(u[0]) - 1.0 / _SQ2) < 1e-6 and abs(abs(u[1]) - 1.0 / _SQ2) < 1e-6
+
+
+def _oblique_name(u: tuple) -> str:
+    return ("north" if u[1] < 0 else "south") + "-" + ("east" if u[0] > 0 else "west")
+
+
+def _oblique_turn(turn, u: tuple, key: str) -> tuple:
+    """turn_direction for a row whose way out `u` is at 45 to the board's axes."""
+    ux, uy = u
+    way = _oblique_name(u)
+    if turn is None:
+        return (-uy, ux), False
+    if isinstance(turn, Edge):
+        ex, ey = _DIR[turn]
+        out = ex * ux + ey * uy
+        if out <= 0:
+            raise EscapeError("%s: turn=%s turns back into the row; it must lie on the way out (%s)" % (
+                key, turn.name, way))
+        tx, ty = ex - out * ux, ey - out * uy
+        size = math.hypot(tx, ty)
+        return (tx / size, ty / size), True
+    sx, sy = turn.signs
+    out = (sx * ux + sy * uy) / _SQ2
+    if abs(out) > 0.5:
+        raise EscapeError("%s: turn=%s runs along the row's axis (the way out is %s); a row turns across "
+                          "it" % (key, turn.value, way))
+    return (sx / _SQ2, sy / _SQ2), False
+
+
 _WAYS = {(0.0, -1.0): "north", (0.0, 1.0): "south", (1.0, 0.0): "east", (-1.0, 0.0): "west"}
 
 
 def _way_name(way: tuple) -> str:
-    return _WAYS.get(way, "(%.2f, %.2f)" % way)
+    return _WAYS.get(way) or (_oblique_name(way) if oblique(way) else "(%.2f, %.2f)" % way)
 
 
 def row_way(key: str, numbers: list, boxes: dict, way_of) -> tuple:
@@ -268,10 +306,15 @@ class Layouter:
         self.decl, self.pads, self.env = decl, pads, env
         self.lands = lands or {}        # pad number -> indices of its lands in the row, for pads drawn as several
         ux, uy = axis
-        if not (abs(abs(ux) - 1.0) < 1e-6 and abs(uy) < 1e-6 or abs(abs(uy) - 1.0) < 1e-6 and abs(ux) < 1e-6):
-            raise EscapeError("%s: the row's way out is (%.3f, %.3f), not along a board axis; an escape's lanes "
-                              "run along them, so turn the part to a quarter turn" % (decl.key, ux, uy))
-        self.u = (float(round(ux)), float(round(uy)))
+        self.oblique = oblique(axis)        # a part turned 45: the frame is at 45 to the board's axes
+        if self.oblique:
+            self.u = (math.copysign(1.0 / _SQ2, ux), math.copysign(1.0 / _SQ2, uy))
+        elif abs(abs(ux) - 1.0) < 1e-6 and abs(uy) < 1e-6 or abs(abs(uy) - 1.0) < 1e-6 and abs(ux) < 1e-6:
+            self.u = (float(round(ux)), float(round(uy)))
+        else:
+            raise EscapeError("%s: the row's way out is (%.3f, %.3f), neither along a board axis nor at 45 to them; an "
+                              "escape's lanes run along or at 45 to them, so turn the part by a multiple of 45" % (
+                                  decl.key, ux, uy))
         self.t, self.diagonal = turn_direction(decl.turn, self.u, decl.key)
 
     # ---- the frame: s along the row toward the turn side, h out along the way out
@@ -285,7 +328,11 @@ class Layouter:
         return Location(s * self.t[0] + h * self.u[0], s * self.t[1] + h * self.u[1])
 
     def _snap(self, p: Location) -> Location:
-        """The point to 1e-6 mm, the way out rounded outward and the turn side along."""
+        """The point to 1e-6 mm, the way out rounded outward and the turn side along. In a frame at 45 the point as
+        it is: a turned part's pads do not stand on the nanometre grid, and a lane rounded to it would leave its pad
+        a fraction of a nanometre off 45, which a track draws as a 45 and a step."""
+        if self.oblique:
+            return p
         return Location(_away(p.x, self.u[0] + self.t[0]), _away(p.y, self.u[1] + self.t[1]))
 
     def _row_lands(self, number: str) -> list:
@@ -486,7 +533,10 @@ class Layouter:
         return floor
 
     def _snap_out(self, p: Location) -> Location:
-        """A lane's corner: its coordinate along the way out rounded outward, the other kept."""
+        """A lane's corner: its coordinate along the way out rounded outward, the other kept; in a frame at 45, as
+        it is (`_snap`)."""
+        if self.oblique:
+            return self._snap(p)
         if self.u[0]:
             return Location(_away(p.x, self.u[0]), round(p.y, 6))
         return Location(round(p.x, 6), _away(p.y, self.u[1]))
@@ -505,6 +555,8 @@ class Layouter:
         """The point `a` along the lane, rounded to the nanometre the way the lane runs; a lane
         at 45 moves a whole number of nanometres on both axes, so its leg stays a 45. A lane
         that jogs runs straight out to its corner, `lane.ca` past the tips, and at 45 from there."""
+        if self.oblique:
+            return self._oblique_end_at(lane, a)
         if lane.jog is not None:
             if a > lane.ca:
                 dx, dy = self._direction(lane)
@@ -518,6 +570,26 @@ class Layouter:
             m = math.ceil(a / _SQ2 * 1e6 - 1e-3) / 1e6
             return Location(round(lane.corner.x + math.copysign(m, dx), 6), round(lane.corner.y + math.copysign(m, dy), 6))
         return self._snap(Location(lane.corner.x + a * dx, lane.corner.y + a * dy))
+
+    def _oblique_end_at(self, lane: _Lane, a: float) -> Location:
+        """_end_at in a frame at 45: the lane runs from its corner (or, without a turn, straight out from its pad)
+        along a board axis or at 45 to them, each rounded as `_run` does."""
+        if lane.jog is not None and a > lane.ca:
+            return self._run(lane.corner, self._direction(lane), a - lane.ca)
+        if lane.jog is not None or self.decl.turn is None:
+            return self._run(lane.centre, self.u, self.tips + a - self.h_of((lane.centre.x, lane.centre.y)))
+        return self._run(lane.corner, self._direction(), a)
+
+    @staticmethod
+    def _run(p: Location, d: tuple, a: float) -> Location:
+        """The point `a` from `p` along the unit vector `d`, not rounded (`_snap`): along a board axis the other
+        coordinate kept, at 45 the same distance on both axes, so the leg is straight or a 45 exactly."""
+        if abs(d[0]) < 1e-9 or abs(d[1]) < 1e-9:
+            if abs(d[0]) > abs(d[1]):
+                return Location(p.x + math.copysign(a, d[0]), p.y)
+            return Location(p.x, p.y + math.copysign(a, d[1]))
+        m = a / _SQ2
+        return Location(p.x + math.copysign(m, d[0]), p.y + math.copysign(m, d[1]))
 
     def _a_min(self, lane: _Lane) -> float:
         """How far along its lane its first via may stand: level with the row's
@@ -822,6 +894,18 @@ class Layouter:
         for lane in placed:
             lane.end_at = lane.via_at
 
+    def _oblique_line(self, lane: _Lane) -> tuple | None:
+        """In a frame at 45, the board line a lane runs along where it runs along a board axis (a lane turned onto
+        one, or one that jogs onto one); None for a lane at 45."""
+        d = self._direction(lane)
+        if d is self.u or (lane.jog is None and self.decl.turn is None):
+            return None
+        if abs(d[1]) < 1e-9:
+            return ("y", lane.end_at.y)
+        if abs(d[0]) < 1e-9:
+            return ("x", lane.end_at.x)
+        return None
+
     def _finish(self) -> Layout:
         d, env = self.decl, self.env
         out = {}
@@ -832,7 +916,9 @@ class Layouter:
             cut = chamfer_cuts(pts, d.chamfer_of(n))[0]
             tracks = tuple(polyline_tracks(lane.net, env.layer, lane.width, cut))
             via = Via(lane.net, lane.via_at, lane.via[1], lane.via[0]) if lane.via_at is not None else None
-            if d.turn is None and lane.jog is not None:
+            if self.oblique:
+                line = self._oblique_line(lane)
+            elif d.turn is None and lane.jog is not None:
                 line = None
             elif d.turn is None:
                 line = ("x" if self.u[1] else "y", lane.centre.x if self.u[1] else lane.centre.y)

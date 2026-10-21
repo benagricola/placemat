@@ -44,7 +44,7 @@ from .arrangements import (DEFAULT_SPEC, Alt, Enumeration, Exclusion, Group, Gro
                            enumerate_specs, merged_call, only_holds, units)
 from .placer import UNWEIGHED, BandTurns, BearingTurns, BlockSpec, SearchBudget, SpotTurns, ScanResult, _grid, _pin_normal, facing_rotation, pad_way_out, pad_row_end, way_out_side, parallel_rotation, _reason_key, box_centered_placement, cell_pad_anchored_placement, pad_box_at, cell_origin_anchored_placement, disc_placement, pad_anchored_placement, sweep_standoff, edge_placement, layout_block, pockets, run_placement, scan, scan_block
 from .board_geometry import BoardGeometry, CellGeom, Footprint, members_of, part_height, stackup_order
-from .lanes import Escape, EscapeDecl, EscapeError, Lane, LanePoint, Layouter, row_way, turn_direction
+from .lanes import Escape, EscapeDecl, EscapeError, Lane, LanePoint, Layouter, oblique, row_way, turn_direction
 from .values import (Tangent, Turned, Turns, Axis, Bearing, Bend, Corner, Cover, Beside, Between, Cutout, CutoutEdge, Drops, Freedom, Keepout, LabelKey, bearing_of, Along, Box, Cell, CellPadRef, Centre, Disc, Facing, SideOf, Line, OnBore, OnRim, Origin, Parallel, Past, Pin, Polar, bearing, bearing_vector, box_support, polar_point, CopperLayer, Edge, Face, Fraction, FreeSpot, Inside, Land, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
                      PinName, Priority, X, Y, pad_key)
 from .values import Figure, FigurePoint, Reach
@@ -4302,8 +4302,14 @@ class Board:
                 and isinstance(intent.rotation, (int, float)) and intent.face is Face.FRONT and not intent.either and fp.face is Face.FRONT):
             ux, uy = Transform.rotate(intent.rotation).apply(Transform.rotate(-fp.rotation).apply(ref_way))
             if abs(abs(ux) - 1.0) < 1e-6 or abs(abs(uy) - 1.0) < 1e-6:
+                u = (float(round(ux)), float(round(uy)))
+            elif oblique((ux, uy)):
+                u = (math.copysign(math.sqrt(0.5), ux), math.copysign(math.sqrt(0.5), uy))
+            else:
+                u = None
+            if u is not None:
                 try:
-                    turn_direction(turn, (float(round(ux)), float(round(uy))), "escape %s" % fp.ref)
+                    turn_direction(turn, u, "escape %s" % fp.ref)
                 except EscapeError as e:
                     raise ValueError(str(e)) from None
         return [(n, in_row[n][0] + 1) for n in numbers if n in in_row and len(in_row[n]) < len(boxes[n])]
@@ -4451,8 +4457,8 @@ class Board:
 
     def _escape_layout(self, occ, decl: EscapeDecl, placement=None, *, context=None):
         """The escape laid out for the part where it stands in `occ`, or at a
-        candidate `placement`. A pin off the row's way out, or a way out off
-        the board's axes, is an EscapeError."""
+        candidate `placement`. A pin off the row's way out, or a way out
+        neither along the board's axes nor at 45 to them, is an EscapeError."""
         fp = self.geometry.footprint(decl.part)
         if placement is None:
             g = occ.items[fp.ref]

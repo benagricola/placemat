@@ -657,7 +657,7 @@ two rows, leads out along each: it stands in the row by the land that leads
 out the way the other pins do, its lane starts at that land, and an escape
 whose pins have no way out in common, or two, is refused at its declaration. The lanes are worked
 out when the part is placed, from its pads as placed; a row whose way out is
-not along a board axis is refused.
+neither along a board axis nor at 45 to them is refused.
 
 - **Order.** With `turn=` (an `Edge` across the row: a north row turns `WEST`
   or `EAST`) the pin nearest the turn side takes the innermost lane, the next
@@ -690,6 +690,17 @@ not along a board axis is refused.
   than a square corner is, so each via is searched clear of the 45 and of the
   square corner of every lane still to be placed; a larger `chamfer=` can
   therefore stand the vias farther along their lanes.
+- **A part turned 45.** A row whose way out is at 45 to the board's axes (a
+  part turned 45, its north row facing `NE`) escapes the same way, in the
+  row's own frame: its risers run out at 45 along the way out; `turn=` a
+  `Corner` across the row (`NW` or `SE` for that row) runs the lanes along the
+  row, at 45, and `turn=` an `Edge` on the way out (`NORTH` or `EAST`) runs
+  them along that board axis, at 45 to the row, as a `Corner` does for a row
+  along an axis. Steps, stagger, `depth=`, `run=` and `vias=` are as below,
+  measured across the lanes. A turned part's pads do not stand on the
+  nanometre grid, so its lanes' points are not rounded to it: each riser is
+  an exact 45 from its pad's centre. `turn=` off the way out is refused when
+  the escape is declared.
 - **Lanes at 45.** `turn=` a `Corner` (a north row: `NW` or `NE`) runs the
   lanes at 45, a step apart across their direction. A 45 moves away from its
   row, so it stands as near the row as it may, not a lane's depth past the

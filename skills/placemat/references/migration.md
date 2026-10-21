@@ -5,6 +5,16 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## To 0.100.3
+
+### New
+
+- **Escapes for a part turned 45.** `board.escape()` lays out a row whose way out is at 45 to the board's axes,
+  which was refused ("not along a board axis ... turn the part to a quarter turn"). Its risers run out at 45;
+  `turn=` a `Corner` across the row runs the lanes along the row, and an `Edge` on the way out runs them along
+  that board axis. A script that hand-drew a turned part's risers, or kept the part at a quarter turn for its
+  escapes, can declare the escape instead.
+
 ## To 0.100.2
 
 ### Changed
