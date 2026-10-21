@@ -14,7 +14,7 @@ SELECTORS = ("nets", "net_classes", "pairs", "buses", "connections", "current_pa
 CAPTURE_SELECTORS = frozenset(("pairs", "interfaces", "net_types"))
 REST = "rest"
 CURRENT = "current"
-_KEYS = SELECTORS + ("name", "width", "layers", "neckdown", "router_args")
+_KEYS = SELECTORS + ("name", "width", "layers", "neckdown", "router_args", "max_uncoupled_mm")
 _FLAGS = ("pairs", "current_paths")
 _NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 _LAYER = re.compile(r"^(F|B|In([1-9]|[12][0-9]|30))\.Cu$")
@@ -45,6 +45,8 @@ _TEXT = {
     "bad_width": "route.phase %(name)r: width is a number in mm above 0 or \"current\", not %(value)r",
     "bad_layers": "route.phase %(name)r: layers: %(value)r is not a copper layer (F, In1 to In30, B, or their .Cu names)",
     "bad_neckdown": "route.phase %(name)r: neckdown is true or false, not %(value)r",
+    "uncoupled_not_pairs": "route.phase %(name)r: max_uncoupled_mm is a pair phase's key (pairs = ...)",
+    "bad_uncoupled": "route.phase %(name)r: max_uncoupled_mm is a length in mm, 0 or more, not %(value)r",
     "bad_router_args": "route.phase %(name)r: router_args is a list of strings, not %(value)r",
     "router_owned": "route.phase %(name)r: router_args: %(flag)s is set by placemat itself (%(by)s)",
     "needs_capture": "route.phase %(name)r: %(selector)s needs the capture's nets.layout.json with what it selects by; "
@@ -105,13 +107,18 @@ class Phase:
     layers: tuple | None = None         # None: every layer the route uses
     neckdown: bool = True
     router_args: tuple = ()
+    # a pair phase's: the most copper (mm) a member of one of its pairs may run uncoupled, measured by the pair router
+    # (its tracks not beside the partner's, plus what is left open for a later phase). None: every pair coupled end
+    # to end. A pair over it, or not routed coupled, is a finding, and its nets are kept out of the later phases.
+    max_uncoupled_mm: float | None = None
 
     def key(self) -> dict:
         return asdict(self)
 
     def record(self) -> dict:
         return {"name": self.name, "selector": self.selector, "width": self.width,
-                "layers": list(self.layers) if self.layers else None, "neckdown": self.neckdown}
+                "layers": list(self.layers) if self.layers else None, "neckdown": self.neckdown,
+                "max_uncoupled_mm": self.max_uncoupled_mm}
 
 
 def _layer(name: str, phase: str) -> str:
@@ -195,6 +202,14 @@ def _one(t, index: int, seen: set) -> Phase:
     neckdown = t.get("neckdown", True)
     if not isinstance(neckdown, bool):
         raise PhaseError("bad_neckdown", name=name, value=neckdown)
+    uncoupled = t.get("max_uncoupled_mm")
+    if uncoupled is not None:
+        if selector != "pairs":
+            raise PhaseError("uncoupled_not_pairs", name=name)
+        if not (isinstance(uncoupled, (int, float)) and not isinstance(uncoupled, bool) and math.isfinite(uncoupled)
+                and uncoupled >= 0):
+            raise PhaseError("bad_uncoupled", name=name, value=uncoupled)
+        kw["max_uncoupled_mm"] = float(uncoupled)
     args = t.get("router_args", [])
     if not (isinstance(args, list) and all(isinstance(a, str) for a in args)):
         raise PhaseError("bad_router_args", name=name, value=args)

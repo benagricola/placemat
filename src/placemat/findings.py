@@ -117,6 +117,7 @@ class FindingCause(str, Enum):
     SETUP_DUPLICATE_REFERENCE = (FindingKind.SETUP, "setup.duplicate_reference")
     ROUTE_DROPPED = (FindingKind.ROUTE, "route.dropped")
     ROUTE_WIDTH = (FindingKind.ROUTE, "route.width")
+    ROUTE_PAIR_UNCOUPLED = (FindingKind.ROUTE, "route.pair_uncoupled")
     VIAS_GAVE_WAY = (FindingKind.VIAS, "vias.gave_way")
     VIAS_DROPPED = (FindingKind.VIAS, "vias.dropped")
     FAB_MINIMUM = (FindingKind.FAB, "fab.minimum")

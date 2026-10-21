@@ -5,6 +5,27 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## To 0.100.2
+
+### Changed
+
+- **A pair phase's pair must be coupled end to end.** A pair the pair router did not route coupled, or routed with
+  single-ended terminal legs, or whose short legs it left single-ended, is a critical `route.pair_uncoupled`
+  finding giving the cause and each member's uncoupled length. `placemat run` and `placemat route` exit 1, and the
+  pair's nets are left out of every later phase. Before, a later phase with no selector routed the open member as a
+  plain net and the route exited 0. A pair that may run a short length uncoupled, such as the bridge between a
+  USB-C receptacle's A and B rows, takes `max_uncoupled_mm` on its phase:
+
+  ```toml
+  [[route.phase]]
+  name = "usb-data"
+  pairs = [["USB_D_P", "USB_D_N"]]
+  max_uncoupled_mm = 2.0
+  ```
+
+  A script that kept a pair out of its later phases by `!` globs can drop them. Needs the router at fork commit
+  9631918f or later for `max_uncoupled_mm`.
+
 ## To 0.100.1
 
 ### Changed

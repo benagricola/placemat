@@ -141,7 +141,7 @@ def test_a_phase_record_carries_each_connection_left_to_its_pour_and_whether_it_
     a = {"net": "GND", "from": {"ref": "J1", "pad": "2"}, "to": {"ref": "U1", "pad": "3"}, "widths": None,
          "pour_served": True}
     b = dict(a, to={"ref": "U2", "pad": "1"})
-    phase = type("P", (), {"record": lambda self: {"name": "current"}})()
+    phase = type("P", (), {"record": lambda self: {"name": "current"}, "max_uncoupled_mm": None})()
     c = dict(a, to={"ref": "U3", "pad": "1"})
     judged = [{"joined": True, "violated": False, "under": {}}, {"joined": False, "violated": False, "under": {}},
               {"joined": True, "violated": False, "under": {"F.Cu": 0.2}}]

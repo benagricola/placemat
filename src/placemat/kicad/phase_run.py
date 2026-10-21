@@ -912,14 +912,17 @@ def phase_record(phase, index, sel, obligations, judged, seconds, calls, pairs=N
     phase, with "under" ({layer: narrowest mm}) when it joins under its current width; one the pour does not join,
     or joins under that width, is also open. `pour_joins`: each pour call's record (pour_join.join_pour: its pads, the
     widths its joins were laid at, the drops' vias, the tasks for the groups still apart). `rip`: rip and reroute's
-    attempts and skipped units (rip_reroute.after_call). `reused` is set by the route."""
+    attempts and skipped units (rip_reroute.after_call). `pairs_uncoupled`: each pair the phase did not route coupled
+    end to end (route.uncoupled_pairs, judged against its max_uncoupled_mm). `reused` is set by the route."""
+    from .route import uncoupled_pairs
     connections = list(connections)
     rec = dict(phase.record(), index=index, seconds=round(seconds, 1), reused=False, calls=calls, pairs=pairs,
                connections=connections, bus_groups=list(bus_groups), widths=[], pour_joins=list(pour_joins),
                pour_served=[dict({k: o[k] for k in ("net", "from", "to")}, joined=bool(j["joined"]),
                                  **({"under": dict(j["under"])} if j["joined"] and j["under"] else {}))
                             for o, j in zip(obligations, judged) if o.get("pour_served")],
-               rip=dict(rip or {"attempts": [], "skipped": []}))
+               rip=dict(rip or {"attempts": [], "skipped": []}),
+               pairs_uncoupled=uncoupled_pairs((pairs or {}).get("reports") or [], phase.max_uncoupled_mm))
     records = records_of(obligations, connections)
     clean = [is_clean(j) for j in judged]
     rec.update(asked=len(obligations), joined=sum(clean),

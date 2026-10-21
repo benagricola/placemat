@@ -169,6 +169,25 @@ SAMPLES = [
      "its own"),
     (C.ROUTE_DROPPED, {"key": "X","why": Refusal(Code.ROUTE_END, at=[1.0, 2.0]).to_json()},
      "adopted route X dropped: its end at (1.00, 2.00) no longer meets the net's other copper; the router routes it again"),
+    (C.ROUTE_PAIR_UNCOUPLED, {"pair": "D_P/D_N", "p": "D_P", "n": "D_N", "phase": "usb-data", "outcome": "coupled",
+                              "reason": None, "hybrid": True, "uncoupled_mm": {"p": 9.5, "n": 0.3},
+                              "open_mm": {"p": 0.0, "n": 0.0}, "total_mm": {"p": 9.5, "n": 0.3}, "min_coupled_mm": 3.0,
+                              "limit_mm": 2.0, "allowed": False, "cause": "hybrid"},
+     "pair D_P/D_N in phase usb-data is not coupled end to end: its terminal legs were routed single-ended beside a "
+     "coupled middle; uncoupled D_P 9.5 mm, D_N 0.3 mm, over the phase's max_uncoupled_mm 2; its nets are left out of "
+     "the later phases"),
+    (C.ROUTE_PAIR_UNCOUPLED, {"pair": "D_P/D_N", "p": "D_P", "n": "D_N", "phase": "usb-data", "outcome": "deferred",
+                              "reason": "electrically-short", "hybrid": False, "uncoupled_mm": {"p": 0.0, "n": 0.0},
+                              "open_mm": {"p": 1.2, "n": 1.4}, "total_mm": {"p": 1.2, "n": 1.4}, "min_coupled_mm": 3.0,
+                              "limit_mm": None, "allowed": False, "cause": "short_leg"},
+     "pair D_P/D_N in phase usb-data is not coupled end to end: a leg under the router's 3 mm coupled minimum was left "
+     "single-ended; uncoupled D_P 1.2 mm, D_N 1.4 mm; its nets are left out of the later phases"),
+    (C.ROUTE_PAIR_UNCOUPLED, {"pair": "D_P/D_N", "p": "D_P", "n": "D_N", "phase": "usb-data", "outcome": "failed",
+                              "reason": "multipoint-leg-failure", "hybrid": False, "uncoupled_mm": None, "open_mm": None,
+                              "total_mm": None, "min_coupled_mm": 3.0, "limit_mm": None, "allowed": False,
+                              "cause": "failed"},
+     "pair D_P/D_N in phase usb-data is not coupled end to end: it was not routed coupled: multipoint-leg-failure; its "
+     "nets are left out of the later phases"),
     (C.ROUTE_WIDTH, {"net": "V", "stage": "islands", "requested_mm": 1.37, "delivered_min_mm": 0.16, "length_under_mm": 16.61,
                      "length_mm": 17.24, "share": 0.9636, "declared": True, "max_a": 0.45, "bottleneck_mm": 0.1, "stated_a": 3.0},
      "net V: 16.6 of 17.2 mm (96%) of its copper in the islands stage is under the 1.37 mm it was asked, narrowest 0.16 mm; its "

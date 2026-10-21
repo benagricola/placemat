@@ -1058,6 +1058,27 @@ def _route_dropped(f):
     return "adopted route %s dropped: %s; the router routes it again" % (f["key"], _refusal(f["why"]))
 
 
+_PAIR_CAUSE = {"short_leg": "a leg under the router's %s mm coupled minimum was left single-ended",
+               "peeled_leg": "legs off its coupled trunk were left for a later phase",
+               "hybrid": "its terminal legs were routed single-ended beside a coupled middle",
+               "failed": "it was not routed coupled"}
+
+
+@renders(C.ROUTE_PAIR_UNCOUPLED, "pair", "phase", "cause")
+def _route_pair_uncoupled(f):
+    cause = _PAIR_CAUSE[f["cause"]]
+    if f["cause"] == "short_leg":
+        cause = cause % ("%g" % f["min_coupled_mm"] if f.get("min_coupled_mm") is not None else "its")
+    text = "pair %s in phase %s is not coupled end to end: %s" % (f["pair"], f["phase"], cause)
+    if f.get("reason") and f["cause"] == "failed":
+        text += ": %s" % f["reason"]
+    if f.get("total_mm"):
+        text += "; uncoupled %s %.1f mm, %s %.1f mm" % (f["p"], f["total_mm"]["p"], f["n"], f["total_mm"]["n"])
+    if f.get("limit_mm") is not None:
+        text += ", over the phase's max_uncoupled_mm %g" % f["limit_mm"] if f["cause"] != "failed" else ""
+    return text + "; its nets are left out of the later phases"
+
+
 @renders(C.ROUTE_WIDTH, "net", "stage", "requested_mm", "delivered_min_mm", "length_under_mm")
 def _route_width(f):
     if f.get("source") == "router":

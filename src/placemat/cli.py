@@ -621,8 +621,9 @@ def cmd_run(args) -> int:
     if args.json:
         console.data(json.dumps(json.loads((result.run_dir / "run.json").read_text()), indent=2))
     # a run that placed but came out worse than the best of its parts is a
-    # failure too, so a regression cannot pass unnoticed in a loop
-    return 0 if result.status == "ok" and not result.regressed else 1
+    # failure too, so a regression cannot pass unnoticed in a loop; so is a
+    # route that left a pair uncoupled
+    return 0 if result.status == "ok" and not result.regressed and not result.pairs_not_coupled else 1
 
 
 def cmd_impact(args) -> int:
@@ -803,7 +804,7 @@ def cmd_route(args) -> int:
         with bind(cfg):
             _adopt(p, args.adopt if args.adopt else None, report, lock_items=not args.no_lock,
                    partial=getattr(args, "partial", False))
-    return 0 if report.valid else 1
+    return 0 if report.valid and not report.pairs_not_coupled() else 1
 
 
 def _adopt(script: Path, nets, report, lock_items: bool = True, partial: bool = False) -> None:

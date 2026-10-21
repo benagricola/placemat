@@ -256,12 +256,21 @@ class RouteReport:
     final_judged: list = field(default_factory=list)
 
     def has_findings(self) -> bool:
-        return bool(self.widths or self.net_clearance_facts or self.duplicate_references)
+        return bool(self.widths or self.net_clearance_facts or self.duplicate_references or self.pairs_not_coupled())
+
+    def pairs_not_coupled(self) -> list:
+        """Each pair a pair phase did not route coupled end to end within its max_uncoupled_mm, with its phase."""
+        return [dict(r, phase=rec["name"]) for rec in self.phases for r in rec.get("pairs_uncoupled") or ()
+                if not r["allowed"]]
 
     def findings(self, stated: dict | None = None) -> list:
-        """Width findings followed by capture-clearance setup findings."""
+        """Width findings, a critical `route.pair_uncoupled` for each pair not coupled end to end, then the
+        capture-clearance setup findings."""
+        from ..findings import Finding, FindingCause as C
         from .route_widths import findings_of
-        return findings_of(self.widths, stated) + self.setup_findings()
+        return (findings_of(self.widths, stated)
+                + [Finding(C.ROUTE_PAIR_UNCOUPLED, r, "critical") for r in self.pairs_not_coupled()]
+                + self.setup_findings())
 
     def setup_findings(self) -> list:
         """The setup findings `route_board` hands to `on_setup` before it routes: `setup.net_clearance` and
@@ -585,10 +594,12 @@ class Pairs:
     failed: list = field(default_factory=list)
     single_ended: list = field(default_factory=list)
     routed_nets: set = field(default_factory=set)
+    # each pair's own record (pair_report): how it was routed and what it ships uncoupled
+    reports: list = field(default_factory=list)
 
     def as_dict(self) -> dict:
         return {"coupled": self.coupled, "partial": self.partial, "failed": self.failed,
-                "single_ended": self.single_ended}
+                "single_ended": self.single_ended, "reports": self.reports}
 
     def to_dict(self) -> dict:
         """Every field, for a route's saved state."""
@@ -597,7 +608,7 @@ class Pairs:
     @staticmethod
     def from_dict(d: dict) -> "Pairs":
         return Pairs(list(d["coupled"]), list(d["partial"]), list(d["failed"]), list(d["single_ended"]),
-                     set(d.get("routed_nets", ())))
+                     set(d.get("routed_nets", ())), [dict(r) for r in d.get("reports", ())])
 
     def renamed(self, names: dict) -> "Pairs":
         """The same outcome with each pair and net named by `names` where it
@@ -605,7 +616,52 @@ class Pairs:
         def back(items):
             return sorted(names.get(x, x) for x in items)
         return Pairs(back(self.coupled), back(self.partial), back(self.failed), back(self.single_ended),
-                     {names.get(n, n) for n in self.routed_nets})
+                     {names.get(n, n) for n in self.routed_nets},
+                     sorted((dict(r, pair=names.get(r["pair"], r["pair"]), p=names.get(r["p"], r["p"]),
+                                  n=names.get(r["n"], r["n"])) for r in self.reports), key=lambda r: r["pair"]))
+
+
+def pair_report(r: dict) -> dict:
+    """One pair's record from the pair router's `pair_reports` entry: its nets, its outcome ("coupled", "partial",
+    "deferred", "failed", "incomplete", "skipped"), the router's reason for a pair it did not couple, whether its
+    terminal legs were routed single-ended beside a coupled middle (`hybrid`), and, from a router that measures them,
+    the copper each member runs uncoupled (`uncoupled_mm`), the straight-line length each leaves open for a later
+    phase (`open_mm`), both {"p", "n"}, and the leg length under which the router leaves a leg single-ended
+    (`min_coupled_mm`). A measure the router does not give is None."""
+    def per(key):
+        v = r.get(key)
+        return {"p": float(v.get("p", 0.0)), "n": float(v.get("n", 0.0))} if isinstance(v, dict) else None
+    return {"pair": r.get("pair"), "p": r.get("p_net"), "n": r.get("n_net"), "outcome": r.get("outcome"),
+            "reason": r.get("failure_reason"), "hybrid": r.get("escape") == "hybrid",
+            "uncoupled_mm": per("uncoupled_mm"), "open_mm": per("open_mm"), "min_coupled_mm": r.get("min_coupled_mm")}
+
+
+def uncoupled_pairs(reports, limit_mm: float | None) -> list:
+    """The pairs of one pair phase that are not coupled end to end, each pair_report with `cause` and `limit_mm` (the
+    phase's max_uncoupled_mm) and `allowed`: within the limit. A pair is coupled end to end when the router routed it
+    coupled with no single-ended terminal legs. `cause`: "short_leg", a leg under the router's coupled minimum left
+    single-ended; "peeled_leg", a coupled trunk whose other legs were left to a later phase; "hybrid", single-ended
+    terminal legs beside a coupled middle; "failed", not routed coupled at all. A failed pair is never allowed;
+    another is when each member's uncoupled copper and open length together are at most the limit. With no limit, or
+    a router that does not measure them, none is allowed."""
+    out = []
+    for r in reports:
+        if r["outcome"] == "coupled" and not r["hybrid"]:
+            continue
+        if r["hybrid"]:
+            cause = "hybrid"
+        elif r["outcome"] == "deferred" and r["reason"] == "electrically-short":
+            cause = "short_leg"
+        elif r["outcome"] == "partial":
+            cause = "peeled_leg"
+        else:
+            cause = "failed"
+        totals = ({m: r["uncoupled_mm"][m] + r["open_mm"][m] for m in ("p", "n")}
+                  if r["uncoupled_mm"] is not None and r["open_mm"] is not None else None)
+        allowed = (cause != "failed" and limit_mm is not None and totals is not None
+                   and max(totals.values()) <= limit_mm + 1e-9)
+        out.append(dict(r, cause=cause, total_mm=totals, limit_mm=limit_mm, allowed=allowed))
+    return out
 
 
 def read_pairs(log: str) -> Pairs:
@@ -631,7 +687,15 @@ def read_pairs(log: str) -> Pairs:
     for r in found.get("pair_reports") or []:
         if r.get("pair") in keep:
             out.routed_nets |= {n for n in (r.get("p_net"), r.get("n_net")) if n}
+    out.reports = sorted((pair_report(r) for r in found.get("pair_reports") or [] if r.get("pair")),
+                         key=lambda r: r["pair"])
     return out
+
+
+def held_nets(record: dict) -> set:
+    """The nets of the pairs a phase record says were not coupled end to end within its limit (`pairs_uncoupled`): a
+    later phase leaves them as they stand, so the pair is not finished single-ended."""
+    return {n for r in record.get("pairs_uncoupled") or () if not r["allowed"] for n in (r["p"], r["n"]) if n}
 
 
 def pair_command(python, script, pcb_in, pcb_out, patterns, layers, gap: float = 0.0, width: float = 0.0,
@@ -792,7 +856,8 @@ def _merged(a: "Pairs | None", b: Pairs) -> Pairs:
     if a is None:
         return b
     return Pairs(sorted(a.coupled + b.coupled), sorted(a.partial + b.partial), sorted(a.failed + b.failed),
-                 sorted(a.single_ended + b.single_ended), a.routed_nets | b.routed_nets)
+                 sorted(a.single_ended + b.single_ended), a.routed_nets | b.routed_nets,
+                 sorted(a.reports + b.reports, key=lambda r: r["pair"]))
 
 
 def router_version(router_dir: str) -> str:
@@ -1166,7 +1231,17 @@ def _router_lacks(rpy, router_dir_path, phases) -> list:
     from Task 13's brief, which asks every REQUIRES always: the fork's `--bus-nets` (Task 6) has not landed, and
     asking it of a route with no bus would refuse every route until it does."""
     buses = any(p.selector in ("buses", "interfaces") for p in phases)
-    return [m for m in router_capable(rpy, router_dir_path) if buses or not m.endswith(":--bus-nets")]
+    out = [m for m in router_capable(rpy, router_dir_path) if buses or not m.endswith(":--bus-nets")]
+    if any(p.max_uncoupled_mm is not None for p in phases) and not measures_uncoupled(router_dir_path):
+        out.append("diff_pair_custody.py:uncoupled_mm")
+    return out
+
+
+def measures_uncoupled(router_dir_path) -> bool:
+    """Whether the pair router's per-pair records give each member's uncoupled and open length (the fork's
+    "Uncoupled length per pair member"), which a phase's max_uncoupled_mm is judged by."""
+    path = Path(router_dir_path) / "py_router/diff_pair_custody.py"
+    return path.exists() and "rep['uncoupled_mm']" in path.read_text(errors="replace")
 
 
 def pour_flags_lacking(caps, current=False) -> list:
@@ -1243,10 +1318,11 @@ def without_copper(selections, geometry) -> list:
     return [sel.phase for sel in selections if _phase_nets(sel) and not (_phase_nets(sel) & tracked)]
 
 
-def ctx_for(ctx, rev, name: str):
-    """The phase context with the router's events going to the phase `name`'s pipe."""
+def ctx_for(ctx, rev, name: str, held=frozenset()):
+    """The phase context with the router's events going to the phase `name`'s pipe, and the `held` nets (held_nets)
+    left out with the route's own."""
     import dataclasses
-    return dataclasses.replace(ctx, env=dict(ctx.env, **rev.env(name)))
+    return dataclasses.replace(ctx, env=dict(ctx.env, **rev.env(name)), excluded=set(ctx.excluded) | set(held))
 
 
 def copy_source_rules(source_pcb, pcb_out):
@@ -1494,6 +1570,7 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     raw_out = work / "router_out.kicad_pcb"      # the last phase's board: post-processing is made on a copy
     board, prev, records, routeds, spent, resumed = pcb_in, base, [], [], 0.0, []
     open_now = dict(before.open_nets)
+    held: set = set()           # the nets of the pairs a pair phase did not couple within its limit: no later phase routes them
     for i, phase in enumerate(run_list):
         phase_identity = (phase.key(), width_policy.phase_key(width_receipt, phase.name))
         currents = {n: sorted([list(e), a] for e, a in pour_currents[n].items())
@@ -1507,7 +1584,7 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
             routed = Routed.of(saved["routed"], work)
             if "record" not in saved:           # routed, not judged: a failure judging it keeps the routing (keep-work)
                 sel = select(phase, geometry, capture, open_nets={n for n, v in open_now.items() if v},
-                             excluded=excluded, pour_nets=pours, route_layers=layers, rise_c=cfg.check_rise_c,
+                             excluded=excluded | held, pour_nets=pours, route_layers=layers, rise_c=cfg.check_rise_c,
                              copper_oz=COPPER_OZ)
                 record, judged_open = judge_phase(ctx, i, phase, sel, routed, asked[i])
                 saved = dict(saved, record=record, open_nets=judged_open)
@@ -1516,18 +1593,19 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
             rev.resumed(phase.name, saved["record"]["seconds"])
             board, open_now = routed.board, dict(saved["open_nets"])
             records.append(dict(saved["record"], reused=True))
+            held |= held_nets(saved["record"])
             hist.boards.append(board)
             routeds.append(routed)
             spent += saved["record"]["seconds"]
             prev = key
             continue
         state.drop_from(label)
-        sel = select(phase, geometry, capture, open_nets={n for n, v in open_now.items() if v}, excluded=excluded,
+        sel = select(phase, geometry, capture, open_nets={n for n, v in open_now.items() if v}, excluded=excluded | held,
                      pour_nets=pours, route_layers=layers, rise_c=cfg.check_rise_c, copper_oz=COPPER_OZ)
         rev.begin(phase.name, nets=len(_phase_nets(sel)), phase=i + 1, of=len(run_list))
         done = False
         try:
-            outcome = route_calls(ctx_for(ctx, rev, phase.name), i, phase, sel, board)
+            outcome = route_calls(ctx_for(ctx, rev, phase.name, held), i, phase, sel, board)
             done = True
         finally:
             rev.end(phase.name, complete=done)
@@ -1537,6 +1615,7 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
         state.record(label, key, {"routed": outcome.routed, "record": record, "open_nets": open_now})
         board = routed.board
         records.append(record)
+        held |= held_nets(record)
         hist.boards.append(board)
         routeds.append(routed)
         spent += record["seconds"]

@@ -2,7 +2,7 @@
 resolve, write through pcbnew, run DRC, render, and save the run record."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import json
 import os
 from pathlib import Path
@@ -101,6 +101,9 @@ class RunResult:
     # How this run is worse than the best of its family, or None. A run can be
     # `ok` and still have regressed: it placed, but worse than before.
     regressed: str | None = None
+    # The pairs its route's pair phases did not couple end to end within their limit (RouteReport.pairs_not_coupled):
+    # a run with any fails.
+    pairs_not_coupled: list = field(default_factory=list)
 
     @property
     def status(self):
@@ -485,6 +488,7 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
                     paths={"pcb": str(src.pcb), "script": str(script)})
     say("run", "%s: %s" % (src.name, script.relative_to(src.board_dir)))
     generated = False
+    pairs_not_coupled: list = []
     plan = None
     stage, began, stopped, explored = "generate", time.time(), None, None
     # the layout folder as the last run left it: a run that fails before it
@@ -825,6 +829,7 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
                     say("route", line)
                 for breach in report.keepout_breaches:
                     say("route", breach, level="finding")
+                pairs_not_coupled = report.pairs_not_coupled()
                 if report.has_findings():
                     from .findings import FindingKind
                     from .kicad.route_widths import stated_currents
@@ -966,7 +971,7 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
             from . import checkpoint
             checkpoint.finish_dir(checkpoint.state_dir(src.board_dir, script))
     say("record", str(run_dir / "run.json"))
-    return RunResult(rec, run_dir, generated, text, plan, regressed)
+    return RunResult(rec, run_dir, generated, text, plan, regressed, pairs_not_coupled)
 
 
 def _against_best(rec: RunRecord, best_path: Path, say, cfg) -> str | None:
