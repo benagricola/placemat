@@ -5,15 +5,16 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
-## Unreleased
+## To 0.100.6
 
 ### Fixed
 
-- **A lane via on another net's copper is not drawn.** A lane whose via finds no legal spot within
-  `place.escape_via_reach` left its via at the first spot clear of the part's own pads, and drew it there even
-  where it stood on another net's copper. Such a via is now not drawn, and a `copper` finding (`via_stand`) names
-  what it would stand on; a track ending on it is not drawn either. A script whose lane vias were drawn into
-  other copper finds them missing: give the row room for its vias, or another `turn=`, `run=` or set of `vias=`.
+- **A lane via with no legal spot is not drawn.** A lane whose via finds no legal spot within
+  `place.escape_via_reach` left its via at the first spot clear of the part's own pads, and drew it there, short
+  of or on another net's copper. Such a via is now not drawn, and a `copper` finding (`lane_via`) names the lane
+  and what stands in its way; a track ending on it is not drawn either. A via whose own lane runs through another
+  net's copper to it (a turned lane's via found past that copper) is not drawn now either, where it was drawn
+  joined to nothing. A script whose lane vias were drawn into or past other copper finds them missing: give the row room for its vias, or another `turn=`, `run=` or set of `vias=`.
 - **A routing phase judges a join to a lane end by its pad.** A connection the router was asked to make to the
   end of an escape lane was named by the lane's end point rather than by the pad the lane leaves, so its width
   could not be measured and the phase listed it open (`width_unknown`) though it was joined. It is now named by

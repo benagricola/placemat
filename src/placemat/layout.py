@@ -4387,10 +4387,14 @@ class Board:
                 if laid is None or n not in decl.used_vias:
                     return []
                 via = laid.lanes[n].via
-                met = self._through(ctx, [via])         # a lane with no legal spot leaves its via where it would stand
-                if met is not None:
-                    ctx.note(C.COPPER_NOT_DRAWN, {"variant": "via_stand", "net": via.net, "at": [via.at.x, via.at.y],
-                                                  "met": met})
+                # a lane with no legal spot leaves its via where it would stand, short of what is placed
+                no_spot = next((w for w in laid.lanes[n].blocked if w.code is Code.LANE_NO_SPOT), None)
+                # a via past copper its lane would run through joins nothing: that lane is not drawn
+                met = None if no_spot is not None else self._through(ctx, list(laid.lanes[n].tracks))
+                if no_spot is not None or met is not None:
+                    ctx.note(C.COPPER_NOT_DRAWN, {"variant": "lane_via", "net": via.net, "at": [via.at.x, via.at.y],
+                                                  "ref": decl.ref, "pin": n,
+                                                  "why": no_spot.to_json() if no_spot is not None else None, "met": met})
                     return []
                 ctx.planned_vias.append(via)
                 ctx.via_at[intent.index] = via.at

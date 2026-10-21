@@ -742,6 +742,9 @@ _NOT_DRAWN = {
                             "drill, %.2f mm inset)" % (f["net"], f["owner"], f["number"], f["size_mm"], f["drill_mm"], f["inset_mm"]),
     "via_stand": lambda f: "via %s at (%.2f, %.2f): not drawn, it would stand on %s" % (
         f["net"], f["at"][0], f["at"][1], _copper_name(f["met"])),
+    "lane_via": lambda f: "via %s at (%.2f, %.2f), the lane via of %s pin %s: not drawn, %s" % (
+        f["net"], f["at"][0], f["at"][1], f["ref"], f["pin"],
+        _refusal(f["why"]) if f.get("why") else "its lane would run through %s" % _copper_name(f["met"])),
     "tail_join": lambda f: "via %s: its tail on %s would not join %s.%s, which is not on that layer" % (
         f["net"], f["layer"], f["owner"], f["number"]),
     "tail_span": lambda f: "via %s: a span of %s does not reach its tail on %s" % (f["net"], _span(f["span"]), f["layer"]),

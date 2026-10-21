@@ -729,9 +729,11 @@ neither along a board axis nor at 45 to them is refused.
   other nets' copper, holes, keepouts). Where no spot within
   `place.escape_via_reach` keeps clear of what is placed, the via stands at the
   first spot clear of the part's pads and the other vias, and the lane is an
-  `escape_lane` finding; a via left there that would stand on another net's
-  copper is not drawn (a `copper` finding names what it would stand on), nor is
-  a track that ends on it. A lane with none ends level with
+  `escape_lane` finding; the lane still keeps that room, but the via is not
+  drawn (a `copper` finding, `lane_via`, says what stands in its way), nor is
+  a track that ends on it. A via whose own lane would run through another
+  net's copper to it is not drawn either, as that lane is not. A lane with
+  none ends level with
   the outermost via, or one step past the row's turn-side end where the
   escape has none; `run=` (mm past that end, or each 45's length) sets the
   end of such lanes instead.
