@@ -1059,6 +1059,8 @@ def _route_dropped(f):
 
 
 _PAIR_CAUSE = {"short_leg": "a leg under the router's %s mm coupled minimum was left single-ended",
+               "fallback": "its legs were left single-ended as shorter than the router's %s mm coupled minimum, "
+                           "but it runs further than that uncoupled",
                "peeled_leg": "legs off its coupled trunk were left for a later phase",
                "hybrid": "its terminal legs were routed single-ended beside a coupled middle",
                "failed": "it was not routed coupled"}
@@ -1067,7 +1069,7 @@ _PAIR_CAUSE = {"short_leg": "a leg under the router's %s mm coupled minimum was 
 @renders(C.ROUTE_PAIR_UNCOUPLED, "pair", "phase", "cause")
 def _route_pair_uncoupled(f):
     cause = _PAIR_CAUSE[f["cause"]]
-    if f["cause"] == "short_leg":
+    if f["cause"] in ("short_leg", "fallback"):
         cause = cause % ("%g" % f["min_coupled_mm"] if f.get("min_coupled_mm") is not None else "its")
     text = "pair %s in phase %s is not coupled end to end: %s" % (f["pair"], f["phase"], cause)
     if f.get("reason") and f["cause"] == "failed":

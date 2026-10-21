@@ -4042,7 +4042,9 @@ and so, in a phase that routes pairs, is a flag the pair router does not take (`
 
 A pair phase judges each pair by whether the pair router routed it coupled end to end. A pair it did not is listed
 in the phase's record in route.json (`pairs_uncoupled`), with its `cause`: `short_leg`, a leg shorter than the
-router's coupled minimum (`min_coupled_mm`, 3 mm in KRT) left single-ended; `peeled_leg`, legs off a coupled trunk left
+router's coupled minimum (`min_coupled_mm`, 3 mm or more in KRT, by the pair's width and gap) left single-ended;
+`fallback`, legs the router left single-ended as short whose members run further than that minimum uncoupled;
+`peeled_leg`, legs off a coupled trunk left
 for a later phase; `hybrid`, single-ended terminal legs beside a coupled middle; or `failed`, not routed coupled. It
 also gives, per member, the copper that runs uncoupled (`uncoupled_mm`, tracks not beside the partner's), the
 straight-line length left open (`open_mm`), and their sum (`total_mm`). A pair is allowed when its cause is not
@@ -5325,7 +5327,7 @@ its kind.
 | `setup` (`setup.net_clearance`: a pad trapped by another net's capture clearance) | warning | the router cannot lead the pad out |
 | `setup` (`setup.duplicate_reference`: two footprints on routed nets share a reference) | warning | reports and the router's connection tasks name a pad by reference |
 | `route` (`route.dropped`) | notice | an adopted route dropped because a part it joins moved; the router routes it again |
-| `route` (`route.pair_uncoupled`: a pair phase's pair not coupled end to end within its `max_uncoupled_mm`) | critical | the pair is not a coupled differential pair; its nets are left out of the later phases and the run exits 1; facts `pair`, `p`, `n`, `phase`, `cause`, `outcome`, `reason`, `hybrid`, `uncoupled_mm`, `open_mm`, `total_mm`, `min_coupled_mm`, `limit_mm`, `allowed` |
+| `route` (`route.pair_uncoupled`: a pair phase's pair not coupled end to end within its `max_uncoupled_mm`) | critical | the pair is not a coupled differential pair; its nets are left out of the later phases and the run exits 1; facts `pair`, `p`, `n`, `phase`, `cause` (`short_leg`, `fallback`, `peeled_leg`, `hybrid` or `failed`), `outcome`, `reason`, `hybrid`, `uncoupled_mm`, `open_mm`, `total_mm`, `min_coupled_mm`, `limit_mm`, `allowed` |
 | `route` (`route.width`: a net's copper delivered under the width asked) | critical when the net's phase sets a width (it carries current), or when the current its narrowest copper carries is under the current the parts state for it (`Pm.I`); warning otherwise | the net is narrower than declared where it carries current; facts `net`, `stage`, `requested_mm`, `delivered_min_mm`, `length_under_mm`, `length_mm`, `share`, `declared`, `max_a`, `bottleneck_mm`, `stated_a` |
 | `vias` (shared, moved, re-routed, left its pad, shortened, a field re-laid) | notice | carried vias gave way as designed |
 | `vias` (a via dropped, or a field drawn with fewer vias than declared) | warning | fewer vias than were declared |

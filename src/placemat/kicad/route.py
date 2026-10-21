@@ -640,8 +640,10 @@ def uncoupled_pairs(reports, limit_mm: float | None) -> list:
     """The pairs of one pair phase that are not coupled end to end, each pair_report with `cause` and `limit_mm` (the
     phase's max_uncoupled_mm) and `allowed`: within the limit. A pair is coupled end to end when the router routed it
     coupled with no single-ended terminal legs. `cause`: "short_leg", a leg under the router's coupled minimum left
-    single-ended; "peeled_leg", a coupled trunk whose other legs were left to a later phase; "hybrid", single-ended
-    terminal legs beside a coupled middle; "failed", not routed coupled at all. A failed pair is never allowed;
+    single-ended, each member's uncoupled copper and open length within that minimum; "fallback", the router left the
+    pair's legs single-ended as short ones but its members run further than the minimum uncoupled; "peeled_leg", a
+    coupled trunk whose other legs were left to a later phase; "hybrid", single-ended terminal legs beside a coupled
+    middle; "failed", not routed coupled at all. A failed pair is never allowed;
     another is when each member's uncoupled copper and open length together are at most the limit. With no limit, or
     a router that does not measure them, none is allowed."""
     out = []
@@ -658,6 +660,9 @@ def uncoupled_pairs(reports, limit_mm: float | None) -> list:
             cause = "failed"
         totals = ({m: r["uncoupled_mm"][m] + r["open_mm"][m] for m in ("p", "n")}
                   if r["uncoupled_mm"] is not None and r["open_mm"] is not None else None)
+        if (cause == "short_leg" and totals is not None and r["min_coupled_mm"] is not None
+                and max(totals.values()) > r["min_coupled_mm"] + 1e-9):
+            cause = "fallback"
         allowed = (cause != "failed" and limit_mm is not None and totals is not None
                    and max(totals.values()) <= limit_mm + 1e-9)
         out.append(dict(r, cause=cause, total_mm=totals, limit_mm=limit_mm, allowed=allowed))

@@ -50,6 +50,8 @@ def test_a_pair_coupled_end_to_end_is_not_listed():
 
 @pytest.mark.parametrize("raw,cause", [(_report(hybrid=True, unc=(9.5, 0.3)), "hybrid"),
                                        (_report(outcome="deferred", reason="electrically-short", opn=(1, 1)), "short_leg"),
+                                       (_report(outcome="deferred", reason="electrically-short",
+                                                unc=(27.8, 8.1), opn=(0, 11.9)), "fallback"),
                                        (_report(outcome="partial", opn=(1, 1)), "peeled_leg"),
                                        (_report(outcome="failed", reason="no-route"), "failed")])
 def test_a_pair_not_coupled_end_to_end_names_its_cause(raw, cause):
