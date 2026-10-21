@@ -712,12 +712,12 @@ fn affine_between(r: &[Point], poly: &[Point]) -> Option<Affine> {
 
 /// `Occupancy._read_of`: the move that carries the first outline it was read with that fits onto `poly`, and the
 /// effective shape read with it.
-fn read_of<'a>(info: &'a TieInfo, poly: &[Point]) -> Option<(Affine, &'a [K])> {
+pub(crate) fn read_of<'a>(info: &'a TieInfo, poly: &[Point]) -> Option<(Affine, &'a [K])> {
     info.reads.as_deref()?.iter().find_map(|(r, shapes)| affine_between(r, poly).map(|m| (m, shapes.as_slice())))
 }
 
 /// `occupancy._move_shapes`: effective shapes (nm) under a move (mm).
-fn move_shapes(shapes: &[K], m: Affine) -> Vec<K> {
+pub(crate) fn move_shapes(shapes: &[K], m: Affine) -> Vec<K> {
     let (a, b, c, d, tx, ty) = m;
     let (tx, ty) = (tx * 1e6, ty * 1e6);
     let at = |x: i64, y: i64| -> P {
@@ -760,7 +760,7 @@ fn move_shapes(shapes: &[K], m: Affine) -> Vec<K> {
         .collect()
 }
 
-fn nm_poly(poly: &[Point]) -> K {
+pub(crate) fn nm_poly(poly: &[Point]) -> K {
     K::P(poly.iter().map(|&(x, y)| (to_nm(x), to_nm(y))).collect())
 }
 

@@ -81,7 +81,7 @@ impl Kind {
     fn is_hole(self) -> bool {
         matches!(self, Kind::Hole | Kind::Npth)
     }
-    fn is_copperish(self) -> bool {
+    pub(crate) fn is_copperish(self) -> bool {
         matches!(self, Kind::Pad | Kind::Through | Kind::Copper)
     }
 }
@@ -183,7 +183,7 @@ pub fn largest_clearance(default_clearance: f64, net_clearance: &NetMap, rules: 
 }
 
 impl ConflictConfig {
-    fn pair_clearance(&self, explicit: Option<f64>, s: &Shape, o: &Shape) -> f64 {
+    pub(crate) fn pair_clearance(&self, explicit: Option<f64>, s: &Shape, o: &Shape) -> f64 {
         if let Some(c) = explicit {
             return c;
         }

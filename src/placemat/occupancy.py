@@ -102,6 +102,50 @@ def _native_kshapes(shapes) -> list:
     return out
 
 
+_LANE_KEY = "lanes"      # `Occupancy._native_obstacle_cache`'s key for the pool escape layouts ask of (`_lane_base`)
+
+
+def _native_extra(s: Shape) -> tuple:
+    """What the native exact copper gap reads of a shape beyond `_to_native_shape` (native/src/lanes.rs `Extra`): its
+    box, a straight track's segment, a via's circle, a drawn polygon's outlines."""
+    b = s.box
+    drawn = None
+    if s.drawn:
+        outlines, width, filled = s.drawn
+        drawn = ([[tuple(p) for p in o] for o in outlines], width, filled)
+    return ((b.left, b.top, b.right, b.bottom), tuple(s.segment) if s.segment else None,
+            tuple(s.circle) if s.circle else None, drawn)
+
+
+class LaneView:
+    """A board as an escape's layout asks of it (`Occupancy.lane_view`): whether a lane's track or a via's site meets
+    anything placed, answered natively with the answer `copper_conflicts` and `Board._via_site_why` give."""
+
+    def __init__(self, occ: "Occupancy", view):
+        self.occ, self.view = occ, view
+
+    def copper_free(self, shape: Shape) -> bool:
+        """Whether `copper_conflicts(shape)` finds nothing."""
+        occ = self.occ
+        return self.view.copper_free(_to_native_shape(shape, occ._body_refs, occ._leads, occ._margins),
+                                     _native_extra(shape), occ._native_ties([shape]))
+
+    @staticmethod
+    def via_obstacles(holes: list, bare: list, forbidding: list):
+        """What `via_free` judges a via's site against beside the copper: the (x, y, diameter, net) of each drilled hole,
+        the (x, y, diameter) of each unplated one, the (outline, nets let through) of each area that forbids vias."""
+        return _geometry_module._native.NativeViaObstacles(holes, bare, forbidding)
+
+    def via_free(self, ring: Shape, hole: Shape, obstacles, at: Location, net: str, size: float,
+                 drill: float) -> bool:
+        """Whether a via's copper `ring` and drill `hole` at `at` meet no copper and none of `obstacles` (a
+        `NativeViaObstacles`)."""
+        occ = self.occ
+        return self.view.via_free(_to_native_shape(ring, occ._body_refs, occ._leads, occ._margins), _native_extra(ring),
+                                  _to_native_shape(hole, occ._body_refs, occ._leads, occ._margins), _native_extra(hole),
+                                  (at.x, at.y), net, size, drill, obstacles, occ._native_ties([ring]))
+
+
 def _to_native_shape(s: Shape, footprint_refs: frozenset, leads: frozenset, margins: dict) -> tuple:
     kind = "keepclear" if (s.kind == "courtyard" and s.claims) else s.kind
     return (kind, _native_faces(s.faces), _native_layers(s.layers), s.net or "", tuple(s.poly), s.owner,
@@ -1138,6 +1182,75 @@ class Occupancy:
                 [o for owner, g in self.items.items() if owner not in self.pending for o in g.shapes if o.kind in kinds]
                 + [o for o in self.copper if copper_too or o.kind in kinds])
         return pool
+
+    def _lane_pool(self) -> list:
+        """The shapes `copper_conflicts` reads, in its order: the placed items' pads and copper, then the copper."""
+        return [o for owner, g in self.items.items() if owner not in self.pending for o in g.shapes
+                if o.kind in _COPPERISH] + list(self.copper)
+
+    def _lane_stand(self) -> tuple:
+        """What `_lane_base` was built from, as a board that is still as it was is told from one that is not."""
+        return (frozenset(self.pending), tuple((ref, id(g)) for ref, g in self.items.items()), id(self.copper),
+                len(self.copper), id(self.copper[-1]) if self.copper else 0)
+
+    def _lane_base(self):
+        """(a `NativeHeld` of the pool, the pool, {ref: indices of its shapes in the pool}, {owner: indices of its
+        copper in the pool}, what it stands on), cached while the board is as it was; None without a native module
+        that has one, or where a shape in the pool is one it cannot hold."""
+        native = _geometry_module._native
+        if native is None or not hasattr(native, "NativeHeld"):
+            return None
+        stand = self._lane_stand()
+        hit = self._native_obstacle_cache.get(_LANE_KEY)
+        if hit is not None and hit[4] == stand:
+            return hit if hit[0] is not None else None
+        pool = self._lane_pool()
+        slots: dict = {}
+        copper: dict = {}
+        n = 0
+        for owner, g in self.items.items():
+            if owner not in self.pending:
+                for o in g.shapes:
+                    if o.kind in _COPPERISH:
+                        slots.setdefault(owner, []).append(n)
+                        n += 1
+        for k, o in enumerate(self.copper):
+            copper.setdefault(o.owner, []).append(n + k)
+        shapes, extras, ties = self._lane_shapes(pool)
+        try:
+            held = native.NativeHeld(shapes, extras, self._copper_reach, ties=ties, **self._lane_kwargs())
+        except ValueError:
+            held = None
+        entry = (held, pool, slots, copper, stand)
+        self._native_obstacle_cache[_LANE_KEY] = entry
+        return entry if held is not None else None
+
+    def _lane_kwargs(self) -> dict:
+        return {k: v for k, v in self._native_conflict_kwargs().items() if k not in ("gap", "drawn_gap")}
+
+    def _lane_shapes(self, shapes) -> tuple:
+        """(native shapes, their extras, their net-tie reads) for `NativeHeld` and its views."""
+        return ([_to_native_shape(s, self._body_refs, self._leads, self._margins) for s in shapes],
+                [_native_extra(s) for s in shapes], self._native_ties(shapes, every=True))
+
+    def lane_view(self):
+        """This board as an escape's layout asks of it, a `LaneView`: its pool less what a candidate view hides and with
+        what it adds (`score_delta.Delta._view`), or None where there is no native module to ask."""
+        over = self.__dict__.get("_lane_over")
+        base = self if over is None else over[0]
+        entry = base._lane_base()
+        if entry is None:
+            return None
+        hidden, extras = [], []
+        if over is not None:
+            _, geometries, copper, owners = over
+            changed = (base.pending - self.pending) | set(geometries)
+            _, _, slots, held_copper, _ = entry
+            hidden = [i for ref in changed for i in slots.get(ref, ())] + [i for o in owners for i in held_copper.get(o, ())]
+            extras = [o for ref in changed if ref not in self.pending and ref in self.items
+                      for o in self.items[ref].shapes if o.kind in _COPPERISH] + list(copper)
+        shapes, extra, ties = self._lane_shapes(extras)
+        return LaneView(self, entry[0].view(hidden, shapes, extra, ties))
 
     def copper_through(self, shape: Shape) -> list:
         """The copper of other nets `shape` overlaps or touches: placed pads and planned copper that have a net, as shapes. Not a
@@ -2501,17 +2614,18 @@ class Occupancy:
             return None
         return NativeSweeper(self, item, face, rots, entry, board, clearance)
 
-    def _native_ties(self, shapes, moved: bool = False):
+    def _native_ties(self, shapes, moved: bool = False, every: bool = False):
         """What KiCad's net-tie exclusion (`_net_tie_exclusion`, `_hole_tie_exclusion`) reads of `shapes`, for the
         native judge (native/src/ties.rs): (the net ties' footprints, [(index, what it reads of the shape)]) for
         the copper of a net tie and the copper of a net a net tie's pads carry, which are all it can excuse; None
         when there is none. `moved`: the shapes are a candidate's, which `legal` judges moved, with neither a
-        track's ends nor a via's circle."""
-        if not self._tie_refs:
+        track's ends nor a via's circle. `every`: the copper of every footprint too, which an exact copper gap reads
+        its effective shape off (`_read_shape`), with or without a net tie on the board."""
+        if not self._tie_refs and not every:
             return None
         fps, at, tables, read_at, out = [], {}, [], {}, []
         for i, s in enumerate(shapes):
-            if s.kind not in _COPPERISH or (s.owner not in self._tie_refs and s.net not in self._tie_nets):
+            if s.kind not in _COPPERISH or (not every and s.owner not in self._tie_refs and s.net not in self._tie_nets):
                 continue
             ends = () if moved else s.ends
             has_fp = self.geometry.has_footprint(s.owner)

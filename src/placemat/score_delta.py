@@ -130,6 +130,7 @@ class Delta:
             view.fill_areas = {**self.occ.fill_areas, self.item.name: [
                 (area.source, area.polygon, area.layers) for area in fills]}
         view._pristine = {ref: geom for ref, geom in self.occ._pristine.items() if ref not in owners}
+        view._lane_over = (self.occ, geometries, copper, owners)       # what an escape's layout reads of its pool
         view._pad_location_cache = {}
         view._cells = {}
         view._native_obstacle_cache = {}

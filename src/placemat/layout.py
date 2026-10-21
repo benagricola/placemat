@@ -6910,6 +6910,15 @@ class Board:
                        if ra.cell is None and "vias" in ra.excludes]
         return holes, bare, forbidding
 
+    def _via_off_board(self, occ, box: Box) -> Refusal | None:
+        """Why a via whose copper lies in `box` may not stand where it does for the board's edge and cutouts, or None."""
+        if occ.board_shape is not None:
+            if occ.board_shape.why_not(box, self.keep_in):
+                return Refusal(Code.OFF_BOARD, variant="shape", keep_in_mm=self.keep_in)
+        elif occ.board_box is not None and not occ.board_box.inflate(-self.keep_in).contains(box):
+            return Refusal(Code.OFF_BOARD, variant="rect", keep_in_mm=self.keep_in)
+        return None
+
     def _via_site_why(self, ctx, c: Location, net: str, size: float, drill: float, obstacles,
                       span: tuple = ()) -> Refusal | None:
         """Why a via of `net` may not stand at `c` (a Refusal), or None. A via goes
@@ -6926,11 +6935,9 @@ class Board:
             return bool(own) and bool(layers) and not (own & set(layers))
         ring = via_ring(c, size)
         box = Box.of_points(ring)
-        if occ.board_shape is not None:
-            if occ.board_shape.why_not(box, self.keep_in):
-                return Refusal(Code.OFF_BOARD, variant="shape", keep_in_mm=self.keep_in)
-        elif occ.board_box is not None and not occ.board_box.inflate(-self.keep_in).contains(box):
-            return Refusal(Code.OFF_BOARD, variant="rect", keep_in_mm=self.keep_in)
+        off = self._via_off_board(occ, box)
+        if off is not None:
+            return off
         hits = occ.copper_conflicts(Shape("via", "copper", frozenset(), frozenset(span or self.geometry.layers),
                                           net, ring, box, wire=True))
         if hits:
@@ -12592,6 +12599,7 @@ class _Riding:
         return Box.union([s.box for s in self.pad_shapes(ref, number, land)]).center
 
 
+_UNSET = object()
 _CONFLICT_MEMO = 400_000       # answers kept for escape layouts before they are dropped and asked afresh
 
 
@@ -12623,6 +12631,8 @@ class _LaneEnv:
         self.ref = decl.ref
         self._obstacles = None
         self._holes = None
+        self._lane_view = _UNSET            # the board as a native module asks it, else None
+        self._native_obstacles = None
 
     def clearance(self, net_a: str, net_b: str, owner_b=None) -> float:
         if owner_b:
@@ -12649,11 +12659,16 @@ class _LaneEnv:
     def hits(self, op) -> list:
         """What copper `op` (a lane's track or via) meets among what is placed: the
         pads and copper of other nets within their clearance, and unplated holes."""
-        occ = self.occ
         shape = _shape_of(op)
         if self.asked is not None:
             self.asked.append(shape.box)
-        out = list(occ.copper_conflicts(shape))
+        return list(self.occ.copper_conflicts(shape)) + self._beside(shape)
+
+    def _beside(self, shape: Shape) -> list:
+        """What `shape` meets that `copper_conflicts` does not hold: the pads of the part itself where it is a candidate,
+        and the placed items' unplated holes."""
+        occ = self.occ
+        out = []
         if self.ref in occ.pending:                     # a candidate: its own pads are not in the occupancy yet
             out += [why for o in self.own if (why := occ._conflict(shape, o, None, exact=True))]
         if self._holes is None:                         # the placed items' unplated holes, in the items' order
@@ -12665,6 +12680,46 @@ class _LaneEnv:
                 if why:
                     out.append(why)
         return out
+
+    def _native(self):
+        """The board as a native module asks it (`Occupancy.lane_view`), or None."""
+        if self._lane_view is _UNSET:
+            self._lane_view = self.occ.lane_view()
+        return self._lane_view
+
+    def free(self, op) -> bool:
+        """Whether `hits(op)` is empty."""
+        view = self._native()
+        if view is None:
+            return not self.hits(op)
+        shape = _shape_of(op)
+        if self.asked is not None:
+            self.asked.append(shape.box)
+        return view.copper_free(shape) and not self._beside(shape)
+
+    def via_free(self, at: Location, net: str, size: float, drill: float) -> bool:
+        """Whether `via_site` is None."""
+        view = self._native()
+        ctx = self.context or self.board.__dict__.get("_escape_ctx") or _CopperContext(self.board, self.occ)
+        if view is None or ctx.occ is not self.occ or ctx.planned_vias or ctx.planned_tails or ctx.batch_tracks \
+                or ctx.batch_ops:
+            return self.via_site(at, net, size, drill) is None
+        board = self.board
+        ring = via_ring(at, size)
+        box = Box.of_points(ring)
+        if self.asked is not None:
+            self.asked.append(box)
+        if board._via_off_board(self.occ, box) is not None:
+            return False
+        if self._obstacles is None:
+            self._obstacles = board._via_obstacles(ctx)
+        if self._native_obstacles is None:
+            holes, bare, forbidding = self._obstacles
+            self._native_obstacles = view.via_obstacles(
+                [(c.x, c.y, dia, hole_net) for c, dia, _, hole_net in holes], [(c.x, c.y, width) for c, width in bare],
+                [(list(poly), list(allowed)) for poly, _, allowed in forbidding])
+        return view.via_free(Shape("via", "copper", frozenset(), frozenset(board.geometry.layers), net, ring, box, wire=True),
+                             hole_shape("via", at, drill, net), self._native_obstacles, at, net, size, drill)
 
 
 class CutoutNowhere(Exception):

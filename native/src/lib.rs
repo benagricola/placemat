@@ -18,6 +18,7 @@ mod fill;
 mod geometry;
 mod giveway;
 mod judge;
+mod lanes;
 mod pinmap;
 mod pinmap_geom;
 mod pockets;
@@ -408,6 +409,135 @@ impl NativeObstacles {
             board: board.as_ref(),
         };
         Ok(giveway::first_move(&self.grid, &self.cfg, &m, &offsets, clearance, &skip, start))
+    }
+}
+
+/// What `lanes::Extra` is as Python hands it over: (the shape's box as (left, top, right, bottom), a straight
+/// track's (ax, ay, bx, by, width), a via's (x, y, radius), a drawn polygon's (outlines, stroke width, filled)).
+type PyExtra = (
+    (f64, f64, f64, f64),
+    Option<(f64, f64, f64, f64, f64)>,
+    Option<(f64, f64, f64)>,
+    Option<(Vec<Vec<Point>>, f64, bool)>,
+);
+
+/// `shapes` with the box and extras Python gives them, and what the net-tie exclusion reads of them.
+fn build_items(shapes: &[PyShape], extras: Vec<PyExtra>, ties: Option<PyTies>) -> PyResult<Vec<lanes::Item>> {
+    if shapes.len() != extras.len() {
+        return Err(PyValueError::new_err("a shape for each extra"));
+    }
+    let mut built: Vec<shapes::Shape> = shapes.iter().map(build_shape).collect::<PyResult<_>>()?;
+    attach_ties(&mut built, ties)?;
+    Ok(built
+        .into_iter()
+        .zip(extras)
+        .map(|(mut shape, (b, segment, circle, drawn))| {
+            shape.bbox = b;
+            lanes::Item { shape, extra: lanes::Extra { segment, circle, drawn } }
+        })
+        .collect())
+}
+
+/// A board as an escape's layout asks of it (native/src/lanes.rs): the placed pads, tracks and vias, in a grid.
+#[pyclass]
+struct NativeHeld {
+    held: std::sync::Arc<lanes::Held>,
+}
+
+#[pymethods]
+impl NativeHeld {
+    #[new]
+    #[pyo3(signature = (shapes, extras, reach, touch, vias_block_courtyards, silk_clearance, component_spacing, default_clearance, net_clearance, hole_to_hole, hole_clearance, epsilon, rules=None, tie_epsilon=0.0005, ties=None))]
+    #[allow(clippy::too_many_arguments)]
+    fn new(
+        shapes: Vec<PyShape>,
+        extras: Vec<PyExtra>,
+        reach: f64,
+        touch: f64,
+        vias_block_courtyards: bool,
+        silk_clearance: f64,
+        component_spacing: f64,
+        default_clearance: f64,
+        net_clearance: shapes::NetMap,
+        hole_to_hole: f64,
+        hole_clearance: f64,
+        epsilon: f64,
+        rules: Option<Vec<RuleArg>>,
+        tie_epsilon: f64,
+        ties: Option<PyTies>,
+    ) -> PyResult<Self> {
+        let items = build_items(&shapes, extras, ties)?;
+        let rules = build_rules(rules);
+        let max_clearance = shapes::largest_clearance(default_clearance, &net_clearance, &rules);
+        let cfg = shapes::ConflictConfig {
+            touch, vias_block_courtyards, silk_clearance, component_spacing, default_clearance, net_clearance,
+            rules, gap: 0.0, drawn_gap: 0.0, hole_to_hole, hole_clearance, max_clearance, epsilon,
+            tie_eps: tie_eps(tie_epsilon),
+        };
+        Ok(NativeHeld { held: std::sync::Arc::new(lanes::Held::new(items, cfg, reach)) })
+    }
+
+    /// This board less the shapes at `hidden` (indices into `shapes`) and with `shapes` more.
+    #[pyo3(signature = (hidden, shapes, extras, ties=None))]
+    fn view(&self, hidden: Vec<usize>, shapes: Vec<PyShape>, extras: Vec<PyExtra>, ties: Option<PyTies>)
+        -> PyResult<NativeLaneView> {
+        let items = build_items(&shapes, extras, ties)?;
+        Ok(NativeLaneView { view: lanes::View::new(self.held.clone(), &hidden, items) })
+    }
+}
+
+/// What a via's site is judged against beside the copper (`Board._via_obstacles`).
+#[pyclass]
+struct NativeViaObstacles {
+    obs: lanes::ViaObstacles,
+}
+
+#[pymethods]
+impl NativeViaObstacles {
+    #[new]
+    fn new(holes: Vec<(f64, f64, f64, String)>, bare: Vec<(f64, f64, f64)>, forbidding: Vec<(Vec<Point>, Vec<String>)>)
+        -> Self {
+        let forbidding = forbidding.into_iter().map(|(poly, allowed)| (poly, allowed.into_iter().collect())).collect();
+        NativeViaObstacles { obs: lanes::ViaObstacles { holes, bare, forbidding } }
+    }
+}
+
+/// A `NativeHeld` as one candidate sees it.
+#[pyclass]
+struct NativeLaneView {
+    view: lanes::View,
+}
+
+#[pymethods]
+impl NativeLaneView {
+    /// Whether `probe` (a track or a via of a lane) meets no pad or copper of another net: `Occupancy.copper_conflicts`
+    /// finds nothing, `exact`.
+    #[pyo3(signature = (probe, extra, ties=None))]
+    fn copper_free(&self, probe: PyShape, extra: PyExtra, ties: Option<PyTies>) -> PyResult<bool> {
+        let item = build_items(&[probe], vec![extra], ties)?.pop().unwrap();
+        Ok(!self.view.meets(&item, lanes::Pool::Copper))
+    }
+
+    /// Whether a via of `net`, `size` and `drill` at `at` stands clear of everything but the board's edge and the
+    /// copper planned in a batch (`Board._via_site_why`): `ring` its copper as a shape, `hole` its drill.
+    #[pyo3(signature = (ring, ring_extra, hole, hole_extra, at, net, size, drill, obstacles, ties=None))]
+    #[allow(clippy::too_many_arguments)]
+    fn via_free(
+        &self,
+        ring: PyShape,
+        ring_extra: PyExtra,
+        hole: PyShape,
+        hole_extra: PyExtra,
+        at: Point,
+        net: &str,
+        size: f64,
+        drill: f64,
+        obstacles: &NativeViaObstacles,
+        ties: Option<PyTies>,
+    ) -> PyResult<bool> {
+        let ring = build_items(&[ring], vec![ring_extra], ties)?.pop().unwrap();
+        let hole = build_items(&[hole], vec![hole_extra], None)?.pop().unwrap();
+        Ok(lanes::via_site_free(&self.view, &ring, &hole, at, net, size, drill, &obstacles.obs))
     }
 }
 
@@ -1326,6 +1456,9 @@ fn placemat_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<NativeReachKeys>()?;
     m.add_class::<NativeObstacles>()?;
     m.add_class::<NativeOriginShapes>()?;
+    m.add_class::<NativeHeld>()?;
+    m.add_class::<NativeViaObstacles>()?;
+    m.add_class::<NativeLaneView>()?;
     m.add_class::<NativeSweepSeen>()?;
     m.add_class::<NativeBoard>()?;
     m.add_class::<NativeRatsnest>()?;

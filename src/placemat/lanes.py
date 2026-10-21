@@ -496,7 +496,7 @@ class Layouter:
             lane.corner = self._snap_out(self.at(lane.s, self.tips + h))
             end = self._end_at(lane, max(self._stub_a(lane, []), depth * _SQ2))
             ops = polyline_tracks(lane.net, self.env.layer, lane.width, [lane.centre, lane.corner, end])
-            return not any(self.env.hits(op) for op in ops)
+            return all(self.env.free(op) for op in ops)
 
         def nm(h: float, ok) -> float:
             h = math.ceil(h * 1e6 - 1e-3) / 1e6
@@ -630,9 +630,10 @@ class Layouter:
     def _seg_tracks(self, lane: _Lane, segs) -> list:
         return [Track(lane.net, self.env.layer, lane.width, Location(*a), Location(*b)) for a, b in segs]
 
-    def _via_fails(self, lane: _Lane, q: Location, others: bool):
+    def _via_fails(self, lane: _Lane, q: Location, others: bool, site: bool = True):
         """What is wrong with a via of `lane` at `q`, in the order it is judged: (the clearance it falls short of,
-        mm; infinite for a site the board refuses, a Refusal)."""
+        mm; infinite for a site the board refuses, a Refusal). Without `site`, the board's refusal is not worked out:
+        its Refusal is None."""
         size, drill = lane.via
         qp = (q.x, q.y)
         yield from self._pads_fails(lane, q)
@@ -663,16 +664,23 @@ class Layouter:
                 yield self.env.hole_to_hole - hole, Refusal(Code.LANE_HOLE, pin=other.number, gap_mm=hole,
                                                             need_mm=self.env.hole_to_hole)
         if self.decl.turn is None:
-            yield from self._path_fails(lane, q, others)
+            yield from self._path_fails(lane, q, others, site)
         if others:
-            why = self.env.via_site(q, lane.net, size, drill)
-            if why is not None:
-                yield math.inf, why
+            if site:
+                why = self.env.via_site(q, lane.net, size, drill)
+                if why is not None:
+                    yield math.inf, why
+            elif not self.env.via_free(q, lane.net, size, drill):
+                yield math.inf, None
 
     def _via_why(self, lane: _Lane, q: Location, others: bool) -> Refusal | None:
         return next((text for _, text in self._via_fails(lane, q, others)), None)
 
-    def _path_fails(self, lane: _Lane, q: Location, others: bool):
+    def _via_clear(self, lane: _Lane, q: Location, others: bool) -> bool:
+        """Whether `_via_why` is None."""
+        return next(self._via_fails(lane, q, others, site=False), None) is None
+
+    def _path_fails(self, lane: _Lane, q: Location, others: bool, site: bool = True):
         """The lane's own copper out to a via at `q` (a lane without a turn): its riser, and its 45 where it jogs, past the
         vias already placed and, where it jogs, beside the lanes and the part's pads and what is placed on the board."""
         pts = [lane.centre] + ([lane.corner] if lane.jog is not None else []) + [q]
@@ -712,8 +720,11 @@ class Layouter:
                     yield need - gap, Refusal(Code.LANE_PAD_JOG, pin=number, gap_mm=gap, need_mm=need)
         if others:
             for t in tracks:
-                for why in self.env.hits(t):
-                    yield math.inf, why
+                if site:
+                    for why in self.env.hits(t):
+                        yield math.inf, why
+                elif not self.env.free(t):
+                    yield math.inf, None
 
     def _pads_fails(self, lane: _Lane, q: Location):
         size = lane.via[0]
@@ -727,24 +738,24 @@ class Layouter:
     def _pads_why(self, lane: _Lane, q: Location) -> Refusal | None:
         return next((text for _, text in self._pads_fails(lane, q)), None)
 
-    def _first(self, lane: _Lane, why, a_from: float) -> float | None:
-        """The first `a` along the lane, from `a_from`, where `why(point)` finds nothing wrong:
+    def _first(self, lane: _Lane, clear, a_from: float) -> float | None:
+        """The first `a` along the lane, from `a_from`, where `clear(point)`:
         looked for at `env.step`, then bisected back to the nearest nanometre."""
         a, prev = a_from, None
         while a <= a_from + self.env.reach + 1e-9:
-            if why(self._end_at(lane, a)) is None:
+            if clear(self._end_at(lane, a)):
                 if prev is None:
                     return a
                 lo, hi = prev, a
                 for _ in range(26):
                     mid = (lo + hi) / 2.0
-                    if why(self._end_at(lane, mid)) is None:
+                    if clear(self._end_at(lane, mid)):
                         hi = mid
                     else:
                         lo = mid
                 hi = math.ceil(hi * 1e6 - 1e-3) / 1e6
                 for _ in range(8):          # the point is rounded to the nanometre too: never short of legal
-                    if why(self._end_at(lane, hi)) is None:
+                    if clear(self._end_at(lane, hi)):
                         return hi
                     hi += 1e-6
                 return a
@@ -757,10 +768,10 @@ class Layouter:
         first clears the part's own pads (from `a_from`, else the lane's start): a spot hemmed in between that and a
         neighbour's via is a point, and a grid would step over it."""
         a0 = self._a_min(lane) if a_from is None else a_from
-        start = self._first(lane, lambda q: self._pads_why(lane, q), a0)
+        start = self._first(lane, lambda q: self._pads_why(lane, q) is None, a0)
         if start is None:
             return None
-        return self._first(lane, lambda q: self._via_why(lane, q, others), start)
+        return self._first(lane, lambda q: self._via_clear(lane, q, others), start)
 
     # ---- a lane that jogs
     def _set_corner(self, lane: _Lane, c: float) -> None:
@@ -930,6 +941,7 @@ class Layouter:
             if getattr(lane, "blocked_why", None):
                 geom.blocked.append(lane.blocked_why)
             for op in (*tracks, *((via,) if via else ())):
-                geom.blocked += env.hits(op)
+                if not env.free(op):
+                    geom.blocked += env.hits(op)
             out[n] = geom
         return Layout(out, list(self.order))

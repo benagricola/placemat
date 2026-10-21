@@ -1,0 +1,180 @@
+"""An escape's layout asks the board whether a lane's track or a via's site meets anything placed, thousands of times; the
+native module answers from a grid of the board's pads and copper (native/src/lanes.rs). For tracks and vias of every
+angle and size over parts, tracks, vias, pours, holes, a net tie and a rule area that forbids vias, the answer is the one
+`Occupancy.copper_conflicts` and `Board._via_site_why` give, on the board itself and on the view a candidate makes of it."""
+import dataclasses
+import math
+import random
+
+import pytest
+
+from placemat import layout
+from placemat.copper import Pour, Track, Via
+from placemat.layout import Board, _CopperContext, _LaneEnv
+from placemat.occupancy import Occupancy, ban_shape, hole_shape
+from placemat.placement import Placement
+from placemat.score_delta import Delta
+from placemat.settings import Settings
+from placemat.values import CopperLayer, Face, Location, Part
+from tests.conftest import needs_native
+from tests.fixtures import board_geometry, footprint, pad
+from tests.test_pad_on_pad_edge import _part, _tie
+
+pytestmark = needs_native
+
+F, B = CopperLayer.F, CopperLayer.B
+
+
+def _track(net, a, b, width=0.2, layer=F):
+    return layout._shape_of(Track(net, layer, width, Location(*a), Location(*b)))
+
+
+def _via(net, at, drill=0.3, size=0.6):
+    return [layout._shape_of(Via(net, Location(*at), drill, size)), hole_shape("", Location(*at), drill, net)]
+
+
+def _pour(net, points, layer=F):
+    return layout._shape_of(Pour(net, layer, tuple(points), 0.2))
+
+
+def _scene(seed):
+    """A board of parts (one turned), a net tie, and copper of every kind between them, as an occupancy."""
+    rnd = random.Random(seed)
+    tie = _tie("NT", ("A", "B"))
+    parts = [footprint("P1", 20.0, 14.0, w=3.0, h=1.0, nets=("A", "C")),
+             footprint("P2", 26.0, 19.0, w=3.0, h=1.0, nets=("B", "D"), rotation=30.0),
+             footprint("P3", 14.0, 22.0, w=2.0, h=1.0, nets=("C", "D"), through=True),
+             footprint("P4", 24.0, 26.0, w=2.0, h=1.0, nets=("A", "D"), face=Face.BACK)]
+    fps = [tie] + parts
+    occ = Occupancy(board_geometry(fps, width=40, height=40, extra_nets=("E",)), edge_margin=1.0,
+                    settings=dataclasses.replace(Settings(), place_envelope="courtyard"))
+    for fp in fps:
+        occ.commit(fp, Placement(Location(20.25, 20.0), 0.0, Face.FRONT) if fp is tie
+                   else Placement(fp.location, fp.rotation, fp.face))
+    copper = []
+    for k in range(14):
+        x, y = rnd.uniform(10, 30), rnd.uniform(10, 30)
+        a = rnd.uniform(0, 2 * math.pi)
+        ln = rnd.uniform(0.3, 3.0)
+        copper.append(_track("ABCDE"[k % 5], (x, y), (x + ln * math.cos(a), y + ln * math.sin(a)),
+                             width=rnd.choice([0.1, 0.2, 0.4]), layer=rnd.choice([F, F, B])))
+    for k in range(8):
+        copper += _via("ABCDE"[k % 5], (rnd.uniform(10, 30), rnd.uniform(10, 30)), drill=0.3, size=rnd.choice([0.6, 0.8]))
+    copper.append(_pour("E", [(12, 12), (16, 12), (16, 15), (12, 15)]))
+    copper.append(ban_shape("via exclusion", ((17, 22), (20, 22), (20, 25), (17, 25)), None, ("A",)))
+    occ.add_copper(copper)
+    return occ
+
+
+def _probes(seed, n, around=(9, 31, 9, 31)):
+    rnd = random.Random(seed)
+    out = []
+    for _ in range(n):
+        net = rnd.choice("ABCDEF")
+        at = Location(rnd.uniform(around[0], around[1]), rnd.uniform(around[2], around[3]))
+        if rnd.random() < 0.5:
+            a = rnd.choice([0.0, math.pi / 4, math.pi / 2, rnd.uniform(0, 2 * math.pi)])
+            ln = rnd.choice([0.0, 0.5, 2.0])
+            out.append(Track(net, rnd.choice([F, F, B]), rnd.choice([0.1, 0.2, 0.3]), at,
+                             Location(round(at.x + ln * math.cos(a), 6), round(at.y + ln * math.sin(a), 6))))
+        else:
+            out.append(Via(net, at, 0.3, rnd.choice([0.5, 0.6, 0.8])))
+    return out
+
+
+@pytest.mark.parametrize("seed", [1, 2, 3])
+def test_a_probe_meets_what_copper_conflicts_says_it_meets(seed):
+    occ = _scene(seed)
+    view = occ.lane_view()
+    assert view is not None
+    seen = {True: 0, False: 0}
+    for op in _probes(seed, 400):
+        shape = layout._shape_of(op)
+        want = not occ.copper_conflicts(shape)
+        seen[want] += 1
+        assert view.copper_free(shape) == want, op
+    assert seen[True] > 20 and seen[False] > 20, seen
+
+
+def test_a_probe_on_a_net_tie_is_excused_as_python_excuses_it(monkeypatch):
+    from collections import Counter
+    excused = Counter()
+    real = Occupancy._net_tie_exclusion
+
+    def spy(self, *a, **kw):
+        r = real(self, *a, **kw)
+        excused[bool(r)] += 1
+        return r
+    monkeypatch.setattr(Occupancy, "_net_tie_exclusion", spy)
+    occ = _scene(6)
+    view = occ.lane_view()
+    seen = Counter()
+    for op in _probes(6, 1500, around=(19.0, 21.5, 19.2, 20.8)):
+        shape = layout._shape_of(op)
+        want = not occ.copper_conflicts(shape)
+        seen[want] += 1
+        assert view.copper_free(shape) == want, op
+    assert excused[True] > 20 and excused[False] > 20, excused
+    assert seen[True] > 20 and seen[False] > 20, seen
+
+
+def test_a_probe_asked_while_the_board_is_held_gets_the_same_answer():
+    occ = _scene(4)
+    view = occ.lane_view()
+    with occ.held():
+        for op in _probes(4, 100):
+            shape = layout._shape_of(op)
+            assert view.copper_free(shape) == (not occ.copper_conflicts(shape)), op
+
+
+@pytest.mark.parametrize("seed", [1, 2])
+def test_a_via_site_is_free_where_via_site_why_finds_nothing(seed):
+    occ = _scene(seed)
+    board = Board(occ.geometry, edge_margin=1.0, keep_going=True)
+    ctx = _CopperContext(board, occ)
+    decl = type("Decl", (), {"ref": "ZZ"})()
+    env = _LaneEnv(board, occ, decl, {}, Face.FRONT, context=ctx)
+    assert env._native() is not None
+    rnd = random.Random(seed)
+    seen = {True: 0, False: 0}
+    for _ in range(500):
+        net = rnd.choice("ABCDEF")
+        at = Location(rnd.uniform(5, 35), rnd.uniform(5, 35))
+        size, drill = rnd.choice([(0.45, 0.2), (0.6, 0.3), (0.8, 0.4)])
+        want = env.via_site(at, net, size, drill) is None
+        seen[want] += 1
+        assert env.via_free(at, net, size, drill) == want, (net, at, size)
+    assert seen[True] > 20 and seen[False] > 20, seen
+
+
+def test_a_candidate_view_is_asked_as_the_board_it_is():
+    from tests.escape_fixtures import PD_NETS, board_with, qfn, small_part
+    b = board_with([qfn(nets=PD_NETS), small_part("R1", "r1", ("VOUT", "SENSE"), cx=50.0, cy=50.0),
+                    small_part("R2", "r2", ("SENSE", "PGOOD"), cx=40.0, cy=50.0)], keep_going=True, nets=("E",))
+    for inst, at in (("pd", (30, 30)), ("r1", (50, 50)), ("r2", (40, 50))):
+        b.place(Part(inst), at=Location(*at))
+    plan = b.resolve()
+    occ = plan.occupancy
+    rnd = random.Random(5)
+    occ.add_copper([_track("E", (26, 28), (34, 27), 0.2), _track("SENSE", (36, 33), (36, 38), 0.3)]
+                   + _via("E", (31, 25)) + _via("VOUT", (24, 31)))
+    item = b.geometry.footprint("R1")
+    occ.lift({"R1"})
+    delta = Delta(b, occ, item, plan.links, plan=plan)
+    probes = [dataclasses.replace(op, net=op.net) for op in _probes(5, 300)]
+    for _ in range(10):
+        at = Placement(Location(rnd.uniform(24, 38), rnd.uniform(23, 37)), rnd.choice([0.0, 90.0]), Face.FRONT)
+        view, geometries, copper = delta._view(at)
+        native = view.lane_view()
+        assert native is not None
+        for op in probes:
+            op = _moved(op, 20.0, 20.0)
+            shape = layout._shape_of(op)
+            assert native.copper_free(shape) == (not view.copper_conflicts(shape)), (at, op)
+
+
+def _moved(op, dx, dy):
+    if isinstance(op, Track):
+        return dataclasses.replace(op, start=Location(op.start.x + dx, op.start.y + dy),
+                                   end=Location(op.end.x + dx, op.end.y + dy))
+    return dataclasses.replace(op, at=Location(op.at.x + dx, op.at.y + dy))
