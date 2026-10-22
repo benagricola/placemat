@@ -60,6 +60,23 @@ def mapped_geometry(occ, assignment):
     return out
 
 
+def _escapes_mapped(escapes, assignment):
+    """The escape declarations under a map: a lane stays with its pin and carries whichever net the map puts there, so
+    a pin the map leaves with no net has no lane (Board.escape refuses such a pin), and an escape left with none goes."""
+    out = []
+    for decl in escapes:
+        gone = {n for n in decl.pins if assignment.get((decl.ref, n)) == ''}
+        if not gone:
+            out.append(decl)
+        elif len(gone) < len(decl.pins):
+            out.append(replace(decl, pins=tuple(n for n in decl.pins if n not in gone), vias=decl.vias - gone,
+                               widths=tuple(w for w in decl.widths if w[0] not in gone),
+                               pairs=tuple(p for p in decl.pairs if not set(p) & gone),
+                               chamfers={n: c for n, c in decl.chamfers.items() if n not in gone},
+                               lands=tuple(l for l in decl.lands if l[0] not in gone)))
+    return out
+
+
 class CandidateRefused(ValueError):
     """A candidate does not preserve this exact declared intent context."""
     def __init__(self, code, message, **facts):
@@ -308,6 +325,7 @@ class Finalists:
             occ.settings = self.settings
             board = copy.copy(self.board)
             board.geometry, board.settings = occ.geometry, self.settings
+            board._escapes = _escapes_mapped(self.board._escapes, assignments)
             candidate_plan = copy.copy(self.plan)
             candidate_plan.geometry, candidate_plan.occupancy = occ.geometry, occ
             for owner, ((turn, flip), part) in poses.items():

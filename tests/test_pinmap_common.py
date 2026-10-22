@@ -5,7 +5,8 @@ import pytest
 
 from placemat.layout import Board
 from placemat.pinmap import placed_from_plan
-from placemat.pinmap_common import CandidateRefused, Finalists, mapped_geometry
+from placemat.lanes import EscapeDecl
+from placemat.pinmap_common import CandidateRefused, Finalists, _escapes_mapped, mapped_geometry
 from placemat.pinmap_core import study_group
 from placemat.values import Part, PadRef, Cell, Location, Face, Near
 from tests.fixtures import board_geometry, footprint, pad, track
@@ -13,7 +14,7 @@ from tests.pinmap_boards import input_of, quad_footprint, settings
 
 
 def scene(copper=(), *, points=None, paired=False, source_nets=('A', 'B', 'C', 'D'), cell='', fields=None,
-          either=False):
+          either=False, escape=()):
     parts = [quad_footprint('U1', 10, 10, {'E': source_nets},
                             fields={'Pm.PinPool': '1-4', **(fields or {})}, cell=cell or None,
                             inst='module.u1' if cell else 'u1')]
@@ -28,6 +29,9 @@ def scene(copper=(), *, points=None, paired=False, source_nets=('A', 'B', 'C', '
     cfg = settings(pins_rotations=(0.0,), cleanup_enabled=False)
     geometry = board_geometry(parts, cells=(cell,) if cell else (), copper=copper,
                               extra_nets=('OTHER',) if paired else ())
+    # a board read from KiCad lists no net '' for its pads with none
+    geometry = replace(geometry, nets=geometry.nets - {''},
+                       netclasses={n: c for n, c in geometry.netclasses.items() if n})
     if paired:
         pair = replace(geometry.netclasses['A'], name='Pair', diff_pair_width=.2, diff_pair_gap=.2)
         geometry = replace(geometry, netclasses={**geometry.netclasses, 'A': pair, 'OTHER': pair})
@@ -42,6 +46,8 @@ def scene(copper=(), *, points=None, paired=False, source_nets=('A', 'B', 'C', '
             board.place(Part(part.inst), at=Near(part.location), radius=.01, rotations=(0,), face=Face.EITHER)
             continue
         board.place(Part(part.inst), at=part.location)
+    if escape:
+        board.escape(Part('u1'), list(escape), why='its way out')
     plan = board.resolve()
     placed = placed_from_plan(board, plan)
     inp, problems = input_of(placed.pads, placed.parts, cells=placed.cells,
@@ -98,6 +104,29 @@ def test_foreign_endpoint_refused_before_source_mutation():
     result = Finalists(board, plan).evaluate(inp, ((('U1',), replace(candidate, assign=assignment)),))
     assert result.reasons == ('pin finalist changes a held or unrelated logical terminal',)
     assert (dict(plan.occupancy.items), tuple(plan.occupancy.copper)) == before
+
+
+def test_a_map_that_leaves_an_escaped_pin_without_a_net_is_judged_without_its_lane():
+    board, plan, inp, group = scene(source_nets=('A', 'B', 'C', ''), escape=(1,))
+    candidate = group.results[0]
+    assignment = {net: tuple(end for end in ends if end != ('U1', '4')) for net, ends in candidate.assign.items()}
+    assignment['A'] = tuple(end for end in assignment['A'] if end[0] != 'U1') + (('U1', '4'),)
+    result = Finalists(board, plan).evaluate(inp, ((('U1',), replace(candidate, assign=assignment)),))
+    assert not result.reasons
+    assert result.total < float('inf')
+    assert [d.pins for d in board._escapes] == [('1',)]
+
+
+def test_an_escape_under_a_map_keeps_the_lanes_of_its_pins_that_still_have_a_net():
+    decl = EscapeDecl(0, Part('u1'), 'U1', ('1', '2', '3'), None, frozenset({'2', '3'}), None, None,
+                      (('2', .3), ('3', .2)), (('1', '2'),), 0.0, .45, .2, 'its way out', chamfers={'2': .1},
+                      lands=(('2', 1), ('3', 1)))
+    other = replace(decl, index=1, ref='U2')
+    (got, kept) = _escapes_mapped([decl, other], {('U1', '2'): '', ('U1', '3'): 'B', ('U2', '1'): 'A'})
+    assert kept is other
+    assert (got.pins, got.vias, got.widths, got.pairs, got.chamfers, got.lands) == (
+        ('1', '3'), frozenset({'3'}), (('3', .2),), (), {}, (('3', 1),))
+    assert _escapes_mapped([decl], {('U1', n): '' for n in '123'}) == []
 
 
 def test_supported_pose_matches_exact_occupancy_transform():
