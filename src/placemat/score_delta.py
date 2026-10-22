@@ -43,6 +43,7 @@ class Delta:
         if not self.own <= occ.pending:
             raise ValueError('Delta requires the moving item to be lifted')
         self.rn = occ.ratsnest()
+        occ.pair_sides()                    # read on the lifted board, so each candidate's view copies them
         self.before_edges, self.quiet, self.kinds, self.partners = score._signal_edges(board, occ)
         self.rest = {net: list(anchors) for net, anchors in self.rn._anchors.items()}
         self.old = {net: [] for net in self.rest}

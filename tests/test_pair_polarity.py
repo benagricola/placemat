@@ -155,3 +155,23 @@ def test_a_candidates_pair_leaves_to_one_part_are_not_priced_as_chords(backend):
     assert rn.leaf_costs(pads)[0] == 2.0
     rn.set_net("DN", [Anchor("U5", "2", 9, 0)])
     assert rn.leaf_costs(pads)[0] == 2.0 + 25.0
+
+
+def test_a_search_reads_the_pairs_sides_once_for_all_its_candidates(monkeypatch):
+    from placemat import ratsnest
+    from placemat.board_geometry import members_of
+    from placemat.score_delta import Delta
+    board, plan = _board(_part("U1", 10, 10, north=("DP", "DN")), _part("U2", 10, 20, north=("DN", "DP")))
+    occ = plan.occupancy
+    step = next(s for s in plan.steps if s.placement is not None and s.item in plan._items)
+    item = plan._items[step.item]
+    occ.lift([fp.ref for fp in members_of(item)])
+    occ.__dict__.pop("_pair_sides", None)                # a board whose sides nothing has read yet
+    reads = []
+    real = ratsnest.pair_sides
+    monkeypatch.setattr(ratsnest, "pair_sides", lambda *a: reads.append(1) or real(*a))
+    delta = Delta(board, occ, item, plan.links, plan=plan)
+    for dx in range(8):
+        delta(dataclasses.replace(step.placement, location=Location(step.placement.location.x + dx,
+                                                                    step.placement.location.y)))
+    assert len(reads) <= 1
