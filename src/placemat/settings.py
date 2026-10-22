@@ -428,7 +428,7 @@ class Settings:
     score_crossing_plane: float = S(0.0, "share",
         "a crossing with a plane's or free net's airwire, as a share of `score.crossing`: each of its pads drops to the plane by a via")
     score_pair_crossing: float = S(100.0, "mm",
-        "mm a differential pair (a net class's own, board_pairs) crossing itself costs, in place of `score.crossing`: such a pair has to exchange sides to route coupled, so a swap of two identical parts or a turned part is worth wire")
+        "mm a differential pair (a net class's own, board_pairs) crossing itself costs, in place of `score.crossing`: such a pair has to exchange sides to route coupled. A pair's two airwires between the same two parts cross as the `pair_crossed` finding judges them, which a turn does not change and a pin swap or a change of face does")
     score_crossing_pair_net: float = S(5.0, "share",
         "what a ratsnest crossing counts, in crossings, where either airwire is a differential pair's half (and not its partner's)")
     score_impedance: float = S(3.0, "share",
