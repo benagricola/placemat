@@ -5,6 +5,28 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## To 0.100.7
+
+### Changed
+
+- **A pair between two parts crosses as the router judges its polarity.** A differential pair's two airwires
+  joining the same two parts counted as crossed where their chords crossed, at `score.pair_crossing` (100 mm), and
+  each was a `pair_crossed` warning. Two parts whose pair pins face the same way have chords that cross on a pair
+  the router couples without a swap. Such airwires now cross as the router judges a coupled pair's polarity: the
+  half's side of the pads' way out at one part against its side of the way in at the other. A turn does not change
+  that, and a pin swap or putting one part on the other face does; other pair airwires still cross as chords. The
+  finding carries `judged` (`sides` or `chords`), and a pair judged by sides is told to swap its pins at one end or
+  put a part on the other face. The score's measures are version 4, so runs recorded before are not compared with
+  new ones (the first run after upgrading is "the best so far"). A script that turned or moved a part only to
+  clear a `pair_crossed` warning between two parts can drop that.
+
+### Fixed
+
+- **The pin map study no longer fails on a part with escaped pins.** A candidate map that moved the net off a pin
+  `board.escape()` names failed the whole study (`setup.pins`, `study_failed` with KeyError `no net named ''`).
+  An escape's lane now stays with its pin and carries the net the candidate puts there; a pin the candidate leaves
+  with no net has no lane in its judgment. Scripts need no change.
+
 ## To 0.100.6
 
 ### Fixed
