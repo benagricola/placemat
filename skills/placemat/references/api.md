@@ -5166,7 +5166,9 @@ its centre, every member's pads with it, and the body its airwires go round is
 the cell's envelope (its members' courtyards and its own copper), not the
 part's courtyard. Generator turns are theoretical and score only airwires.
 Plan-bound finalists additionally judge actual detached geometry, placement
-legality and copper/pad clashes. The
+legality and copper/pad clashes. An escape's lane stays with its pin and
+carries the net a finalist puts there; a pin the finalist leaves with no net
+has no lane in its judgment. The
 part's pins leave by the envelope side their own courtyard side faces; the other
 members' pads leave by the side they are nearest; a net with every pad inside
 the cell and none that may move turns with the cell and is not studied. A pool
