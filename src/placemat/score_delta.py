@@ -12,7 +12,7 @@ from dataclasses import dataclass
 
 from . import score
 from .board_geometry import members_of
-from .ratsnest import Anchor, KIND_IMPEDANCE, count_crossings, crossing_price, mst_change, nm_segment, prices_of
+from .ratsnest import Anchor, KIND_IMPEDANCE, count_crossings, count_pair_crossings, crossing_price, mst_change, nm_segment, prices_of
 from .values import Box
 
 
@@ -90,27 +90,41 @@ class Delta:
                  for kind in ('escape_crossed', 'escape_closed', 'escape_via')}
         return terms, difference['escape_walled']
 
-    def _crossing_change(self, changed):
+    def _crossing_change(self, changed, polarity=None):
+        """The signed change of the crossings term from the lifted board's airwires (`self.old`) to `changed` ({net:
+        (its airwires now, those added, those dropped)}); a pair's two halves cross where `polarity` (the candidate
+        view's Occupancy.pair_polarity) says so, as `ratsnest.crossings` counts them."""
         old_nm = self.__dict__.get('_old_nm')
         if old_nm is None:          # the lifted board's airwires on whole nanometres, made once per snapshot
             old_nm = self._old_nm = {net: [nm_segment(e) for e in edges] for net, edges in self.old.items()}
         changed_nm = {net: tuple([nm_segment(e) for e in edges] for edges in lists) for net, lists in changed.items()}
+
+        def count(net, a, a_nm, other, b, b_nm):
+            if polarity is None or self.partners.get(net) != other:
+                return count_crossings(a_nm, b_nm)
+            return count_pair_crossings(a, a_nm, b, b_nm, polarity)
         result = 0.0
         nets = sorted(changed)
         for index, net in enumerate(nets):
-            _, added, dropped = changed_nm[net]
+            _, added, dropped = changed[net]
+            _, added_nm, dropped_nm = changed_nm[net]
             for other in sorted(self.old.keys() - changed.keys()):
                 price = crossing_price(self.kinds, self.partners, self.cross_prices, net, other)
                 if price:
-                    result += price * (count_crossings(added, old_nm[other]) - count_crossings(dropped, old_nm[other]))
+                    old, nm = self.old[other], old_nm[other]
+                    result += price * (count(net, added, added_nm, other, old, nm)
+                                       - count(net, dropped, dropped_nm, other, old, nm))
             for other in nets[index + 1:]:
                 price = crossing_price(self.kinds, self.partners, self.cross_prices, net, other)
                 if price:
-                    new, a, d = changed_nm[other]
-                    before = old_nm.get(net, [])
+                    new, a, d = changed[other]
+                    new_nm, a_nm, d_nm = changed_nm[other]
+                    before, before_nm = self.old.get(net, []), old_nm.get(net, [])
                     # Signed bilinear expansion counts simultaneous changes once.
-                    result += price * (count_crossings(added, new) - count_crossings(dropped, new)
-                                       + count_crossings(before, a) - count_crossings(before, d))
+                    result += price * (count(net, added, added_nm, other, new, new_nm)
+                                       - count(net, dropped, dropped_nm, other, new, new_nm)
+                                       + count(net, before, before_nm, other, a, a_nm)
+                                       - count(net, before, before_nm, other, d, d_nm))
         return result
 
     def _view(self, placement):
@@ -220,7 +234,7 @@ class Delta:
         view._rn_anchors = {net: {(a.ref, a.number): a for a in nodes}
                             for net, nodes in view._ratsnest._anchors.items()}
         link, excess = score._links_mm(self.board, view, self.plan, self.links)
-        terms = {'airwire': wire, 'crossings': self._crossing_change(changed),
+        terms = {'airwire': wire, 'crossings': self._crossing_change(changed, view.pair_polarity()),
                  'link': cfg.score_link * (link - self.base_link[0]),
                  'link_over': cfg.score_link_over * (excess - self.base_link[1]),
                  'push': cfg.score_push * (score._pushes(self.board, view, self.plan) - self.base_push),
@@ -334,6 +348,17 @@ class Delta:
             if not hasattr(kernel, 'configure_affines'):
                 return None  # old native origin+translation cannot preserve categorical ties
             kernel.configure_affines([self.occ.candidate_anchor_affines(self.item, p) for p in origins])
+            sides = self.occ.pair_sides()
+            if sides:
+                if not hasattr(kernel, 'configure_pairs'):
+                    return None  # an older native counts a pair's halves as chords
+                geometries, _ = self.occ.placed_geometries(self.item, origins[0])
+                faces = {ref: g.reference.face for ref, g in geometries.items()}
+                mirrored = sorted(ref for ref in self.occ.items if ref not in self.occ.pending
+                                  and self.occ.mirrored(ref)) + sorted(
+                    ref for ref, face in faces.items() if self.occ.geometry.has_footprint(ref)
+                    and face != self.occ.geometry.footprint(ref).face)
+                kernel.configure_pairs([(*key, side) for key, side in sorted(sides.items())], mirrored)
             boxes, links, pad_boxes = [], [], []
             def bounds(box):
                 return box.left, box.top, box.right, box.bottom

@@ -219,6 +219,19 @@ def count_crossings(a, b) -> int:
     return n
 
 
+def count_pair_crossings(a, a_nm, b, b_nm, polarity) -> int:
+    """`count_crossings` of airwires `a` of one half of a pair and `b` of the other (each with its `nm_segment`s), each
+    pair crossing where `polarity` (`pair_crossed`) says so, else as `count_crossings` counts it."""
+    n = 0
+    for e, (ax, ay, bx, by, x0, x1, y0, y1) in zip(a, a_nm):
+        for f, (cx, cy, dx, dy, u0, u1, v0, v1) in zip(b, b_nm):
+            got = polarity(e, f)
+            if got is None:
+                got = not (x1 < u0 or u1 < x0 or y1 < v0 or v1 < y0) and _cross_nm(ax, ay, bx, by, cx, cy, dx, dy)
+            n += bool(got)
+    return n
+
+
 def _cross_nm(ax, ay, bx, by, cx, cy, dx, dy) -> bool:
     """segments_cross on whole nanometres already."""
     if max(ax, bx) < min(cx, dx) or max(cx, dx) < min(ax, bx) or max(ay, by) < min(cy, dy) or max(cy, dy) < min(ay, by):
@@ -284,18 +297,115 @@ def crossing_price(kinds, partners, prices, a, b) -> float:
     return prices[crossing_class(kinds, partners, prices, a, b)]
 
 
-def crossings(edges, kinds=None, partners=None, prices=(1.0, 1.0, 1.0, 1.0, 1.0)) -> tuple:
+def pair_sides(geometry, partners: dict) -> dict:
+    """{(ref, pad a, pad b): side} for each part with pads on both halves of a differential pair (`partners`), a on one
+    half and b on the other: the cross product of the pads' way out and the vector from their midpoint to a, on the
+    board as read. The router (KiCadRoutingTools py_router/diff_pair_routing.py `_detect_polarity`) judges a coupled
+    pair's polarity at a terminal so, the way out being its routed centreline's first or last segment; before routing
+    the pads' own way out stands for it (`_escape_axis`'s: the outward normal of their row, else the ray from the body
+    centre), the two pads' summed. A turn keeps the side and a change of face reverses it. A part whose two pads' ways
+    out cancel is left out."""
+    from .geometry import Box
+    from .placer import _pin_normal
+    out: dict = {}
+    for fp in geometry.footprints:
+        mine = {}
+        for p in fp.pads:
+            if p.net in partners:
+                mine.setdefault(p.number, p)
+        if not any(partners[p.net] in {q.net for q in mine.values()} for p in mine.values()):
+            continue
+        boxes: dict = {}
+        for p in fp.pads:
+            boxes.setdefault(p.number, []).append(p.box)
+        centres = {(fp.ref, n): Box.union(bs).center for n, bs in boxes.items()}
+        body = fp.body_box.center
+
+        def way(number):
+            box = Box.union(boxes[number])
+            normal = _pin_normal(centres, fp.ref, box.center, fp.rotation, box)
+            if normal is not None:
+                return normal
+            dx, dy = box.center.x - body.x, box.center.y - body.y
+            n = math.hypot(dx, dy)
+            return (dx / n, dy / n) if n > 1e-9 else (1.0, 0.0)
+        for a, pa in mine.items():
+            for b, pb in mine.items():
+                if partners[pa.net] != pb.net:
+                    continue
+                (ax, ay), (bx, by) = way(a), way(b)
+                ux, uy = ax + bx, ay + by
+                size = math.hypot(ux, uy)
+                if size < 1e-9:
+                    continue
+                ux, uy = ux / size, uy / size
+                ea, eb = pa.airwire_end, pb.airwire_end
+                mx, my = (ea.x + eb.x) / 2, (ea.y + eb.y) / 2
+                out[(fp.ref, a, b)] = ux * (ea.y - my) - uy * (ea.x - mx)
+    return out
+
+
+def pair_crossed(sides: dict, mirrored, e, f):
+    """Whether airwires `e` and `f`, a differential pair's two halves, cross as the router judges a coupled pair's
+    polarity (`_detect_polarity`): the pair runs from one part to the other, and it crosses where the half of `e` is on
+    one side of its way leaving the first and on the other of its way arriving at the second (the way out reversed).
+    Each side is `pair_sides`', reversed on a part `mirrored(ref)` says changed face; the parts are taken in reference
+    order, a side of 0 counting as positive, as the router counts it at its source. None unless both airwires join the
+    same two parts and both sides are known: their chords decide then."""
+    refs = {e.a.ref: e.a.number, e.b.ref: e.b.number}
+    other = {f.a.ref: f.a.number, f.b.ref: f.b.number}
+    if len(refs) != 2 or "" in refs or refs.keys() != other.keys():
+        return None
+    first, second = sorted(refs)
+    s = sides.get((first, refs[first], other[first]))
+    t = sides.get((second, refs[second], other[second]))
+    if s is None or t is None:
+        return None
+    s, t = (-s if mirrored(first) else s), (-t if mirrored(second) else t)
+    return (s >= 0) != (-t >= 0)
+
+
+def crossings(edges, kinds=None, partners=None, prices=(1.0, 1.0, 1.0, 1.0, 1.0), polarity=None) -> tuple:
     """(priced count, crossings per net, crossings per key) over `edges`: each crossing of two different nets
     counts `crossing_price` (`kinds`, net -> kind, plain when absent; `partners`, net -> its pair's other half); per
-    net counts every crossing; per key (`crossing_key`) counts each crossing once, whatever it is priced at."""
+    net counts every crossing; per key (`crossing_key`) counts each crossing once, whatever it is priced at. A pair's
+    two halves cross where `polarity` (`pair_crossed` on the board: Occupancy.pair_polarity) says so, and as chords
+    where it has no answer."""
     kinds = kinds or {}
+    partners = partners or {}
+    judged = []                         # (i, j) of a pair's two halves that polarity answers for, crossed or not
+    if polarity is not None and partners:
+        of_net: dict = {}
+        for i, e in enumerate(edges):
+            if e.net in partners:
+                of_net.setdefault(e.net, []).append(i)
+        for net, mine in of_net.items():
+            for i in mine:
+                for j in of_net.get(partners[net], ()):
+                    if i < j:
+                        got = polarity(edges[i], edges[j])
+                        if got is not None:
+                            judged.append((i, j, got))
+        judged.sort()
     grid: dict = {}
     for k, e in enumerate(edges):
         for c in _cells(*_ends(e)):
             grid.setdefault(c, []).append(k)
-    seen = set()
+    seen = {(i, j) for i, j, _ in judged}
     total, per_net = 0.0, {}
     per_class: dict = {}
+
+    def count(e, f):
+        nonlocal total
+        k = crossing_class(kinds, partners, prices, e.net, f.net)
+        total += prices[k]
+        key = crossing_key(kinds, partners, e.net, f.net)
+        per_class[key] = per_class.get(key, 0) + 1
+        for n in (e.net, f.net):
+            per_net[n] = per_net.get(n, 0) + 1
+    for i, j, got in judged:
+        if got:
+            count(edges[i], edges[j])
     for bucket in grid.values():
         for x in range(len(bucket)):
             for y in range(x + 1, len(bucket)):
@@ -307,12 +417,7 @@ def crossings(edges, kinds=None, partners=None, prices=(1.0, 1.0, 1.0, 1.0, 1.0)
                     continue
                 seen.add((i, j))
                 if segments_cross(*_ends(e), *_ends(f)):
-                    k = crossing_class(kinds, partners, prices, e.net, f.net)
-                    total += prices[k]
-                    key = crossing_key(kinds, partners, e.net, f.net)
-                    per_class[key] = per_class.get(key, 0) + 1
-                    for n in (e.net, f.net):
-                        per_net[n] = per_net.get(n, 0) + 1
+                    count(e, f)
     return total, dict(sorted(per_net.items(), key=lambda kv: (-kv[1], kv[0]))), per_class
 
 
@@ -415,7 +520,9 @@ class Ratsnest:
                         ends = [q] + [(v.x, v.y) for v in (e.a, e.b) if v.ref == n]
                         if at is not None and min(math.hypot(at[0] - ex, at[1] - ey) for ex, ey in ends) <= depth:
                             crossed += 1
-            for net2, p2, q2, _ in leaves[k + 1:]:
+            for net2, p2, q2, joined2 in leaves[k + 1:]:
+                if self.partners.get(net) == net2 and joined.ref and joined2.ref == joined.ref:
+                    continue        # a pair's halves to one part: pair_crossed's sides decide, which a move keeping its face keeps
                 if net2 != net and segments_cross(p, q, p2, q2):
                     total += crossing_price(self.kinds, self.partners, self.prices, net, net2)
         return total, crossed
@@ -502,9 +609,10 @@ class Ratsnest:
                         break
         return out
 
-    def pair_crossings(self) -> list:
+    def pair_crossings(self, polarity=None) -> list:
         """(edge, edge) for each crossing between a differential pair's two
-        halves (`partners`), each pair of airwires once."""
+        halves (`partners`), each pair of airwires once: where `polarity`
+        (Occupancy.pair_polarity) says so, else where they cross as chords."""
         out = []
         edges = self.edges()
         index = {id(e): i for i, e in enumerate(edges)}
@@ -512,8 +620,11 @@ class Ratsnest:
             partner = self.partners.get(e.net)
             if partner is None:
                 continue
-            for f in self._later(e, i, index):
-                if f.net == partner and _cross_nm(*self._nmends[id(e)], *self._nmends[id(f)]):
+            for f in self._edges.get(partner, ()):
+                if index[id(f)] <= i:
+                    continue
+                got = polarity(e, f) if polarity is not None else None
+                if got if got is not None else _cross_nm(*self._nmends[id(e)], *self._nmends[id(f)]):
                     out.append((e, f))
         return out
 

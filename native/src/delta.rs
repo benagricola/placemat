@@ -357,10 +357,19 @@ impl AnchorPose {
     }
 }
 
+/// `ratsnest.pair_sides` of the board and the parts standing on the other face from the board as read, the
+/// candidate's among them: a pair's two halves cross as `ratsnest.pair_crossed` judges them.
+pub struct PairSides {
+    pub sides: HashMap<(String, String, String), f64>,
+    pub mirrored: HashSet<String>,
+}
+
 pub struct Delta {
     snapshots: Vec<Snapshot>,
     turns: Vec<Vec<Touched>>,
     prices: Vec<Vec<f64>>,
+    partner: Vec<Vec<bool>>,
+    pairs: Option<PairSides>,
     signal: HashSet<String>,
     impedance: f64,
     affines: Option<Vec<Vec<Vec<AnchorPose>>>>,
@@ -460,12 +469,18 @@ impl Delta {
                     .collect()
             })
             .collect();
+        let partner = snapshots
+            .iter()
+            .map(|a| snapshots.iter().map(|b| a.kind != 3 && b.kind != 3 && a.partner.as_ref() == Some(&b.name)).collect())
+            .collect();
         let net_index = snapshots.iter().enumerate().map(|(i, s)| (s.name.clone(), i)).collect();
         let anchor_orders = snapshots.iter().map(|s| anchor_order(&s.nodes)).collect();
         let delta = Self {
             snapshots,
             turns,
             prices,
+            partner,
+            pairs: None,
             signal: signal.into_iter().collect(),
             impedance,
             affines: None,
@@ -510,6 +525,55 @@ impl Delta {
         Ok(())
     }
 
+    /// `configure_pairs`: a pair's two halves cross as `ratsnest.pair_crossed` judges them from here on.
+    pub fn configure_pairs(&mut self, sides: Vec<(String, String, String, f64)>, mirrored: Vec<String>) -> Result<(), String> {
+        if sides.iter().any(|s| !s.3.is_finite()) {
+            return Err("NativeDelta pair side must be finite".into());
+        }
+        self.pairs = Some(PairSides {
+            sides: sides.into_iter().map(|(r, a, b, c)| ((r, a, b), c)).collect(),
+            mirrored: mirrored.into_iter().collect(),
+        });
+        Ok(())
+    }
+
+    /// `ratsnest.pair_crossed` of airwire (p, q) and airwire (r, t), a pair's two halves.
+    fn pair_crossed(&self, p: &Node, q: &Node, r: &Node, t: &Node) -> Option<bool> {
+        let pairs = self.pairs.as_ref()?;
+        if p.2.is_empty() || q.2.is_empty() || p.2 == q.2 {
+            return None;
+        }
+        let (r_p, r_q) = if r.2 == p.2 && t.2 == q.2 {
+            (r, t)
+        } else if t.2 == p.2 && r.2 == q.2 {
+            (t, r)
+        } else {
+            return None;
+        };
+        let ((e1, f1), (e2, f2)) = if p.2 < q.2 { ((p, r_p), (q, r_q)) } else { ((q, r_q), (p, r_p)) };
+        let side = |e: &Node, f: &Node| {
+            pairs.sides.get(&(e.2.clone(), e.3.clone(), f.3.clone())).map(|&c| if pairs.mirrored.contains(&e.2) { -c } else { c })
+        };
+        let (s, t) = (side(e1, f1)?, side(e2, f2)?);
+        Some((s >= 0.0) != (-t >= 0.0))
+    }
+
+    /// `crossed`, a pair's two halves judged by `pair_crossed` where it has an answer.
+    fn crossed_pair(&self, a: &[Node], ae: &[Pair], b: &[Node], be: &[Pair]) -> usize {
+        let mut count = 0;
+        for &(i, j) in ae {
+            for &(k, l) in be {
+                let got = self.pair_crossed(&a[i], &a[j], &b[k], &b[l]).unwrap_or_else(|| {
+                    segments_cross((a[i].0, a[i].1), (a[j].0, a[j].1), (b[k].0, b[k].1), (b[l].0, b[l].1))
+                });
+                if got {
+                    count += 1;
+                }
+            }
+        }
+        count
+    }
+
     fn crossing_change(&self, touched: &[Touched]) -> f64 {
         let mut sum = 0.0;
         for (k, a) in touched.iter().enumerate() {
@@ -520,9 +584,12 @@ impl Delta {
                 }
                 let price = self.prices[a.index][i];
                 if price != 0.0 {
+                    let count = |x: &[Node], xe: &[Pair], y: &[Node], ye: &[Pair]| {
+                        if self.partner[a.index][i] { self.crossed_pair(x, xe, y, ye) } else { crossed(x, xe, y, ye) }
+                    };
                     sum += price
-                        * (crossed(&tree.nodes, &tree.added, &other.nodes, &other.edges) as f64
-                            - crossed(&tree.nodes, &tree.dropped, &other.nodes, &other.edges)
+                        * (count(&tree.nodes, &tree.added, &other.nodes, &other.edges) as f64
+                            - count(&tree.nodes, &tree.dropped, &other.nodes, &other.edges)
                                 as f64);
                 }
             }
@@ -531,14 +598,17 @@ impl Delta {
                 if price == 0.0 {
                     continue;
                 }
+                let count = |x: &[Node], xe: &[Pair], y: &[Node], ye: &[Pair]| {
+                    if self.partner[a.index][b.index] { self.crossed_pair(x, xe, y, ye) } else { crossed(x, xe, y, ye) }
+                };
                 let old = &self.snapshots[a.index];
                 // F(A',B')-F(A,B) = F(added_A-dropped_A,B')
                 // + F(A,added_B-dropped_B). Joint changes counted once.
                 sum += price
-                    * (crossed(&tree.nodes, &tree.added, &b.tree.nodes, &b.tree.tree) as f64
-                        - crossed(&tree.nodes, &tree.dropped, &b.tree.nodes, &b.tree.tree) as f64
-                        + crossed(&old.nodes, &old.edges, &b.tree.nodes, &b.tree.added) as f64
-                        - crossed(&old.nodes, &old.edges, &b.tree.nodes, &b.tree.dropped) as f64);
+                    * (count(&tree.nodes, &tree.added, &b.tree.nodes, &b.tree.tree) as f64
+                        - count(&tree.nodes, &tree.dropped, &b.tree.nodes, &b.tree.tree) as f64
+                        + count(&old.nodes, &old.edges, &b.tree.nodes, &b.tree.added) as f64
+                        - count(&old.nodes, &old.edges, &b.tree.nodes, &b.tree.dropped) as f64);
             }
         }
         sum

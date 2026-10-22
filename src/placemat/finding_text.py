@@ -175,6 +175,9 @@ def _escape_pinched(f):
 
 @renders(C.PAIR_CROSSED, "pos", "neg", "parts")
 def _pair_crossed(f):
+    if f.get("judged") == "sides":          # a turn keeps a part's side of the pair: ratsnest.pair_crossed
+        return ("%s/%s cross between %s: swap the pair's pins at one end, or put one of the parts on the other face"
+                % (f["pos"], f["neg"], " and ".join(f["parts"])))
     return ("%s/%s cross between %s: swap two interchangeable parts on the pair, or turn a part whose pinout is mirrored "
             "180 degrees" % (f["pos"], f["neg"], ", ".join(f["parts"])))
 

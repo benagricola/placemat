@@ -419,8 +419,11 @@ not a measure of how hard a step is (a candidate budget is, `place.step_budget`,
    placement to change by hand (a swap, a satellite's pin,
    `board.fanout()`, or `board.escape()` to keep named pins' lanes). An
    `escape_lane` finding names what blocks a declared lane. A
-   `pair_crossed` differential pair must exchange sides to route coupled:
-   swap two interchangeable parts on it, or turn a part whose pinout is
+   `pair_crossed` differential pair must exchange sides to route coupled.
+   Between two parts it is judged as the router judges polarity, so a
+   turn does not uncross it: swap the pair's pins at one end, or put one
+   part on the other face. Through other parts (`judged` `chords`), swap
+   two interchangeable parts on it or turn a part whose pinout is
    mirrored, before routing. A net class whose
    clearance does not fit a part's pad pitch is a setup finding: fix the
    class, or give those nets their own, before routing. A `facts:

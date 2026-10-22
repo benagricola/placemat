@@ -1741,6 +1741,31 @@ class Occupancy:
             self._ratsnest_refresh(set(self.items))
         return rn
 
+    def pair_sides(self) -> dict:
+        """`ratsnest.pair_sides` of this board's pairs, read once per geometry (a pin map changes them)."""
+        hit = self.__dict__.get("_pair_sides")
+        if hit is None or hit[0] is not self.geometry:
+            from .pairs import board_pairs
+            from .ratsnest import pair_sides
+            partners = {n: m for n, m in board_pairs(self.geometry.netclasses).items()
+                        if n not in self.quiet_nets and m not in self.quiet_nets}
+            hit = self.__dict__["_pair_sides"] = (self.geometry, pair_sides(self.geometry, partners))
+        return hit[1]
+
+    def pair_polarity(self):
+        """`ratsnest.pair_crossed` on this board's pairs as it stands: a function of two airwires, or None when no part
+        has pads on both halves of a pair."""
+        sides = self.pair_sides()
+        if not sides:
+            return None
+        from .ratsnest import pair_crossed
+        return lambda e, f: pair_crossed(sides, self.mirrored, e, f)
+
+    def mirrored(self, ref: str) -> bool:
+        """Whether part `ref` stands on the other face from the board as read."""
+        g = self.items.get(ref)
+        return g is not None and g.reference.face != self.geometry.footprint(ref).face
+
     def _ratsnest_refresh(self, refs) -> None:
         """Take `refs`' pads out of the ratsnest and put back those placed now."""
         from .ratsnest import Anchor

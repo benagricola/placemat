@@ -44,7 +44,8 @@ from dataclasses import dataclass
 
 # How the measures are counted. A run recorded under another version is not comparable (report.comparable).
 # 3: rudy_steps counts each net's box at least score.congestion_box each way.
-MEASURES_VERSION = 3
+# 4: a differential pair's two airwires between the same two parts cross as ratsnest.pair_crossed judges them.
+MEASURES_VERSION = 4
 
 TERMS = ("link_over", "label", "escape_crossed", "escape_closed", "escape_via", "escape_lane", "setup", "crossings",
          "airwire", "link", "giveway", "push", "back_face", "congestion", "area")
@@ -378,7 +379,7 @@ def _incremental(board, occ, plan, escapes: bool = True) -> dict:
     edges, quiet, kinds, partners = _signal_edges(board, occ)
     from .ratsnest import crossings
     # a quiet net's edges are counted whatever score.crossing_plane is, so a changed weight re-ranks recorded runs
-    _, _, per_class = crossings(edges, kinds=kinds, partners=partners)
+    _, _, per_class = crossings(edges, kinds=kinds, partners=partners, polarity=occ.pair_polarity())
     wire = impedance = 0.0
     for e in edges:
         if e.net in quiet:

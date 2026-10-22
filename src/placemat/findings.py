@@ -24,7 +24,7 @@ class FindingKind(str, Enum):
     ESCAPE_WALLED = "escape_walled"     # a pad with no route out at all
     ESCAPE_VIA = "escape_via"           # a pad whose only way out toward what it connects to is a via beside it
     ESCAPE_LANE = "escape_lane"         # a declared escape lane (board.escape) that another net's pad, hole or copper blocks
-    PAIR_CROSSED = "pair_crossed"       # a differential pair's two halves cross: a swap or a turn uncrosses it
+    PAIR_CROSSED = "pair_crossed"       # a differential pair's two halves cross (ratsnest.pair_crossed between two parts)
     SETUP = "setup"                     # the same every run of the script: an undeclared part, a layer the board lacks, a pad a net's halo traps
     ROUTE = "route"                     # an adopted route dropped because a part it joins moved; a net routed under the width it was asked
     VIAS = "vias"                       # carried vias that gave way: shared, moved, left their pad, shortened or dropped

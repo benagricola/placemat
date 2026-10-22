@@ -5545,10 +5545,12 @@ class Board:
         found = esc.found()
         rn = occ.ratsnest()
         from .pairs import pair_key
-        for e, f in rn.pair_crossings():
+        polarity = occ.pair_polarity()
+        for e, f in rn.pair_crossings(polarity):
             parts = sorted({v.ref for v in (e.a, e.b, f.a, f.b) if v.ref})
             pos, neg = (e.net, f.net) if (pair_key(e.net) or (0, True))[1] else (f.net, e.net)
-            plan.findings.append(Finding(C.PAIR_CROSSED, {"pos": pos, "neg": neg, "parts": parts}))
+            judged = "chords" if polarity is None or polarity(e, f) is None else "sides"
+            plan.findings.append(Finding(C.PAIR_CROSSED, {"pos": pos, "neg": neg, "parts": parts, "judged": judged}))
         for n, e, f in found["escape_crossed"]:
             ends = []
             for edge in (e, f):

@@ -995,6 +995,15 @@ impl NativeDelta {
         Ok(())
     }
 
+    /// `Delta.native`'s pairs: `ratsnest.pair_sides` as (ref, pad, pad, side) and the refs standing on the other face
+    /// from the board as read, the candidate's at this kernel's face among them.
+    fn configure_pairs(&mut self, sides: Vec<(String, String, String, f64)>, mirrored: Vec<String>) -> PyResult<()> {
+        let revision = self.revision.checked_add(1).ok_or_else(|| PyValueError::new_err("NativeDelta revision exhausted"))?;
+        self.inner.configure_pairs(sides, mirrored).map_err(PyValueError::new_err)?;
+        self.revision = revision;
+        Ok(())
+    }
+
     fn escape_cross(&mut self, x: f64, y: f64, turn: usize, depth: f64) -> PyResult<i64> {
         if !depth.is_finite() || depth < 0.0 {
             return Err(PyValueError::new_err("NativeDelta escape depth invalid"));

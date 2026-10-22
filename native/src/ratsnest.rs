@@ -431,7 +431,10 @@ impl Ratsnest {
                     }
                 }
             }
-            for &(net2, p2, q2, _) in &leaves[k + 1..] {
+            for &(net2, p2, q2, joined2) in &leaves[k + 1..] {
+                if self.partners.get(&net) == Some(&net2) && joined != 0 && joined2 == joined {
+                    continue; // a pair's halves to one part: ratsnest.pair_crossed's sides decide
+                }
                 if net2 != net && segments_cross(p, q, p2, q2) {
                     total += self.crossing_price(net, net2);
                 }
