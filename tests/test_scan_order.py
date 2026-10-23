@@ -29,7 +29,7 @@ def _scan(occ, item, hint, rots, score, accept=None, radius=5.0):
     return _summary(r, seen)
 
 
-def _resolve(occ, item, placement, clearance=None, others=None):
+def _resolve(occ, item, placement, clearance=None, others=None, fail_first=False):
     """What giving way comes to, decided by where the candidate is: the vias' own search is not what is compared."""
     k = int(placement.location.x * 8) + int(placement.location.y * 8) + int(placement.rotation / 90)
     if k % 3 == 0:

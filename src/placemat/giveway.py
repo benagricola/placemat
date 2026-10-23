@@ -77,8 +77,9 @@ cheaper tests, rather than the offsets `_native_clear_indices` found clear of th
 _NATIVE_JUDGE = True
 
 FAIL_FIRST = True
-"""Prototype: within one item's search, a via that could not give way at one candidate is judged first at the
-next, so a resolution that ends refused stops before the actions of the vias it would have judged before it."""
+"""Within one item's search, a via that could not give way at one candidate is judged first at the next, so a
+resolution that ends refused stops before the actions of the vias it would have judged before it. False measures the
+usual order (a measurement switch, as placer.NATIVE_SWEEP is; never a setting)."""
 
 
 def _refusers(occ, geom) -> dict:
