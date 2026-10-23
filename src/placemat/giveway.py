@@ -75,6 +75,23 @@ _NATIVE_FUSED_MOVE = True
 cheaper tests, rather than the offsets `_native_clear_indices` found clear of the board: switched off to compare."""
 
 _NATIVE_JUDGE = True
+
+FAIL_FIRST = True
+"""Prototype: within one item's search, a via that could not give way at one candidate is judged first at the
+next, so a resolution that ends refused stops before the actions of the vias it would have judged before it."""
+
+
+def _refusers(occ, geom) -> dict:
+    """{carried id: refusals} of the vias that could not give way to `geom`'s item in this search."""
+    return occ.__dict__.setdefault("_gw_refusers", {}).setdefault(geom.owners, {})
+
+
+def _refusers_first(occ, geom, rows: list, first: bool) -> list:
+    """`rows` ((group, hit) pairs), with `first` the groups that refused before first, the most refusals first."""
+    seen = _refusers(occ, geom) if first else None
+    if not seen:
+        return rows
+    return sorted(rows, key=lambda row: -seen.get(row[0].id, 0))
 """Whether `_Judge.hit_board` judges shapes against the board by a native call (`first_hit`) when it can:
 switched off to compare against the Python loop of `_Judge.hit`."""
 
@@ -1130,11 +1147,21 @@ def _placed_owner(occ, home: str) -> _Owner:
     return _Owner(occ, pads, face, groups(occ, pristine), dropped)
 
 
-def resolve(occ, item, placement, clearance=None, others=None) -> Resolution:
+def resolve(occ, item, placement, clearance=None, others=None, fail_first: bool = False) -> Resolution:
     """What `item` at `placement` makes the carried vias do - those of items
     already placed that its own copper meets, then its own that meet the
     board - or why one of them cannot give way. The item less its carried
-    vias is taken to be legal there."""
+    vias is taken to be legal there. `fail_first` (a search's): the vias that
+    refused before are judged first, and only a refusal is taken from that
+    order; a resolution that gives way is the one in the usual order."""
+    if fail_first and FAIL_FIRST and _refusers(occ, occ._geometry(item)):
+        res = _resolve(occ, item, placement, clearance, others, True)
+        if res.why is not None:
+            return res
+    return _resolve(occ, item, placement, clearance, others, False)
+
+
+def _resolve(occ, item, placement, clearance, others, first: bool) -> Resolution:
     from . import giveway_field
     s = occ.settings
     res = Resolution()
@@ -1178,7 +1205,7 @@ def resolve(occ, item, placement, clearance=None, others=None) -> Resolution:
                 met.append((g, hit))
         judge.hidden |= {g.id for g, _ in met}          # none of them is there for another to share
         fctx = giveway_field.Ctx(occ.placed_groups(), geom, res.actions)
-        for g, hit in met:
+        for g, hit in _refusers_first(occ, geom, met, first):
             if giveway_field.done(res, g):
                 continue
             sharer = next((a for a in occ.given_way.values() if a.kind == "share" and a.target == g.id), None)
@@ -1194,6 +1221,8 @@ def resolve(occ, item, placement, clearance=None, others=None) -> Resolution:
                 res.needs = needs
                 if needs:
                     occ.needs[geom.owners] = needs
+                refusers = _refusers(occ, geom)
+                refusers[g.id] = refusers.get(g.id, 0) + 1
                 return _refused(occ, res, Refusal(Code.CANNOT_GIVE_WAY, base=hit[0], via=_via_facts(occ, g),
                                                   why_not=why_not), g.ring)
             if isinstance(action, giveway_field.Relaid):
@@ -1216,7 +1245,7 @@ def resolve(occ, item, placement, clearance=None, others=None) -> Resolution:
             keep = [x for x in mine if x.kind in _COPPER_AND_HOLES and x.carried not in gone]
             drops_now: dict = {}
             fctx = giveway_field.Ctx(own, geom, res.actions)
-            for g, (why, o) in meeting:
+            for g, (why, o) in _refusers_first(occ, geom, meeting, first):
                 if giveway_field.done(res, g):
                     continue
                 met = "the edge" if o is None else occ.who(o.owner) if o.owner else \
@@ -1226,6 +1255,8 @@ def resolve(occ, item, placement, clearance=None, others=None) -> Resolution:
                     res.needs = needs
                     if needs:
                         occ.needs[geom.owners] = needs
+                    refusers = _refusers(occ, geom)
+                    refusers[g.id] = refusers.get(g.id, 0) + 1
                     return _refused(occ, res, Refusal(Code.CANNOT_GIVE_WAY, base=why, via=None, why_not=why_not), o)
                 if isinstance(action, giveway_field.Relaid):
                     giveway_field.take(res, judge, action, keep)
@@ -1262,7 +1293,7 @@ class ScanGiveWay:
         self.native = occ.native_sweeper(self.item, face, rots, self.others, clearance) if native else None
 
     def resolve(self, placement) -> Resolution:
-        return resolve(self.occ, self.of, placement, self.clearance, self.full)
+        return resolve(self.occ, self.of, placement, self.clearance, self.full, fail_first=True)
 
 
 def for_scan(occ, item, face, rots, region: Box, clearance, native: bool):
