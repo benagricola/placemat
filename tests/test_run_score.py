@@ -41,8 +41,10 @@ def test_the_defaults_rank_a_closed_escape_above_a_crossed_one():
 
 def test_runs_within_the_noise_band_tie_and_the_deciding_term_is_named():
     a = M(airwire_mm=1000.0)
-    b = M(airwire_mm=1005.0)                                    # within 1% of airwire
-    assert score.compare(a, b, CFG)[0] == 0
+    b = M(airwire_mm=1005.0)
+    assert score.compare(a, b, CFG)[0] == -1                    # no band by default: 5 mm less wire is better (lower)
+    banded = dataclasses.replace(CFG, best_airwire_noise=0.01)
+    assert score.compare(a, b, banded)[0] == 0                  # within a 1% band of airwire, a tie
     c = M(airwire_mm=1000.0, findings={"label": 1})
     sign, term = score.compare(c, a, CFG)
     assert sign == 1 and term == "label"

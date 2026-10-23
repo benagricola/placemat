@@ -33,7 +33,8 @@ import sys
 import time
 
 CONFIGS = {"default": {}, "solve": {"solve_enabled": True}, "physical": {"place_envelope": "physical"}}
-NOISE = 0.01          # a score's margin before it counts as better or worse; HPWL is deterministic, the margin is for trivia
+NOISE = 0.01          # the run score's band before a module counts as better or worse: of its airwire, and twice it of
+                      # its crossings' term (the settings' own bands are 0); HPWL is deterministic, the band is for trivia
 KINDS = ("better", "worse", "same", "new", "gone")
 
 
@@ -53,13 +54,15 @@ def hpwl(pads, skip=frozenset()) -> float:
 
 def verdict(new: dict, old: dict) -> int:
     """1 when `new` ranks above `old` (`score.rank`: the validity tier, then the run score), -1 below, 0 a tie (the run
-    score within its noise band)."""
+    score within NOISE's band)."""
+    import dataclasses
     from placemat import score
     from placemat.settings import Settings
 
     def standing(row):
         return score.Standing(row["measures"], score.Validity.of(row["measures"]))
-    return -score.rank(standing(new), standing(old), Settings())
+    banded = dataclasses.replace(Settings(), best_airwire_noise=NOISE, best_crossing_noise=2 * NOISE)
+    return -score.rank(standing(new), standing(old), banded)
 
 
 def diff(run: dict, base: dict) -> list:
