@@ -1,13 +1,17 @@
 """The benchmark's scoring and baseline, without KiCad."""
 import importlib.util
 import pathlib
-
-_spec = importlib.util.spec_from_file_location(
-    "bench", pathlib.Path(__file__).resolve().parent.parent / "fixtures" / "bench.py")
-bench = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(bench)
 import sys as _sys
-_sys.modules.setdefault("bench", bench)        # pickle finds ModuleBoard by its module's name
+
+# pickle finds ModuleBoard by its module's name, so the bench is the one module "bench": another test's `import bench`
+# may have loaded it first
+bench = _sys.modules.get("bench")
+if bench is None:
+    _spec = importlib.util.spec_from_file_location(
+        "bench", pathlib.Path(__file__).resolve().parent.parent / "fixtures" / "bench.py")
+    bench = importlib.util.module_from_spec(_spec)
+    _sys.modules["bench"] = bench
+    _spec.loader.exec_module(bench)
 
 
 def row(placed, findings=0, hpwl=100.0, crossings=0, parts=5):
