@@ -18,7 +18,7 @@ from placemat.kicad.read import read_board
 from placemat.kicad.write import apply_plan
 from placemat.layout import Board
 from placemat.values import Box, CopperLayer, Net, PadRef, Part
-from tests.conftest import needs_kicad
+from tests.conftest import empty_board, needs_kicad
 from tests.fixtures import declared_findings
 from tests.test_pour_fitted import CLEARANCE, SAG, _board, _part, _pours, _refs
 
@@ -184,7 +184,7 @@ def _written_node(tmp_path, clearance=0.16, foreign=()):
     """The switch node of two parts, Q1 and L1, each carrying 3.6 A (1.758 mm of copper at a 10 C rise),
     on a 40 mm board: two pads offset diagonally, whose hull is 1.43 mm across at its narrowest; `foreign`
     (number, net, x, y, w, h) are pads of U9."""
-    b = pcbnew.CreateEmptyBoard()
+    b = empty_board(tmp_path / "reach.kicad_pcb")
     b.GetDesignSettings().m_NetSettings.GetDefaultNetclass().SetClearance(pcbnew.FromMM(clearance))
     for a, c in (((0, 0), (40, 0)), ((40, 0), (40, 40)), ((40, 40), (0, 40)), ((0, 40), (0, 0))):
         s = pcbnew.PCB_SHAPE(b, pcbnew.SHAPE_T_SEGMENT)
@@ -318,7 +318,7 @@ def test_a_pad_wholly_inside_its_neighbours_clearance_is_still_a_finding():
 
 def _fine_board(tmp_path, pads):
     tmp_path.mkdir(exist_ok=True)
-    b = pcbnew.CreateEmptyBoard()
+    b = empty_board(tmp_path / "fine.kicad_pcb")
     b.GetDesignSettings().m_NetSettings.GetDefaultNetclass().SetClearance(pcbnew.FromMM(0.2))
     for a, c in (((0, 0), (40, 0)), ((40, 0), (40, 40)), ((40, 40), (0, 40)), ((0, 40), (0, 0))):
         s = pcbnew.PCB_SHAPE(b, pcbnew.SHAPE_T_SEGMENT)

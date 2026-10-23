@@ -2,12 +2,12 @@
 gap. KiCad reports its default pair figures on every class, so a class of
 two nets that sets none (a pair of control lines at their own width) is
 not a pair."""
-from tests.conftest import needs_kicad
+from tests.conftest import empty_board, needs_kicad
 
 
 def _board(path):
     import pcbnew
-    b = pcbnew.CreateEmptyBoard()
+    b = empty_board(path)
     for k, name in enumerate(("P_A", "P_B", "C_1", "C_2")):
         net = pcbnew.NETINFO_ITEM(b, name)
         b.Add(net)

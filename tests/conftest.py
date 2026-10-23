@@ -46,6 +46,15 @@ def _has_pcbnew():
 needs_kicad = pytest.mark.skipif(not _has_pcbnew(), reason="pcbnew not importable")
 
 
+def empty_board(pcb):
+    """An empty pcbnew board whose project is the .kicad_pro beside `pcb`, so that saving it, there or elsewhere,
+    writes the project with the netclass and rule settings KiCad's DRC reads. KiCad 10.0.7 opens the unnamed project
+    of pcbnew.CreateEmptyBoard read-only (SETTINGS_MANAGER::LoadProject), and such a board saves without one."""
+    import pcbnew
+    Path(pcb).parent.mkdir(parents=True, exist_ok=True)
+    return pcbnew.NewBoard(str(pcb))
+
+
 if not _has_pcbnew():
     @pytest.hookimpl(hookwrapper=True)
     def pytest_make_collect_report(collector):

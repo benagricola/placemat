@@ -23,7 +23,7 @@ from placemat.kicad.read import read_board
 from placemat.kicad.write import apply_plan
 from placemat.layout import Board
 from placemat.values import Box, CopperLayer, Cover, Edge, Face, Location, Net, OnEdge, PadRef, Part
-from tests.conftest import needs_kicad
+from tests.conftest import empty_board, needs_kicad
 from tests.fixtures import board_geometry, declared_findings, pad
 
 CLEARANCE = 0.16
@@ -306,7 +306,7 @@ def _written_board(tmp_path, pads, clearance=0.16, track=None):
     """A 40x40 board with one footprint U1 carrying `pads` (number, net_name,
     x, y, w, h), at the netclass clearance given; `track` (net, x0, y0, x1,
     y1, width) is a track of the board's own."""
-    b = pcbnew.CreateEmptyBoard()
+    b = empty_board(tmp_path / "fitted.kicad_pcb")
     b.GetDesignSettings().m_NetSettings.GetDefaultNetclass().SetClearance(pcbnew.FromMM(clearance))
     for a, c in (((0, 0), (40, 0)), ((40, 0), (40, 40)), ((40, 40), (0, 40)), ((0, 40), (0, 0))):
         s = pcbnew.PCB_SHAPE(b, pcbnew.SHAPE_T_SEGMENT)

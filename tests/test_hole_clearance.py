@@ -14,7 +14,7 @@ from placemat.geometry import circle_polygon
 from placemat.layout import Board
 from placemat.occupancy import hole_shape
 from placemat.values import Box, CopperLayer, Location, Net, PadRef, Part
-from tests.conftest import needs_kicad
+from tests.conftest import empty_board, needs_kicad
 from tests.fixtures import board_geometry, footprint, rect
 
 BAR = rect(19.75, 20.0, 0.5, 0.3)           # x 19.5 to 20.0, y 19.85 to 20.15
@@ -89,7 +89,7 @@ def test_a_hole_is_judged_against_netless_copper_and_not_against_its_own_net():
 def _kicad_violations(tmp_path, vias):
     pcbnew = pytest.importorskip("pcbnew")
     mm = pcbnew.FromMM
-    board = pcbnew.CreateEmptyBoard()
+    board = empty_board(tmp_path / "tie.kicad_pcb")
     board.GetDesignSettings().m_HoleClearance = mm(0.2)
     nets = {}
 

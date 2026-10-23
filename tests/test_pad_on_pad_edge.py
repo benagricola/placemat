@@ -9,6 +9,7 @@ from placemat.geometry import circle_polygon
 from placemat.layout import Board
 from placemat.settings import Settings
 from placemat.values import (Along, Box, CopperLayer, Edge, Face, Location, Net, PadRef, Part, Pin, Turned, X, Y)
+from tests.conftest import empty_board
 from tests.fixtures import board_geometry, footprint, pad, rect
 
 F = CopperLayer.F
@@ -304,7 +305,7 @@ def test_the_shunt_with_its_two_ties_passes_kicads_drc(tmp_path):
     pcbnew = pytest.importorskip("pcbnew")
     plan = _shunt_ties()
     assert not _own(plan), plan.findings
-    board = pcbnew.CreateEmptyBoard()
+    board = empty_board(tmp_path / "shunt.kicad_pcb")
     board.GetDesignSettings().m_NetSettings.GetDefaultNetclass().SetClearance(pcbnew.FromMM(0.16))
     v = lambda x, y: pcbnew.VECTOR2I(pcbnew.FromMM(x), pcbnew.FromMM(y))
     nets = {}

@@ -12,7 +12,7 @@ from placemat.geometry import poly_distance
 from placemat.layout import Board
 from placemat.reuse import canonical
 from placemat.values import Beside, Cell, Edge, Location, Net, PadRef, Part
-from tests.conftest import needs_kicad
+from tests.conftest import empty_board, needs_kicad
 from tests.fixtures import board_geometry, footprint
 from tests.test_pad_on_pad_edge import _board, _own, _shunt, _tie
 
@@ -126,7 +126,7 @@ def test_the_written_board_passes_kicads_drc(tmp_path):
     import pcbnew
     from placemat.kicad.read import read_board
     from placemat.kicad.write import apply_plan
-    board = pcbnew.CreateEmptyBoard()
+    board = empty_board(tmp_path / "in.kicad_pcb")
     board.GetDesignSettings().m_NetSettings.GetDefaultNetclass().SetClearance(pcbnew.FromMM(CLEARANCE))
     v = lambda x, y: pcbnew.VECTOR2I(pcbnew.FromMM(x), pcbnew.FromMM(y))
     nets = {}

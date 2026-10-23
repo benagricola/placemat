@@ -16,7 +16,7 @@ from placemat.kicad.read import read_board
 from placemat.kicad.write import apply_plan
 from placemat.layout import Board
 from placemat.values import CopperLayer, Edge, FreeSpot, Location, Net, OnEdge, PadRef, Part
-from tests.conftest import needs_kicad
+from tests.conftest import empty_board, needs_kicad
 from tests.fixtures import board_geometry, declared_findings
 from tests.test_pour_fitted import CLEARANCE, SAG, _add_pad, _gap, _part, _vec
 
@@ -204,7 +204,7 @@ def test_a_pour_without_via_members_digests_as_before():
 @needs_kicad
 def test_kicads_drc_finds_no_clearance_violation_from_a_pour_on_an_inner_layer_joining_vias(tmp_path):
     from placemat.kicad.drc import run_drc
-    b = pcbnew.CreateEmptyBoard()
+    b = empty_board(tmp_path / "vias.kicad_pcb")
     b.SetCopperLayerCount(4)
     b.GetDesignSettings().m_NetSettings.GetDefaultNetclass().SetClearance(pcbnew.FromMM(CLEARANCE))
     for a, c in (((0, 0), (40, 0)), ((40, 0), (40, 40)), ((40, 40), (0, 40)), ((0, 40), (0, 0))):
