@@ -122,7 +122,7 @@ def test_results_with_measures_are_ranked_by_score_rank():
                                _b(measures=dict(m, vias=1), new_violations=[prepare.Violation("clearance", ("A", "B"), (1.0, 2.0))]), {"placemat"}).status == "worse"
     small = place_ref.asdict(_m(measures=m))
     larger = dict(m, area_mm2=101.0, airwire_mm=99.5)   # 1 mm2 more area at score.area 0.25 against 0.5 mm less wire
-    assert place_ref.compare_module(small, _m(area_mm2=101.0, measures=larger), {"placemat"}).status == "same"
+    assert place_ref.compare_module(small, _m(area_mm2=101.0, measures=larger), {"placemat"}).status == "better"
     assert place_ref.compare_module(small, _m(area_mm2=140.0, measures=dict(m, area_mm2=140.0)), {"placemat"}).status == "worse"
 
 

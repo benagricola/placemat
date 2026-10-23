@@ -101,14 +101,9 @@ def resolve_run(runs_dir, ref: str) -> Path:
 
 
 def airwires_from_drc(drc: dict, quiet=(), partners: dict | None = None, kinds: dict | None = None) -> dict:
-    """The ratsnest KiCad reports as unconnected items: count, straight-line
-    length, crossings between different nets, and length per net.
-    `crossings_quiet` counts the crossings with a `quiet` net's airwire (a
-    plane's or a free net's), and `crossings_pair` those between a
-    differential pair's two halves (`partners`, from pairs.board_pairs),
-    which the score weighs apart. `classes` counts the crossings by `ratsnest.crossing_key` (`kinds`, net -> kind, as
-    `occupancy.net_kinds`), the shape of the run score's `crossings` measure."""
-    from .ratsnest import KIND_PLANE, crossing_key
+    """`airwire_measures` of the ratsnest KiCad reports as unconnected items, between the endpoints KiCad picked: those
+    change from one DRC of a board to the next (kicad/airwires.py), so a run measures `airwire_measures` of
+    `kicad.airwires.airwire_edges` instead."""
     edges = []
     for u in drc.get("unconnected_items", []):
         items = u.get("items", [])
@@ -118,6 +113,18 @@ def airwires_from_drc(drc: dict, quiet=(), partners: dict | None = None, kinds: 
         m = re.search(r"\[([^\]]+)\]", items[0].get("description", ""))
         net = m.group(1) if m else "?"
         edges.append((net, (a.get("x", 0.0), a.get("y", 0.0)), (b.get("x", 0.0), b.get("y", 0.0))))
+    return airwire_measures(edges, quiet, partners, kinds)
+
+
+def airwire_measures(edges: list, quiet=(), partners: dict | None = None, kinds: dict | None = None) -> dict:
+    """A board's airwires ((net, (x, y), (x, y)) each): count, straight-line
+    length, crossings between different nets, and length per net.
+    `crossings_quiet` counts the crossings with a `quiet` net's airwire (a
+    plane's or a free net's), and `crossings_pair` those between a
+    differential pair's two halves (`partners`, from pairs.board_pairs),
+    which the score weighs apart. `classes` counts the crossings by `ratsnest.crossing_key` (`kinds`, net -> kind, as
+    `occupancy.net_kinds`), the shape of the run score's `crossings` measure."""
+    from .ratsnest import KIND_PLANE, crossing_key
 
     def cross(e, f):
         return segments_cross(e[1], e[2], f[1], f[2])
@@ -328,11 +335,9 @@ def _drc_total(metrics: dict) -> int:
     return sum(real.values()) if isinstance(real, dict) else int(real or 0)
 
 
-# How far airwire may move, as a fraction, before it counts. kicad-cli reports
-# a different set of ratsnest edges each run for a byte-identical board - four
-# runs of the same inputs gave 2872.80, 2873.11, 2872.80 and 2868.87 mm - so an
-# exact comparison fails an identical rerun. The default of `[best] airwire_noise`.
-AIRWIRE_NOISE = 0.01
+# kicad-cli reports a different set of ratsnest edges each run for a byte-identical board - four runs of the same inputs
+# gave 2872.80, 2873.11, 2872.80 and 2868.87 mm - which is why a run measures its airwires as kicad/airwires.py joins
+# KiCad's islands, the same every time, and not from KiCad's report (airwires_from_drc).
 
 
 def _cfg(cfg):

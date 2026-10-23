@@ -7,7 +7,7 @@ position, not the end the airwire actually leaves from. So the comparison is
 made on the boards whose airwires all end at pads, which is every board the
 placement search works on. Equal-length airwires are tied, and KiCad breaks
 a tie by its node set's order, which follows memory addresses: the crossing
-count may differ by that (report.py's AIRWIRE_NOISE note)."""
+count may differ by that (kicad/airwires.py)."""
 import json
 import math
 import sys

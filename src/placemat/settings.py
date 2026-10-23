@@ -413,10 +413,10 @@ class Settings:
         "seconds for a render")
     noise_patterns: tuple = S((), "list",
         "extra KiCad stderr patterns to suppress, ADDED to the built-ins")
-    best_airwire_noise: float = S(0.01, "fraction",
-        "how far airwire may move, as a fraction, before a run counts as better or worse than its family's best: kicad-cli picks different ratsnest edges each run for a byte-identical board")
-    best_crossing_noise: float = S(0.02, "fraction",
-        "how far the crossings' term may move, as a fraction, before a score counts as better or worse: kicad-cli's ratsnest varies run to run")
+    best_airwire_noise: float = S(0.0, "fraction",
+        "how far airwire may move, as a fraction, before a run counts as better or worse than its family's best; a run's airwires are the same for the same board, so 0 counts any difference")
+    best_crossing_noise: float = S(0.0, "fraction",
+        "how far the crossings' term may move, as a fraction, before a score counts as better or worse; 0 counts any difference")
     score_link_over: float = S(20.0, "mm",
         "mm per millimetre a link is past its limit, times the link's weight")
     score_label: float = S(50.0, "mm",

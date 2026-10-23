@@ -33,7 +33,7 @@ import sys
 import time
 
 CONFIGS = {"default": {}, "solve": {"solve_enabled": True}, "physical": {"place_envelope": "physical"}}
-NOISE = 0.01          # report.AIRWIRE_NOISE's value; HPWL is deterministic, the margin is for trivia
+NOISE = 0.01          # a score's margin before it counts as better or worse; HPWL is deterministic, the margin is for trivia
 KINDS = ("better", "worse", "same", "new", "gone")
 
 

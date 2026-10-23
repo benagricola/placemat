@@ -18,7 +18,7 @@ from .context import run_script
 from . import arrangement_run, checks, settings, stop
 from .checkpoint import ResumeRefused
 from .project import BoardSource, fab_profile, find_board, generator_inputs, script_fingerprint
-from .report import (RunRecord, _drc_total, against_best, airwires_from_drc, best_for, comparable, congestion,
+from .report import (RunRecord, _drc_total, against_best, airwire_measures, best_for, comparable, congestion,
                      family_of, impact, is_better, latest_for, record_latest, run_id, score_line)
 
 
@@ -737,8 +737,10 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
                 from .occupancy import net_kinds
                 from .ratsnest import KIND_IMPEDANCE
                 kinds = net_kinds(board.geometry, quiet)
-                aw = airwires_from_drc(json.loads((run_dir / "drc.json").read_text()), quiet,
-                                       board_pairs(board.geometry.netclasses), kinds=kinds)
+                # the airwires between KiCad's islands as a fixed spanning tree, not KiCad's endpoints, which change from one
+                # DRC of the same board to the next (kicad/airwires.py)
+                from .kicad.airwires import airwire_edges
+                aw = airwire_measures(airwire_edges(src.pcb), quiet, board_pairs(board.geometry.netclasses), kinds=kinds)
                 free = plan.occupancy.free_area()
                 metrics.update(drc_metrics(report, aw, free))
                 # KiCad's own ratsnest and DRC replace the plan's estimates in the score

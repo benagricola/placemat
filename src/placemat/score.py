@@ -45,7 +45,8 @@ from dataclasses import dataclass
 # How the measures are counted. A run recorded under another version is not comparable (report.comparable).
 # 3: rudy_steps counts each net's box at least score.congestion_box each way.
 # 4: a differential pair's two airwires between the same two parts cross as ratsnest.pair_crossed judges them.
-MEASURES_VERSION = 4
+# 5: a run's airwires join KiCad's islands as a fixed spanning tree (kicad/airwires.py), not KiCad's own endpoints.
+MEASURES_VERSION = 5
 
 TERMS = ("link_over", "label", "escape_crossed", "escape_closed", "escape_via", "escape_lane", "setup", "crossings",
          "airwire", "link", "giveway", "push", "back_face", "congestion", "area")
@@ -107,9 +108,8 @@ def total(m: dict, cfg) -> float:
 
 
 def noise(a: dict, b: dict, cfg) -> float:
-    """How far apart two scores may be and still tie: kicad-cli draws a
-    different ratsnest for a byte-identical board run to run (report.py's
-    AIRWIRE_NOISE note), so airwire and crossings each carry a band."""
+    """How far apart two scores may be and still tie: the bands `best.airwire_noise` and `best.crossing_noise` of the
+    airwire and the crossings' term, 0 by default (a run's airwires are the same for the same board)."""
     air = max(float(a.get("airwire_mm") or 0.0), float(b.get("airwire_mm") or 0.0))
     cross = max(terms(a, cfg)["crossings"], terms(b, cfg)["crossings"])
     return cfg.best_airwire_noise * air + cfg.best_crossing_noise * cross

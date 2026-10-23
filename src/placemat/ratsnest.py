@@ -19,7 +19,7 @@ offered here instead, which gives the same tree.
 One divergence, deliberate: a tag is the anchor's place in (x, y, refdes,
 pad number) order. KiCad's follows its node set's order, which depends on
 memory addresses, so two anchors at one position tie differently from run
-to run there anyway (report.py's AIRWIRE_NOISE note).
+to run there anyway (kicad/airwires.py).
 
 A pad's anchor is `PAD::ShapePos`, read with the board
 (`PadGeom.airwire_end`): the centre of its polygonised outline drifts by a

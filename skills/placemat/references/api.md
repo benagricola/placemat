@@ -3858,9 +3858,10 @@ before it tie:
 
 A finding's severity does not enter the score; the critical kinds above count in the validity tier instead. A run records these measures, not its score, so a weight changed in
 placemat.toml re-ranks the recorded runs at once, the stored best included.
-Two scores tie within `best.airwire_noise` of the airwire plus
-`best.crossing_noise` of the crossings' term, because kicad-cli picks
-different ratsnest edges each run for a byte-identical board. A run made
+A run's airwires join each net's islands, as KiCad's connectivity finds them,
+by a fixed spanning tree of their shortest links, so the same board measures
+the same every run. Two scores tie within `best.airwire_noise` of the airwire
+plus `best.crossing_noise` of the crossings' term, both 0 by default. A run made
 with `--no-drc` measured neither, so it is not judged and never becomes a
 best. The run prints a `score` line (each term, beside the
 best's where they differ) and one `best` line - first of its family,
@@ -5821,8 +5822,8 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `timeout.route` | `3600` | seconds | seconds for the router |
 | `timeout.render` | `300` | seconds | seconds for a render |
 | `noise.patterns` | `[]` | list | extra KiCad stderr patterns to suppress, ADDED to the built-ins |
-| `best.airwire_noise` | `0.01` | fraction | how far airwire may move, as a fraction, before a run counts as better or worse than its family's best: kicad-cli picks different ratsnest edges each run for a byte-identical board |
-| `best.crossing_noise` | `0.02` | fraction | how far the crossings' term may move, as a fraction, before a score counts as better or worse: kicad-cli's ratsnest varies run to run |
+| `best.airwire_noise` | `0.0` | fraction | how far airwire may move, as a fraction, before a run counts as better or worse than its family's best; a run's airwires are the same for the same board, so 0 counts any difference |
+| `best.crossing_noise` | `0.0` | fraction | how far the crossings' term may move, as a fraction, before a score counts as better or worse; 0 counts any difference |
 | `score.link_over` | `20.0` | mm | mm per millimetre a link is past its limit, times the link's weight |
 | `score.label` | `50.0` | mm | mm a label with a part on it costs |
 | `score.setup` | `0.0` | mm | mm a setup finding costs: the same every run of a script (an undeclared part, a layer the board lacks) |

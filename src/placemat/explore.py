@@ -553,8 +553,8 @@ def _end(procs) -> None:
 
 
 def _exact(cfg):
-    """`cfg` with no noise band: a variant's measures are its plan's own, not kicad-cli's ratsnest, so they do not vary
-    run to run and any difference in the run score counts."""
+    """`cfg` with no noise band, whatever the board sets: a variant's measures are its plan's own, so any difference in
+    the run score counts."""
     import dataclasses
     return dataclasses.replace(cfg, best_airwire_noise=0.0, best_crossing_noise=0.0)
 

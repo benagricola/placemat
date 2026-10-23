@@ -677,7 +677,7 @@ def _find_record(ref, board=None) -> Path:
 
 def cmd_drc(args) -> int:
     from .kicad.drc import run_drc, unconnected_items, violation_items
-    from .report import airwires_from_drc
+    from .report import airwire_measures, airwires_from_drc
     from .pairs import board_pairs
     pcb = Path(args.pcb)
     from .runner import missing_rules
@@ -690,12 +690,14 @@ def cmd_drc(args) -> int:
         data = json.loads((Path(scratch) / "drc.json").read_text())
     try:
         from .kicad.read import read_board
+        from .kicad.airwires import airwire_edges
         snap = read_board(pcb)
         insts = {fp.ref: fp.inst for fp in snap.footprints}
         partners = board_pairs(snap.netclasses)
-    except Exception:                               # a board pcbnew cannot read has no instances or classes
+        aw = airwire_measures(airwire_edges(pcb), partners=partners)
+    except Exception:                               # a board pcbnew cannot read: KiCad's own endpoints, no instances or classes
         insts, partners = {}, {}
-    aw = airwires_from_drc(data, partners=partners)
+        aw = airwires_from_drc(data, partners=partners)
     items = violation_items(data, {}, insts)
     if args.json:
         console.data(json.dumps({"missing_rules": missing, "by_type": report.by_type, "severities": report.severities, "real": report.real, "outstanding": report.outstanding,

@@ -177,16 +177,17 @@ def test_a_run_that_regressed_exits_one(monkeypatch, tmp_path):
         assert cli.main(["run", str(tmp_path / "x_layout.py")]) == want
 
 
-def test_airwire_noise_is_neither_a_regression_nor_an_improvement():
-    """kicad-cli reports a different set of ratsnest edges each run for a
-    byte-identical board: four runs of the Breakout's same inputs gave
-    2872.80, 2873.11, 2872.80 and 2868.87 mm. A gate that took that as a
-    regression failed an identical rerun."""
+def test_any_airwire_change_counts_unless_a_band_is_set():
+    """A run's airwires are the same for the same board (kicad/airwires.py), so by default a difference of a few
+    millimetres is a real one; a board that sets `best.airwire_noise` ties within that band."""
+    import dataclasses
+    from placemat.settings import Settings
     best = _rec(run_id="b1", airwire=2870.88)
     now = _rec(run_id="b1", airwire=2873.11)
-    assert report.regression(now, best) is None
-    assert not report.is_better(now, best)
-    assert not report.is_better(best, now)
+    assert report.is_better(best, now) and not report.is_better(now, best)
+    banded = dataclasses.replace(Settings(), best_airwire_noise=0.01)
+    assert report.regression(now, best, banded) is None
+    assert not report.is_better(now, best, banded) and not report.is_better(best, now, banded)
 
 
 def test_an_airwire_change_beyond_the_noise_still_counts():
@@ -197,7 +198,7 @@ def test_an_airwire_change_beyond_the_noise_still_counts():
 
 def test_the_noise_band_is_a_setting():
     from placemat.settings import Settings
-    assert Settings().best_airwire_noise == 0.01
+    assert Settings().best_airwire_noise == 0.0
     import dataclasses
     wide = report.regression(_rec(airwire=5402.0), _rec(airwire=5083.0),
                              dataclasses.replace(Settings(), best_airwire_noise=0.10))
