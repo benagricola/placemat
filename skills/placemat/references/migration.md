@@ -5,6 +5,16 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## To 0.100.9
+
+### Changed
+
+- **Vias giving way are judged faster in the placement search.** A search now judges first the carried vias that
+  could not give way at its earlier candidates, and stops there when one still cannot; a candidate whose vias do
+  give way is resolved as before. The via-field relay judges its vias and sites against the board in one native
+  call. The placements were the same across the bench corpus and on a 31-item board with many carried vias, where
+  the time spent on vias giving way fell by a third. Scripts need no change.
+
 ## To 0.100.8
 
 ### Changed
