@@ -7,11 +7,18 @@
 //! walls none. With `configure_prune` (partial scoring only), a candidate is pruned when its exact terms so far plus a
 //! proved lower bound of congestion exceed the `keep`-th best partial cost (R13): it stands at (that bound,
 //! `UNWEIGHED`), and the scan weighs it if its walk reaches it.
+//!
+//! `configure_python_terms` gives the two terms Python works out (`score_delta.Delta.python_terms`): the push term, for
+//! an item a push or an annotation judges, and on a board that declares escapes the escape-lane term, the change of
+//! the declared lanes a candidate blocks, priced. A candidate whose boxes come within reach of none of the places an
+//! escape's layout asked the board about keeps every escape's count, a change of 0 (`layout._asked_near`), and is
+//! not asked for it.
 use crate::candidate::PreparedCandidate;
 use crate::prepared_surface::PreparedSurface;
 use crate::NativeDelta;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+use crate::shapes::{box_overlaps, Bounds};
 
 /// A candidate scored on every term but the escape grades and the walled check: below a pruned one (`UNWEIGHED`),
 /// above every count of pads walled. `placer.PARTIAL`.
@@ -37,6 +44,26 @@ pub struct NativeDeltaScoring {
     escaped: u64,
     // the sweep's turn k is this scorer's turn `turn_map[k]` (a scan of some of the turns it was prepared for)
     turn_map: Option<Vec<usize>>,
+    python: Option<PythonTerms>,
+    // how many candidates' push or escape-lane term was asked of Python
+    #[pyo3(get)]
+    python_asked: u64,
+}
+
+// The terms Python works out (`configure_python_terms`).
+struct PythonTerms {
+    change: Py<PyAny>,
+    push: bool,
+    lanes: bool,
+    near: Option<LanesNear>,
+}
+
+// What says a candidate comes near no escape: per turn the box holding every box the candidate changes, at the
+// origin; the box of each escape's asked places; how near counts.
+struct LanesNear {
+    turns: Vec<Bounds>,
+    asked: Vec<Bounds>,
+    reach: f64,
 }
 
 // The proved lower bound of a lifted snapshot's partial costs (`configure_prune`).
@@ -56,7 +83,28 @@ impl NativeDeltaScoring {
             return Err(PyValueError::new_err("invalid common-objective weights or floor"));
         }
         Ok(Self { candidate, delta, surface, weights, baseline, floor, escapes: true, prune: None, pruned: 0,
-                  escaped: 0, turn_map: None })
+                  escaped: 0, turn_map: None, python: None, python_asked: 0 })
+    }
+
+    /// The terms Python works out. `change(x, y, turn, lanes)`: a candidate's (push term, escape-lane term) at this
+    /// scorer's turns, the escape-lane term 0 unless `lanes`. `push`: whether the push term can change; `lanes`: whether
+    /// the board declares escapes. `near`, (per turn the box at the origin holding every box a candidate adds, the box of
+    /// each escape's asked places, the reach): a candidate whose turn's box, moved to it, comes within reach of none of
+    /// them changes no escape's count, and is not asked for it. None: every candidate is asked.
+    #[pyo3(signature = (change, push, lanes, near=None))]
+    fn configure_python_terms(&mut self, change: Py<PyAny>, push: bool, lanes: bool,
+                              near: Option<(Vec<Bounds>, Vec<Bounds>, f64)>) -> PyResult<()> {
+        let near = match near {
+            Some((turns, asked, reach)) => {
+                if !reach.is_finite() || reach < 0.0 {
+                    return Err(PyValueError::new_err("invalid escape-lane reach"));
+                }
+                Some(LanesNear { turns, asked, reach })
+            }
+            None => None,
+        };
+        self.python = Some(PythonTerms { change, push, lanes, near });
+        Ok(())
     }
 
     /// Prune partial costs on a proved bound (R13). `keep`: how many of the best partial costs the scan's walk
@@ -102,7 +150,7 @@ impl NativeDeltaScoring {
         let candidate = self.candidate.clone_ref(py);
         let delta = self.delta.clone_ref(py);
         let surface = self.surface.clone_ref(py);
-        let (cost, _) = self.partial(&mut delta.borrow_mut(py), &surface.borrow(py), &candidate.borrow(py),
+        let (cost, _) = self.partial(py, &mut delta.borrow_mut(py), &surface.borrow(py), &candidate.borrow(py),
                                      x, y, turn, false)?;
         Ok(cost)
     }
@@ -116,7 +164,8 @@ impl NativeDeltaScoring {
         let (raw, crossed, vias, closed, walled, _, _) = surface.borrow_mut(py).evaluate_inner(
             py, &mut candidate.borrow_mut(py), &mut delta.borrow_mut(py), x, y, turn, false)?;
         self.escaped += 1;
-        Ok((self.total(raw, crossed, vias, closed), walled as i64))
+        let python = self.python_terms(py, x, y, turn)?;
+        Ok((self.total(raw, python, crossed, vias, closed), walled as i64))
     }
 }
 
@@ -129,12 +178,13 @@ impl NativeDeltaScoring {
             None => turn,
         };
         if !self.escapes {
-            return self.partial(delta, surface, candidate, x, y, turn, true);
+            return self.partial(py, delta, surface, candidate, x, y, turn, true);
         }
         let (raw, crossed, vias, closed, walled, _, _) =
             surface.evaluate_inner(py, candidate, delta, x, y, turn, false)?;
         self.escaped += 1;
-        let cost = self.total(raw, crossed, vias, closed);
+        let python = self.python_terms(py, x, y, turn)?;
+        let cost = self.total(raw, python, crossed, vias, closed);
         if walled == 0 {
             self.floor = self.floor.min(cost);
         }
@@ -145,8 +195,8 @@ impl NativeDeltaScoring {
     /// link over, area, congestion, escaped crossings. The candidate's shapes are not placed: only the escape grades
     /// read them. `prune`: the pruning bounds apply and move.
     #[allow(clippy::too_many_arguments)]
-    fn partial(&mut self, delta: &mut NativeDelta, surface: &PreparedSurface, candidate: &PreparedCandidate,
-               x: f64, y: f64, turn: usize, prune: bool) -> PyResult<(f64, i64)> {
+    fn partial(&mut self, py: Python<'_>, delta: &mut NativeDelta, surface: &PreparedSurface,
+               candidate: &PreparedCandidate, x: f64, y: f64, turn: usize, prune: bool) -> PyResult<(f64, i64)> {
         surface.check(candidate, delta)?;
         let layout = delta.layout.as_ref()
             .ok_or_else(|| PyValueError::new_err("prepared surface layout is not configured"))?;
@@ -155,10 +205,11 @@ impl NativeDeltaScoring {
         let crossed = delta.inner.escape_cross(turn, surface.depth()).map_err(PyValueError::new_err)?;
         let layout = delta.layout.as_mut().unwrap();
         let (link, over, area) = layout.plain_terms(x, y, turn).map_err(PyValueError::new_err)?;
+        let (push, lane) = self.python_terms(py, x, y, turn)?;
         let limit = self.prune.as_ref().filter(|_| prune).and_then(|p| p.kept.get(p.keep - 1).copied());
         if let (Some(limit), Some(prune)) = (limit, self.prune.as_ref()) {
             let tolerance = 1e-9 * limit.abs().max(1.0);
-            let bound = wire + cross + link + over + area + self.weights.0 * crossed as f64 + prune.congestion;
+            let bound = wire + cross + link + over + push + lane + area + self.weights.0 * crossed as f64 + prune.congestion;
             if bound > limit + tolerance {
                 self.pruned += 1;
                 return Ok((bound, crate::UNWEIGHED));
@@ -166,7 +217,7 @@ impl NativeDeltaScoring {
         }
         let congestion = layout.congestion_term(x, y, turn).map_err(PyValueError::new_err)?;
         let mut total = crate::exact::PySum::new();
-        for value in [wire, cross, link, over, 0.0, 0.0, area, congestion, self.weights.0 * crossed as f64] {
+        for value in [wire, cross, link, over, push, lane, area, congestion, self.weights.0 * crossed as f64] {
             total.add(value);
         }
         let cost = total.total();
@@ -180,10 +231,30 @@ impl NativeDeltaScoring {
         Ok((cost, PARTIAL))
     }
 
-    fn total(&self, raw: (f64, f64, f64, f64, f64, f64), crossed: i64, vias: usize, closed: usize) -> f64 {
+    /// The candidate's (push term, escape-lane term) (`configure_python_terms`); 0 for a term that cannot change.
+    fn python_terms(&mut self, py: Python<'_>, x: f64, y: f64, turn: usize) -> PyResult<(f64, f64)> {
+        let Some(terms) = self.python.as_ref() else { return Ok((0.0, 0.0)) };
+        let mut lanes = terms.lanes;
+        if let (true, Some(near)) = (lanes, &terms.near) {
+            let at = near.turns.get(turn).ok_or_else(|| PyValueError::new_err("escape-lane turn outside the turns"))?;
+            let moved = (at.0 + x, at.1 + y, at.2 + x, at.3 + y);
+            // a hair past the reach: rounding in the moved box must not keep a candidate from being asked
+            let reach = near.reach + 1e-6;
+            lanes = near.asked.iter().any(|&a| box_overlaps(a, moved, reach));
+        }
+        if !lanes && !terms.push {
+            return Ok((0.0, 0.0));
+        }
+        let change: (f64, f64) = terms.change.call1(py, (x, y, turn, lanes))?.extract(py)?;
+        self.python_asked += 1;
+        Ok(change)
+    }
+
+    fn total(&self, raw: (f64, f64, f64, f64, f64, f64), python: (f64, f64), crossed: i64, vias: usize,
+             closed: usize) -> f64 {
         let mut total = crate::exact::PySum::new();
-        // Keep the Python Delta term insertion order, including zero push.
-        for value in [raw.0, raw.1, raw.2, raw.3, 0.0, 0.0, raw.4, raw.5,
+        // Keep the Python Delta term insertion order.
+        for value in [raw.0, raw.1, raw.2, raw.3, python.0, python.1, raw.4, raw.5,
                       self.weights.0 * crossed as f64,
                       self.weights.1 * (closed as f64 - self.baseline.0 as f64),
                       self.weights.2 * (vias as f64 - self.baseline.1 as f64)] {

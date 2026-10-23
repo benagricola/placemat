@@ -1100,7 +1100,8 @@ fn sweep(
         common = Some(sc.cast::<prepared_scoring::NativeDeltaScoring>()?.borrow_mut());
     }
     // Complete composition handles stay borrowed throughout the production
-    // pass: no Python callback or per-candidate handle cloning.
+    // pass, with no per-candidate handle cloning. The one Python callback is the
+    // push and escape-lane terms (`configure_python_terms`), which read none of them.
     let common_handles = common.as_ref().map(|s| (s.candidate.clone_ref(py), s.delta.clone_ref(py), s.surface.clone_ref(py)));
     let mut common_borrows = common_handles.as_ref().map(|(c, d, s)| (c.borrow_mut(py), d.borrow_mut(py), s.borrow_mut(py)));
     let turn_yards: Vec<judge::TurnYards> = yards.iter().map(|y| judge::TurnYards::new(y)).collect();

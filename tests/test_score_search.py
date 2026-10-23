@@ -223,8 +223,10 @@ def test_actual_scan_counts_distant_same_net_escape_improvement(monkeypatch, nat
     assert improved, 'the scan must score a remote original pad finding an escape'
 
 
-def test_native_legal_scan_preserves_exact_python_declared_lane_blocker_fallback(monkeypatch):
+def test_a_native_scan_on_a_board_with_declared_lanes_ranks_as_the_python_objective(monkeypatch):
     from tests.test_escape_turned_lanes import _board
+    if not hasattr(geometry._native, 'NativeDeltaScoring'):
+        pytest.skip('complete native sweep scorer unavailable')
     monkeypatch.setattr(Board, '_report_turns', lambda *args: None)
     board, _ = _board([44, 45], bypass_at=(25.35, 28.0))
     plan = board.resolve()
@@ -233,8 +235,8 @@ def test_native_legal_scan_preserves_exact_python_declared_lane_blocker_fallback
     occ.lift({'C1'})
     baseline = score.whole(board, occ, plan)
     scoring = MSTScorer(board, occ, item, plan=plan)
-    assert scoring.native((hint.rotation,), hint.face) is None
-    assert set(scoring.refusals.values()) == {'declared escape lanes require the exact Python objective'}
+    native = scoring.native((hint.rotation,), hint.face)
+    assert native is not None, scoring.refusals
     expected, lane_counts = [], set()
     for distance, x, y in placer._grid(hint.location, 0.6, 0.2):
         candidate = replace(hint, location=Location(x, y))
@@ -252,6 +254,7 @@ def test_native_legal_scan_preserves_exact_python_declared_lane_blocker_fallback
     expected.sort(key=lambda row: row[:3])
     assert result.chosen == expected[0][3]
     assert (result.walled, result.score) == expected[0][0]
+    assert native.python_asked > 0
 
 
 @pytest.mark.parametrize('native', [False, True])
@@ -454,14 +457,16 @@ def test_giveway_action_weight_changes_actual_mst_winner(monkeypatch, native):
 
 
 @pytest.mark.parametrize('native', [False, True])
-def test_actual_mst_push_fallback_preserves_complete_winner_and_floor(monkeypatch, native):
+def test_a_scan_of_a_pushed_item_ranks_as_the_python_objective(monkeypatch, native):
     board, item, plan = triangle()
     board.push(Part('m'), from_=Part('a'), falloff=3, reference=(20, 3.2), limit=0.3)
     occ = plan.occupancy
     hint = occ._geometry(item).reference
     occ.lift({item.ref})
     scoring = MSTScorer(board, occ, item, plan=plan)
-    assert scoring.native((0,), Face.FRONT) is None
+    prepared = scoring.native((0,), Face.FRONT)
+    assert scoring.delta.push_judged
+    assert prepared is not None or not hasattr(geometry._native, 'NativeDeltaScoring'), scoring.refusals
     baseline = score.whole(board, occ, plan)
     expected = []
     for distance, x, y in placer._grid(hint.location, 0.4, 0.2):
@@ -479,6 +484,30 @@ def test_actual_mst_push_fallback_preserves_complete_winner_and_floor(monkeypatc
     assert result.chosen == expected[0][2]
     assert (result.walled, result.score) == expected[0][0]
     assert scoring.best[0] == result.score
+    if native and prepared is not None:
+        assert prepared.python_asked > 0
+
+
+def test_an_item_no_push_judges_is_scored_natively_without_asking_for_the_push_term():
+    if not hasattr(geometry._native, 'NativeDeltaScoring'):
+        pytest.skip('complete native sweep scorer unavailable')
+    board, _, plan = triangle()
+    board.push(Part('m'), from_=Part('a'), falloff=3, reference=(20, 3.2), limit=0.3)
+    occ = plan.occupancy
+    item = board.geometry.footprint('C')
+    hint = occ._geometry(item).reference
+    occ.lift({item.ref})
+    scoring = MSTScorer(board, occ, item, plan=plan)
+    prepared = scoring.native((hint.rotation,), hint.face)
+    assert not scoring.delta.push_judged
+    assert prepared is not None, scoring.refusals
+    for dx, dy in [(0, 0), (3, -2), (-4, 1)]:
+        candidate = replace(hint, location=Location(hint.location.x + dx, hint.location.y + dy))
+        change = scoring.delta(candidate)
+        assert change.terms['push'] == 0.0
+        assert prepared.full(candidate.location.x, candidate.location.y, 0) == pytest.approx(
+            (change.total, change.walled), abs=1e-9)
+    assert prepared.python_asked == 0
 
 
 @pytest.mark.parametrize('native', [False, True])

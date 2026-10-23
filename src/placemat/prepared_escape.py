@@ -160,8 +160,6 @@ def prepare(delta, rotations, face, *, rest_cache=False):
     """
     rotations = tuple(rotations)
     delta._check_snapshot()
-    if delta.board._escapes:
-        return None, 'declared escape lanes require the exact Python objective'
     # Imported vias can carry a footprint's owner without being one of its
     # numbered pads. The prepared manifest currently identifies through
     # contacts by owner/pad, so this admitted geometry needs the Python oracle

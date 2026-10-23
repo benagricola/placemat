@@ -123,11 +123,25 @@ class MSTScorer:
                     (baseline.get('escape_closed', 0), baseline.get('escape_via', 0)), self.best[0])
                 if self.prune and PRUNE:
                     scoring.configure_prune(self.spots, self._congestion_bound())
+                lanes = bool(self.delta.board._escapes)
+                if lanes or self.delta.push_judged:
+                    scoring.configure_python_terms(self._python_terms(rotations, face), self.delta.push_judged, lanes,
+                                                   self.delta.lanes_near(rotations, face) if lanes else None)
                 self._native[key] = scoring
         scoring = self._native[key]
         if scoring is not None and hasattr(scoring, 'set_turn_map'):
             scoring.set_turn_map(None)
         return scoring
+
+    def _python_terms(self, rotations, face):
+        """The native scorer's push and escape-lane terms at its own turns: `Delta.python_terms`."""
+        from .placement import Placement
+        from .values import Location
+        delta = self.delta
+
+        def change(x, y, turn, lanes):
+            return delta.python_terms(Placement(Location(x, y), rotations[turn], face), lanes)
+        return change
 
     def _congestion_bound(self):
         """The proved lower bound of R13 on the congestion change for this lifted board: the change with the item's

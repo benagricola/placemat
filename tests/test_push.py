@@ -165,7 +165,7 @@ def test_two_pushes_add_and_push_the_item_farther_than_one():
     assert _run(2) > _run(1)
 
 
-def test_native_scoring_is_bypassed_for_a_pushed_item():
+def test_a_pushed_items_push_term_is_asked_of_python():
     from placemat.layout import Push, Plan
     from placemat.score_search import MSTScorer
     from placemat.occupancy import Occupancy
@@ -178,7 +178,7 @@ def test_native_scoring_is_bypassed_for_a_pushed_item():
     occ.lift({u2.ref})
     scorer = MSTScorer(Board(g, settings=occ.settings), occ, u2, plan=Plan(g, occ), prune=False,
                        pushes=[(Location(10, 30), push)])
-    assert scorer.native((0.0,), Face.FRONT) is None
+    assert scorer.delta.push_judged
 
 
 def test_a_pushed_item_with_nowhere_legal_is_unplaced_not_a_crash():

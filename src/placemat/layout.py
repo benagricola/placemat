@@ -5749,10 +5749,11 @@ class Board:
                         return delta.relative(q)
                     raw, crossed, vias, closed, walled, _, _ = prepared.evaluate(q, turn)
                     terms = dict(zip(('airwire', 'crossings', 'link', 'link_over', 'area', 'congestion'), raw))
+                    push, lane = delta.python_terms(q)
                     terms.update(escape_crossed=s.score_escape_crossed * crossed,
                                  escape_via=s.score_escape_via * vias,
                                  escape_closed=s.score_escape_closed * closed,
-                                 push=0.0, escape_lane=0.0)
+                                 push=push, escape_lane=lane)
                     # These absolute escape counts serve only a difference
                     # between two candidates on the same frozen snapshot.
                     # Their baseline constants cancel; they are not Change.

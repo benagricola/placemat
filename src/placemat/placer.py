@@ -339,7 +339,8 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
                     break
         return out
 
-    python_scored: dict = {}            # (x, y, rotation) -> what a give way adds, for a candidate scored in Python
+    python_scored: set = set()          # (x, y, rotation) of a candidate scored in Python, which is scored so in full
+    given_way: dict = {}                # (x, y, rotation) -> what a give way adds to a candidate's cost
     weighed: dict = {}                  # (x, y, rotation) -> (walled, cost) in full, for a candidate the walk took
     revised: dict = {}                  # (x, y, rotation) -> the exact partial cost (with what its give way costs) of
                                         # a pruned or give-way candidate the walk reached
@@ -358,7 +359,7 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
         if res.why is not None:
             tally(_reason_key(res.why), (lambda why=res.why: why), [blocker_key(res.blocker)])
             return None
-        python_scored[where(cand)] = res.cost
+        given_way[where(cand)] = res.cost
         return deferred[where(cand)] + res.cost
 
     def where(cand) -> tuple:
@@ -370,7 +371,7 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
         if key not in weighed:
             python = key in python_scored
             walled, cost = score.full(entry[3], python=python)
-            weighed[key] = (walled, cost + python_scored.get(key, 0.0))
+            weighed[key] = (walled, cost + given_way.get(key, 0.0))
         return weighed[key]
 
     def ranked(entries, n: int | None, counts: bool = False) -> list:
@@ -467,7 +468,12 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
         sc, before = UNSCORED, None
         if score:
             before = best[0] if best is not None else None
-            sc = weigh(cand)
+            if partial and scoring is not None and score._prepared(cand) is not None:
+                sc = (PARTIAL, score.partial(cand))     # the native scorer's, as the pass's own candidates are scored
+            else:
+                sc = weigh(cand)
+                if partial:
+                    python_scored.add(where(cand))
             if best is not None:
                 best[0] = before
             # `before` is the lowest cost of a spot that walls nothing: this one cannot beat it walling a pad, nor at
@@ -535,7 +541,7 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
                         continue
                     d = math.hypot(x - hint.location.x, y - hint.location.y)
                     if partial:
-                        python_scored[where(cand)] = 0.0
+                        python_scored.add(where(cand))
                     legal.append((weigh(cand) if score else UNSCORED, d, tie(cand), cand))
                     if stop_at_first:
                         for c, h, bl in held:
@@ -617,7 +623,7 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
                 continue
             d = math.hypot(x - hint.location.x, y - hint.location.y)
             if partial and not scored:
-                python_scored[where(cand)] = 0.0
+                python_scored.add(where(cand))
             legal.append((((sc[1], sc[0]) if scored else weigh(cand)) if score else UNSCORED, d, tie(cand), cand))
             if stop_at_first:
                 break

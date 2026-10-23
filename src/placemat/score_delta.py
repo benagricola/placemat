@@ -42,6 +42,7 @@ class Delta:
         self.own = frozenset(fp.ref for fp in members_of(item))
         if not self.own <= occ.pending:
             raise ValueError('Delta requires the moving item to be lifted')
+        self.push_judged = self.has_push and self._push_judged()
         self.rn = occ.ratsnest()
         occ.pair_sides()                    # read on the lifted board, so each candidate's view copies them
         self.before_edges, self.quiet, self.kinds, self.partners = score._signal_edges(board, occ)
@@ -159,13 +160,88 @@ class Delta:
         its count on the lifted board."""
         if not self.board._escapes:
             return 0
-        owners = self.occ._geometry(self.item).owners
-        changed = [sh.box for g in geometries.values() for sh in g.shapes] + [sh.box for sh in copper]
-        changed += [sh.box for sh in self.occ.copper if sh.owner in owners]
-        name = getattr(self.item, "name", None)
-        for areas in (view._cell_rule_areas.get(name, ()), self.occ._cell_rule_areas.get(name, ())):
-            changed += [Box.of_points(area.polygon) for area in areas]
+        changed = self._lanes_moved(view, geometries, copper) + self._lanes_left()
         return self.board._declared_lanes_blocked(view, self.plan, base=self.lanes_each, changed=changed)
+
+    def _lanes_moved(self, view, geometries, copper) -> list:
+        """The boxes of what a candidate adds to the board, which move with it: its shapes, copper and cell rule areas."""
+        moved = [sh.box for g in geometries.values() for sh in g.shapes] + [sh.box for sh in copper]
+        name = getattr(self.item, "name", None)
+        return moved + [Box.of_points(area.polygon) for area in view._cell_rule_areas.get(name, ())]
+
+    def _lanes_left(self) -> list:
+        """The boxes of what every candidate takes off the board: the item's copper and cell rule areas as it stood."""
+        owners = self.occ._geometry(self.item).owners
+        left = [sh.box for sh in self.occ.copper if sh.owner in owners]
+        name = getattr(self.item, "name", None)
+        return left + [Box.of_points(area.polygon) for area in self.occ._cell_rule_areas.get(name, ())]
+
+    def _push_judged(self) -> bool:
+        """Whether a push or an annotation judges where the item stands: it is a push's target, what a push's source
+        needs placed, or an annotated part. Where none does, every candidate's push term is the lifted board's."""
+        board = self.board
+        if self.pushes:
+            return True
+        refs = set(self.own) | set(self.occ._geometry(self.item).owners)
+        name = getattr(self.item, "name", None)
+        if name:
+            refs.add(name)
+        pushes = [p for intent in board._placements() for p in intent.pushes] + list(getattr(self.plan, "pushes", ()))
+        if any(p.target_member_ref in refs or board._push_needs(p.source) & refs for p in pushes):
+            return True
+        ann = board._annotations
+        return bool(ann) and bool(refs & (ann.sensitives.keys() | ann.sources.keys()))
+
+    def python_terms(self, placement, lanes: bool = True) -> tuple:
+        """A candidate's (push term, escape-lane term), as `relative` prices them: the push term 0 where no push or
+        annotation judges the item (`push_judged`), the escape-lane term 0 unless `lanes`."""
+        view, geometries, copper = self._view(placement)
+        cfg = self.board.settings
+        push = cfg.score_push * (score._pushes(self.board, view, self.plan) - self.base_push) if self.push_judged else 0.0
+        lane = 0.0
+        if lanes and self.board._escapes:
+            lane = cfg.score_escape_lane * (self._lanes_blocked(view, geometries, copper) - self.base_lane)
+        return push, lane
+
+    def lanes_near(self, rotations, face):
+        """What says a candidate at one of `rotations` on `face` changes no declared escape's count, as
+        `NativeDeltaScoring.configure_lanes` takes it: (per turn the box at the origin holding the boxes of what the
+        candidate adds, the box of each escape's asked places, the reach). None where every candidate must be laid out:
+        the item carries an escape's part, what it takes off the board comes near an escape, or what it adds does not
+        move with it."""
+        from .layout import _asked_near
+        from .placement import Placement
+        from .values import Location
+        board, occ = self.board, self.occ
+        owners = occ._geometry(self.item).owners
+        if any(decl.ref in owners for decl in board._escapes):
+            return None
+        reach = occ._copper_reach + board.geometry.hole_to_hole + board.geometry.hole_clearance
+        left = self._lanes_left()
+        if any(_asked_near(asked, left, Box.union(left), reach) for _, asked in self.lanes_each.values()):
+            return None
+        hulls = []
+        for _, asked in self.lanes_each.values():
+            boxes = [a for a in asked if isinstance(a, Box)]
+            boxes += [Box(*bounds) for a in asked if not isinstance(a, Box) for bounds in a.boxes()]
+            if boxes:
+                hull = Box.union(boxes)
+                hulls.append((hull.left, hull.top, hull.right, hull.bottom))
+        turns = []
+        for rotation in rotations:
+            at = []
+            for x, y in ((0.0, 0.0), (self._frame.left, self._frame.top) if self._frame is not None else (1.0, 1.0)):
+                view, geometries, copper = self._view(Placement(Location(x, y), rotation, face))
+                moved = self._lanes_moved(view, geometries, copper)
+                if not moved:
+                    at.append(None)
+                    continue
+                hull = Box.union(moved)
+                at.append((hull.left - x, hull.top - y, hull.right - x, hull.bottom - y))
+            if None in at or any(abs(a - b) > 1e-6 for a, b in zip(*at)):
+                return None             # what the candidate adds is not the same wherever it stands
+            turns.append(at[0])
+        return turns, hulls, reach
 
     def _candidate_ratsnest(self, added, changed):
         """Reuse the proved sparse trees rather than rebuilding every MST.
@@ -325,7 +401,7 @@ class Delta:
         self._check_snapshot()
         if self.grid is not None and self.grid.board != (self.occ.congestion_frame() or Box(0, 0, 0, 0)):
             raise ValueError("Delta frame changed; rebuild the lifted snapshot")
-        if self.has_push or self.lanes is not None or self.rn.mirror is None:
+        if self.lanes is not None or self.rn.mirror is None:
             return None
         if self.grid is not None:
             frame = self.grid.board
