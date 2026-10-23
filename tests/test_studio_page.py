@@ -735,7 +735,7 @@ ev('selectItem("b", {})'); out.cleared = ev("S.focus");
 els["#card"].onclick({target: {closest: s => s === "[data-act]" ? {dataset: {act: "finding", fi: "1"}} : null}});
 out.again = ev("S.focus && S.focus.refs");
 """)
-    assert out["pad"] and out["focus"] == {"refs": ["Ra", "Rb"], "pads": [["Ra", "1"], ["Rb", "2"]]}
+    assert out["pad"] and out["focus"] == {"refs": ["Ra", "Rb"], "pads": [["Ra", "1"], ["Rb", "2"]], "own": ["Ra", "Rb"]}
     assert out["sel"] == ["a", None] and out["cleared"] is None and out["again"] == ["Ra"]
     assert 'data-act="finding" data-fi="1"' in out["card"]
 
@@ -3873,3 +3873,19 @@ out.html = runs();
     assert "9 -&gt; unmeasured common placement score (independent proposal)" in out["html"]
     assert "diagnostic only" in out["html"]
     assert "NaN" not in out["html"]
+
+
+@needs_node
+def test_a_finding_that_names_a_pad_rings_and_frames_that_pads_part_and_only_outlines_the_rest_it_names(tmp_path):
+    """An escape walled off names its pad and every part that walls it in: the pad's part is the finding's own, ringed and
+    framed; the parts that wall it in light up without a ring of their own, so the pad is not lost among them."""
+    out = run_more(tmp_path, r"""
+const f = {text: "Ra pin 1 (S): walled off by Rb, Rc", kind: "escape_walled", at: null, item: "", refs: ["Ra", "Rb", "Rc"], pads: [["Ra", "1"]], severity: "critical"};
+full([item("a", 1), item("b", 5), item("c", 9)], [st("a"), st("b"), st("c")], {findings: [f]});
+ev("zoomTo = (box, face) => { globalThis.zoomed = box; }");
+ev("S.vb = {x: 36, y: 26, w: 2, h: 2}");                  // looking at a corner: the finding's place is out of view
+ev("focusFinding(plan().findings[0])");
+out.own = ev("S.focus.own"); out.refs = ev("S.focus.refs"); out.zoomed = ev("globalThis.zoomed");
+""")
+    assert out["refs"] == ["Ra", "Rb", "Rc"] and out["own"] == ["Ra"]
+    assert out["zoomed"][2] < 5                                 # framed on Ra (x 1 to 3), not out to Rc at x 9 to 11

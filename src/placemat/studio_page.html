@@ -1665,7 +1665,7 @@ function selRefs(p) {
   const it = S.sel && p ? itemMap(p).get(S.sel) : null;
   return new Set(!it ? [] : S.selRef ? [S.selRef] : it.members.map(m => m.ref));
 }
-// A finding's parts get a ring that keeps its size on screen, so they can be found when the board is fitted.
+// A finding's own parts get a ring that keeps its size on screen, so they can be found when the board is fitted.
 function drawFocusRings(p) {
   if (!B.svg || !B.svg.querySelectorAll) return;
   for (const e of B.svg.querySelectorAll(".fring")) e.remove();
@@ -1673,7 +1673,7 @@ function drawFocusRings(p) {
   const owner = ref => itemsOf(p).find(i => i.members.some(m => m.ref === ref));
   for (const panel of B.svg.querySelectorAll(".panel")) {
     const face = panel.classList.contains("back") ? "back" : "front";
-    const html = S.focus.refs.map(ref => { const o = owner(ref), b = o && o.face === face && itemBox(o, ref); return b ? '<circle class="fring" cx="' + num((b[0] + b[2]) / 2) + '" cy="' + num((b[1] + b[3]) / 2) + '" r="' + num(Math.max(b[2] - b[0], b[3] - b[1]) / 2 + 1) + '"/>' : ""; }).join("");
+    const html = (S.focus.own || S.focus.refs).map(ref => { const o = owner(ref), b = o && o.face === face && itemBox(o, ref); return b ? '<circle class="fring" cx="' + num((b[0] + b[2]) / 2) + '" cy="' + num((b[1] + b[3]) / 2) + '" r="' + num(Math.max(b[2] - b[0], b[3] - b[1]) / 2 + 1) + '"/>' : ""; }).join("");
     if (html) panel.insertAdjacentHTML("beforeend", html);
   }
 }
@@ -2242,7 +2242,9 @@ function selectRegion(kind, id) {
   S.sel = null; S.selRef = null; S.module = null; S.selLine = null; S.cardOff = null; S.marked = new Set(); S.focus = S.focusIdx = null; S.selRegion = {kind, id};
   schedule("marks", "script", "compare", "card");
 }
-// A finding looked at: the parts and pads it names light up on the board, and the board scrolls to them if they are not in view.
+// A finding looked at: the parts and pads it names light up on the board, and the board scrolls to its own parts if they are
+// not in view. Its own parts are those of the pads it names (an escape walled off names its pad, and every part that walls it
+// in), else every part it names: they get a ring and the frame, the rest of what it names is outlined only.
 function focusFinding(f, restore) {
   if (!restore) touch();
   const p = plan(), m = itemMap(p), owner = ref => itemsOf(p).find(i => i.members.some(x => x.ref === ref));
@@ -2251,11 +2253,12 @@ function focusFinding(f, restore) {
   const it = f.item && m.get(f.item);
   if (!refs.length && it) refs = it.members.map(x => x.ref);
   const pads = (f.pads || []).filter(x => have.has(x[0]));
-  const first = refs.length ? owner(refs[0]) : it;
-  if (first) selectItem(first.key, {ref: refs.length === 1 ? refs[0] : null});
-  S.focus = refs.length || pads.length ? {refs, pads} : null;
+  const own = pads.length ? [...new Set(pads.map(x => x[0]))] : refs;
+  const first = own.length ? owner(own[0]) : it;
+  if (first) selectItem(first.key, {ref: own.length === 1 ? own[0] : null});
+  S.focus = refs.length || pads.length ? {refs, pads, own} : null;
   S.focusIdx = S.focus ? ((p.findings || []).indexOf(f)) : null;
-  const boxes = refs.map(r => { const o = owner(r); return o && itemBox(o, r); }).filter(Boolean);
+  const boxes = own.map(r => { const o = owner(r); return o && itemBox(o, r); }).filter(Boolean);
   const at = findingPlaces(p)[(p.findings || []).indexOf(f)];
   if (at) boxes.push([at[0] - 1, at[1] - 1, at[0] + 1, at[1] + 1]);
   if (boxes.length) {
