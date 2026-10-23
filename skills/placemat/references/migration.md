@@ -5,6 +5,23 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## To 0.100.8
+
+### Changed
+
+- **The placement search scores natively on boards that declare escapes or pushes.** A board with a
+  `board.escape()`, a `board.push()` or part annotations had every candidate scored in Python, at several
+  milliseconds each. The native scorer now prices the escape-lane and push terms too: it lays the escapes out again
+  only for a candidate that comes near them, and asks for the push term only for an item a push or an annotation
+  judges. A candidate the search reaches only by moving vias out of the way is scored natively as well. The scores
+  are the same as before; on one 31-item board the placement took a fifth of the time. Scripts need no change.
+
+### Fixed
+
+- **The placement search no longer slows down on a board with differential pairs.** 0.100.7 read the pairs' pin
+  sides again for every candidate a search scored, where it meant to read them once per board. On a board that
+  declares escapes it took 8% of the run. Results are unchanged. Scripts need no change.
+
 ## To 0.100.7
 
 ### Changed
