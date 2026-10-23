@@ -121,6 +121,10 @@ def test_the_limit_finding_is_on_the_default_plan_and_the_resolve_is_the_default
     assert f.facts["arrangements"] == 4 and f.facts["max_arrangements"] == 2 and f.severity == "warning"
 
 
+# what Board.resolve stamps on its plan for a later explore to know its baseline; an arrangement's resolve is not one
+EXPLORE_STAMPS = ("explore_baseline_authority", "explore_baseline_plain")
+
+
 def untimed(record):
     if isinstance(record, dict):
         return {k: untimed(v) for k, v in record.items() if k != "seconds"}
@@ -134,7 +138,8 @@ def test_a_board_that_declares_no_alternative_resolves_as_before():
     prepared = run.begin(module())
     got = run.resolve_spec(prepared, prepared.specs[0])
     assert got.placements == plain.placements and [str(f) for f in got.findings] == [str(f) for f in plain.findings]
-    assert untimed(got.reuse) == untimed(plain.reuse) and list(got.steps) == list(plain.steps)
+    plain_reuse = {k: v for k, v in plain.reuse.items() if k not in EXPLORE_STAMPS}
+    assert untimed(got.reuse) == untimed(plain_reuse) and list(got.steps) == list(plain.steps)
     assert not [f for f in plain.findings if f.cause.startswith("arrangement.")]
 
 

@@ -133,8 +133,13 @@ def test_a_stall_by_count_ends_a_time_boxed_explore_early_and_it_is_complete(tmp
     report = _run(tmp_path, seeds=None, seconds=120, factory=eb.Settled(explore_stall_variants=6), accept=True, checkpoint_dir=state)
     assert report["ended"]["rule"] == "stall_count" and report["ended"]["limit"] == 6
     assert report["seconds"] < 100
-    tail = [c for c in report["curve"] if c["i"] > report["found"]["i"]]
-    assert len(tail) >= 6
+    # the six variants in a row that did not improve: the variants still in flight when it fired finish after them, and
+    # one of those may be the new best
+    run = longest = 0
+    for c in report["curve"][1:]:
+        run = 0 if c["best"] else run + 1
+        longest = max(longest, run)
+    assert longest >= 6
     assert report["accepted"] is True and (tmp_path / "Board_layout.lock.json").exists()      # complete: --accept applies
     assert checkpoint.read_lines(state / "checkpoint.jsonl")[-1] == {"recorded": True}
 

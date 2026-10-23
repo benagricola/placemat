@@ -48,7 +48,9 @@ def test_other_failed_routes_raise(tmp_path, monkeypatch, rc, report):
 
 def test_an_invalid_input_board_passes_on_clean_closure_and_nothing_new():
     template = route_ref.AResult("x", "class", 0.0, 0, [], [], 0, 0.0, 0, 0.0, False, 0.0, VERSIONS)
-    assert route_ref.judge({"valid": False, "closure_clean": 1.0}, [], template).passed
+    measured = {"widths_failed": 0, "phases": [{"name": "all", "final_asked": 2, "final_joined": 2,
+                                               "final_closure_clean": 1.0}]}
+    assert route_ref.judge({"valid": False, "closure_clean": 1.0, **measured}, [], template).passed
 
 
 def test_a_failed_row_records_new_drc_as_unknown(tmp_path, monkeypatch):

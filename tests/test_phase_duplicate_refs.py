@@ -110,7 +110,8 @@ def test_each_task_on_a_shared_reference_takes_its_own_router_record():
     assert [r["status"] for r in phase_run.records_of([a, b], plain)] == ["routed", "joined_before"]
     echoed = [dict(b, status="joined_before"), dict(a, status="routed")]   # a router that echoes "fp"
     assert [r["status"] for r in phase_run.records_of([a, b], echoed)] == ["routed", "joined_before"]
-    report = phase_run.phase_record(type("P", (), {"record": lambda self: {"name": "c"}})(), 0, None, [a, b],
+    report = phase_run.phase_record(type("P", (), {"record": lambda self: {"name": "c"}, "max_uncoupled_mm": None})(),
+                                    0, None, [a, b],
                                     [{"joined": False, "violated": False, "under": {}}] * 2, 1.0, 1,
                                     connections=plain)
     assert [o["outcome"] for o in report["open"]] == ["routed", "joined_before"]

@@ -29,6 +29,9 @@ def test_the_route_command_s_layers_flag_overrides_for_one_run(tmp_path, monkeyp
         def has_findings(self):
             return False
 
+        def pairs_not_coupled(self):
+            return []
+
         def summary(self):
             return "route: stand-in"
 
@@ -74,6 +77,9 @@ def test_the_route_command_leaves_the_boards_plane_nets_to_their_pours(breakout_
 
         def has_findings(self):
             return False
+
+        def pairs_not_coupled(self):
+            return []
 
         def summary(self):
             return "stand-in"
