@@ -34,6 +34,8 @@ pub type IdSet = HashSet<usize, BuildHasherDefault<crate::ratsnest::Fx>>;
 
 /// A net's own clearance, by its name: asked twice for each pair of shapes judged, never walked in order.
 pub type NetMap = HashMap<String, f64, BuildHasherDefault<crate::ratsnest::Fx>>;
+/// The owners a `within` rule holds: asked of every pair of shapes a conflict test measures, so hashed fast.
+pub type OwnerSet = HashSet<String, BuildHasherDefault<crate::ratsnest::Fx>>;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Kind {
@@ -130,7 +132,7 @@ pub struct Shape {
 pub struct ClearanceRule {
     pub on: Option<String>,
     pub between: Option<(String, String)>,
-    pub within: Option<HashSet<String>>,
+    pub within: Option<OwnerSet>,
     pub min: f64,
     pub of: Option<String>, // with `between`: only where the shape on the second net is a pad of this part and the one on the first is not its own (not its pad, nor an escape of its pads)
 }
@@ -853,7 +855,7 @@ mod tests {
         c.rules.push(ClearanceRule { between: Some(("B".into(), "A".into())), min: 0.1, ..Default::default() });
         assert!(!conflict(&a, &b, None, &c)); // the later between= decides, whichever way round
         assert!(conflict(&a, &b, Some(0.5), &c)); // an explicit clearance overrides every rule
-        let owners: HashSet<String> = ["U1".to_string(), "R1".to_string()].into_iter().collect();
+        let owners: OwnerSet = ["U1".to_string(), "R1".to_string()].into_iter().collect();
         c.rules.push(ClearanceRule { within: Some(owners), min: 0.35, ..Default::default() });
         assert!(conflict(&a, &b, None, &c)); // both owners in the cell
         let other = shape(Kind::Pad, "X1", rect(1.3, 0.0, 1.0, 1.0), 1, 1, "B", true);
@@ -868,7 +870,7 @@ mod tests {
         let b_outside = shape(Kind::Pad, "X1", rect(1.3, 0.0, 1.0, 1.0), 1, 1, "B", true);
         let other_net = shape(Kind::Pad, "R1", rect(1.3, 0.0, 1.0, 1.0), 1, 1, "C", true);
         let mut c = cfg();
-        let owners: HashSet<String> = ["U1".to_string(), "R1".to_string()].into_iter().collect();
+        let owners: OwnerSet = ["U1".to_string(), "R1".to_string()].into_iter().collect();
         c.rules.push(ClearanceRule { within: Some(owners), between: Some(("A".into(), "B".into())), min: 0.5, ..Default::default() });
         assert!(conflict(&a, &b, None, &c)); // in the cell, on A and B
         assert!(!conflict(&a, &b_outside, None, &c)); // X1 is in no cell

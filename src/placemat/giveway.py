@@ -627,6 +627,44 @@ class _Judge:
         self.count(1)
         found = index.first_hit([_to_native_shape(x, occ._body_refs, occ._leads, occ._margins) for x in shapes],
                                 [_native_shape(self, o) for o in mine], self.clearance, _hidden_skip(self, backing))
+        return self._native_found(shapes, found, mine, backing, say)
+
+    def hit_board_each(self, groups: list, own=(), say: bool = True) -> list:
+        """`hit_board(shapes, own, say)` of each of `groups` (lists of shapes), those the native index answers judged in
+        one call."""
+        occ = self.occ
+        entry = getattr(self.others, "_native", None) if _NATIVE_JUDGE else None
+        if entry is None or len(groups) < 2 or not hasattr(entry[0], "first_hit_each"):
+            return [self.hit_board(shapes, own, say) for shapes in groups]
+        from .occupancy import _to_native_shape
+        index, backing = entry
+        region = getattr(self.others, "_region", None)
+        gap = occ._gap
+        pool = list(self.extra) + list(own)         # `_native_hit`'s `mine` of every group, in its order
+        out = [_NO_NATIVE] * len(groups)
+        asked = []
+        for i, shapes in enumerate(groups):
+            if region is not None and not all(region.contains(x.box) for x in shapes):
+                continue
+            box = Box.union([x.box for x in shapes])
+            mine = [k for k, o in enumerate(pool) if o.box.overlaps(box, gap=gap)]
+            if _meets_net_tie(self, backing, box, [pool[k] for k in mine]):
+                continue
+            asked.append((i, mine))
+        if asked:
+            self.count(len(asked))
+            found = index.first_hit_each(
+                [([_to_native_shape(x, occ._body_refs, occ._leads, occ._margins) for x in groups[i]], mine)
+                 for i, mine in asked],
+                [_native_shape(self, o) for o in pool], self.clearance, _hidden_skip(self, backing))
+            for (i, mine), hit in zip(asked, found):
+                out[i] = self._native_found(groups[i], hit, [pool[k] for k in mine], backing, say)
+        return [self.hit(shapes, self.near(Box.union([x.box for x in shapes]), gap), own, say) if r is _NO_NATIVE else r
+                for shapes, r in zip(groups, out)]
+
+    def _native_found(self, shapes, found, mine, backing, say: bool):
+        """`_native_hit`'s answer from what the native index found: (si, in `mine`, index) or None."""
+        occ = self.occ
         for s in shapes[:len(shapes) if found is None else found[0]]:
             edge = self._edge_hit(s)         # as `hit`: a shape's edge is judged after what it meets, before the next shape's
             if edge is not None:

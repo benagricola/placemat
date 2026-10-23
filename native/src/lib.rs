@@ -365,6 +365,20 @@ impl NativeObstacles {
         Ok(giveway::first_hit(&self.grid, &built, &mine, clearance, &self.cfg, &skip))
     }
 
+    /// `first_hit` of each of `groups`, in one call: a group is (its shapes, the indices in `pool` of its `mine`, in
+    /// order), and a hit in its `mine` is given as the index in that list.
+    fn first_hit_each(&self, groups: Vec<(Vec<PyShape>, Vec<usize>)>, pool: Vec<PyShape>, clearance: Option<f64>,
+                      skip: Vec<usize>) -> PyResult<Vec<Option<(usize, bool, usize)>>> {
+        let pool: Vec<shapes::Shape> = pool.iter().map(build_shape).collect::<PyResult<_>>()?;
+        let skip: IdSet = skip.into_iter().collect();
+        groups.iter().map(|(g, mine)| {
+            let built: Vec<shapes::Shape> = g.iter().map(build_shape).collect::<PyResult<_>>()?;
+            let mine: Vec<shapes::Shape> = mine.iter().map(|&i| pool.get(i).cloned()
+                .ok_or_else(|| PyValueError::new_err("a mine index outside the pool"))).collect::<PyResult<_>>()?;
+            Ok(giveway::first_hit(&self.grid, &built, &mine, clearance, &self.cfg, &skip))
+        }).collect()
+    }
+
     /// The index in `offsets` (from `start`) of the first at which a via's
     /// move passes every test `giveway._give`'s loop applies, or `None`:
     /// the disc inside `pad` (poly, radius), the copper `first` met

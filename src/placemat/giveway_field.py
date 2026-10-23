@@ -236,8 +236,7 @@ class _Layouts:
         self.own = [o for o in own if o.carried not in self.rel_ids]
         self.cache: dict = {}
         self.under = {}
-        for m in self.rel:
-            what = self.meets(m)
+        for m, what in zip(self.rel, self._hits([self._via_shapes(m) for m in self.rel])):
             if what is not None:
                 self.under[m.id] = what
         self.conflicts = [m for m in self.rel if m.id in self.under]
@@ -260,15 +259,25 @@ class _Layouts:
 
     def _hit(self, shapes):
         """What the first of `shapes` meets, as the report names it, or None."""
-        found = self.judge.hit_board(shapes, self.own, say=False)
+        return self._named(self.judge.hit_board(shapes, self.own, say=False))
+
+    def _hits(self, groups: list) -> list:
+        """`_hit` of each of `groups`, judged together."""
+        return [self._named(found) for found in self.judge.hit_board_each(groups, self.own, say=False)]
+
+    def _named(self, found):
         if found is None:
             return None
         o = found[1]
         return "the edge" if o is None else self.occ.who(o.owner) if o.owner else \
             ("a via" if o.kind == "through" else "a track")
 
+    @staticmethod
+    def _via_shapes(m) -> list:
+        return [m.ring] + ([m.hole] if m.hole is not None else [])
+
     def meets(self, m):
-        return self._hit([m.ring] + ([m.hole] if m.hole is not None else []))
+        return self._hit(self._via_shapes(m))
 
     def clear(self, q: tuple) -> bool:
         """Whether a via of the field's kind stands clear at site `q`, inside the pad."""
@@ -279,6 +288,22 @@ class _Layouts:
             hit = self.cache[key] = _disc_inside(self.pad.poly, at, self.r + self.inset - 1e-5) and \
                 self._hit(self.shapes_at(self.g, at)) is None
         return hit
+
+    def clear_each(self, qs: list) -> None:
+        """`clear` of each of the sites `qs`, the ones inside the pad judged together, kept for `clear` to answer."""
+        inside, seen = [], set()
+        for q in qs:
+            key = (round(q[0], 5), round(q[1], 5))
+            if key in self.cache or key in seen:
+                continue
+            seen.add(key)
+            at = self.xy(q)
+            if _disc_inside(self.pad.poly, at, self.r + self.inset - 1e-5):
+                inside.append((key, at))
+            else:
+                self.cache[key] = False
+        for (key, _), what in zip(inside, self._hits([self.shapes_at(self.g, at) for _, at in inside])):
+            self.cache[key] = what is None
 
     # candidates -----------------------------------------------------
     def nodes(self) -> list:
@@ -292,12 +317,9 @@ class _Layouts:
         self.U, self.V = U, V
         Ue, Ve = self._extend(U, self.eu, self.ulo, self.uhi), self._extend(V, self.ev, self.vlo, self.vhi)
         self.Ue, self.Ve = Ue, Ve
-        out = []
-        for u in Ue:
-            for v in Ve:
-                if all(math.dist((u, v), p) >= self.pmin - 1e-6 for p in allpos) and self.clear((u, v)):
-                    out.append((u, v))
-        return out
+        spaced = [(u, v) for u in Ue for v in Ve if all(math.dist((u, v), p) >= self.pmin - 1e-6 for p in allpos)]
+        self.clear_each(spaced)
+        return [q for q in spaced if self.clear(q)]
 
     @staticmethod
     def _extend(lines: list, e: float, lo: float, hi: float) -> list:
