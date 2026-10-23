@@ -5,6 +5,25 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## To 0.100.10
+
+### Changed
+
+- **A run's airwires are the same every time for the same board.** KiCad's DRC reports a board's unconnected
+  items between endpoints it picks in no fixed order, so the run score moved by tens of millimetres between runs of
+  the same inputs. A run now takes from KiCad only which pads, tracks and vias are already joined (its islands) and
+  joins each net's islands by the shortest links between their points. The count of airwires is KiCad's; their
+  lengths and crossings can differ from what KiCad draws, most on a plane net, where a zone's outline is no
+  link's end. The score's measures are version 5, so runs recorded before are not compared with new ones (the
+  first run after upgrading is "the best so far"). `best.airwire_noise` and `best.crossing_noise`, which absorbed
+  that noise, now default to 0: any difference counts. A board that set them can drop them.
+
+### Fixed
+
+- **A finding looked at in the studio rings its own parts, not every part it names.** An escape walled off names
+  its pad and every part that walls it in; the rings, the frame and the selection now go to the pad's part, and the
+  parts that wall it in are outlined only.
+
 ## To 0.100.9
 
 ### Changed
