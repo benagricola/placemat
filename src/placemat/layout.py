@@ -5228,7 +5228,11 @@ class Board:
         what its search would be offered, before any push of the part being placed now. The step is
         `place.lookahead_step`, or its own if that is coarser. None for an item whose search is not the generic one
         (a decided place, an edge, a run, a ring, a spoke, a line, a block, a rider), or on a board
-        with no frame yet."""
+        with no frame yet. An item an explore variant holds at the plain run's spot (`_explore_standing`) is not
+        searched: that spot is its only one, exact, so on no grid."""
+        if j.key in self._explore_standing:
+            held = self._explore_standing[j.key]
+            return ([] if held is None else [held]), 0.0
         if (j.kind == "block" or j.freedom.decided or j.key in self._rider_of or j.turns_on_point
                 or any(x is not None for x in (j.run, j.rim, j.radius_at, j.angle, j.edge, j.pin_x, j.pin_y))
                 or self._fit or self._outline is None):
@@ -5314,6 +5318,9 @@ class Board:
             if not spots_of[j.key] or not spots_of[j.key][0]:    # not a generic search, or no spot at all: nothing to keep room for
                 continue
             spots, margin = spots_of[j.key]
+            held = self._explore_standing.get(j.key)
+            if held is not None and held.arrangement:
+                j = self._arranged(j, held.arrangement)     # the held spot is in the arrangement it was taken as
             others_at = lambda p, skip=(a, b), k=kind: sum(
                 e.at(self._emission_point(occ, o).distance(p)) for o in placed_sources if o not in skip
                 for e in ann.sources[o].emissions if e.kind == k)
