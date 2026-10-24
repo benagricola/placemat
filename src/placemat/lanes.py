@@ -108,8 +108,8 @@ class EscapeDecl:
     widths: tuple           # ((pad number, width), ...)
     pairs: tuple            # ((pad number, pad number), ...)
     chamfer: float          # the cut at a lane's corners: the lanes are laid, reserved and (by default) drawn with it
-    via_size: float         # the size and drill of the lanes' vias
-    via_drill: float
+    via_size: float | None  # the size and drill of the lanes' vias; None is each lane's net class via
+    via_drill: float | None
     why: str
     via_intents: dict = field(default_factory=dict, compare=False, metadata={"reuse": False})
     chamfers: dict = field(default_factory=dict)    # pad number -> the chamfer= of the track that begins with its lane
@@ -370,7 +370,7 @@ class Layouter:
         for n in d.pins:
             net = nets[n]
             width = d.width_of(n) or env.width(net)
-            via = (d.via_size, d.via_drill) if n in d.vias else None
+            via = env.via(net, d.via_size, d.via_drill) if n in d.vias else None
             c = self._centre(n)
             lanes[n] = _Lane(n, net, width, via, c, self.s_of((c.x, c.y)))
         self.lanes = lanes

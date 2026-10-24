@@ -4235,7 +4235,7 @@ class Board:
         (default `copper.chamfer`) cuts the lanes' corners as `track()`'s does,
         and a track that begins with a lane is drawn with it unless its own
         `chamfer=` says otherwise; `via_size=` and `via_drill=` size the lanes'
-        vias as `via()`'s do (default the board's). Returns the Escape:
+        vias as `via()`'s do (default each lane's net class via, as `via()`'s). Returns the Escape:
         `esc[pin]` is a lane, the first point of a track, and `esc[pin].via`
         and `esc[pin].end` refer to its via and its end.
 
@@ -4295,8 +4295,8 @@ class Board:
                           None if depth is None else float(depth), None if run is None else float(run),
                           tuple(sorted(wide.items())), tuple(pair_numbers),
                           float(self.settings.copper_chamfer if chamfer is None else chamfer),
-                          float(self.via_size if via_size is None else via_size),
-                          float(self.via_drill if via_drill is None else via_drill), why)
+                          None if via_size is None else float(via_size),
+                          None if via_drill is None else float(via_drill), why)
         decl.lands = tuple(lands)
         self._escapes.append(decl)
         return Escape(self, decl.index, part)
@@ -6430,7 +6430,7 @@ class Board:
                     ctx.note(C.COPPER_NOT_DRAWN, {"variant": "pair_close", "p": p_name, "n": n_name})
                     return []
             return pair_ops(p_name, n_name, layer, w, g, start, centre, end, self.via_drill, self.via_size,
-                            via_step, chamfer, self._clearance(p_name, n_name), sfaces, efaces)
+                            via_step, chamfer, self._clearance(p_name, n_name), sfaces, efaces, via_of=self._via_dims)
         intent = self._copper_intent("pair %s/%s" % (p_name, n_name), net_p, priority, plan, refs, why, bridge, only=self._only(only, "pair"))
         self._set_pad_joins(intent, {p_name, n_name}, [sp, sn, ep, en])
         return intent
@@ -6457,7 +6457,8 @@ class Board:
         another net's copper, a hole - is a finding, and the row stops
         there. A track may end on the returned intent: the farthest via.
 
-        Either way, resolved when the pad's part is placed. `layers=` spans
+        Each via is `size` and `drill` or, where not given, the net's class via
+        (see `via()`). Either way, resolved when the pad's part is placed. `layers=` spans
         some layers only, as on `via()`; a via whose span misses the layer
         of the pad it joins is not drawn."""
         if (pad is None) == (along is None):
@@ -6466,8 +6467,7 @@ class Board:
         name = self.geometry.require_net(net)
         span = self._via_span(name, layers)
         nc = self.geometry.netclasses.get(name)
-        s = float(size) if size is not None else (nc.via_diameter if nc else self.via_size)
-        d = float(drill) if drill is not None else self._span_drill(span, nc.via_drill if nc else self.via_drill)
+        d, s = self._via_dims(name, size, drill, span)
         floor = d + self.geometry.hole_to_hole
         step = max(s, floor) if pitch is None else float(pitch)
         if inset < 0:
@@ -6595,7 +6595,8 @@ class Board:
 
     def via(self, net, at, *, drill: float | None = None, size: float | None = None, layers=None,
             priority: Priority = Priority.DEFAULT, only=None, why: str = ""):
-        """A via of `net`. `at` is a position, a `FreeSpot` near a pad (the
+        """A via of `net`, of `size` and `drill` or, where not given, the net's class via (the Default class's for a
+        net with no class; the board's where the class gives none). `at` is a position, a `FreeSpot` near a pad (the
         nearest point a via can stand and be reached, found when the pad is
         placed), or a `Past(items, edge)` (the via's radius plus its
         clearance off those pads', vias' or tracks' `edge` side). A FreeSpot
@@ -6607,7 +6608,7 @@ class Board:
         if isinstance(at, Past):
             self._check_past(at, "%s: a via's at=" % name)
         refs = _refs_in([at])
-        d, s = drill or self._span_drill(span, self.via_drill), size or self.via_size
+        d, s = self._via_dims(name, size, drill, span)
         carried = None
         if isinstance(at, (PadRef, CellPadRef)) and not (at.dx or at.dy):
             # at the pad, or off it in the part's frame: it turns with the part, so the part carries it
@@ -6716,8 +6717,7 @@ class Board:
             raise ValueError("%s: stitch's hole_to_edge= and sides= belong to outside=True" % name)
         span = self._via_span(name, layers)
         nc = self.geometry.netclasses.get(name)
-        s = float(size) if size is not None else (nc.via_diameter if nc else self.via_size)
-        d = float(drill) if drill is not None else self._span_drill(span, nc.via_drill if nc else self.via_drill)
+        d, s = self._via_dims(name, size, drill, span)
         floor = d + self.geometry.hole_to_hole
         step = max(s, floor) if pitch is None else float(pitch)
         if step < floor - 1e-9:
@@ -6954,6 +6954,24 @@ class Board:
             "%s: a %s via (%s) %s%s; they cost more, so a board keeps to through vias unless "
             "fab-profile.json says \"via\": {\"%s\": \"yes\"} for a fab that makes them" % (
                 name, kind, _span_text(span), why, " (%s)" % self.fab_source if self.fab_source else "", kind))
+
+    def _via_dims(self, net: str, size: float | None = None, drill: float | None = None, span=None) -> tuple:
+        """(drill, size) of a via of `net` when the script gives none: the net's class via, the Default class's
+        for a net with no class of its own, and the board's `via_size` and `via_drill` only where no class
+        gives one (a net the project does not name, or a class that sets 0). An explicit `size` or `drill`
+        wins. With `span`, a drill taken from a class or the board goes through `_span_drill`."""
+        nc = self.geometry.netclasses.get(net)
+        if size:
+            s = float(size)
+        else:
+            s = float(nc.via_diameter) if nc and nc.via_diameter else self.via_size
+        if drill:
+            d = float(drill)
+        else:
+            d = float(nc.via_drill) if nc and nc.via_drill else self.via_drill
+            if span is not None:
+                d = self._span_drill(span, d)
+        return d, s
 
     def _span_drill(self, span: tuple, drill: float) -> float:
         """A via's drill when the script gives none: `copper.microvia_drill`
@@ -7856,7 +7874,8 @@ class Board:
                 w = 2.0 * _pad_half_across(self, ctx.occ, width_pad, ctx.locate(width_pad), dx / n, dy / n)
             segs = [chord for t in ctx.tracks_on(layer) if t.net != name for chord in t.chords()]
             return finger_ops(name, layer, a, b, w, segs, self.via_drill, self.via_size, bridge_width,
-                              self.settings.copper_bridge_half_gap, self.settings.copper_finger_min_piece)
+                              self.settings.copper_bridge_half_gap, self.settings.copper_finger_min_piece,
+                              via_of=self._via_dims)
         return self._copper_intent("finger %s" % name, net, priority, plan, refs, why, only=self._only(only, "finger"))
 
     # ------------------------------------------------------------ resolution
@@ -9771,7 +9790,8 @@ class Board:
             refused = []
             ops, notes, findings = resolve_bridges(entries, ctx.fixed_tracks, self.via_drill, self.via_size,
                                                    self.settings.copper_bridge_half_gap, drop=refused,
-                                                   labels=[c.key for c, _ in live], ids=[copper_id(c) for c, _ in live])
+                                                   labels=[c.key for c, _ in live], ids=[copper_id(c) for c, _ in live],
+                                                   via_of=self._via_dims)
             fresh = {live[i][0].index for i in refused} - dropped
             if not fresh:
                 break
@@ -12777,6 +12797,11 @@ class _LaneEnv:
         self._lane_view = _UNSET            # the board as a native module asks it, else None
         self._native_obstacles = None
 
+    def via(self, net: str, size: float | None, drill: float | None) -> tuple:
+        """(size, drill) of a lane's via on `net`: the escape's own where it gave them, else the net's class via."""
+        d, s = self.board._via_dims(net, size, drill)
+        return s, d
+
     def clearance(self, net_a: str, net_b: str, owner_b=None) -> float:
         if owner_b:
             return _pad_clearance(self.board, net_a, net_b, owner_b)
@@ -12845,8 +12870,14 @@ class _LaneEnv:
         if view is None or ctx.occ is not occ or ctx.planned_vias or ctx.planned_tails or ctx.batch_tracks or ctx.batch_ops:
             return None
         d = layouter.decl
+        # the native layout takes one size and drill for every via of the escape; lanes on nets whose classes
+        # differ are laid out by Python (lanes.py), which takes each lane's own
+        vias = {self.via(layouter.pads[n][0].net, d.via_size, d.via_drill) for n in d.pins if n in d.vias}
+        if len(vias) > 1:
+            return None
+        via_size, via_drill = next(iter(vias)) if vias else self.via("", d.via_size, d.via_drill)
         decl = (list(d.pins), d.turn is not None, list(d.vias), d.depth, d.run, list(d.widths), list(d.pairs), d.chamfer,
-                list(d.chamfers.items()), d.via_size, d.via_drill)
+                list(d.chamfers.items()), via_size, via_drill)
         pads = getattr(layouter.pads, "native", None)
         if pads is None:
             pads = [(n, [(list(sh.poly), (sh.box.left, sh.box.top, sh.box.right, sh.box.bottom), sh.net, sh.owner)

@@ -367,9 +367,17 @@ def _crossing_point(a: Track, b: Track):
     return None
 
 
-def bridge_track(track: Track, points, via_drill: float, via_size: float, half: float = BRIDGE_HALF) -> list:
+def _via_dims(net: str, via_drill: float, via_size: float, via_of) -> tuple:
+    """(drill, size) of a via of `net`: `via_of(net)` where given, else the numbers."""
+    return via_of(net) if via_of is not None else (via_drill, via_size)
+
+
+def bridge_track(track: Track, points, via_drill: float, via_size: float, half: float = BRIDGE_HALF,
+                 via_of=None) -> list:
     """Cut `track` at each of `points` and pass under: a via, a track on the
-    opposite face `half` either side of the point, and a via back."""
+    opposite face `half` either side of the point, and a via back. `via_of(net)`
+    gives a net's (drill, size) in place of `via_drill` and `via_size`."""
+    via_drill, via_size = _via_dims(track.net, via_drill, via_size, via_of)
     length = track.start.distance(track.end)
     ux, uy = (track.end.x - track.start.x) / length, (track.end.y - track.start.y) / length
     ordered = sorted(points, key=lambda p: math.hypot(p[0] - track.start.x, p[1] - track.start.y))
@@ -407,7 +415,7 @@ def _cross_facts(entries, ids, yielder: int, other, fixed=None) -> dict:
 
 def resolve_bridges(entries, fixed_tracks, via_drill: float, via_size: float,
                     bridge_half: float = BRIDGE_HALF, drop: list | None = None, labels: list | None = None,
-                    ids: list | None = None):
+                    ids: list | None = None, via_of=None):
     """Decide every same-layer crossing between tracks of different nets.
 
     `entries` are (Track, priority_rank, may_bridge) for the copper being
@@ -475,13 +483,13 @@ def resolve_bridges(entries, fixed_tracks, via_drill: float, via_size: float,
         for pt in cuts[i]:
             if not any(math.hypot(pt[0] - q[0], pt[1] - q[1]) < 1e-6 for q in seen):
                 seen.append(pt)
-        ops += bridge_track(t, seen, via_drill, via_size, bridge_half) if seen else [t]
+        ops += bridge_track(t, seen, via_drill, via_size, bridge_half, via_of) if seen else [t]
     return ops, notes, findings
 
 
 def finger_ops(net: str, layer: CopperLayer, a: Location, b: Location, width: float, lane_segments,
                via_drill: float, via_size: float, bridge_width: float, notch_half: float,
-               min_piece: float) -> list:
+               min_piece: float, via_of=None) -> list:
     """A finger: a rectangular pour of `width` along the centreline a-b (a
     wide copper reach from a big pour to a pad). Where a same-layer track of
     another net (given as segments) crosses the centreline the rectangle is
@@ -516,6 +524,7 @@ def finger_ops(net: str, layer: CopperLayer, a: Location, b: Location, width: fl
             # draw the copper that much wider again, past what the script asked for.
             ops.append(Pour(net, layer, ((x0 + nx, y0 + ny), (x1 + nx, y1 + ny), (x1 - nx, y1 - ny), (x0 - nx, y0 - ny)),
                             stroke=0.0))
+    via_drill, via_size = _via_dims(net, via_drill, via_size, via_of)
     for c in sorted(set(round(c, 6) for c in cuts)):
         if 0 < c < length:
             p, q = Location(*at(c - notch_half)), Location(*at(c + notch_half))
@@ -824,7 +833,7 @@ def _conflicts(path: list, other: list, limit: float) -> bool:
 
 def pair_ops(net_p: str, net_n: str, layer: CopperLayer, width: float, gap: float, start, path, end,
              via_drill: float, via_size: float, via_step: float = 0.4, chamfer: float = 0.5,
-             clearance: float = 0.2, start_faces=None, end_faces=None) -> list:
+             clearance: float = 0.2, start_faces=None, end_faces=None, via_of=None) -> list:
     """Two tracks at `gap` either side of the centreline `path`, from the pads
     in `start` to the pads in `end`. `start` and `end` are (P location, N
     location, P through-hole?, N through-hole?); `start_faces`/`end_faces`
@@ -892,7 +901,7 @@ def pair_ops(net_p: str, net_n: str, layer: CopperLayer, width: float, gap: floa
                 before = Location(round(target.x - u[0] * via_step, 6), round(target.y - u[1] * via_step, 6))
                 after = Location(round(target.x + u[0] * via_step, 6), round(target.y + u[1] * via_step, 6))
                 line = line[:i + 1] + [before, via_at, after] + line[i + 1:]
-            extra.append(Via(net, via_at, via_drill, via_size))
+            extra.append(Via(net, via_at, *_via_dims(net, via_drill, via_size, via_of)))
             extra += polyline_tracks(net, other, width, _dogleg(pad, via_at))
         ops += polyline_tracks(net, layer, width, line) + extra
     return ops

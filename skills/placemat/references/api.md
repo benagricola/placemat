@@ -726,8 +726,8 @@ neither along a board axis nor at 45 to them is refused.
   draws the lane's own legs: a leg is never rerouted round copper that stands
   too near it, and a leg that runs through another net's copper is not drawn.
 - **Vias.** A lane with a via ends at it, its via `via_size=` and `via_drill=`
-  (default the board's, as `board.via()`'s `size=` and `drill=`; the lane's
-  steps use that size). The vias are placed innermost lane first, each at the first spot along its lane, from the row's turn-side end,
+  (default each lane's net class via, as `board.via()`'s `size=` and `drill=`; the lane's
+  steps use that size; an explicit `via_size=` or `via_drill=` applies to every lane). The vias are placed innermost lane first, each at the first spot along its lane, from the row's turn-side end,
   that keeps the clearance from every pad of the part, every other lane and
   the vias already placed, and from what is placed on the board (the edge,
   other nets' copper, holes, keepouts). Where no spot within
@@ -2796,7 +2796,7 @@ placement on it says which pad that was. Name the number to pick another.
 
 ```python
 board.track(net, [p1, p2, ...], layer=CopperLayer.F, width=None, chamfer=None, bend=None, radius=None, priority=Priority.DEFAULT, bridge=False)
-board.via(net, at, drill=None, size=None, layers=None)                # at= a point; the board's via size unless given; layers= a span
+board.via(net, at, drill=None, size=None, layers=None)                # at= a point; the net class's via size and drill unless given (the board's where the class gives none); layers= a span
 board.via(net, at=FreeSpot(near=PadRef(...), radius=2.0))            # the nearest legal spot to a pad, joined to it by its tail
 board.via(net, at=Past([PadRef(...), ...], Edge.SOUTH, across=None)) # its radius plus its clearance off the items' side
 board.vias(net, pad=PadRef(...), pitch=None, size=None, drill=None, inset=0, layers=None)  # a pad filled with a grid of vias, turned with its part
@@ -3019,7 +3019,7 @@ on every layer (placed, and planned before it: tracks, tails, vias), every
 other hole (a part's, and every via on the board: a stamped cell's too) by
 the hole-to-hole rule and an unplated one by the hole
 clearance, the board edge and keepouts that forbid vias. The net class's via
-by default (`board.via` takes the board's). A through land of the pin already
+by default (so does `board.via`'s, the Default class's for a net with no class). A through land of the pin already
 has its hole and is not filled. A pad
 no via fits in is a finding; a `pitch` under the hole-to-hole rule is refused
 when declared. The step says the vias are in the pad: filled or plugged at

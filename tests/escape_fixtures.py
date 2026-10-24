@@ -34,7 +34,9 @@ def qfn(ref="U1", inst="pd", cx=30.0, cy=30.0, nets=None, face=Face.FRONT):
 def board_with(parts, track=TRACK, clearance=CLEAR, width=60, height=60, nets=(), classes=None, **kw):
     """A Board over `parts`, every net's class `track` wide with `clearance`; `classes` overrides some."""
     geom = board_geometry(parts, width=width, height=height, clearance=clearance, extra_nets=nets)
-    netclasses = {n: NetClass("Default", track, clearance, VIA, DRILL) for n in geom.nets}
+    # a board given via_size/via_drill has classes with those vias, as a project's would
+    netclasses = {n: NetClass("Default", track, clearance, kw.get("via_size", VIA), kw.get("via_drill", DRILL))
+                  for n in geom.nets}
     netclasses.update(classes or {})
     geom = dataclasses.replace(geom, netclasses=netclasses)
     kw.setdefault("via_size", VIA)

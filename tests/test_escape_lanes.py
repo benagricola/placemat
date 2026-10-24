@@ -422,8 +422,10 @@ def test_via_size_and_via_drill_size_the_lanes_vias_and_their_steps():
     assert not [f for f in plan.findings if f.kind in ("copper", "escape_lane")]
 
 
-def test_the_lanes_vias_default_to_the_boards():
-    b = pd_board()
+def test_the_lanes_vias_default_to_their_nets_class_via():
+    b = pd_board(via_size=0.7, via_drill=0.35)
     esc = b.escape(Part("pd"), [32, 31, 30], turn=Edge.WEST, vias=[31], why="the default")
     decl = b._escapes[esc.index]
-    assert (decl.via_size, decl.via_drill) == (b.via_size, b.via_drill)
+    assert (decl.via_size, decl.via_drill) == (None, None)
+    b.track(Net("SENSE"), [esc[31]], layer=F, why="its lane")
+    assert {(v.size, v.drill) for v in _vias(b.resolve()).values()} == {(0.7, 0.35)}

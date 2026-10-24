@@ -218,8 +218,9 @@ the pour (api.md, "Routing phases").
 
 placemat reads each net's class from the board's project: its track width is
 a track's and a via tail's default width, its clearance is what placement
-and copper keep from other nets, its via diameter and drill are what
-`board.vias()` drills (a single `board.via()` takes the board's), and a
+and copper keep from other nets, its via diameter and drill are what every
+via drawn with no `size=` or `drill=` takes (`board.via()`, `board.vias()`, `board.stitch()`, an escape's lane vias, a
+pair's, a bridge's, a finger's), the Default class's for a net with no class of its own, and a
 differential pair's `diff_pair_width` and `diff_pair_gap` are what
 `board.pair()` and the router use. Which nets pair is the net class's call: a
 class other than Default that sets `diff_pair_width` and `diff_pair_gap`

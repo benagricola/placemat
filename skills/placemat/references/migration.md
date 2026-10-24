@@ -26,6 +26,15 @@ section for each hand-written pattern a newer form replaces.
   follows, and a searched item that needs one waits for it. It is judged as a firm item is (a collision is the same
   finding). An item whose need is never placed is refused with a message naming the need. A keepout or cutout still
   cannot refer to a searched item.
+- **A via drawn with no `size=` or `drill=` takes its net's class via.** `board.via()`, an escape's `vias=`, a
+  pair's vias, a finger's and an overlap bridge's drew the board's `via_size` and `via_drill` (0.6 and 0.3 mm by
+  default) whatever the net's class said; only `board.vias()` and `board.stitch()` read the class. Every one now takes
+  the class's via diameter and drill, the Default class's for a net with no class of its own, and the board's only
+  where no class gives one (a net the project does not name, or a class with 0). An escape's lanes each take
+  their own net's class via; `via_size=` and `via_drill=` on `board.escape()` still apply to every lane. Boards
+  whose classes set smaller or larger vias than the board's draw those vias after upgrading, with their lanes' steps
+  and clearances to match, so a script that relied on the old default should name `size=` and `drill=` where it
+  wants the board's.
 
 ## To 0.100.13
 
