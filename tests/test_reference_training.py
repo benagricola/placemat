@@ -108,3 +108,17 @@ def test_the_collector_finds_the_record(tmp_path):
     spec.loader.exec_module(collect)
     _tool().make_record(_routed_board(tmp_path), tmp_path / "out/human", "human", "x", 0.25)
     assert len(collect.collect(tmp_path / "data", [tmp_path / "out"])) == 1
+
+
+@needs_kicad
+def test_facts_file_adds_facts_and_names_the_record(tmp_path):
+    import json
+    pcb = _routed_board(tmp_path)
+    facts = tmp_path / "facts.json"
+    facts.write_text(json.dumps({str(pcb): {"name": "o__r__ab12cd34", "repo": "o/r", "commit": "c0ffee",
+                                            "path": "hw/a.kicad_pcb", "licence": "MIT"}}))
+    assert _tool().main([str(tmp_path / "out"), str(pcb), "--facts", str(facts)]) == 0
+    record = json.loads((tmp_path / "out/o__r__ab12cd34/route/training.json").read_text())
+    assert record["repo"] == "o/r" and record["commit"] == "c0ffee" and record["licence"] == "MIT"
+    assert record["path"] == "hw/a.kicad_pcb" and record["board"] == "o__r__ab12cd34"
+    assert record["origin"] == "o/r@c0ffee" and record["source"] == "human"

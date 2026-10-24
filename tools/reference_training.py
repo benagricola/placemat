@@ -1,11 +1,14 @@
 """Turn human-routed KiCad boards into training records (kicad/training.py): the placed board is the board with its
 tracks, vias and copper zones removed, the route is the human's.
 
-    python tools/reference_training.py OUT [BOARD.kicad_pcb ...] [--reference] [--kicad-demos [DIR]] [--cell-mm MM]
+    python tools/reference_training.py OUT [BOARD.kicad_pcb ...] [--reference] [--kicad-demos [DIR]] [--cell-mm MM] [--facts FILE]
 
 Each board gets OUT/<name>/route/ holding placed.kicad_pcb, training.json and training.raster, so that
 `tools/training_collect.py DATASET OUT` finds it. A board that does not load, has no footprints or has no tracks is
 skipped, and the skip is printed with its reason.
+
+--facts FILE is a JSON object keyed by board path as given on the command line. Its values are facts added to that
+board's record (for example repo, commit, path and licence); a "name" in it names the record folder and the board.
 """
 from __future__ import annotations
 
@@ -55,7 +58,7 @@ def make_placed(board, pcbnew) -> dict:
     return gone
 
 
-def make_record(pcb: Path, out: Path, name: str, origin: str, cell_mm: float) -> dict:
+def make_record(pcb: Path, out: Path, name: str, origin: str, cell_mm: float, extra: dict | None = None) -> dict:
     """Write OUT/route/ for a human-routed board and return the summary row; Skip when it gives no record."""
     from placemat.kicad.airwires import load_joined
     from placemat.kicad.quiet import import_pcbnew, quiet_stderr
@@ -82,7 +85,7 @@ def make_record(pcb: Path, out: Path, name: str, origin: str, cell_mm: float) ->
     open_after = open_counts(board_after, pcbnew)
     total = sum(open_before.values())
     closure = (total - sum(min(open_after.get(n, 0), v) for n, v in open_before.items())) / total if total else 1.0
-    facts = {"source": "human", "board": name, "origin": origin, "closure": round(closure, 4)}
+    facts = dict(extra or {}, source="human", board=name, origin=origin, closure=round(closure, 4))
     path = write_record(placed, pcb, work, open_before, open_after, facts, cell_mm)
     record = json.loads(path.read_text())
     return {"board": name, "nets": len(record["nets"]), "open_before": total, "open_after": sum(open_after.values()),
@@ -115,6 +118,7 @@ def main(argv=None) -> int:
     ap.add_argument("boards", nargs="*", type=Path)
     ap.add_argument("--reference", action="store_true", help="the boards of fixtures/reference/manifest.json, from the cache")
     ap.add_argument("--kicad-demos", nargs="?", const="", metavar="DIR", help="every board under KiCad's demo folder, or DIR")
+    ap.add_argument("--facts", type=Path, help="JSON {board path: facts to add to its record}")
     ap.add_argument("--cell-mm", type=float, default=Settings().route_training_cell_mm)
     args = ap.parse_args(argv)
     todo = [(p, p.stem, "file:%s" % p.name) for p in args.boards]
@@ -128,13 +132,18 @@ def main(argv=None) -> int:
         todo += demo_boards(demos)
     if not todo:
         ap.error("no boards given")
+    extras = json.loads(args.facts.read_text()) if args.facts else {}
     rows, seen = [], set()
     for pcb, name, origin in todo:
+        extra = dict(extras.get(str(pcb), {}))
+        name = extra.pop("name", name)
+        if "repo" in extra and "commit" in extra:
+            origin = "%s@%s" % (extra["repo"], extra["commit"])
         if name in seen:
             name = "%s-%s" % (pcb.parent.name, name)
         seen.add(name)
         try:
-            row = make_record(pcb, args.out / name, name, origin, args.cell_mm)
+            row = make_record(pcb, args.out / name, name, origin, args.cell_mm, extra)
         except Skip as e:
             print("skipped %s: %s" % (name, e))
             continue
