@@ -880,7 +880,8 @@ def router_version(router_dir: str) -> str:
 
     def git(*args) -> str:
         try:
-            done = subprocess.run(["git", "-C", str(router_dir), *args], capture_output=True, text=True, timeout=30)
+            done = subprocess.run(["git", "-C", str(router_dir), *args], capture_output=True, text=True, timeout=30,
+                                  env=child_env())
         except (OSError, subprocess.TimeoutExpired):
             return ""
         return done.stdout if done.returncode == 0 else ""

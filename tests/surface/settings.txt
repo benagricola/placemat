@@ -159,6 +159,8 @@ route.rip_max_nets
 route.router_args
 route.router_dir
 route.smoothing
+route.training_cell_mm
+route.training_record
 route.turn_cost
 run.max_time_s
 run.parallel
