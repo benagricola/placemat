@@ -86,7 +86,10 @@ The forms that most often answer "placemat can't say this":
   any firmly placed part (level with a third part's pin), or
   `(own_pad, Past(items, edge, lane=Net(...), width=))` - its pad a lane
   past other pads, a cutout, the board edge or a part, as wide as the
-  lane's current needs.
+  lane's current needs. For a cell being placed, a member's pad is its own
+  pad: `align=(PadRef(Part("cell.member"), pad), their)`, a bare `PadRef`
+  (the member's pad on that net), or a bare point (`Mid`, `X`, `Y`,
+  `Origin`: the cell's envelope centre level with it).
 - `board.row(items, edge, of=Part(...), centre=PadRef(...), pitch=)`:
   items along a part's side, at a mechanical pitch, centred on a pad.
 - `Between(pad, pad)` and `Past(items, edge, across=)` are track

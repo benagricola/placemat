@@ -5,6 +5,18 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## To 0.100.14
+
+### Added
+
+- **`Beside(...)`'s `align=` works for a cell being placed.** A member's pad stands for the cell's own pad:
+  `align=(PadRef(Part("cell.member"), pad), their)` lines that pad up with `their`, a `PadRef` or a point (`X`, `Y`,
+  `Mid`, `Origin`); a bare `PadRef` takes the member's pad on the net of the pad named, and is refused where no member
+  carries the net. A bare point, `align=Mid(PadRef(a, n), PadRef(a, m))` or `X(...)`/`Y(...)`/`Origin(...)`, puts the
+  centre of the cell's envelope level with it. The member must belong to the cell. An `X` is for a NORTH or SOUTH side and
+  a `Y` for an EAST or WEST one, as for a part. `Past` and a lane are refused for a cell. Before, a cell took only an
+  `Along`, and a script that needed a member's pad level with a point worked out the cell's offset by hand.
+
 ## To 0.100.13
 
 ### Changed

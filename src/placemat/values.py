@@ -328,6 +328,16 @@ class Beside:
     - `(own_pad, their_pad)`: an own pad key and a `PadRef`, for when the
       nets differ;
     either pad may be `item`'s or any other part's placed firmly by then;
+    - `(own_pad, X(...) | Y(...) | Mid(...) | Origin(...))`: the own pad
+      level with that point (an `X` when `side` is NORTH or SOUTH, a `Y` when
+      EAST or WEST);
+    - for a cell being placed, a member's pad is its own pad: a `PadRef` on a
+      member, `(PadRef(member, pad), their)` with `their` a `PadRef` or a
+      point as above, or a bare `PadRef` for the member pad on that net. The
+      member must belong to the cell; `Past` and a lane are for a part's pad
+      edge and are refused for a cell;
+    - for a cell, a bare point (`X`, `Y`, `Mid`, `Origin`): the centre of the
+      cell's envelope level with it;
     - `(own_pad, Past(pads, edge, lane=))`: the own pad's facing edge the
       clearance past the pads' `edge` side, or with `lane=` a net, room for
       one track of it between them;
@@ -356,9 +366,10 @@ class Beside:
     def __post_init__(self):
         if not isinstance(self.side, (Edge, SideOf)):
             raise TypeError("Beside's side is an Edge or a SideOf, not %r" % (self.side,))
-        if self.align is not None and not isinstance(self.align, (Along, PadRef, tuple)):
-            raise TypeError("Beside's align is a PadRef, an (own_pad, their_pad) pair, Along.START/MID/END, "
-                            "or nothing (Along.MID), not %r" % (self.align,))
+        if self.align is not None and not isinstance(self.align, (Along, PadRef, tuple, X, Y, Mid, Origin)):
+            raise TypeError("Beside's align is a PadRef, an (own_pad, their_pad) pair, a point (X, Y, Mid, "
+                            "Origin; a cell's envelope centre), Along.START/MID/END, or nothing (Along.MID), "
+                            "not %r" % (self.align,))
 
 
 @dataclass(frozen=True)

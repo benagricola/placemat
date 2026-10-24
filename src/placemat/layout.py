@@ -2292,9 +2292,9 @@ class Board:
         elif isinstance(align, Along):
             norm = ("along", align)
         elif isinstance(align, PadRef):
-            if kind != "part":
+            if kind not in ("part", "cell"):
                 raise TypeError("%s: align=PadRef needs the placed item's own pad; a %s has none - give "
-                                "align=(own_pad, their_pad)" % (key, kind))
+                                "align=Along.START/MID/END" % (key, kind))
             # any firmly placed part's pad: the item's own, or a third part's (a coil beside a
             # capacitor, level with the driver's pin); a part still searched then is refused when
             # this is placed, as any firm placement referring to it is
@@ -2302,22 +2302,37 @@ class Board:
             if not their.net:
                 raise ValueError("%s: Beside's align pad %s has no net to line up on; give "
                                  "align=(own_pad, %s) naming an own pad" % (key, align, align))
-            owns = geom.pads_on(their.net)
-            if not owns:
-                raise ValueError("%s carries no pad on %s, %s's net; give align=(own_pad, %s) naming one"
-                                 % (key, their.net, align.part, align))
-            number = owns[0].number
-            norm = ("pads", int(number) if number.isdigit() else number, align)
+            if kind == "cell":
+                owns = [p for fp in geom.members for p in fp.pads_on(their.net)]
+                if not owns:
+                    raise ValueError("%s: no member of cell %s carries a pad on net %s, %s's net; give "
+                                     "align=(PadRef(member, pad), %s) naming a member's pad"
+                                     % (key, key, their.net, align.part, align))
+                norm = ("pads", ("cellpad", owns[0].owner, owns[0].number, 0.0, 0.0, 0.0, 0.0), align)
+            else:
+                owns = geom.pads_on(their.net)
+                if not owns:
+                    raise ValueError("%s carries no pad on %s, %s's net; give align=(own_pad, %s) naming one"
+                                     % (key, their.net, align.part, align))
+                number = owns[0].number
+                norm = ("pads", int(number) if number.isdigit() else number, align)
         elif isinstance(align, tuple):
             if len(align) != 2 or not isinstance(align[1], (PadRef, Past, Lane, X, Y, Mid, Origin)):
                 raise TypeError("%s: Beside's align pair is (own_pad, PadRef(item, pad)), (own_pad, a point "
                                 "of the other axis: X(...), Y(...), Mid(...), Origin(...)), (own_pad, "
                                 "Past(pads, edge)) or (own_pad, esc[pin]), not %r" % (key, align))
             own_key, their = align
-            if kind != "part":
+            if kind not in ("part", "cell"):
                 raise TypeError("%s: align=(own_pad, their_pad) needs the placed item's own pad; a %s has "
                                 "none - align=Along.START/MID/END instead" % (key, kind))
-            own_key = self._own_pad_key(geom, own_key)      # a real pad (or two, as Mid) of this part, checked now
+            if kind == "cell":
+                if isinstance(their, (Past, Lane)):
+                    raise TypeError("%s: %s in align stands an own pad's edge off the pads, and a cell has no pad "
+                                    "edge of its own; give a PadRef or a point of the other axis, or "
+                                    "align=Along.START/MID/END" % (key, type(their).__name__))
+                own_key = self._cell_own_pad(key, geom, own_key)    # a pad of one of this cell's members, checked now
+            else:
+                own_key = self._own_pad_key(geom, own_key)  # a real pad (or two, as Mid) of this part, checked now
             if isinstance(own_key, Mid) and isinstance(their, (Past, Lane)):
                 raise TypeError("%s: a midpoint of two own pads aligns on a pad or a point; Past and a lane "
                                 "stand an own pad's edge off the pads" % key)
@@ -2333,12 +2348,32 @@ class Board:
                 else:
                     self._check_beside_point(key, at.side, their)
                 norm = ("pads", own_key, their)
+        elif isinstance(align, (X, Y, Mid, Origin)):
+            if kind != "cell":
+                raise TypeError("%s: align=%s(...) needs the placed item's own pad; give align=(own_pad, %s(...)) "
+                                "naming one" % (key, type(align).__name__, type(align).__name__))
+            self._check_beside_point(key, at.side, align)
+            norm = ("centre", None, align)      # the cell's envelope centre, level with the point
         else:
-            raise TypeError("%s: Beside's align is a PadRef, an (own_pad, their_pad) pair, Along.START/MID/END, "
-                            "or nothing (Along.MID), not %r" % (key, align))
+            raise TypeError("%s: Beside's align is a PadRef, an (own_pad, their_pad) pair, a point (a cell's "
+                            "envelope centre), Along.START/MID/END, or nothing (Along.MID), not %r" % (key, align))
         if at.copper and item_kind != "item":
             raise TypeError("%s: Beside's copper= measures from pads; a %s has none" % (key, item_kind))
         return _BesideSpec(at.item, at.side, norm, at.gap, at.copper)
+
+    def _cell_own_pad(self, key: str, geom, ref) -> tuple:
+        """A cell's own pad for Beside's align: a PadRef on one of its members, as
+        ("cellpad", owner, number, dx, dy, lx, ly), the form `cell_pad_anchored_placement` takes."""
+        if not isinstance(ref, PadRef):
+            raise TypeError("%s: a cell's own pad in align is a PadRef on one of its members, not %r" % (key, ref))
+        owner, number, dx, dy = self._pad_ref(ref)
+        if owner not in {fp.ref for fp in geom.members}:
+            raise TypeError("%s: %s is not a member of cell %s; align's own pad is a PadRef on one of its members"
+                            % (key, ref.part.inst, key))
+        if self._pad_land(ref) is not None:
+            raise ValueError("%s: a cell is lined up by a member pad's centre; land= names one land of a pad, "
+                             "not align's own pad" % key)
+        return ("cellpad", owner, number, dx, dy, ref.lx, ref.ly)
 
     def _check_beside_point(self, key: str, side: Edge, point) -> None:
         """A point in Beside's align: placed parts' pads or origins, and an X() on a side that
@@ -2636,9 +2671,17 @@ class Board:
                 oy = min(gb.top - dist for gb, dist in dists) - own.bottom
         else:
             own_key, their = b.align[1], b.align[2]
-            anchored = pad_anchored_placement(self._bare_occupancy(), i.item, own_key, Location(0.0, 0.0),
-                                              i.rotation, i.face)
-            own_pad = Location(-anchored.location.x, -anchored.location.y)
+            if align_kind == "centre":
+                own_pad = own_box.center
+            elif isinstance(own_key, tuple):
+                _, owner, number, dx, dy, lx, ly = own_key      # a cell's member pad
+                anchored = cell_pad_anchored_placement(self._bare_occupancy(), i.item, owner, number, dx, dy,
+                                                       Location(0.0, 0.0), i.rotation, i.face, lx, ly)
+                own_pad = Location(-anchored.location.x, -anchored.location.y)
+            else:
+                anchored = pad_anchored_placement(self._bare_occupancy(), i.item, own_key, Location(0.0, 0.0),
+                                                  i.rotation, i.face)
+                own_pad = Location(-anchored.location.x, -anchored.location.y)
             if align_kind == "lane":
                 # the own pad centred across the lane's line: a y for a lane along x, an x for one along y
                 axis, at = self._lane_line(occ, their)
@@ -3385,7 +3428,7 @@ class Board:
                       else self._pad_ref(beside.item)[0])
             if isinstance(beside.side, SideOf):
                 needs.add(self._pad_ref(beside.side.pads[0])[0])       # its side is where that part's pad lands
-            if beside.align[0] == "pads":
+            if beside.align[0] in ("pads", "centre"):
                 needs |= {self._pad_ref(ref)[0] for ref in _refs_in([beside.align[2]])}
             elif beside.align[0] == "lane":
                 needs.add(self._pad_ref(beside.align[2])[0])

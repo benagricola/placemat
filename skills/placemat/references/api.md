@@ -51,6 +51,8 @@ request (SKILL.md, "When no form says it").
 | somewhere the netlist cannot say (a thermal neighbour) | `at=Near(PadRef(...))` | Placement |
 | beside a part, a cell or a keepout, at the envelope gap | `at=Beside(item, Edge.EAST, align=Along.START, gap=)` | Placement (Beside) |
 | beside one part, level with a pad of it or of any firmly placed part | `at=Beside(item, Edge.SOUTH, align=PadRef(Part(other), n))` | Placement (Beside) |
+| a cell beside an item, a member's pad level with a pad or a point | `at=Beside(item, Edge.SOUTH, align=(PadRef(Part("cell.member"), n), PadRef(Part(other), m)))`; a bare `PadRef` takes the member's pad on that net | Placement (Beside) |
+| a cell beside an item, its envelope centre level with a point | `at=Beside(item, Edge.SOUTH, align=Mid(PadRef(Part(a), n), PadRef(Part(a), m)))` (`X`, `Y`, `Origin` too) | Placement (Beside) |
 | a part a clearance off another part's pad copper (a net tie at a pad) | `at=Beside(item, Edge.NORTH, copper=True, align=(own_pad, PadRef(...)))` | Placement (Beside) |
 | its pad a lane (or the clearance) past other pads | `at=Beside(item, Edge.SOUTH, align=(own_pad, Past([PadRef(...)], Edge.WEST, lane=Net(...))))` | Placement (Beside) |
 | that lane as wide as its current needs | `Past(..., lane=Net(...), width=)` in that align | Placement (Beside) |

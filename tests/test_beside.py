@@ -271,10 +271,11 @@ def test_beside_align_pad_may_name_a_third_parts_pad():
     assert plan.box("r1").left > plan.box("u1").right            # still east of u1, not of u2
 
 
-def test_beside_align_pad_refuses_for_a_cell():
+def test_beside_align_pad_on_a_cell_takes_the_members_pad_on_the_net():
     fps = [footprint("U1", 0, 0, w=4, h=2, inst="pd.u1", nets=("A", "B"), cell="pd"),
            footprint("R1", 40, 40, w=3, h=1.3, inst="r1", nets=("A", "GND"))]
     b = Board(board_geometry(fps, cells=["pd"], width=60, height=60), edge_margin=1.0)
     b.place(Part("r1"), at=Location(20, 20))
-    with pytest.raises(TypeError, match="a cell has none"):
-        b.place(Cell("pd"), at=Beside(Part("r1"), Edge.EAST, align=PadRef(Part("r1"), "A")))
+    b.place(Cell("pd"), at=Beside(Part("r1"), Edge.EAST, align=PadRef(Part("r1"), "A")))
+    plan = b.resolve()
+    assert plan.occupancy.pad_location("U1", "1").y == pytest.approx(plan.occupancy.pad_location("R1", "1").y)
