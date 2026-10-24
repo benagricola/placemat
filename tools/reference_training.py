@@ -25,14 +25,14 @@ class Skip(Exception):
     """A board that gives no record; the message says why."""
 
 
-def kicad_demos_dir() -> Path:
-    """KiCad's demo folder: beside the share folder of the install that holds kicad-cli, else the usual system one."""
+def kicad_demos_dir() -> Path | None:
+    """KiCad's demo folder in the share folder of the install that holds kicad-cli, or None."""
     cli = shutil.which("kicad-cli")
     if cli:
         found = Path(cli).resolve().parent.parent / "share/kicad/demos"
         if found.is_dir():
             return found
-    return Path("/usr/share/kicad/demos")
+    return None
 
 
 def open_counts(board, pcbnew) -> dict:
@@ -121,7 +121,11 @@ def main(argv=None) -> int:
     if args.reference:
         todo += reference_boards()
     if args.kicad_demos is not None:
-        todo += demo_boards(Path(args.kicad_demos) if args.kicad_demos else kicad_demos_dir())
+        demos = Path(args.kicad_demos) if args.kicad_demos else kicad_demos_dir()
+        if demos is None:
+            print("KiCad's demos not found beside kicad-cli; name the folder with --kicad-demos DIR", file=sys.stderr)
+            return 2
+        todo += demo_boards(demos)
     if not todo:
         ap.error("no boards given")
     rows, seen = [], set()
