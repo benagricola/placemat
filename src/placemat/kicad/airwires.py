@@ -18,17 +18,25 @@ def island_edges(islands: dict) -> list:
     """The airwires of `islands` ({net: [island, ...]}, an island a list of (x, y) points): for each net, a minimum spanning
     tree of its islands by the shortest link between their points, as (net, (x, y), (x, y)), nets in name order. Links
     of equal length are taken in the order of their points, so the same islands give the same airwires."""
+    return [(net, a, b) for net, a, b, _, _ in island_links(islands)]
+
+
+def island_links(islands: dict) -> list:
+    """island_edges' links with the islands they join, as (net, (x, y), (x, y), i, j): `i` and `j` index the net's
+    islands as given, `i` the island of the first point. Two islands can hold the same point (pads on two faces at one
+    place, not joined), so a point alone does not say which island it ends in."""
     out = []
     for net in sorted(islands):
-        groups = [sorted(set(g)) for g in islands[net] if g]
+        given = [k for k, g in enumerate(islands[net]) if g]
+        groups = [sorted(set(islands[net][k])) for k in given]
         if len(groups) < 2:
             continue
         links = []
         for i in range(len(groups)):
             for j in range(i + 1, len(groups)):
                 # a link's ends in order, so one of two islands given the other way round is the same link
-                links.append(min((math.hypot(a[0] - b[0], a[1] - b[1]), min(a, b), max(a, b), i, j)
-                                 for a in groups[i] for b in groups[j]))
+                links.append(min((math.hypot(a[0] - b[0], a[1] - b[1]), min(a, b), max(a, b),
+                                  *((i, j) if a <= b else (j, i))) for a in groups[i] for b in groups[j]))
         parent = list(range(len(groups)))
 
         def find(k):
@@ -40,7 +48,7 @@ def island_edges(islands: dict) -> list:
             ri, rj = find(i), find(j)
             if ri != rj:
                 parent[ri] = rj
-                out.append((net, a, b))
+                out.append((net, a, b, given[i], given[j]))
     return out
 
 

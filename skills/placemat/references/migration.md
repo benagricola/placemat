@@ -5,6 +5,15 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## To 0.100.15
+
+### Fixed
+
+- **An open connection between two pads at one point names both pads.** Where two islands of a net held pads at the
+  same place (a pad on each face, not yet joined), both ends of the link between them were read from the first of
+  those islands, so the route was asked to join a pad to itself and judged it open. Each end is now its own island's
+  pad.
+
 ## To 0.100.14
 
 ### Added

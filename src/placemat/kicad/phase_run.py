@@ -948,7 +948,7 @@ def open_connections(pcb_path, drc_json) -> list:
     A pad end of a footprint whose reference another footprint shares also names the footprint's uuid,
     {"ref", "pad", "fp"}. The net is the item's own, never read from the description. Ends are in (ref, pad) order;
     the connections are in net order, a net's in its links' order."""
-    from .airwires import island_edges, item_islands, load_joined
+    from .airwires import island_links, item_islands, load_joined
     raw_items = json.loads(Path(drc_json).read_text()).get("unconnected_items", [])
     if not raw_items:
         return []
@@ -996,13 +996,12 @@ def open_connections(pcb_path, drc_json) -> list:
     open_nets = {c["net"] for c in reported if c["net"]}
     islands = {n: v for n, v in item_islands(board, pcbnew).items() if n in open_nets}
     linked = {}
-    for net, a, b in island_edges({n: [[p for p, _ in isl] for isl in v] for n, v in islands.items()}):
-        def pad_at(point):
-            isl = next(i for i in islands[net] if any(p == point for p, _ in i))
+    for net, a, b, ia, ib in island_links({n: [[p for p, _ in isl] for isl in v] for n, v in islands.items()}):
+        def pad_at(point, isl):
             pads = [(p, x) for p, x in isl if isinstance(x, pcbnew.PAD)]
             _, pad = min(pads, key=lambda px: (math.hypot(px[0][0] - point[0], px[0][1] - point[1]), key(px[1])[:2]))
             return named(key(pad))
-        a, b = ordered(pad_at(a), pad_at(b))
+        a, b = ordered(pad_at(a, islands[net][ia]), pad_at(b, islands[net][ib]))
         linked.setdefault(net, []).append({"net": net, "from": a, "to": b})
     out = []
     for net in sorted(open_nets | {c["net"] for c in reported}):
