@@ -315,12 +315,18 @@ def search(root: Path, lo: int, hi: int, max_candidates: int) -> int:
     cands, done = Log(root / "candidates.jsonl"), Log(root / "searched.jsonl")
     held = {(r["repo"], r["path"]) for r in cands.rows()}
     settled = {(r["lo"], r["hi"]): r for r in done.rows()}
-    queue = start_ranges(lo, hi)
-    while queue and len(held) < max_candidates:
-        a, b = queue.pop(0)
+    # One stack per starting range, taken in turn: a range that splits is followed down to its first leaf at once, so
+    # candidates arrive from every size early and a stopped search has covered the sizes evenly.
+    stacks = [[r] for r in start_ranges(lo, hi)]
+    turn = 0
+    while any(stacks) and len(held) < max_candidates:
+        turn += 1
+        live = [s for s in stacks if s]
+        stack = live[turn % len(live)]
+        a, b = stack.pop()
         known = settled.get((a, b))
         if known and known["split"]:
-            queue += list(split_range(a, b))
+            stack += list(reversed(split_range(a, b)))
             continue
         if known:
             continue
@@ -328,7 +334,7 @@ def search(root: Path, lo: int, hi: int, max_candidates: int) -> int:
         halves = split_range(a, b) if total > SEARCH_CAP else None
         if halves:
             done.add({"lo": a, "hi": b, "total": total, "split": True})
-            queue += list(halves)
+            stack += list(reversed(halves))
             print("%d..%d: %d hits, split" % (a, b, total), flush=True)
             continue
         pages = min(SEARCH_CAP, total) // SEARCH_PAGE + (1 if min(SEARCH_CAP, total) % SEARCH_PAGE else 0)
