@@ -99,7 +99,7 @@ def test_a_past_on_the_axis_beside_decides_is_refused():
                                      align=(1, Past([PadRef(Part("c_in"), 1)], Edge.SOUTH))))
 
 
-def test_a_past_over_a_searched_parts_pad_is_refused_when_placed():
+def test_a_past_over_a_searched_parts_pad_is_placed_after_it():
     fps = [footprint("CV", 20, 20, w=4, h=2, inst="c_vdd", nets=("VDD", "GND")),
            _one_pad_part("CI", "c_in", "VIN", 26.0, 26.0, 1.0, 1.0),
            footprint("Q", 40, 40, w=3, h=1.5, inst="q", nets=("G", "OUT"))]
@@ -108,8 +108,9 @@ def test_a_past_over_a_searched_parts_pad_is_refused_when_placed():
     b.place(Part("c_in"))                                   # searched
     b.place(Part("q"), at=Beside(Part("c_vdd"), Edge.SOUTH,
                                  align=(1, Past([PadRef(Part("c_in"), 1)], Edge.WEST))))
-    with pytest.raises(ValueError, match="CI"):
-        b.resolve()
+    plan = b.resolve()                                      # q waits for c_in, then goes past its pad
+    order = [s.item for s in plan.steps]
+    assert plan.placement("q") is not None and order.index("q") > order.index("c_in")
 
 
 def test_migration_a_pad_a_lane_past_matches_the_hand_computed_offset():

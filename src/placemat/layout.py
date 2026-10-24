@@ -2296,8 +2296,8 @@ class Board:
                 raise TypeError("%s: align=PadRef needs the placed item's own pad; a %s has none - give "
                                 "align=Along.START/MID/END" % (key, kind))
             # any firmly placed part's pad: the item's own, or a third part's (a coil beside a
-            # capacitor, level with the driver's pin); a part still searched then is refused when
-            # this is placed, as any firm placement referring to it is
+            # capacitor, level with the driver's pin); a part still searched then is waited for:
+            # this is placed right after it
             their = self.geometry.pad(align.part, align.key)
             if not their.net:
                 raise ValueError("%s: Beside's align pad %s has no net to line up on; give "
@@ -8396,10 +8396,33 @@ class Board:
                 self._rooms_after_recorded(occ, plan, room_ctx, placed, other_copper, step, record["steps"][-1],
                                            bool(chain["replaying"]))
 
+        deferred = []       # firm items said in terms of a searched item (or of another such): placed right after what they need
+
+        def place_deferred():
+            """Every deferred firm item whose needs are placed now, in declaration order, and those that then become ready."""
+            done = False
+            while True:
+                ready = [o for o in deferred if o.needs <= placed and self._lanes_ready(o)]
+                if not ready:
+                    return done
+                deferred.remove(ready[0])
+                place_one(ready[0], [self._swap_notes[ready[0].key]] if ready[0].key in self._swap_notes else ())
+                done = True
+
+        def judge_firm():
+            collisions = [f for f in plan.findings
+                          if f.cause in (C.FIXED_CUTOUT, C.FIXED_KEEPOUT)
+                          or (f.cause is C.FIXED_PART and f.facts["freedom"] in ("fixed", "edge"))]
+            required_keys = {o.key for o in placements if getattr(o, "required", False)}
+            demanded = [c for c in collisions if finding_text.subject(c.cause, c.facts) in required_keys]
+            return demanded, collisions
+
         def place_ranked(lo, hi):
             """FIXED and EDGE go down in declaration order: nothing yields to
             them, so their order changes nothing. Searched items are ordered
-            by the placer, one choice at a time, re-measured after each."""
+            by the placer, one choice at a time, re-measured after each. A firm
+            item said in terms of a searched item waits (`deferred`) and goes
+            down in the search, as soon as what it needs is placed."""
             firm = [obj for obj in placements if lo <= obj.rank[0] <= hi and obj.freedom.decided
                     and getattr(obj, "key", None) not in self._rider_of]      # a rider goes with its item
             while firm:                     # declaration order, except that a position said in terms of a pad waits for it
@@ -8410,15 +8433,15 @@ class Board:
                     self._place_escapes(occ, plan, placed, progress, force=True)    # waits that wait on each other: as before
                     continue
                 if not ready:
-                    raise ValueError("%s is placed relative to %s, which is not placed by then (only FIXED and EDGE "
-                                     "items may be referred to)" % (firm[0].key, ", ".join(sorted(firm[0].needs - placed))))
+                    stuck = [o for o in firm if not isinstance(o, PlaceIntent)]
+                    if stuck:                   # a hole or a region is not deferred: the board it leaves is seen by every part
+                        raise ValueError("%s is placed relative to %s, which is not placed by then (only FIXED and EDGE "
+                                         "items may be referred to)" % (stuck[0].key, ", ".join(sorted(stuck[0].needs - placed))))
+                    deferred.extend(firm)       # what it needs is searched, or waits on what is: placed in the search
+                    break
                 place_one(ready[0], [self._swap_notes[ready[0].key]] if ready[0].key in self._swap_notes else ())
                 firm.remove(ready[0])
-            collisions = [f for f in plan.findings
-                          if f.cause in (C.FIXED_CUTOUT, C.FIXED_KEEPOUT)
-                          or (f.cause is C.FIXED_PART and f.facts["freedom"] in ("fixed", "edge"))]
-            required_keys = {o.key for o in placements if getattr(o, "required", False)}
-            demanded = [c for c in collisions if finding_text.subject(c.cause, c.facts) in required_keys]
+            demanded, collisions = judge_firm()
             if hi == RANK_EDGE:
                 self._redo_check(occ, plan, None)       # a part refused by one it can be placed before: the other way round
             if demanded or (collisions and not self.keep_going):
@@ -8427,8 +8450,12 @@ class Board:
             for hole in [o for o in pending if isinstance(o, (CutoutIntent, KeepoutIntent))]:
                 pending.remove(hole)        # holes first: every part after one sees the board it left
                 place_one(hole)
-            while pending:
-                obj, why_now = self._next_to_place(pending, occ, placed)
+            placed_late = False
+            while True:
+                placed_late = place_deferred() or placed_late
+                if not pending:
+                    break
+                obj, why_now = self._next_to_place(pending, occ, placed, deferred)
                 if self._locked(obj) is not None:       # the locked items go in their accepted order
                     ready = sorted((self._lock[o.key].turn, o.index, o) for o in pending
                                    if getattr(o, "key", None) in self._lock and self._locked(o) is not None
@@ -8437,11 +8464,19 @@ class Board:
                         obj, why_now = ready[0][2], [step_text.record("locked_order")]
                 ex = self._explore
                 if ex is not None and obj.key in ex.focus and len(pending) > 1 and self._order_rng.random() < self.settings.explore_swap_chance:
-                    other, other_why = self._next_to_place([o for o in pending if o is not obj], occ, placed)
+                    other, other_why = self._next_to_place([o for o in pending if o is not obj], occ, placed, deferred)
                     if other.key in ex.focus:           # two focused neighbours trade turns
                         obj, why_now = other, list(other_why) + [step_text.record("explore_before", other=obj.key)]
                 pending.remove(obj)
                 place_one(obj, why_now)
+            if hi == RANK_LOOSE and deferred:
+                waiting = deferred[0]
+                raise ValueError("%s is placed relative to %s, which is never placed, so it cannot be"
+                                 % (waiting.key, ", ".join(sorted(waiting.needs - placed))))
+            if placed_late:
+                demanded, collisions = judge_firm()     # the deferred items collide as a firm item does
+                if demanded or (collisions and not self.keep_going):
+                    raise PlacementCollision(demanded or collisions)
 
         place_ranked(RANK_FIXED, RANK_EDGE)
         self._place_escapes(occ, plan, placed, progress, force=True)     # whatever the firm items did not release
@@ -10383,7 +10418,7 @@ class Board:
                 "Biggest free rectangles there now: %s. The board as it stood is written; nothing was placed after it."
                 % (obj.key, env.width, env.height, self._face_text(obj), step_text.unplaced_text(step.unplaced), rects))
 
-    def _next_to_place(self, pending: list, occ: Occupancy, placed: set):
+    def _next_to_place(self, pending: list, occ: Occupancy, placed: set, deferred=()):
         """Which searched item goes next: the script's tier first, then the
         freedoms its place leaves (a slide before an item searched in two),
         or with `place.order = "room"` the band of legal spots its declaration
@@ -10412,7 +10447,7 @@ class Board:
         # nothing rather than for ever.
         holds = {o.key: {fp.ref for fp in (o.item.members if o.kind == "block" else members_of(o.item))}
                  | {fp.ref for r in self._ride_groups.get(o.key, ()) for fp in members_of(r.item)}
-                 for o in pending}
+                 for o in list(pending) + list(deferred)}      # a firm item still to be placed holds its parts too
         ready = [o for o in pending
                  if not any(o.needs & refs for k, refs in holds.items() if k != o.key)] or pending
         measured = {o.key: measure(o) for o in pending}

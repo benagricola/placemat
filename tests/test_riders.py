@@ -170,24 +170,27 @@ def test_a_rider_of_a_rider_chains():
     assert not _placing(plan)
 
 
-def test_a_relation_to_a_third_searched_part_is_still_refused():
-    """A Beside whose align pad is on another searched part: that pad has no
-    position until its own part lands."""
+def test_a_relation_to_a_third_searched_part_is_placed_after_it():
+    """A Beside whose align pad is on another searched part is not a rider: it goes down in the search, after the
+    part whose pad it is aligned on."""
     extra = [footprint("U2", 40, 40, w=4, h=2, inst="u2", nets=("GND", "Z"))]
     b = _board(extra=extra)
     b.place(Part("u1"))
     b.place(Part("u2"))
     b.place(Part("c1"), at=Beside(Part("u1"), Edge.EAST, align=PadRef(Part("u2"), 1)))
-    with pytest.raises(ValueError, match="only FIXED and EDGE"):
-        b.resolve()
+    plan = b.resolve()
+    order = [s.item for s in plan.steps]
+    assert plan.placement("c1") is not None
+    assert order.index("c1") > order.index("u2") and order.index("c1") > order.index("u1")
 
 
-def test_a_relation_beside_a_fixed_part_aligned_on_a_searched_pad_is_refused():
+def test_a_relation_beside_a_fixed_part_aligned_on_a_searched_pad_is_placed_after_it():
     b = _board()
     b.place(Part("u1"))
     b.place(Part("c1"), at=Beside(Part("j1"), Edge.EAST, align=PadRef(Part("u1"), 1)))
-    with pytest.raises(ValueError, match="only FIXED and EDGE"):
-        b.resolve()
+    plan = b.resolve()
+    order = [s.item for s in plan.steps]
+    assert plan.placement("c1") is not None and order.index("c1") > order.index("u1")
 
 
 def test_riders_replay_and_a_changed_rider_searches_again():

@@ -427,12 +427,14 @@ keeps the rotation it declares; one that turns with its reference says so,
 suits a rider, the reference is left unplaced and its finding names the
 rider and why (`rider c1: C1 courtyard overlaps U1 courtyard`); a rider that
 meets its reference at every rotation the search may take is refused before
-the scan. Everything else a rider refers to is placed firmly before it or
-rides with it: a `Beside` aligned to a pad of another searched part, or
-beside a fixed part and aligned to a searched part's pad, is still refused
-("only FIXED and EDGE items may be referred to"). A keepout or cutout at a
-searched part's pad is refused too: regions are settled with the firm items,
-before any search. A block is neither ridden nor a rider. The riders are
+the scan. A firm item that is not a rider (a `Beside` aligned to a pad of
+another searched part, or beside a fixed part and aligned to a searched
+part's pad) is placed in the search, right after the searched items it
+needs are placed, before the placer measures its next choice; a searched
+item that needs one waits for it, and one whose need is never placed is
+refused naming the need. A keepout or cutout at a searched part's pad is
+refused ("only FIXED and EDGE items may be referred to"): regions are
+settled with the firm items, before any search. A block is neither ridden nor a rider. The riders are
 asked of the reference's best candidates first, so a rider that fits costs
 a few checks; one that fits nowhere costs one at every candidate the
 reference's own test passes.

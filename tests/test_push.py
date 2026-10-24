@@ -228,18 +228,18 @@ def test_a_firm_pushed_item_waits_for_a_firm_keepout_source_whatever_order_they_
     assert plan.step("u2").placement is not None
 
 
-def test_a_firm_pushed_item_cannot_reference_a_searched_keepout_source():
-    """A keepout searched round a hint settles in a later tier than any
-    firm item: a firm pushed item can never legally wait for one, and that
-    is the existing, clear "not placed by then" error, not a KeyError."""
+def test_a_firm_pushed_item_is_placed_after_a_searched_keepout_source():
+    """A keepout searched round a hint settles in a later tier than any firm item: a firm pushed item that refers
+    to it waits and is placed once the keepout is."""
     b = _board()
     b.place(Part("m1"), at=Location(10, 10))
     b.place(Part("u2"), at=Location(40, 40))
     from placemat.values import Near
     b.keepout(Circle(4.0), "hot", at=Near(Location(10, 10)), why="near m1")
     b.push(Part("u2"), from_="hot", falloff=3, reference=(13.5, 3.2), limit=0.3)
-    with pytest.raises(ValueError, match="not placed by then"):
-        b.resolve()
+    plan = b.resolve()
+    order = [s.item for s in plan.steps]
+    assert plan.placement("u2") is not None and order.index("u2") > order.index("keepout hot")
 
 
 def test_a_searched_pushed_item_waits_for_its_keepout_source():

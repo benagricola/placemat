@@ -17,6 +17,16 @@ section for each hand-written pattern a newer form replaces.
   a `Y` for an EAST or WEST one, as for a part. `Past` and a lane are refused for a cell. Before, a cell took only an
   `Along`, and a script that needed a member's pad level with a point worked out the cell's offset by hand.
 
+### Changed
+
+- **A firm item said in terms of a searched item is placed after it.** A `Beside`, `Pin` or `Centre` item (its place
+  decided) whose position refers to a pad or part that is itself searched (a cell placed by `Centre(X(...), None)`, a
+  part placed `Near` something) was refused with "only FIXED and EDGE items may be referred to". It is now placed in the
+  search, right after the searched items it needs, before the placer measures its next choice; a chain of such items
+  follows, and a searched item that needs one waits for it. It is judged as a firm item is (a collision is the same
+  finding). An item whose need is never placed is refused with a message naming the need. A keepout or cutout still
+  cannot refer to a searched item.
+
 ## To 0.100.13
 
 ### Changed
