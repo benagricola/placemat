@@ -12,6 +12,26 @@ The corpus and the marks are training data for fast models:
 placemat is slow, and a model is the fast replacement for judging a layout. So the corpus is made by a fast generator
 of its own. placemat and its score are not used to make it.
 
+## Decisions the models make
+
+The data serves these questions, and each one needs a particular kind of label:
+
+| Decision | Labels | Where they come from |
+|---|---|---|
+| Which of two layouts of a block is better | A-or-B picks, and orderings | Variants of one block. The generator orders them by rules broken, and the user picks between them |
+| Where a layout is wrong, and why | A point or part, with a reason | The generator knows where each defect is and which rule it breaks. The user marks what the rules miss |
+| What to move to fix it | A defect variant paired with its fix: which part, where to, at what rotation | The generator, since it knows the inverse of each defect it applies |
+
+The first use is inside placemat's search, as a fast score for candidate placements. That sets three requirements:
+- **Placement first:** the critic judges a placement before it is routed, from parts, pads, nets and airwires. Routed
+  copper is shown to the user where it helps them judge, but the model must not need it.
+- **Blocks in context:** a block on a board has neighbours, an edge, and nets that leave it in known directions. A
+  variant includes some of that, such as foreign parts nearby, the board edge, and port directions. Then the critic
+  can be run over each block of a whole board.
+- **The same input as placemat:** the model reads what placemat holds at search time (footprints, pads, positions,
+  rotations, nets), turned into the same raster channels as the training records or into a graph. Every variant
+  writes that input as well as the geometry for the page.
+
 ## Scenario types
 
 Each type is a template:
@@ -102,10 +122,20 @@ A private hosted page, with its data in a shared store that the session reads di
   generator makes more of that defect.
 - **Compare picks and quick marks** calibrate the critic toward the user's taste, beyond what the rules say.
 - **Routing marks:** the ones on KRT-routed variants are router cases for the fork.
-- Whether and how placemat uses the critic is a later decision for the user.
+- **Placemat's search:** the critic is a candidate score term there. Its weight would be a setting, and turning it on
+  is a decision for the user once the critic is shown to agree with them on real boards.
 
 ## Phases
 
+0. **Pilot.** Read PCB Gym and PCBWorld for parts to reuse. Build a rough generator for ldo, buck and mcu decoupling
+   blocks, placed in context: about 150 variants, with their fix pairs. The page has all three modes, and some
+   variants repeat without warning. The user marks for about 30 minutes. The report covers:
+   - how consistent the user's judgements are;
+   - how well the rule labels agree with the user's marks;
+   - which mode yields the most per minute;
+   - what the user marks that the rules miss.
+   A critic trained on the pilot's generator labels is then run on blocks cut from real boards, and compared with the
+   user's marks there.
 1. The generator core: sample, place, route, check, write. 10 types across power, digital and interfaces. A rate
    measured on the BC250. The page with all three modes. A first batch.
 2. All types, a 100k corpus, a KRT-routed sample, blocks extracted from the real designs.
