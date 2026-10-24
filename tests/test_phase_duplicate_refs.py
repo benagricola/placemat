@@ -36,10 +36,11 @@ def test_each_footprint_of_a_shared_reference_is_judged_on_its_own_copper(tmp_pa
     drc.write_text(json.dumps({"violations": [], "unconnected_items": [
         {"items": [{"uuid": A[:-2] + "1a", "pos": {"x": 110, "y": 110}},
                    {"uuid": J[:-2] + "1c", "pos": {"x": 130, "y": 110}}]}]}))
+    # the first TP4's island links to the nearest pad of the other island, the second TP4's
     (open_one,) = phase_run.open_connections(pcb, drc)
-    assert open_one["from"] == {"ref": "J1", "pad": "1"}
-    assert open_one["to"] == {"ref": "TP4", "pad": "1", "fp": A}
-    joined_one = dict(open_one, to={"ref": "TP4", "pad": "1", "fp": B})
+    assert open_one["from"] == {"ref": "TP4", "pad": "1", "fp": A}
+    assert open_one["to"] == {"ref": "TP4", "pad": "1", "fp": B}
+    joined_one = dict(open_one, **{"from": {"ref": "J1", "pad": "1"}})
     assert phase_run.joined_pairs(pcb, [(("J1", "1"), ("TP4", "1", A)), (("J1", "1"), ("TP4", "1", B))]) == \
         [False, True]
     obs = [dict(open_one, widths={"F.Cu": 0.4}), dict(joined_one, widths={"F.Cu": 0.4})]

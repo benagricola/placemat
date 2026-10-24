@@ -44,15 +44,11 @@ def island_edges(islands: dict) -> list:
     return out
 
 
-def board_islands(pcb: Path) -> dict:
-    """{net: [island, ...]} of a written board as KiCad's connectivity joins it, zones filled: an island is the points
-    (pads' anchors, track ends, vias) of the pads, tracks and vias joined together, and counts where it holds a pad."""
-    from .quiet import import_pcbnew, quiet_stderr
-    pcbnew = import_pcbnew()
-    with quiet_stderr():
-        board = pcbnew.LoadBoard(str(pcb))
-        pcbnew.ZONE_FILLER(board).Fill(board.Zones())
-        board.BuildConnectivity()
+def item_islands(board, pcbnew) -> dict:
+    """{net: [island, ...]} of a loaded board as KiCad's connectivity joins it (zones as filled): an island is a list of
+    (point, item) for the pads, tracks and vias joined together, a pad's point its anchor as KiCad's ratsnest takes it
+    (as kicad/read.py reads it, PadGeom.anchor), a track's its two ends, a via's its centre. Only islands that hold a pad
+    are kept: tracks or a zone joined to no pad have nothing to join."""
     conn = board.GetConnectivity()
     by_net: dict = {}
     for fp in board.GetFootprints():
@@ -66,6 +62,9 @@ def board_islands(pcb: Path) -> dict:
         if z.GetNetname() and not z.GetIsRuleArea():
             by_net.setdefault(z.GetNetname(), []).append(z)
     mm = pcbnew.ToMM
+
+    def pt(p):
+        return round(mm(p.x), 6), round(mm(p.y), 6)
     out = {}
     for net, items in by_net.items():
         index = {it.m_Uuid.AsString(): k for k, it in enumerate(items)}
@@ -87,23 +86,38 @@ def board_islands(pcb: Path) -> dict:
         islands = []
         for g in groups.values():
             if not any(isinstance(x, pcbnew.PAD) for x in g):
-                continue                    # tracks or a zone joined to no pad: nothing to join
+                continue
             points = []
             for x in g:
                 if isinstance(x, pcbnew.PAD):
-                    # the pad's anchor as KiCad's ratsnest takes it, as kicad/read.py reads it (PadGeom.anchor)
                     cu = [l for l in x.GetLayerSet().CuStack() if board.IsLayerEnabled(l)]
-                    p = x.ShapePos(cu[0]) if cu else x.GetPosition()
-                    points.append((round(mm(p.x), 6), round(mm(p.y), 6)))
+                    points.append((pt(x.ShapePos(cu[0]) if cu else x.GetPosition()), x))
                 elif isinstance(x, pcbnew.PCB_VIA):
-                    p = x.GetPosition()
-                    points.append((round(mm(p.x), 6), round(mm(p.y), 6)))
+                    points.append((pt(x.GetPosition()), x))
                 elif isinstance(x, pcbnew.PCB_TRACK):
-                    for p in (x.GetStart(), x.GetEnd()):
-                        points.append((round(mm(p.x), 6), round(mm(p.y), 6)))
+                    points += [(pt(x.GetStart()), x), (pt(x.GetEnd()), x)]
             islands.append(points)
         out[net] = islands
     return out
+
+
+def load_joined(pcb: Path):
+    """(pcbnew, board) of a written board, zones filled and connectivity built."""
+    from .quiet import import_pcbnew, quiet_stderr
+    pcbnew = import_pcbnew()
+    with quiet_stderr():
+        board = pcbnew.LoadBoard(str(pcb))
+        pcbnew.ZONE_FILLER(board).Fill(board.Zones())
+        board.BuildConnectivity()
+    return pcbnew, board
+
+
+def board_islands(pcb: Path) -> dict:
+    """{net: [island, ...]} of a written board as KiCad's connectivity joins it, zones filled: an island is the points
+    (pads' anchors, track ends, vias) of the pads, tracks and vias joined together, and counts where it holds a pad."""
+    pcbnew, board = load_joined(pcb)
+    return {net: [[p for p, _ in island] for island in islands]
+            for net, islands in item_islands(board, pcbnew).items()}
 
 
 def airwire_edges(pcb: Path) -> list:

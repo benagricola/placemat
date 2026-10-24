@@ -933,21 +933,26 @@ def phase_record(phase, index, sel, obligations, judged, seconds, calls, pairs=N
 
 
 def open_connections(pcb_path, drc_json) -> list:
-    """Each connection the DRC reports open (`unconnected_items`), named by its two ends' pads. KiCad gives each item's
-    uuid; a pad end is that pad, a track, via or zone end is the first pad (by ref, pad) joined to it through copper
-    (CONNECTIVITY_DATA.GetConnectedItems: the whole copper the item is part of), and an end that is no pad and joins none is {"ref": None, "pad": None,
-    "at": [x, y]} (mm, the DRC's position). A pad end of a footprint whose reference another footprint shares also
-    names the footprint's uuid, {"ref", "pad", "fp"}. The net is the item's own, never read from the description. Ends
-    are in (ref, pad) order."""
-    from .quiet import import_pcbnew, quiet_stderr
-    from .write import load_board
-    import_pcbnew()
+    """Each connection open on a board, named by its two ends' pads, the same whichever ends KiCad's DRC names.
+
+    The DRC (`unconnected_items`) says which nets are open. Each such net's islands, the copper KiCad's connectivity
+    joins (zones filled) that holds a pad, are joined as the board's airwires are (airwires.island_edges: the shortest
+    links between their points, ties broken by the points), and a link's end is its island's pad nearest the link's
+    point (ties by ref, pad): KiCad picks an item's ends in no fixed order, so the same board gave other ends, other
+    obligations and another reuse key from one run to the next. Copper that joins no pad is no connection to make.
+
+    A net the DRC calls open that its islands do not split keeps the DRC's items: a pad end is that pad, a track, via
+    or zone end the first pad (by ref, pad) joined to it through copper (CONNECTIVITY_DATA.GetConnectedItems), and an
+    end that is no pad and joins none is {"ref": None, "pad": None, "at": [x, y]} (mm, the DRC's position).
+
+    A pad end of a footprint whose reference another footprint shares also names the footprint's uuid,
+    {"ref", "pad", "fp"}. The net is the item's own, never read from the description. Ends are in (ref, pad) order;
+    the connections are in net order, a net's in its links' order."""
+    from .airwires import island_edges, item_islands, load_joined
     raw_items = json.loads(Path(drc_json).read_text()).get("unconnected_items", [])
     if not raw_items:
         return []
-    with quiet_stderr():
-        board = load_board(str(pcb_path))
-    board.BuildConnectivity()
+    pcbnew, board = load_joined(pcb_path)
     cn = board.GetConnectivity()
     items = {}
     for it in list(board.GetPads()) + list(board.GetTracks()) + list(board.Zones()):
@@ -977,14 +982,31 @@ def open_connections(pcb_path, drc_json) -> list:
         joined = sorted(key(p) for p in cn.GetConnectedItems(it) if p.GetClass() == "PAD")
         return it.GetNetname(), (named(joined[0]) if joined else loose)
 
-    out = []
+    def ordered(a, b):
+        return sorted((a, b), key=lambda e: (e["ref"] is None, e["ref"] or "", e["pad"] or "", e.get("fp") or ""))
+
+    reported = []
     for u in raw_items:
         raw = u.get("items", [])
         if len(raw) < 2:
             continue
         (na, a), (nb, b) = end(raw[0]), end(raw[1])
-        a, b = sorted((a, b), key=lambda e: (e["ref"] is None, e["ref"] or "", e["pad"] or "", e.get("fp") or ""))
-        out.append({"net": na or nb, "from": a, "to": b})
+        a, b = ordered(a, b)
+        reported.append({"net": na or nb, "from": a, "to": b})
+    open_nets = {c["net"] for c in reported if c["net"]}
+    islands = {n: v for n, v in item_islands(board, pcbnew).items() if n in open_nets}
+    linked = {}
+    for net, a, b in island_edges({n: [[p for p, _ in isl] for isl in v] for n, v in islands.items()}):
+        def pad_at(point):
+            isl = next(i for i in islands[net] if any(p == point for p, _ in i))
+            pads = [(p, x) for p, x in isl if isinstance(x, pcbnew.PAD)]
+            _, pad = min(pads, key=lambda px: (math.hypot(px[0][0] - point[0], px[0][1] - point[1]), key(px[1])[:2]))
+            return named(key(pad))
+        a, b = ordered(pad_at(a), pad_at(b))
+        linked.setdefault(net, []).append({"net": net, "from": a, "to": b})
+    out = []
+    for net in sorted(open_nets | {c["net"] for c in reported}):
+        out += linked.get(net) or [c for c in reported if c["net"] == net]
     return out
 
 

@@ -1,6 +1,6 @@
 """An open connection's end on copper that touches no pad itself, such as the outer leg of an escape lane past its
-riser, is named by the pad the copper joins through the copper before it, as KiCad's connectivity joins them; only
-copper that joins no pad at all is a loose end at its place."""
+riser, is named by the pad the copper joins through the copper before it, as KiCad's connectivity joins them; copper
+that joins no pad at all is no end of a connection."""
 import json
 
 from placemat.kicad import phase_run
@@ -46,7 +46,8 @@ def test_an_end_on_a_lanes_outer_leg_is_named_by_the_pad_its_riser_joins(tmp_pat
 
 
 @needs_kicad
-def test_an_end_on_copper_that_joins_no_pad_is_loose_at_its_place(tmp_path):
+def test_copper_that_joins_no_pad_is_no_end_the_open_pads_are_joined_instead(tmp_path):
+    # KiCad names the stray track as J1's partner; the connection to make is J1 to U1's island, as the airwires join
     (got,) = _open(tmp_path, {"uuid": STRAY, "pos": {"x": 136.5, "y": 110}},
                    {"uuid": J1_PAD, "pos": {"x": 130, "y": 110}})
-    assert got["to"] == {"ref": None, "pad": None, "at": [136.5, 110]}
+    assert (got["from"], got["to"]) == ({"ref": "J1", "pad": "1"}, {"ref": "U1", "pad": "1"})
