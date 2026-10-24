@@ -5,6 +5,17 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## To 0.100.13
+
+### Added
+
+- **A routed run can leave a training record.** With `route.training_record = true` a route writes
+  `training.json` and `training.raster` into its route folder: the placed board as a raster (`route.training_cell_mm`
+  a cell; the outline, each copper layer's pads and tracks, holes, keep-outs and a wiring-demand estimate) and, per
+  net, its pads, its open connections before and after, and the track and vias the route added. It is off by
+  default and does not change the route or which phases are reused. `tools/training_collect.py` gathers the records
+  of many runs into one dataset folder.
+
 ## To 0.100.12
 
 ### Changed

@@ -376,6 +376,10 @@ class Settings:
         "what the router charges a turn, per 90 degrees (a 45 half of it), against 1000 a straight grid step: the router's own default of 1000 makes a kink nearly free and its routes stair-step; 20000 measured best on a dense four-layer board (fewer than half the turns, 10% less copper, closure no worse); 1000 gives the router's own behaviour")
     route_smoothing: bool = S(True, "bool",
         "the router's own octolinear smoothing, as it defaults; false skips it")
+    route_training_record: bool = S(False, "bool",
+        "a routed run leaves a training record in its route folder (training.json and training.raster): the placed board as a raster and what the route made of each net, for a model that learns which placements route; it does not change the route. `tools/training_collect.py` gathers the records into one dataset folder")
+    route_training_cell_mm: float = S(0.25, "mm",
+        "the training record raster's cell")
     route_router_args: tuple = S((), "list",
         "more of the router's own flags (`--direction-preference-cost`, `--heuristic-weight`, `--bus`, `--via-cost`, ...), each a string, appended to every route.py call of every routing phase, before the phase's own `router_args`; one placemat sets itself (`--nets`, `--layers`, `--escalation`, `--keep-input-copper`, `--turn-cost`, `--smoothing`, `--no-smoothing`, `--power-nets`, `--power-nets-widths`, `--max-iterations`, `--max-probe-iterations`, `--json-out`, `--net-clearances`) is refused. Its `--grid-step` also sets the room turned escape lanes leave for the router's grid snap")
     route_pair_router_args: tuple = S((), "list",
@@ -757,7 +761,7 @@ _ABOVE_ZERO = frozenset((
     "geometry_arc_error_nm", "check_rise_c", "check_zone_step", "check_route_tries", "check_neck_resistivity", "check_neck_conductivity",
     "studio_3d_cache_mb", "studio_3d_batch", "studio_3d_batch_timeout_s", "studio_3d_model_tris", "studio_3d_max_tris", "studio_3d_plate_mm", "studio_3d_spread_mm",     "studio_keep", "studio_notes_keep", "studio_poll_ms", "studio_explore_fps", "studio_suggestions_per_lever", "studio_try_timeout_s", "studio_probe_budget_s", "studio_probe_candidates", "studio_builder_grid_mm", "studio_builder_max_fill", "studio_builder_aspect", "timeout_generate", "timeout_drc", "timeout_route", "timeout_render",
     "solve_iterations", "solve_tolerance", "solve_rounds", "cleanup_search_radius", "cleanup_search_step", "cleanup_swap_radius", "preview_px_per_mm",
-    "route_plane_share", "route_adopt_tolerance", "place_courtyard_polygon_share", "write_keepout_line_width", "write_keepout_text_height",
+    "route_plane_share", "route_adopt_tolerance", "route_training_cell_mm", "place_courtyard_polygon_share", "write_keepout_line_width", "write_keepout_text_height",
     "pins_seeds", "pins_anneal_moves", "pins_budget_steps", "pins_reversed_min", "pins_joint_combinations", "pins_probe_budget_steps"))
 _AT_LEAST_ZERO = frozenset((
     "studio_follow_hold_s", "rank_area_weight", "rank_pins_weight", "place_drops_keep_share", "place_turn_gain_mm", "route_turn_cost", "place_courtyard_touch", "place_silk_margin", "cleanup_passes", "place_retry_rounds", "cleanup_swap_neighbours", "preview_model_edge_px", "studio_3d_appear_ms", "studio_3d_spread_ms", "studio_note_age_s", "studio_port", "studio_debounce_ms", "studio_cancel_grace_ms", "copper_chamfer", "best_airwire_noise",

@@ -1582,7 +1582,8 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     # poured, how it is routed and by which router. Each phase's digest chains from the one before it.
     from .. import __version__
     settings_part = {k: v for k, v in sorted(json.loads(cfg.json()).items())
-                     if k.startswith("route_") and k not in ("route_router_dir", "route_phase")}
+                     if k.startswith("route_") and k not in ("route_router_dir", "route_phase")
+                     and not k.startswith("route_training_")}       # the training record does not change the route
     base = digest("phase-judgement-v11", file_digest(pcb), file_digest(pcb.with_suffix(".kicad_pro")), file_digest(pcb.with_suffix(".kicad_dru")),
                   capture.digest if capture else "", sorted(excluded), sorted(pours), layers, quick, iterations, probe,
                   router_version(router_dir_path), __version__, settings_part, cfg.check_rise_c)     # rise_c: current widths
@@ -1693,6 +1694,12 @@ def _route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: s
     report.widths = one_line_per_connection(report.widths, judged, paths) + judged
     report.drc_new = new_error_count(work / "drc_before.json", work / "drc_after.json", after.is_real)
     report.vias, report.track_mm, report.segments = routed_copper(pcb, pcb_out)
+    if cfg.route_training_record:
+        from .training import write_record
+        write_record(pcb, pcb_out, work, open0, open1,
+                     {"closure": report.closure, "closure_clean": report.closure_clean, "layers": list(layers),
+                      "router_version": report.router_version, "placemat_version": __version__,
+                      "seconds": report.seconds, "quick": quick}, cfg.route_training_cell_mm)
     if only:
         report.phases_without_copper = without_copper([picked[p.name] for p in phases[:names.index(upto)]],
                                                       geometry)
