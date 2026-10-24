@@ -869,10 +869,27 @@ def _merged(a: "Pairs | None", b: Pairs) -> Pairs:
 
 
 def router_version(router_dir: str) -> str:
+    """The router's VERSION file, then, in a git checkout, its commit and a digest of its uncommitted changes to
+    tracked files: a fork's commits share one VERSION, and a route reused across two of them is the old router's."""
     try:
-        return (Path(router_dir) / "VERSION").read_text().strip()
+        version = (Path(router_dir) / "VERSION").read_text().strip()
     except OSError:
-        return "unknown"
+        version = "unknown"
+    if shutil.which("git") is None:
+        return version
+
+    def git(*args) -> str:
+        try:
+            done = subprocess.run(["git", "-C", str(router_dir), *args], capture_output=True, text=True, timeout=30)
+        except (OSError, subprocess.TimeoutExpired):
+            return ""
+        return done.stdout if done.returncode == 0 else ""
+    head = git("rev-parse", "HEAD").strip()
+    if not head:
+        return version
+    changed = git("diff", "HEAD")
+    from .route_state import digest
+    return "%s+g%s%s" % (version, head[:12], "-dirty." + digest(changed)[:12] if changed else "")
 
 
 

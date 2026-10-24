@@ -15,6 +15,7 @@ import pytest
 
 from placemat.kicad import route_state
 from placemat.kicad.route_state import RouteState
+from tests.conftest import needs_git
 from tests.phase_helpers import fake_capabilities, phases
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -202,6 +203,27 @@ def test_a_changed_input_reruns_the_phases_it_reaches(rig, monkeypatch):
     rig.pcb.write_text(text.replace("(version", "(version", 1) + "\n")
     third = rig.route(exclude_nets={"VBUS", "V3V3"})
     assert rig.calls() == ["island", "tasks", "main"] * 3 and third.resumed == []
+
+
+@needs_git
+def test_another_router_commit_reruns_every_phase(rig):
+    # a fork's commits share one VERSION: the router's commit, and any uncommitted change to it, is in the key
+    krt = Path(rig.pcb).parents[1] / "krt"
+    git = lambda *a: subprocess.run(["git", "-C", str(krt), "-c", "user.name=t", "-c", "user.email=t@t", *a],
+                                    check=True, capture_output=True)
+    git("init", "-q")
+    git("add", "py_router", "VERSION")
+    git("commit", "-qm", "one")
+    rig.route()
+    again = rig.route()
+    assert again.resumed == ["pour", "signals"]
+    route_py = krt / "py_router/route.py"
+    route_py.write_text(route_py.read_text() + "\n# changed\n")
+    edited = rig.route()
+    assert edited.resumed == [] and rig.calls() == ["island", "tasks", "main"] * 2
+    git("commit", "-qam", "two")
+    committed = rig.route()
+    assert committed.resumed == [] and rig.calls() == ["island", "tasks", "main"] * 3
 
 
 def test_without_resume_every_phase_runs_again(rig):
