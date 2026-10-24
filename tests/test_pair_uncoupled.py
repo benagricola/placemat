@@ -68,6 +68,30 @@ def test_a_short_leg_within_the_limit_is_allowed_and_a_long_escape_is_not():
     assert not got["B"]["allowed"] and not got["C"]["allowed"]
 
 
+def test_a_pair_it_could_not_couple_whose_members_the_fallback_joined_is_a_fallback():
+    # one member already joined on the input board: the coupled route finds no endpoints and the router's single-ended
+    # fallback joins the other; with nothing left open the pair is judged by its lengths
+    joined = pair_report(_report(outcome="deferred", reason="endpoint-resolution-failure", unc=(20.0, 20.0)))
+    left_open = pair_report(_report(outcome="deferred", reason="endpoint-resolution-failure", unc=(20.0, 0.0),
+                                    opn=(0.0, 20.0)))
+    r, = uncoupled_pairs([joined], 25.0)
+    assert r["cause"] == "fallback" and r["allowed"]
+    assert not uncoupled_pairs([joined], 10.0)[0]["allowed"] and not uncoupled_pairs([joined], None)[0]["allowed"]
+    r, = uncoupled_pairs([left_open], 25.0)
+    assert r["cause"] == "failed" and not r["allowed"]
+
+
+def test_a_pair_the_fallback_joined_says_why_it_was_not_coupled():
+    report = RouteReport(True, 1.0, 1.0, 0, 0, {}, [], [], [], 0.0, "v", {}, "out", "log", "work")
+    report.phases = [{"name": "usb-data", "pairs_uncoupled": uncoupled_pairs([pair_report(_report(
+        outcome="deferred", reason="endpoint-resolution-failure", unc=(20.0, 20.0)))], 10.0)}]
+    f = report.findings()[0]
+    text = render(f.cause, f.facts)
+    assert ("it could not be routed coupled (endpoint-resolution-failure) and its members were routed single-ended"
+            in text), text
+    assert "over the phase's max_uncoupled_mm 10" in text
+
+
 def test_a_router_that_does_not_measure_allows_none():
     r = pair_report(_report(outcome="deferred", reason="electrically-short"))
     r["uncoupled_mm"] = r["open_mm"] = None

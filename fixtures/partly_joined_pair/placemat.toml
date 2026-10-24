@@ -1,6 +1,7 @@
 [[route.phase]]
 name = "diff-pairs"
 pairs = true
+max_uncoupled_mm = 25.0       # USB_D_P is joined on the input board, so the pair runs its 20 mm uncoupled
 
 [[route.phase]]
 name = "signals"

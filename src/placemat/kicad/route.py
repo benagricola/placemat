@@ -641,7 +641,8 @@ def uncoupled_pairs(reports, limit_mm: float | None) -> list:
     phase's max_uncoupled_mm) and `allowed`: within the limit. A pair is coupled end to end when the router routed it
     coupled with no single-ended terminal legs. `cause`: "short_leg", a leg under the router's coupled minimum left
     single-ended, each member's uncoupled copper and open length within that minimum; "fallback", the router left the
-    pair's legs single-ended as short ones but its members run further than the minimum uncoupled; "peeled_leg", a
+    pair's legs single-ended as short ones but its members run further than the minimum uncoupled, or could not couple
+    it (one member already joined, say) and its single-ended fallback joined both members, nothing open; "peeled_leg", a
     coupled trunk whose other legs were left to a later phase; "hybrid", single-ended terminal legs beside a coupled
     middle; "failed", not routed coupled at all. A failed pair is never allowed;
     another is when each member's uncoupled copper and open length together are at most the limit. With no limit, or
@@ -656,6 +657,8 @@ def uncoupled_pairs(reports, limit_mm: float | None) -> list:
             cause = "short_leg"
         elif r["outcome"] == "partial":
             cause = "peeled_leg"
+        elif r["outcome"] == "deferred" and r["open_mm"] is not None and not any(r["open_mm"].values()):
+            cause = "fallback"              # not coupled, but the router's single-ended fallback joined both members
         else:
             cause = "failed"
         totals = ({m: r["uncoupled_mm"][m] + r["open_mm"][m] for m in ("p", "n")}

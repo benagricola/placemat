@@ -4062,7 +4062,9 @@ and so, in a phase that routes pairs, is a flag the pair router does not take (`
 A pair phase judges each pair by whether the pair router routed it coupled end to end. A pair it did not is listed
 in the phase's record in route.json (`pairs_uncoupled`), with its `cause`: `short_leg`, a leg shorter than the
 router's coupled minimum (`min_coupled_mm`, 3 mm or more in KRT, by the pair's width and gap) left single-ended;
-`fallback`, legs the router left single-ended as short whose members run further than that minimum uncoupled;
+`fallback`, legs the router left single-ended as short whose members run further than that minimum uncoupled, or a
+pair it could not couple (one member already joined on the board, say) whose members its single-ended fallback
+joined, nothing left open;
 `peeled_leg`, legs off a coupled trunk left
 for a later phase; `hybrid`, single-ended terminal legs beside a coupled middle; or `failed`, not routed coupled. It
 also gives, per member, the copper that runs uncoupled (`uncoupled_mm`, tracks not beside the partner's), the

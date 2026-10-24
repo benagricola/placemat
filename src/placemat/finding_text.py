@@ -1075,7 +1075,9 @@ _PAIR_CAUSE = {"short_leg": "a leg under the router's %s mm coupled minimum was 
 @renders(C.ROUTE_PAIR_UNCOUPLED, "pair", "phase", "cause")
 def _route_pair_uncoupled(f):
     cause = _PAIR_CAUSE[f["cause"]]
-    if f["cause"] in ("short_leg", "fallback"):
+    if f["cause"] == "fallback" and f.get("reason") not in (None, "electrically-short"):
+        cause = "it could not be routed coupled (%s) and its members were routed single-ended" % f["reason"]
+    elif f["cause"] in ("short_leg", "fallback"):
         cause = cause % ("%g" % f["min_coupled_mm"] if f.get("min_coupled_mm") is not None else "its")
     text = "pair %s in phase %s is not coupled end to end: %s" % (f["pair"], f["phase"], cause)
     if f.get("reason") and f["cause"] == "failed":
