@@ -70,6 +70,8 @@ def make_record(pcb: Path, out: Path, name: str, origin: str, cell_mm: float, ex
             board = pcbnew.LoadBoard(str(pcb))
     except Exception as e:
         raise Skip("does not load: %s" % str(e).strip().splitlines()[0] if str(e).strip() else "does not load")
+    if board is None:
+        raise Skip("does not load")
     if not list(board.GetFootprints()):
         raise Skip("no footprints")
     if not list(board.GetTracks()):

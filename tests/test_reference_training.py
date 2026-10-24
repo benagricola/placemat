@@ -122,3 +122,12 @@ def test_facts_file_adds_facts_and_names_the_record(tmp_path):
     assert record["repo"] == "o/r" and record["commit"] == "c0ffee" and record["licence"] == "MIT"
     assert record["path"] == "hw/a.kicad_pcb" and record["board"] == "o__r__ab12cd34"
     assert record["origin"] == "o/r@c0ffee" and record["source"] == "human"
+
+
+@needs_kicad
+def test_a_file_that_is_not_a_board_is_skipped(tmp_path):
+    import pytest
+    bad = tmp_path / "missing.kicad_pcb"
+    tool = _tool()
+    with pytest.raises(tool.Skip, match="does not load"):
+        tool.make_record(bad, tmp_path / "out", "bad", "x", 0.25)
