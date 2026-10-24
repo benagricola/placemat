@@ -7,6 +7,20 @@ section for each hand-written pattern a newer form replaces.
 
 ## To 0.100.13
 
+### Changed
+
+- **A board's open connections are the same whichever ends KiCad names.** A route phase's obligations, what it is
+  asked to join and is judged by, came from the DRC's unconnected items, whose ends KiCad picks in no fixed order:
+  the same board could be judged differently from one run to the next and miss its reused phases. KiCad now says
+  which nets are open and which copper is joined, and each open net's islands are joined by their shortest links, as
+  the airwires are (0.100.10), each end the island's pad nearest the link. Copper that joins no pad (a stray track)
+  is no longer an end of an open connection. A route's reuse key changes with this, so the first route after
+  upgrading routes every phase again.
+
+### Fixed
+
+- **The router's commit is read with the environment KiCad's tools get** (0.100.12 read it with the inherited one).
+
 ### Added
 
 - **A routed run can leave a training record.** With `route.training_record = true` a route writes
