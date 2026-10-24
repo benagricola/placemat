@@ -2,124 +2,124 @@
 
 ## Goal
 
-Get the user's judgement of layouts into a form placemat can learn from. Small hypothetical layouts of common circuit
-blocks are generated in many variants, most of them good apart from one deliberate defect. The user marks what is wrong
-in each, or picks the better of two, in a hosted page. Each mark is stored as a record, tied to the variant and to the
-known cause of its defect.
+A large corpus of small hypothetical layouts of circuit blocks, in hundreds of thousands of variants, that the user can
+judge. The user marks what is wrong in a layout, or picks the better of two, in a hosted page.
 
-The marks feed three things:
-- the weights of placemat's score (from A-or-B picks);
-- new findings and fixtures (from rules the user states);
-- a critic model trained to predict where the user would object.
+The corpus and the marks are training data for fast models:
+- a critic that predicts where a layout is bad and why;
+- later, a model that proposes good layouts.
+
+placemat is slow, and a model is the fast replacement for judging a layout. So the corpus is made by a fast generator
+of its own. placemat and its score are not used to make it.
+
+## Scenario types
+
+Each type is a template:
+- its parts, as roles with sampled values and packages;
+- its nets;
+- what makes it good, written as checkable rules;
+- the defects that break those rules.
+
+| Group | Types |
+|---|---|
+| Power | ldo, buck, boost, buck-boost, inverting, li-ion charger, load switch, efuse / hot-swap, ideal diode / reverse polarity, battery protection, supercap / holdup, pmic multi-rail |
+| Power stage | half bridge with gate driver, h-bridge, three-phase bridge, stepper driver with sense resistors, low-side mosfet switch, relay with flyback, current shunt with amplifier |
+| Digital | mcu decoupling and crystal, mcu with external flash (qspi), fpga bank decoupling, sdram / lpddr pair, level shifter, i2c bus with pull-ups, spi bus fan-out, debug header (swd / jtag), reset and boot straps |
+| Interfaces | usb-c device (cc, esd, pair), usb hub, can transceiver and termination, rs-485, ethernet phy with magnetics, ffc / display connector, sd card, hdmi / lvds pair group |
+| Analog | op-amp filter stage, instrumentation amplifier, adc front end with reference, dac output, voltage reference, precision divider, thermistor / rtd input, audio codec, class-d amplifier |
+| RF and clocks | antenna feed with matching network, rf module with keep-out, crystal oscillator, clock buffer, gnss front end |
+| Sensors and misc | imu / magnetometer, hall sensor, led driver, addressable led chain, buzzer / haptic driver |
+| Protection and isolation | tvs / esd on a connector, fuse and polyfuse, digital isolator with isolated dc-dc and creepage slot, optocoupler input |
+
+That is about 60 types. The list is open, and more are added by writing a template.
 
 ## Sources
 
-| Source | Where | What it gives |
-|---|---|---|
-| fairing instrument | ~/Documents/Hardware/fairing-instrument (copied, never edited) | zen designs, cells, routed boards |
-| mnb ecosystem | ~/Documents/Hardware/mnb-ecosystem (151 boards, 204 zen) | zen designs and boards, some incomplete |
-| MnB Ultralight family | ~/Documents/Hardware/MnB Ultralight, M&B Ultralight N17, N17 R2, MnB Featherweight | KiCad schematics and boards |
-| open corpus | the BC250 harvest (501 boards, open licences) | KiCad boards with netlists |
+Templates are written from:
+- datasheet reference layouts;
+- common practice;
+- blocks found in real designs.
 
-These paths are given to the tool as arguments, not written into it. A design that is incomplete still gives blocks
-wherever its netlist is whole around an IC.
+The real designs are fairing-instrument, mnb-ecosystem, the MnB Ultralight family and the 501 open boards. All of them
+are read from copies or given as arguments, and never edited.
 
-## Blocks
+Real designs give each template:
+- realistic values and packages to sample from;
+- extracted blocks for a smaller set of real variants, with the anchor IC and its local nets.
 
-A block is an anchor IC plus the parts that hang off its local nets: nets of the IC that reach at most a few other
-parts, followed up to two hops. Ground and the board's wide rails are kept as nets but not followed. The parts and nets
-come from the netlist. The footprints come from the source board, or from the KiCad libraries where the source has none.
+## Generator
 
-The block's type is taken from the anchor and the parts around it. Rules match the part's value and footprint
-keywords, and the shape of the circuit:
+The generator is fast and stand-alone, written in Rust beside placemat's native code or on its own. It needs no KiCad
+and no placemat at run time.
 
-| Type | Recognised by |
-|---|---|
-| ldo | a 3-5 pin regulator, caps on its input and output |
-| switcher | a regulator IC, an inductor on one of its pins, bulk caps (buck, boost, buck-boost) |
-| mcu | an IC with many pins and several decoupling caps; a crystal or oscillator if present |
-| can | a CAN transceiver, a termination resistor, a connector |
-| usb | a USB connector, ESD parts, a pair to an IC |
-| other | anything else, kept for later |
+1. **Sample:** a type, part values, packages from a footprint table built once from the KiCad libraries, the layer
+   count, board room and port sides.
+2. **Place:**
+   - Good: the template's rules are met with randomised freedom (side, orientation, spacing, mirrored layouts) by a
+     quick constructive placer.
+   - Defect: one or two rules are broken on purpose, each one named.
+   - Mess: random within the room, a small share for contrast.
+3. **Route:** a quick grid router (A* on a fine grid, a few rip-up passes) with pours on the ground and power nets, and
+   vias. A block has tens of nets, so this takes milliseconds to tenths of a second.
+   - Its tracks are cruder than KRT's. A routing defect is recorded the same way as a placement defect, for example a
+     long return path or a track through the switch-node area.
+   - A sample of variants is also routed with KRT on the BC250, so the routing marks can be compared on realistic
+     copper.
+4. **Check:** clearance and connectivity on the grid. A variant that breaks the rules it should keep is dropped,
+   with the count recorded.
+5. **Write:**
+   - geometry JSON: the outline, plus pads, tracks, vias and pours per layer, each with its reference, net and role;
+   - a record: type, seed, sampled parameters, rules met and broken, route outcome;
+   - rasters for model training, in the same channels as the training records.
 
-Each type has a short list of what makes it good. A block whose type can't be found is set aside, with the reason.
-
-## Hypothetical board
-
-Each block becomes a small board of its own:
-- an outline sized from the block's courtyard area;
-- 2 layers, or 4 layers for switcher and mcu blocks;
-- a ground pour on the bottom, or on an inner layer when there is one;
-- nets that leave the block end at port pads on the outline's edge, so the routes have somewhere to go.
-
-## Variants
-
-On the BC250, each block gets one good variant and many with defects, each defect cause recorded:
-1. **Good:** placed from the type's template intents (decoupling `Near` its pin, inductor `Beside` the switch pin,
-   crystal by the MCU's oscillator pins, termination at the connector), then routed with KRT.
-2. **One defect:** the same, with one item from the type's defect list applied. Examples:
-   - a cap far from its pin;
-   - the switch-node loop made large;
-   - the inductor on the wrong side;
-   - the feedback trace run past the inductor;
-   - the crystal far from the MCU;
-   - the termination at the wrong end;
-   - the pour split under the block;
-   - thermal vias missing under an exposed pad.
-3. **Perturbed:** small jitter or swaps, as in the failure-data generator.
-4. **Runner-up:** placemat's own second and third choices from its search.
-
-Each variant writes:
-- a record: source, block, type, causes, score terms, route closure and DRC counts;
-- its geometry as JSON: the outline, plus pads, tracks, vias and pours per layer, with each item's reference and net;
-- a thumbnail.
-
-A few thousand variants is an overnight run at the failure generator's rate. That rate is measured on larger boards,
-so this estimate is not checked.
+The generator is deterministic for a seed, so a variant is its type, its seed and the generator version, and it can be
+made again rather than stored. The target is 100k variants or more, in hours on the BC250's CPU. That rate is a guess
+until the router is measured.
 
 ## Feedback page
 
 A private hosted page, with its data in a shared store that the session reads directly.
 
-- **Scenario batches:** the geometry JSON of each batch is uploaded to the page's asset store. A batch is about 50
-  blocks, each with 3-6 variants.
-- **View:** drawn in the browser from the geometry. Top, bottom and 3D views, one copper layer at a time or all of
-  them, nets highlighted on hover. Reference designators are shown, colours follow studio's, and there are no greys.
+- **Batches:** drawn from the corpus by a sampler that covers the types and mixes good, defect and mess variants.
+  Compare pairs are two variants of one block. A batch's geometry goes in the page's asset store.
+- **View:** drawn in the browser from the geometry. Top, bottom and 3D views, layers one at a time or together, the net
+  under the pointer highlighted. Reference designators and roles are shown. Colours carry meaning, and there are no
+  greys.
 - **Mark mode:** click a point or a part, choose a type, then add an optional note. The types:
   - *rule*: wrong anywhere;
   - *this layout*: wrong only here;
   - *routing*;
-  - *good*: worth keeping as it is.
-- **Compare mode:** two variants of one block side by side. Pick A, B or the same, with an optional note.
-- **Progress:** how many variants are marked and compared in the batch.
-- A mark is never sent as a sentence. It is a record: variant id, mode, point (x, y, layer), items, type, choice,
-  note and time.
+  - *good*.
+- **Compare mode:** A, B or the same, with an optional note.
+- **Quick mode:** one variant at a time, good or bad, then the next. It is for volume.
+- A mark is a record: variant id (type, seed, version), mode, point (x, y, layer), items, type, choice, note and time.
 
-## Using the marks
+## Using the corpus and the marks
 
-- **A-or-B picks:** fit the score weights of placemat's settings, then compare against the current defaults. Changing a
-  default is proposed to the user, as a release.
-- **A rule mark that matches a variant's cause:** confirms that defect. placemat gains a finding or a fixture for it,
-  which is a new form and so the user's call during consolidation.
-- **A rule mark that matches no cause:** something placemat does not measure. It goes on a list for the user.
-- **A routing mark:** a router case. It goes to the KRT fork with the variant as the repro.
-- **After a few hundred marks:** a critic model is trained on them, the same kind of model as the routability one.
+- **A critic model** trained on the generator's labels (rules broken, where) and the user's marks. It is fast enough
+  to judge thousands of layouts a second on the BC250's GPU.
+- **Rule marks** that match no template rule show something the templates miss. They become new rules, and the
+  generator makes more of that defect.
+- **Compare picks and quick marks** calibrate the critic toward the user's taste, beyond what the rules say.
+- **Routing marks:** the ones on KRT-routed variants are router cases for the fork.
+- Whether and how placemat uses the critic is a later decision for the user.
 
 ## Phases
 
-1. Block extraction from all four sources, with a count per type. Templates and defects for ldo, switcher and mcu.
-   200 variants. The page, with mark and compare modes. A first batch for the user.
-2. The can and usb types, more defects, thousands of variants, runner-up variants.
-3. Weight fitting from the picks. The critic model.
+1. The generator core: sample, place, route, check, write. 10 types across power, digital and interfaces. A rate
+   measured on the BC250. The page with all three modes. A first batch.
+2. All types, a 100k corpus, a KRT-routed sample, blocks extracted from the real designs.
+3. A critic trained on generator labels, then on the user's marks.
 
 ## Testing
 
-- **Extraction:** small synthetic netlists with a known block. Each type is found.
-- **Board build:** the outline holds the block, and each port is on the edge.
-- **Defects:** each one changes what it says and nothing else, checked by measuring the affected item before and after.
-- **Page:** a fixture batch renders, a mark round-trips through the store, and compare mode stores its choice.
+- **Templates:** each sample meets its good rules, measured on the result.
+- **Defects:** each one breaks the rule it names and no other.
+- **Router:** a routed variant is connected, and passes the clearance check on the grid.
+- **Determinism:** the same seed and version give the same bytes.
+- **Page:** a fixture batch renders, and a mark round-trips through the store.
 
 ## Out of scope
 
-- No placemat forms, unless the user approves one from what the marks show.
+- No placemat forms or settings change.
 - No edits to the source projects.
