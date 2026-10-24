@@ -1,4 +1,5 @@
 import os
+import shutil
 from pathlib import Path
 
 import pytest
@@ -44,6 +45,7 @@ def _has_pcbnew():
 
 
 needs_kicad = pytest.mark.skipif(not _has_pcbnew(), reason="pcbnew not importable")
+needs_git = pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
 
 
 def empty_board(pcb):

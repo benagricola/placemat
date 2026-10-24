@@ -426,6 +426,9 @@ def local_line(result: FResult, comparison: Comparison) -> str:
 
 
 def _git(root: str, *args: str) -> str:
+    """git's output in `root`, or "" where git is not installed."""
+    if shutil.which("git") is None:
+        return ""
     return subprocess.run(["git", "-C", root, *args], capture_output=True, text=True, timeout=GIT_TIMEOUT_S).stdout.strip()
 
 

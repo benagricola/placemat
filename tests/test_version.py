@@ -34,8 +34,12 @@ def test_the_package_and_the_plugin_say_the_same_version(path):
 def test_the_installed_package_reports_that_version_too():
     """The version file and the package metadata are written from the same
     tag at install: they agree unless the install is stale."""
-    from importlib.metadata import version
-    assert version("placemat") == placemat.__version__
+    from importlib.metadata import PackageNotFoundError, version
+    try:
+        installed = version("placemat")
+    except PackageNotFoundError:
+        pytest.skip("placemat runs from a source tree, not an installed package")
+    assert installed == placemat.__version__
 
 
 def test_the_version_is_what_names_a_run():

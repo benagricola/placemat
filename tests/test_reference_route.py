@@ -1,6 +1,7 @@
 import json
 
 from fixtures.reference import prepare, route_ref
+from tests.conftest import needs_git
 
 V = prepare.Violation
 VERSIONS = {"placemat": "0", "krt": "0", "pcb": "0"}
@@ -289,6 +290,7 @@ def test_manifest_named_pairs_and_buses_are_written_before_the_example_phases(tm
     assert phases[1].buses == (("SDA", "SCL"),)
 
 
+@needs_git
 def test_pcb_version_follows_executable_symlink_and_marks_checkout_dirty(tmp_path, monkeypatch):
     import os
     import subprocess

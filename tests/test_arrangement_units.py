@@ -86,6 +86,9 @@ def _released(tag: str):
     import subprocess
     import sys
     root = pathlib.Path(__file__).resolve().parents[1]
+    import shutil
+    if shutil.which("git") is None:
+        return None
     got = subprocess.run(["git", "show", "%s:src/placemat/arrangements.py" % tag], cwd=root, capture_output=True, text=True)
     if got.returncode != 0:
         return None

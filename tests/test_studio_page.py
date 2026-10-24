@@ -140,6 +140,8 @@ def run_page(tmp_path, tail, hash="", store=None):
     (tmp_path / "page.js").write_text(text[text.index("<script>") + 8:text.index("</script>")])
     (tmp_path / "run.js").write_text(PRELUDE + tail + "\nconsole.log(JSON.stringify(out));\n")
     import os
+    if shutil.which("node") is None:
+        pytest.skip("node is not installed")
     done = subprocess.run(["node", str(tmp_path / "run.js"), str(tmp_path / "page.js")], capture_output=True, text=True, timeout=60, env=dict(os.environ, PAGE_HASH=hash, **({"PAGE_STORE": json.dumps(store)} if store is not None else {})))
     assert done.returncode == 0, done.stderr
     return json.loads(done.stdout.strip().splitlines()[-1])

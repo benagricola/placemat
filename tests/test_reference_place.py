@@ -3,6 +3,7 @@ import shutil
 
 from fixtures.reference import fetch, place_ref, prepare, route_ref
 from placemat import score
+from tests.conftest import needs_git
 
 VERSIONS = {"placemat": "0", "krt": "0", "pcb": "0"}
 BOARD = fetch.Board(name="x", repo="github:o/r", commit="c", files={}, board="x.kicad_pcb", licence="MIT", tests=("a", "b"),
@@ -289,6 +290,7 @@ def test_update_writes_not_comparable_and_better_entries(tmp_path, monkeypatch):
         assert (rc, data["b"]["x"]["board"]) == (0, "x")
 
 
+@needs_git
 def test_a_dirty_checkout_ignores_the_runners_own_results_file(tmp_path):
     import subprocess
     run = lambda *a: subprocess.run(["git", "-C", str(tmp_path), *a], check=True, capture_output=True)
