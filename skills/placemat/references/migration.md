@@ -5,6 +5,29 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## To 0.100.12
+
+### Changed
+
+- **A pair the router could not couple, but whose members its single-ended fallback joined, is judged by its
+  lengths.** A pair with one member already joined on the board gives the coupled route no endpoints; the router
+  joins the other member single-ended. Its `route.pair_uncoupled` cause was `failed`, which `max_uncoupled_mm` never
+  allows; it is now `fallback`, allowed when each member's uncoupled and open length is within the phase's
+  `max_uncoupled_mm`, and the finding names the router's reason. With no `max_uncoupled_mm` it is still critical
+  and the run still exits 1. A board with a pair drawn by hand on one member can set `max_uncoupled_mm` to that
+  member's length.
+
+### Fixed
+
+- **A route is not reused across a change of router.** A route phase was reused when its inputs matched, and the
+  router was named only by its `VERSION` file, which a fork's commits share; a route after a new router commit
+  reused every phase the old router routed. The router's git commit, and its uncommitted changes, are now part of
+  the phase's key, so the first route after a router change routes every phase again. `--no-resume` is no longer
+  needed for that.
+- **The test suite runs on any machine with its prerequisites.** The realboard lock is
+  `placemat-realboard.lock` in the system's temporary directory (`$REALBOARD_LOCK` overrides it). Tests that need
+  git or node skip where it is not installed.
+
 ## To 0.100.11
 
 ### Fixed
