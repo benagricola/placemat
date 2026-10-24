@@ -5,6 +5,15 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## To 0.100.11
+
+### Fixed
+
+- **An explore variant focused on one part of a `Pm.Emits` / `Pm.Limit` pair keeps the reach from the other.** The
+  variant holds the other part at the plain run's spot, but its look-ahead searched that part's spots afresh, so the
+  focused part could take a spot inside the reach of where the other really stands. The held spot is now the other
+  part's only spot in the look-ahead. Placements across the bench corpus are unchanged. Scripts need no change.
+
 ## To 0.100.10
 
 ### Changed
