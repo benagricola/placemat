@@ -5000,7 +5000,10 @@ records where its members stand inside it in the module's own layout
 rotation and face); when the module is laid out again and they stand
 elsewhere, the entry is released (`lock: released - the cell's members
 moved inside it since it was accepted`). An entry written before 0.99.33
-has no `"members"` and holds as before. The cleanup
+has no `"members"` and holds as before. An item with one freedom left (on a line, an
+edge, a run, a rim or a ring) is held on its locked spot when that spot lies on its freedom, and drifts along the
+freedom when something blocks it; a spot off the freedom by more than `place.lock_freedom_tolerance` (the line's
+reference moved, say) releases the entry (`lock: released - its locked spot is N mm off its line`). The cleanup
 pass leaves a held item where it is. Commit the lock with the script; a
 run prints how many items it held, drifted and released. `placemat lock`
 lists entries and releases them. An anchor is named by its part's
@@ -5751,6 +5754,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `place.edge_step` | `0.05` | mm | the step a part on a curved board edge is stepped in from the edge at until the keep-in holds it, before it is bisected back |
 | `place.pocket_step` | `0.5` | mm | the least raster a free-rectangle search blocks the board at; an item's own step is used when coarser |
 | `place.freedom_min_step` | `0.2` | mm | the least step a part's one-freedom search (along an edge, round a ring) walks at; an item's own step is used when coarser |
+| `place.lock_freedom_tolerance` | `0.01` | mm | how far a lock entry's spot may lie off the line, edge, run, rim or ring its item is placed on and still be held there; past it the entry is released |
 | `place.cutout_step` | `0.2` | mm | the step a cutout is slid along a free axis at |
 | `place.cutout_angle_step` | `0.5` | degrees | the step a cutout is turned round its centre at |
 | `place.escape_lane_via_exit` | `false` | bool | whether a via that fits at the end of a pad's own copper (an escape lane or a stub drawn from it) counts as that pad's way out. Off: a pad on a lane needs a track to get on, on the layer the lane is on, and is walled off when only a via would; on: a via spot is enough, as for a pad with no lane, which keeps the via rule either way |

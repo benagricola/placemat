@@ -198,6 +198,9 @@ class Settings:
         "the least raster a free-rectangle search blocks the board at; an item's own step is used when coarser")
     place_freedom_min_step: float = S(0.2, "mm",
         "the least step a part's one-freedom search (along an edge, round a ring) walks at; an item's own step is used when coarser")
+    place_lock_freedom_tolerance: float = S(0.01, "mm",
+        "how far a lock entry's spot may lie off the line, edge, run, rim or ring its item is placed on and still be held "
+        "there; past it the entry is released")
     place_cutout_step: float = S(0.2, "mm",
         "the step a cutout is slid along a free axis at")
     place_cutout_angle_step: float = S(0.5, "degrees",

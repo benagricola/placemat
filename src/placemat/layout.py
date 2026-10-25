@@ -10066,6 +10066,9 @@ class Board:
         geom = occ._geometry(i.item)
         others = occ.obstacles(geom, occ.board_box.inflate(2.0))
         step = step if step is not None else max(i.step, self.settings.place_freedom_min_step)
+        along_lock, spot = self._lock_along(occ, i, plan, placement_at, lo, hi, step, where)
+        if spot is not None:
+            ideal = along_lock
         n = int((hi - lo) / step) + 1
         candidates = sorted({min(max(ideal + d * step * sgn, lo), hi) for d in range(n) for sgn in (1, -1)},
                             key=lambda a: (abs(a - ideal), a))
@@ -10091,7 +10094,10 @@ class Board:
                 if why is None:
                     moved = abs(along - ideal)
                     notes = [step_text.record("where", where=where)]
-                    if moved > 1e-9 and getattr(i, "toward", None) is not None:
+                    if spot is not None:
+                        first = next(iter(reasons.values()), None)
+                        notes.append(self._lock_kept(i, p, spot, moved, first))
+                    elif moved > 1e-9 and getattr(i, "toward", None) is not None:
                         notes.append(step_text.record("stopped_short", mm=moved, units=units, toward=i.toward.name.lower(),
                                                     why=None if last_why is None else last_why.to_json()))
                     elif moved > 1e-9:
@@ -10114,6 +10120,9 @@ class Board:
         block lays out from the anchor `anchor_at(along)` gives, so each is
         checked with layout_block rather than occ.legal on one item."""
         step = step if step is not None else max(i.step, self.settings.place_freedom_min_step)
+        along_lock, spot = self._lock_along(occ, i, plan, anchor_at, lo, hi, step, where)
+        if spot is not None:
+            ideal = along_lock
         n = int((hi - lo) / step) + 1
         candidates = sorted({min(max(ideal + d * step * sgn, lo), hi) for d in range(n) for sgn in (1, -1)},
                             key=lambda a: (abs(a - ideal), a))
@@ -10126,7 +10135,9 @@ class Board:
             if members is not None:
                 moved = abs(along - ideal)
                 notes = [step_text.record("where", where=where)]
-                if moved > 1e-9:
+                if spot is not None:
+                    notes.append(self._lock_kept(i, anchor_at(along), spot, moved, next(iter(reasons.values()), None)))
+                elif moved > 1e-9:
                     notes.append(step_text.record("slid", mm=moved, units=units))
                 return self._commit_block(occ, spec, members, i, plan, notes)
             key = _reason_key(why)
@@ -10457,6 +10468,48 @@ class Board:
             self._lock_notes[i.key] = step_text.record("lock_released", reason=why)
             return None, None
         return spot, spot
+
+    def _lock_along(self, occ: Occupancy, i, plan: Plan, placement_at, lo: float, hi: float, step: float, where: dict):
+        """(along, locked spot) for an item with one freedom whose lock entry
+        holds: the place along [lo, hi] where `placement_at` stands it on its
+        locked spot. (None, None) with no entry, or after releasing one whose
+        spot is off the freedom by more than the tolerance (the line's
+        reference moved, say)."""
+        spot, _ = self._lock_spot(occ, i, plan)
+        if spot is None:
+            return None, None
+
+        def off(along):
+            p = placement_at(along)
+            return math.inf if p is None else p.location.distance(spot.location)
+        n = int((hi - lo) / step) + 1
+        best = min({min(lo + k * step, hi) for k in range(n)} | {hi}, key=off)
+        a, b = max(lo, best - step), min(hi, best + step)
+        for _ in range(60):                                 # the distance falls to its least and rises again
+            m1, m2 = a + (b - a) / 3.0, b - (b - a) / 3.0
+            if off(m1) <= off(m2):
+                b = m2
+            else:
+                a = m1
+        along = (a + b) / 2.0
+        p, d = placement_at(along), off(along)
+        turn = math.inf if p is None else abs((p.rotation - spot.rotation + 180.0) % 360.0 - 180.0)
+        if d > self.settings.place_lock_freedom_tolerance or turn > 1e-6:
+            self._lock_notes[i.key] = step_text.record("lock_released", reason={
+                "form": "off_its_freedom", "mm": round(d, 3) if d < math.inf else None, "along": where["form"]})
+            return None, None
+        return along, spot
+
+    def _lock_kept(self, i, placement: Placement, spot: Placement, moved: float, first):
+        """The note for an item with one freedom placed from its lock entry:
+        held on its spot, or drifted along its freedom from it."""
+        self._lock_held.add(i.key)
+        if moved <= 1e-9:
+            self._lock_marks[i.key] = "held"
+            return step_text.record("lock_held")
+        self._lock_marks[i.key] = "drifted"
+        return step_text.record("lock_drifted", mm=placement.location.distance(spot.location),
+                                why=None if first is None else first.to_json())
 
     def _settle_locked(self, occ: Occupancy, i, plan: Plan, clr):
         """A locked part or cell: at its locked spot when that is legal, else

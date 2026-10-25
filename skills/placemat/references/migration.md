@@ -18,6 +18,14 @@ section for each hand-written pattern a newer form replaces.
   refused there; a `PadRef`, `Mid` or `Origin` point is projected onto the row. At turns that are multiples of 90 the
   placement is unchanged. A `SideOf` whose pads have no one way out in the part's frame still raises.
 
+### Fixed
+
+- **A lock entry holds an item placed on a line, an edge, a run, a rim or a ring.** The run read the lock only for
+  items searched in two freedoms, so an entry for, say, `at=Centre(X(...), None)` was written but never applied: the
+  item went wherever its line search put it. Now the entry's spot is found on the item's freedom and the item is held
+  there, or drifts along the freedom when something blocks it. A spot more than `place.lock_freedom_tolerance` off the
+  freedom releases the entry with that reason.
+
 ## To 0.100.15
 
 ### Fixed
