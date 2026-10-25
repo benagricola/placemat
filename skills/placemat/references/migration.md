@@ -18,6 +18,15 @@ section for each hand-written pattern a newer form replaces.
   refused there; a `PadRef`, `Mid` or `Origin` point is projected onto the row. At turns that are multiples of 90 the
   placement is unchanged. A `SideOf` whose pads have no one way out in the part's frame still raises.
 
+- **`Beside(..., slide=True)` slides a part along its side to clear what is already placed.** A part whose aligned
+  spot is taken by a part placed before it (a decoupling capacitor of a placed cell, say) keeps its standoff from the
+  item and its rotation and slides along the side, nearest spot first, either way, to the first spot that stands. The
+  reach is `place.beside_slide_reach` (3.0 mm) and the step `place.beside_slide_step` (0.05 mm), bisected back toward
+  the aligned spot. Where nothing within reach stands, it is moved out or refused as without `slide`. The step note
+  says how far it slid and what was in the way. Without `slide` nothing changes, and a lock entry's digest for a
+  `Beside` without it is the same. A `Beside` on a `SideOf` side of a part turned off the right angles is now also
+  moved out, along the row's normal, when something already placed is in its way; it was only judged before.
+
 ### Fixed
 
 - **A lock entry holds an item placed on a line, an edge, a run, a rim or a ring.** The run read the lock only for

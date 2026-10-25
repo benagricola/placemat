@@ -358,6 +358,12 @@ class Beside:
     floor); pads of one net set no distance. Its body, courtyard and silk
     are judged afterwards as for any placement.
 
+    `slide=True`: when something already placed lies where the part would
+    stand, it keeps its standoff and its rotation and slides along `side`
+    (along the row, for a `SideOf` of a part turned off the right angles) to
+    the nearest spot that stands, either way, within
+    `place.beside_slide_reach`; nothing within reach, and it is as without.
+
     Firm, like `Pin`: the position is decided, not searched. The
     rotation is what the script gave, or its default - `Beside` does not
     turn the part to face `item`."""
@@ -366,10 +372,13 @@ class Beside:
     align: object = None
     gap: float | None = None
     copper: bool = field(default=False, kw_only=True, metadata={"omit_default": True})
+    slide: bool = field(default=False, kw_only=True, metadata={"omit_default": True})
 
     def __post_init__(self):
         if not isinstance(self.side, (Edge, SideOf)):
             raise TypeError("Beside's side is an Edge or a SideOf, not %r" % (self.side,))
+        if not isinstance(self.slide, bool):
+            raise TypeError("Beside's slide is True or False, not %r" % (self.slide,))
         if self.align is not None and not isinstance(self.align, (Along, PadRef, tuple, X, Y, Mid, Origin)):
             raise TypeError("Beside's align is a PadRef, an (own_pad, their_pad) pair, a point (X, Y, Mid, "
                             "Origin; a cell's envelope centre), Along.START/MID/END, or nothing (Along.MID), "

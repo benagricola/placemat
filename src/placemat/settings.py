@@ -154,6 +154,10 @@ class Settings:
         "the step a part placed Beside is moved out at, when something already placed is in its way, until the collision rule lets it stand, then bisected back to the first spot that stands")
     place_beside_reach: float = S(2.0, "mm",
         "how far past its standoff from the item a part placed Beside may be moved out to clear what is in its way; past it the part stays at the standoff and the collision is reported")
+    place_beside_slide_step: float = S(0.05, "mm",
+        "the step a part placed Beside with `slide=True` is slid along its side at, each way from its aligned spot, when something already placed is in its way, until the collision rule lets it stand, then bisected back toward the aligned spot to the first spot that stands")
+    place_beside_slide_reach: float = S(3.0, "mm",
+        "how far along its side a part placed Beside with `slide=True` may be slid, either way, to clear what is in its way; past it the part is moved out or refused as without `slide`")
     place_escape_min_pads: int = S(1, "count",
         "a part's pads keep escapes when it has at least this many (3 leaves two-pad parts out)")
     place_escape_via_step: float = S(0.05, "mm",
@@ -757,7 +761,7 @@ _CHOICES = {"place_envelope": ("courtyard", "physical", "union"), "place_rotatio
 # from this table because weighting a dimension at nothing is a real choice.
 _ABOVE_ZERO = frozenset((
     "place_radius", "place_step", "place_bearing_step", "place_tangent_bin", "place_lookahead_step", "place_room_pitch", "place_coarse_min_radius_steps", "place_coarse_stride",
-    "place_refine_spots", "place_escape_spots", "place_retry_lift", "place_step_budget", "place_arrangement_options_max", "place_arrangements_max", "place_arrangement_note_chars", "place_block_gap_step", "place_block_gap_reach", "place_beside_step", "place_beside_reach", "place_firm_passes", "place_copper_room_tolerance", "place_escape_via_step", "place_escape_via_reach", "place_edge_step", "place_pocket_step", "place_freedom_min_step", "place_cutout_step", "place_cutout_angle_step", "place_escape_cell", "place_approach_reach", "place_approach_detour", "geometry_cap_steps", "solve_spread_growth", "solve_centre_pull", "score_escape_depth", "score_escape_reach", "score_congestion_box", "place_via_move_step", "place_via_search_chunk", "place_via_clear_cache",
+    "place_refine_spots", "place_escape_spots", "place_retry_lift", "place_step_budget", "place_arrangement_options_max", "place_arrangements_max", "place_arrangement_note_chars", "place_block_gap_step", "place_block_gap_reach", "place_beside_step", "place_beside_reach", "place_beside_slide_step", "place_firm_passes", "place_copper_room_tolerance", "place_escape_via_step", "place_escape_via_reach", "place_edge_step", "place_pocket_step", "place_freedom_min_step", "place_cutout_step", "place_cutout_angle_step", "place_escape_cell", "place_approach_reach", "place_approach_detour", "geometry_cap_steps", "solve_spread_growth", "solve_centre_pull", "score_escape_depth", "score_escape_reach", "score_congestion_box", "place_via_move_step", "place_via_search_chunk", "place_via_clear_cache",
     "place_conflict_reach", "place_fit_room", "copper_arc_radius_track_widths", "copper_bridge_half_gap", "copper_finger_bridge_width", "copper_finger_min_piece",
     "copper_plane_min_width", "copper_pour_outline_width", "copper_pour_reach_step", "copper_pour_reach_max", "copper_microvia_drill", "label_text_height",
     "label_thickness", "label_slide_step", "geometry_arc_sag", "geometry_index_cells",

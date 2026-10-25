@@ -441,6 +441,7 @@ class _BesideSpec:
     align: tuple
     gap: float | None
     copper: bool = field(default=False, metadata={"omit_default": True})
+    slide: bool = field(default=False, metadata={"omit_default": True})    # slid along the side to clear what is placed
 
 
 @dataclass
@@ -2361,7 +2362,7 @@ class Board:
                             "envelope centre), Along.START/MID/END, or nothing (Along.MID), not %r" % (key, align))
         if at.copper and item_kind != "item":
             raise TypeError("%s: Beside's copper= measures from pads; a %s has none" % (key, item_kind))
-        return _BesideSpec(at.item, at.side, norm, at.gap, at.copper)
+        return _BesideSpec(at.item, at.side, norm, at.gap, at.copper, at.slide)
 
     def _cell_own_pad(self, key: str, geom, ref) -> tuple:
         """A cell's own pad for Beside's align: a PadRef on one of its members, as
@@ -2584,12 +2585,13 @@ class Board:
             polys = [s.poly for s in occ._geometry(geom).shapes if s.kind != "npth"]
         return Box.of_points([to_frame.apply(q) for poly in polys for q in poly])
 
-    def _beside_turned(self, occ: Occupancy, plan: "Plan", i: PlaceIntent, way: tuple, turn: float) -> Placement:
+    def _beside_turned(self, occ: Occupancy, plan: "Plan", i: PlaceIntent, way: tuple, turn: float,
+                       push: bool = True) -> Placement:
         """Where `Beside(item, SideOf(pads))` puts the item when the pads' part is turned off the right angles: the
         measuring of `_beside_placement` done in the part's own frame, where its row is square to the axes, and the
         result turned back onto the board. The item stands square to the row: its turn is the part's plus a right angle.
-        Envelopes, not shapes, are measured, and nothing is pushed clear of other items; the placement is judged
-        afterwards as any firm one is."""
+        Envelopes, not shapes, are measured. An item in the way of something already placed is then moved out (or
+        slid, with `slide=True`) as a compass Beside is, the directions turned back onto the board."""
         b = i.beside
         to_frame, to_board = Transform.rotate(-turn), Transform.rotate(turn)
         side = way_out_side(way, 0.0)
@@ -2652,7 +2654,15 @@ class Board:
             else:
                 fx = their_at.x - own_pad.x
         x, y = to_board.apply((fx, fy))
-        return Placement(Location(round(x, 6), round(y, 6)), i.rotation, i.face)
+        placement = Placement(Location(round(x, 6), round(y, 6)), i.rotation, i.face)
+        if push:
+            # moved out along the row's normal, slid along the row, as the part's frame has them on the board
+            out = to_board.apply({Edge.EAST: (1.0, 0.0), Edge.WEST: (-1.0, 0.0), Edge.SOUTH: (0.0, 1.0),
+                                  Edge.NORTH: (0.0, -1.0)}[side])
+            along = to_board.apply((0.0, 1.0) if across else (1.0, 0.0))
+            placement = self._beside_clear_of_others(occ, dataclasses.replace(i, beside=dataclasses.replace(b, side=side)),
+                                                     placement, out, along)
+        return placement
 
     def _beside_placement(self, occ: Occupancy, plan: "Plan", i: PlaceIntent, push: bool = True) -> Placement:
         """Where `Beside(...)` puts the item: its own drawn envelope `gap`
@@ -2661,7 +2671,7 @@ class Board:
         if isinstance(b.side, SideOf):
             way, placed = self._side_way(occ, i.key, b.side)
             if min(placed.rotation % 90.0, 90.0 - placed.rotation % 90.0) > _TURN_TOL:
-                return self._beside_turned(occ, plan, i, way, placed.rotation)
+                return self._beside_turned(occ, plan, i, way, placed.rotation, push)
             b = dataclasses.replace(b, side=self._side_of(occ, i.key, b.side))
             i = dataclasses.replace(i, beside=b)
         if isinstance(b.item, KeepoutIntent):
@@ -2989,22 +2999,29 @@ class Board:
                            for k, v in self._room_seed.items())) + repr(self._swaps)
         return "|rooms:" + hashlib.sha256(text.encode()).hexdigest()[:16]
 
-    def _beside_clear_of_others(self, occ: Occupancy, i: PlaceIntent, placement: Placement) -> Placement:
+    def _beside_clear_of_others(self, occ: Occupancy, i: PlaceIntent, placement: Placement, out=None,
+                                along=None) -> Placement:
         """`_beside_clear` with a user's labels left out: they give way to a firm part, the part does not."""
         real = getattr(occ, "_occ", occ)
         was, real.labels_yield = real.labels_yield, True
         try:
-            return self._beside_clear(occ, i, placement)
+            return self._beside_clear(occ, i, placement, out, along)
         finally:
             real.labels_yield = was
 
-    def _beside_clear(self, occ: Occupancy, i: PlaceIntent, placement: Placement) -> Placement:
+    def _beside_clear(self, occ: Occupancy, i: PlaceIntent, placement: Placement, out=None, along=None) -> Placement:
         """Beside's standoff from `item`, moved on out along its side's axis to the first place the collision
         rule (`Occupancy.legal`: everything placed on the face, the reservations, the edge) lets the part stand,
         when something else already placed lies in its way. Stepped out from the standoff, `place.beside_step` a
         time up to `place.beside_reach`, then bisected back to the first spot that stands. The standoff itself
-        when it stands, and when nothing within reach does (the collision is then reported as any firm one is)."""
-        u = {Edge.EAST: (1.0, 0.0), Edge.WEST: (-1.0, 0.0), Edge.SOUTH: (0.0, 1.0), Edge.NORTH: (0.0, -1.0)}[i.stands_off[1]]
+        when it stands, and when nothing within reach does (the collision is then reported as any firm one is).
+        `out` and `along` are the unit vectors of the side's normal and of the way along it, on the board: a compass
+        side's own by default, a turned part's row's given. With `slide=True` the part is first slid along the side
+        (`place.beside_slide_step`, `place.beside_slide_reach`), either way, to the nearest spot that stands, keeping
+        its standoff."""
+        u = out or {Edge.EAST: (1.0, 0.0), Edge.WEST: (-1.0, 0.0), Edge.SOUTH: (0.0, 1.0),
+                    Edge.NORTH: (0.0, -1.0)}[i.stands_off[1]]
+        w = along or ((0.0, 1.0) if i.stands_off[1] in (Edge.EAST, Edge.WEST) else (1.0, 0.0))
         real = getattr(occ, "_occ", occ)        # a rider is laid in a view: the host and riders before it stand in it
         others = real.obstacles(real._geometry(i.item))
         group = [x for g in list(occ._moved.values()) + list(occ._cells.values()) for x in g.shapes if not x.carried] \
@@ -3014,15 +3031,17 @@ class Board:
         group += [x for x in real.rooms if not (set(x.label.split(",")) & mine)]
         loc, clr = placement.location, self.clearance
 
-        def at(s: float) -> Placement:
-            return Placement(Location(round(loc.x + s * u[0], 6), round(loc.y + s * u[1], 6)), i.rotation, i.face)
+        def at(s: float, t: float = 0.0) -> Placement:
+            return Placement(Location(round(loc.x + s * u[0] + t * w[0], 6), round(loc.y + s * u[1] + t * w[1], 6)),
+                             i.rotation, i.face)
 
         past = self._firm_past_edge(i)
 
-        def fits(s: float) -> bool:
-            """Whether the part stands at `s` with nothing giving way: the cheap answer, all the move out asks. The
-            standoff is the script's own place; a step out is placemat's, which keeps off a hole whatever its severity."""
-            p, decided = at(s), s == 0.0
+        def fits(s: float, t: float = 0.0) -> bool:
+            """Whether the part stands at `s` out and `t` along with nothing giving way: the cheap answer, all the move
+            out asks. The standoff is the script's own place; a step out is placemat's, which keeps off a hole whatever
+            its severity."""
+            p, decided = at(s, t), s == 0.0 and t == 0.0
             if group and real.legal(i.item, p, clr, others=ShapeIndex(group), board=False,
                                     decided=decided) is not None:
                 return False
@@ -3042,6 +3061,10 @@ class Board:
         stands = fits
         if stands_at_standoff():
             return placement
+        if i.beside is not None and i.beside.slide:
+            slid = self._beside_slide(real, i, placement, others, group, clr, lambda t: fits(0.0, t))
+            if slid is not None:
+                return at(0.0, slid)
         step, reach = self.settings.place_beside_step, self.settings.place_beside_reach
         lo, hi = 0.0, None
         for k in range(1, int(reach / step + 1e-9) + 1):
@@ -3060,14 +3083,52 @@ class Board:
             hi = round(hi + 1e-6, 6)
         return at(hi)
 
-    def _beside_refused(self, real, i: PlaceIntent, placement: Placement, others, group, clr) -> None:
-        """A Beside part that no step within reach lets stand: said, by what stood in its way. Provisional copper is
-        `fixed.room`; a firm Beside part placed before it is noted, for the next pass to place the two the other way round."""
+    def _beside_blame(self, real, i: PlaceIntent, placement: Placement, others, group, clr) -> list:
+        """The shapes that stand in the way of a Beside part at `placement`: the declared copper's room, else the rest."""
         blame: list = []
         if not (group and real.legal(i.item, placement, clr, others=ShapeIndex(group), board=False, blame=blame,
                                      decided=True) is not None):
             real.legal(i.item, placement, clr, others=others, past_edge=self._firm_past_edge(i), overhang=i.overhang,
                        blame=blame, by_corners=True, decided=True)
+        return blame
+
+    def _beside_slide(self, real, i: PlaceIntent, placement: Placement, others, group, clr, fits) -> float | None:
+        """How far along its side a `slide=True` Beside part must go (signed, along the side's way) to stand: the
+        nearest spot within `place.beside_slide_reach` of the aligned one, stepped `place.beside_slide_step` a time each
+        way and bisected back toward the aligned spot, the positive way when both are as near; None when none stands.
+        Notes what was in the way for the step (`_slid`)."""
+        step, reach = self.settings.place_beside_slide_step, self.settings.place_beside_slide_reach
+        found = []
+        for k in range(1, int(reach / step + 1e-9) + 1):
+            found = [sign for sign in (1.0, -1.0) if fits(sign * k * step)]
+            if found:
+                break
+        if not found:
+            return None
+        best = None
+        for sign in found:
+            lo, hi = (k - 1) * step, k * step
+            while hi - lo > 1e-4:
+                mid = (lo + hi) / 2.0
+                lo, hi = (lo, mid) if fits(sign * mid) else (mid, hi)
+            hi = math.ceil(hi * 1e6) / 1e6
+            while not fits(sign * hi):
+                hi = round(hi + 1e-6, 6)
+            if best is None or hi < best[0] - 1e-9:
+                best = (hi, sign)
+        mm, sign = best
+        names = []
+        for sh in self._beside_blame(real, i, placement, others, group, clr):
+            name = getattr(sh.owner, "name", str(sh.owner))
+            if name not in names:
+                names.append(name)
+        self._slid[i.key] = step_text.record("beside_slid", mm=mm, clear_of=names or None)
+        return sign * mm
+
+    def _beside_refused(self, real, i: PlaceIntent, placement: Placement, others, group, clr) -> None:
+        """A Beside part that no step within reach lets stand: said, by what stood in its way. Provisional copper is
+        `fixed.room`; a firm Beside part placed before it is noted, for the next pass to place the two the other way round."""
+        blame = self._beside_blame(real, i, placement, others, group, clr)
         if not blame:
             return
         owner = blame[0].owner
@@ -8155,7 +8216,7 @@ class Board:
                         board_cutouts=self._cutouts, settings=self.settings,
                         component_spacing=self.component_spacing, rules=self._rules)
         occ.set_rooms([sh for shapes in self._room_seed.values() for sh in shapes])     # the copper the passes planned
-        self._beside_blocked, self._tight, self._beside_hint = [], {}, set()
+        self._beside_blocked, self._tight, self._beside_hint, self._slid = [], {}, set(), {}
         self._check_stamped_via_types()     # a fragment's vias the fab profile does not allow fail the run
         self._flip_said = self._flip_notes(occ)     # a flipped cell's via whose inner end changes role
         self._carry_pad_vias(occ)          # before any cell's geometry is built from its members'
@@ -10957,7 +11018,9 @@ class Board:
                                                       "OnEdge(board.edge(facing=...))"),
                                i.angle, i.clearance, i.rotation, i.face, bore=i.rim == "bore")
         elif i.beside is not None:
+            self._slid.pop(i.key, None)
             p = self._beside_placement(occ, plan, i)
+            chose = self._slid.pop(i.key, None)
         else:
             if isinstance(i.along, _RowSlot):
                 along = i.along.resolve(self, occ)

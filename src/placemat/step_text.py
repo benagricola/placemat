@@ -178,6 +178,11 @@ def _room_kept(n):
     return "room kept for %s" % _list(n["for"])
 
 
+@renders("beside_slid")
+def _beside_slid(n):
+    return "slid %.2f mm along its side%s" % (n["mm"], (", clear of " + _list(n["clear_of"])) if n.get("clear_of") else "")
+
+
 # ------------------------------------------------------------------ where along its freedom
 @renders("where")
 def _where(n):

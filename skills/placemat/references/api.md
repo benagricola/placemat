@@ -50,6 +50,7 @@ request (SKILL.md, "When no form says it").
 | as far toward one end of a line as it is legal | `at=Centre(x, None, toward=Edge.SOUTH)` | Placement |
 | somewhere the netlist cannot say (a thermal neighbour) | `at=Near(PadRef(...))` | Placement |
 | beside a part, a cell or a keepout, at the envelope gap | `at=Beside(item, Edge.EAST, align=Along.START, gap=)` | Placement (Beside) |
+| beside a part, sliding along the side to clear what is already placed | `at=Beside(item, Edge.EAST, align=..., slide=True)` | Placement (Beside) |
 | beside one part, level with a pad of it or of any firmly placed part | `at=Beside(item, Edge.SOUTH, align=PadRef(Part(other), n))` | Placement (Beside) |
 | a cell beside an item, a member's pad level with a pad or a point | `at=Beside(item, Edge.SOUTH, align=(PadRef(Part("cell.member"), n), PadRef(Part(other), m)))`; a bare `PadRef` takes the member's pad on that net | Placement (Beside) |
 | a cell beside an item, its envelope centre level with a point | `at=Beside(item, Edge.SOUTH, align=Mid(PadRef(Part(a), n), PadRef(Part(a), m)))` (`X`, `Y`, `Origin` too) | Placement (Beside) |
@@ -878,7 +879,19 @@ between parts placed by then: that copper is planned provisionally, and the part
 stands where it leaves the room (`place.copper_room`); a part that stands nearer
 than the box put it and is an end of copper that then meets other copper goes back
 to the box's distance. `fixed.room` says a part for which no place within reach
-keeps that room. `align=` lines it up
+keeps that room.
+
+`slide=True` (`Beside(item, side, align=, slide=True)`): where the aligned spot is
+taken by something already placed, the item keeps its standoff from `item` and
+its rotation and slides along the side - along the row in the part's frame, for
+a `SideOf` of a part turned off the right angles - to the nearest spot that
+stands, either way (the positive way of the side's axis when both are as near).
+It steps `place.beside_slide_step` a time up to `place.beside_slide_reach` each
+way, then bisects back toward the aligned spot. What is placed already takes
+precedence, a decoupling capacitor of a placed cell, say. The step note says how
+far it slid and what was in the way (`slid 0.85 mm along its side, clear of C3`).
+Where no spot within reach stands, the item is moved out or refused as without
+`slide`. The item then no longer sits level with the pads `align=` names. `align=` lines it up
 across the side, flush as `OnEdge` and `row(of=)` are, never the placed
 part's body centre left overhanging the corner: a `PadRef` - the placed
 part's own pad on the same net lands level with the named pad -
@@ -908,8 +921,8 @@ stands the gap outward of the row, centred where `align=` says. The item's
 rotation is refused. `align=` points are `PadRef`, `Mid` and `Origin`
 points, projected onto the row's direction; an `X`/`Y` point there is a board
 axis and is refused, as are `Past`, a lane and `copper=True`. Envelopes are
-measured, not shapes, and nothing is pushed clear of other items; the
-collision check judges the result. A `SideOf` whose pads have no one way out
+measured, not shapes; an item in the way of something already placed is moved
+out along the row's normal (or slid, below) as the compass `Beside` is. A `SideOf` whose pads have no one way out
 in `u`'s frame (a corner pad of a grid, whose way out is diagonal) is
 refused at any turn. At turns that are multiples of 90 nothing differs from
 the compass `Beside`.
@@ -5734,6 +5747,8 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `place.copper_room_tolerance` | `0.001` | mm | how far a declared track or via may move between two passes and count as settled |
 | `place.beside_step` | `0.01` | mm | the step a part placed Beside is moved out at, when something already placed is in its way, until the collision rule lets it stand, then bisected back to the first spot that stands |
 | `place.beside_reach` | `2.0` | mm | how far past its standoff from the item a part placed Beside may be moved out to clear what is in its way; past it the part stays at the standoff and the collision is reported |
+| `place.beside_slide_step` | `0.05` | mm | the step a part placed Beside with `slide=True` is slid along its side at, each way from its aligned spot, when something already placed is in its way, until the collision rule lets it stand, then bisected back toward the aligned spot to the first spot that stands |
+| `place.beside_slide_reach` | `3.0` | mm | how far along its side a part placed Beside with `slide=True` may be slid, either way, to clear what is in its way; past it the part is moved out or refused as without `slide` |
 | `place.escape_min_pads` | `1` | count | a part's pads keep escapes when it has at least this many (3 leaves two-pad parts out) |
 | `place.escape_via_step` | `0.05` | mm | the step a `board.escape` lane's via is searched along its lane at, from the row's end, before it is bisected back to the nearest nanometre |
 | `place.escape_via_reach` | `5.0` | mm | how far along its lane, or its axis, a `board.escape` via is searched before it has no legal spot |
