@@ -5,6 +5,19 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## To 0.100.16
+
+### Added
+
+- **`Beside(item, SideOf(pads))` works beside a part turned off the right angles.** `SideOf` named the row's way out
+  snapped to the nearest compass side and was refused on a diagonal, so nothing could stand beside a pin row of a part
+  turned 45. Now, when the part's turn is not a multiple of 90, `Beside` measures in the part's own frame - the
+  reference's envelope (a part's, a cell's, a keepout's, or an escape's risers, lanes and vias), the item's, the gap, and
+  `align=` along the row - and turns the result back onto the board. The item's `rotation=` must be the part's turn plus
+  a multiple of 90 (`Turned(part, 0)`), and is refused otherwise. `Past`, a lane, an `X`/`Y` point and `copper=True` are
+  refused there; a `PadRef`, `Mid` or `Origin` point is projected onto the row. At turns that are multiples of 90 the
+  placement is unchanged. A `SideOf` whose pads have no one way out in the part's frame still raises.
+
 ## To 0.100.15
 
 ### Fixed

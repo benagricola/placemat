@@ -66,6 +66,7 @@ request (SKILL.md, "When no form says it").
 | every part of a row turned so its pad n faces a side | `board.row(items, edge, rotation=Facing(n, Edge.WEST))` | Placement (Rows) |
 | turned so its pad faces another part's pad, whichever side that lands on | `rotation=Facing(PadRef(c, "SUPPLY"), toward=PadRef(u, "VCC"))` | Placement (Turns) |
 | beside a part on the side where its pad lands after its turn | `at=Beside(Part("u"), SideOf(PadRef(Part("u"), "VCC")))` | Placement (Beside) |
+| beside a pin row of a part turned at any angle, or its escape, centred on two of its pads | `at=Beside(esc, SideOf(PadRef(u, 22)), align=Mid(PadRef(u, 22), PadRef(u, 23)))`, `rotation=Turned(u, 0)` | Placement (Beside) |
 | beside a part past the end of the pin row where a pad lies | `at=Beside(Part("u"), SideOf(PadRef(Part("u"), 1), along=True))` | Placement (Beside) |
 | a row ordered by where the pads its items serve land | `board.row(items, edge, of=Part("u"), over=[PadRef(Part("u"), "SDA"), ...])` | Placement (Rows) |
 | on a point, its turn (a bearing) searched, scored by links, pushes and keepouts | `at=Pin(Part("c.member"), Location(x, y)), rotations=Turns.ANY` | Placement (Turns) |
@@ -797,6 +798,7 @@ What the handles are:
 | `align=(own_pad, esc[pin])` | in a `Beside`: the own pad centred across the lane's line (the lane's for a lane turned across the row, the riser's without a turn). The side decides the other axis, so the lane's line must run across it; a 45 lane has no line |
 | `esc[pin].end` | where the lane ends (its via, or the end of its track) as a point reference: `X()`, `Y()` and a `Pin` take it, `at=Pin(1, X(esc[32].end), Y(esc[32].end))` |
 | `Beside(esc, Edge.NORTH)` | stands an item beside the escape's risers, lanes and vias together |
+| `Beside(esc, SideOf(PadRef(part, pin)))` | the same on the side where the pin's row points, measured in the part's own frame when it is turned off the right angles; the item is `Turned(part, 0)` or a right angle from it |
 
 A placement that refers to a lane waits for its part, as one that refers to
 a pad does, and rides the part when it is searched.
@@ -890,9 +892,36 @@ Edge.WEST, align=PadRef(Part("u1"), "SW"))`.
 `Facing` takes): the board side the pad's way out points at once `u` is
 placed, its turn and face applied and snapped to the nearest axis - the same
 way out `Facing` reads, so `Beside(u, SideOf(pad))` stands the part where
-`Facing(pad, edge)` would have put that edge. `u` is placed first. A
+`Facing(pad, edge)` would have put that edge. Where `u` is turned off the
+right angles the side is the row's normal in `u`'s frame (below). `u` is placed first. A
 `SideOf` side with a `Past`, a lane or an `X`/`Y` point in `align=` is
 refused: those check the side's axis now.
+
+With `u` turned off the right angles (45, say), a `SideOf` side measures in
+`u`'s own frame, where its pad row is square to the axes: the item, whether
+`u`, another part, a cell, a keepout or an escape (`esc`'s risers, lanes and
+vias), is measured in that frame, the gap is the same as ever, and `align=`
+runs along the row. The result is turned back onto the board, so the item
+stands the gap outward of the row, centred where `align=` says. The item's
+`rotation=` must be `u`'s turn plus a multiple of 90, normally
+`Turned(u, 0)` (or 90), so that its envelope is square to the row; any other
+rotation is refused. `align=` points are `PadRef`, `Mid` and `Origin`
+points, projected onto the row's direction; an `X`/`Y` point there is a board
+axis and is refused, as are `Past`, a lane and `copper=True`. Envelopes are
+measured, not shapes, and nothing is pushed clear of other items; the
+collision check judges the result. A `SideOf` whose pads have no one way out
+in `u`'s frame (a corner pad of a grid, whose way out is diagonal) is
+refused at any turn. At turns that are multiples of 90 nothing differs from
+the compass `Beside`.
+
+```python
+# four terminations standing outward of an escape's lanes on a part turned 45,
+# centred on the middle two pads of the row
+esc = board.escape(Part("u1"), ["A", "B", "C", "D"])
+board.place(Cell("terms"),
+            at=Beside(esc, SideOf(PadRef(Part("u1"), "B")), align=Mid(PadRef(Part("u1"), "B"), PadRef(Part("u1"), "C"))),
+            rotation=Turned(Part("u1"), 0))
+```
 
 `SideOf(PadRef(Part("u"), 1), along=True)` is the side where the pad lies
 along its row instead of the row's outward normal: the end of the row the pad

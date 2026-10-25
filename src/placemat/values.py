@@ -346,6 +346,10 @@ class Beside:
     `side` may be a `SideOf(pads)`: the side where those pads' way out points
     once their part is placed, with its turn and face applied. Not with a
     `Past`, a lane or an `X`/`Y` point in `align`, which check the side now.
+    Where that part is turned off the right angles, the placement is measured
+    in its own frame (the row square to the axes), `align` runs along the
+    row, and the item's rotation must be the part's turn plus a multiple of
+    90 (`Turned(part, 0)`); the result is turned back onto the board.
 
     `copper=True` measures the standoff from copper, not envelopes: the part
     stands as near `item` on `side` as its pads allow, every pad of it
@@ -735,8 +739,9 @@ class Facing:
 class SideOf:
     """The side of the board a part's pads face once it is placed: their way
     out (as `Facing` reads it) with the part's turn and face applied,
-    snapped to the nearest axis. For `Beside`'s side, which waits for the
-    pads' part. `pads` is a `PadRef` or a list of them.
+    snapped to the nearest axis; where the part is turned off the right
+    angles, the way out in the part's own frame, which `Beside` measures in.
+    For `Beside`'s side, which waits for the pads' part. `pads` is a `PadRef` or a list of them.
 
     `along=True` takes the side where one pad lies along its row instead: the
     row's end that pad is nearer, with the part's turn and face applied. It

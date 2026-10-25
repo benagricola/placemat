@@ -52,6 +52,8 @@ from .values import Figure, FigurePoint, Reach
 RANK_FIXED, RANK_EDGE, RANK_CELL, RANK_FIXED_COPPER, RANK_BLOCK, RANK_LOOSE, RANK_COPPER = range(7)
 
 
+_TURN_TOL = 1e-6
+"""degrees: how near a turn is to a multiple of 90 for a `Beside` on a `SideOf` to measure on the board's axes."""
 # A cell generated with its connector's body bulk on local +Y ("outward")
 # faces out of each edge at this rotation.
 _OPPOSITE = {Edge.NORTH: Edge.SOUTH, Edge.SOUTH: Edge.NORTH, Edge.EAST: Edge.WEST, Edge.WEST: Edge.EAST}
@@ -2569,11 +2571,97 @@ class Board:
             t = round(t + 1e-6, 6)
         return round(t * (u[0] or u[1]), 6)
 
+    def _frame_box(self, occ: Occupancy, item, to_frame: Transform) -> Box:
+        """What a Beside item (an escape or one of its vias, a part or a cell) occupies, as a box in a turned
+        frame: `_beside_placement`'s box measured on the polygons turned into the frame, not on the board's axes."""
+        if self._escape_owner(item) is not None:
+            decl, number = self._escape_decl_of(item)
+            layout = self._lane_layout(occ, decl)
+            ops = [layout.lanes[number].via] if number is not None else layout.ops()
+            polys = [op.polygon for op in ops]
+        else:
+            geom, _, _ = self._item(item)
+            polys = [s.poly for s in occ._geometry(geom).shapes if s.kind != "npth"]
+        return Box.of_points([to_frame.apply(q) for poly in polys for q in poly])
+
+    def _beside_turned(self, occ: Occupancy, plan: "Plan", i: PlaceIntent, way: tuple, turn: float) -> Placement:
+        """Where `Beside(item, SideOf(pads))` puts the item when the pads' part is turned off the right angles: the
+        measuring of `_beside_placement` done in the part's own frame, where its row is square to the axes, and the
+        result turned back onto the board. The item stands square to the row: its turn is the part's plus a right angle.
+        Envelopes, not shapes, are measured, and nothing is pushed clear of other items; the placement is judged
+        afterwards as any firm one is."""
+        b = i.beside
+        to_frame, to_board = Transform.rotate(-turn), Transform.rotate(turn)
+        side = way_out_side(way, 0.0)
+        square = (i.rotation - turn) % 90.0
+        if min(square, 90.0 - square) > _TURN_TOL:
+            raise ValueError("%s: Beside on a SideOf side with the part turned %g degrees stands the item square to the "
+                             "row, so its rotation is the part's turn plus a multiple of 90 (Turned(part, 0), "
+                             "Turned(part, 90)...), not %g" % (i.key, turn, i.rotation))
+        if b.copper:
+            raise ValueError("%s: Beside(copper=True) measures on the board's axes; with the part turned %g degrees give "
+                             "an envelope's standoff, or turn it a right angle" % (i.key, turn))
+        if b.align[0] in ("past", "lane") or (b.align[0] == "centre" and isinstance(b.align[2], (X, Y))) \
+                or (b.align[0] == "pads" and isinstance(b.align[2], (X, Y))):
+            raise ValueError("%s: Beside on a SideOf side with the part turned %g degrees measures along its row; a %s in "
+                             "align is a board axis. Give a PadRef, Mid or Origin point, or Along.START/MID/END"
+                             % (i.key, turn, type(b.align[2]).__name__ if b.align[0] != "past" else "Past"))
+        frame_turn = (i.rotation - turn) % 360.0
+        if isinstance(b.item, KeepoutIntent):
+            pk = plan.keepouts.get(b.item.keepout.name)
+            if pk is None:
+                raise ValueError("%s: keepout %r has no place, so there is nothing to stand beside"
+                                 % (i.key, b.item.keepout.name))
+            item_box = Box.of_points([to_frame.apply(q) for q in pk.poly])
+        else:
+            item_box = self._frame_box(occ, b.item, to_frame)
+        own_box = self.envelope(i.item, frame_turn, i.face)
+        gap = self._beside_gap(b, i.item)
+        fx = fy = None
+        if side is Edge.EAST:
+            fx = item_box.right + gap - own_box.left
+        elif side is Edge.WEST:
+            fx = item_box.left - gap - own_box.right
+        elif side is Edge.SOUTH:
+            fy = item_box.bottom + gap - own_box.top
+        else:
+            fy = item_box.top - gap - own_box.bottom
+        across = side in (Edge.EAST, Edge.WEST)            # the item's place along the row is a y
+        if b.align[0] == "along":
+            frac = b.align[1].fraction
+            if across:
+                fy = item_box.top + frac * (item_box.height - own_box.height) - own_box.top
+            else:
+                fx = item_box.left + frac * (item_box.width - own_box.width) - own_box.left
+        else:
+            own_key, their = b.align[1], b.align[2]
+            if b.align[0] == "centre":
+                own_pad = own_box.center
+            elif isinstance(own_key, tuple):
+                _, owner, number, dx, dy, lx, ly = own_key
+                anchored = cell_pad_anchored_placement(self._bare_occupancy(), i.item, owner, number, dx, dy,
+                                                       Location(0.0, 0.0), frame_turn, i.face, lx, ly)
+                own_pad = Location(-anchored.location.x, -anchored.location.y)
+            else:
+                anchored = pad_anchored_placement(self._bare_occupancy(), i.item, own_key, Location(0.0, 0.0),
+                                                  frame_turn, i.face)
+                own_pad = Location(-anchored.location.x, -anchored.location.y)
+            their_at = Location(*to_frame.apply(tuple(_locate(self, occ, their))))
+            if across:
+                fy = their_at.y - own_pad.y
+            else:
+                fx = their_at.x - own_pad.x
+        x, y = to_board.apply((fx, fy))
+        return Placement(Location(round(x, 6), round(y, 6)), i.rotation, i.face)
+
     def _beside_placement(self, occ: Occupancy, plan: "Plan", i: PlaceIntent, push: bool = True) -> Placement:
         """Where `Beside(...)` puts the item: its own drawn envelope `gap`
         off `item`'s, on `side`, aligned across it."""
         b = i.beside
         if isinstance(b.side, SideOf):
+            way, placed = self._side_way(occ, i.key, b.side)
+            if min(placed.rotation % 90.0, 90.0 - placed.rotation % 90.0) > _TURN_TOL:
+                return self._beside_turned(occ, plan, i, way, placed.rotation)
             b = dataclasses.replace(b, side=self._side_of(occ, i.key, b.side))
             i = dataclasses.replace(i, beside=b)
         if isinstance(b.item, KeepoutIntent):
@@ -3844,9 +3932,9 @@ class Board:
             raise ValueError("%s: Facing(%s, %s): %s" % (
                 key, ", ".join("pad %s" % n for n in numbers), facing.edge.name, e)) from None
 
-    def _side_of(self, occ: Occupancy, key: str, side: SideOf) -> Edge:
-        """The side `SideOf(pads)` names, read off `occ` where the pads' part stands now: their way out
-        at its placed turn and face."""
+    def _side_way(self, occ: Occupancy, key: str, side: SideOf) -> tuple:
+        """(the way `SideOf(pads)` points in the part's own frame - a unit axis vector, its turn not applied -, the
+        reference the pads' part stands at in `occ`)."""
         part = side.pads[0].part
         geom, _, kind = self._item(part)
         ref = self._pad_ref(part)[0]
@@ -3857,8 +3945,18 @@ class Board:
                 way = pad_row_end(self._bare_occupancy(), geom, numbers[0], placed.face)
             else:
                 way = pad_way_out(self._bare_occupancy(), geom, numbers, placed.face)
+        except ValueError as e:
+            raise ValueError("%s: SideOf(%s): %s" % (key, ", ".join("pad %s" % n for n in numbers), e)) from None
+        return way, placed
+
+    def _side_of(self, occ: Occupancy, key: str, side: SideOf) -> Edge:
+        """The side `SideOf(pads)` names, read off `occ` where the pads' part stands now: their way out
+        at its placed turn and face."""
+        way, placed = self._side_way(occ, key, side)
+        try:
             return way_out_side(way, placed.rotation)
         except ValueError as e:
+            numbers = self._facing_numbers(key, self._item(side.pads[0].part)[0], side)
             raise ValueError("%s: SideOf(%s): %s" % (key, ", ".join("pad %s" % n for n in numbers), e)) from None
 
     def _given_rotations(self, items, rotation, face: Face = Face.FRONT) -> list | None:
