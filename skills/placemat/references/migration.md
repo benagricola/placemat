@@ -5,6 +5,15 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## To 0.100.17
+
+### Fixed
+
+- **Riders that move with their host are laid once per turn again.** The check that a host's riders move exactly with
+  it compared offsets at 1e-6 mm, the step positions are rounded to, so a one-step rounding difference failed it and
+  every candidate spot re-laid every rider. A resolve whose host could not seat its riders took minutes in that loop;
+  it now takes about a second and finds the same `unplaced.rides`. Placements are unchanged.
+
 ## To 0.100.16
 
 ### Added
