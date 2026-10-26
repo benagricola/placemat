@@ -33,7 +33,7 @@ def test_every_kind_renders_from_its_facts():
         "no_faces_declared": {}, "seeded": {"nets": ["A"]}, "seeded_by_solve": {}, "pocket": {"w_mm": 1.0, "h_mm": 2.0, "at": [3.0, 4.0]},
         "pocket_other_face": {"face": "back", "wanted": "front"}, "pocket_scan": {"tried": 3}, "back_face": {"back": 1.0, "cost": 2.0, "front": 3.0},
         "lookahead_dropped": {"partners": ["a", "b"]}, "solve_hint_dropped": {"radius_mm": 3.0}, "room_kept": {"for": ["x"]},
-        "where": {"where": where}, "slid": {"mm": 0.5}, "stopped_short": {"mm": 1.0, "toward": "south"}, "moved_off_hint": {"mm": 2.0},
+        "where": {"where": where}, "slid": {"mm": 0.5}, "beside_slid": {"mm": 0.5, "clear_of": ["R1"]}, "stopped_short": {"mm": 1.0, "toward": "south"}, "moved_off_hint": {"mm": 2.0},
         "block": {"members": 3}, "member_of": {"block": "q"}, "anchor_of": {"block": "q"}, "pin_row_slide": {"mm": 1.0, "ref": "U1", "pin": "4"},
         "in_front_of": {"ref": "U1", "pins": ["5", "6"]}, "rides": {"of": "u1"}, "chose_pad": {"net": "GND", "count": 2, "ref": "U1", "pad": "3"},
         "lock_held": {}, "lock_drifted": {"mm": 1.0}, "lock_released": {"reason": {"form": "no_spot_round"}},

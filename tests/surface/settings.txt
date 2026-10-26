@@ -88,6 +88,8 @@ place.arrangements
 place.arrangements_max
 place.bearing_step
 place.beside_reach
+place.beside_slide_reach
+place.beside_slide_step
 place.beside_step
 place.block_gap_reach
 place.block_gap_step
@@ -114,6 +116,7 @@ place.extent_notice_mm
 place.firm_passes
 place.fit_room
 place.freedom_min_step
+place.lock_freedom_tolerance
 place.lookahead
 place.lookahead_step
 place.order
