@@ -11151,8 +11151,8 @@ class Board:
             return None
         for (_, pa, _, _, ga), (_, pb, _, _, gb) in zip(a, b):
             if (pa.rotation, pa.face, bool(ga)) != (pb.rotation, pb.face, bool(gb)) or \
-                    abs(pb.location.x - pa.location.x - _RIDE_PROBE[0]) > 1e-6 or \
-                    abs(pb.location.y - pa.location.y - _RIDE_PROBE[1]) > 1e-6:
+                    abs(pb.location.x - pa.location.x - _RIDE_PROBE[0]) > _RIDE_EXACT or \
+                    abs(pb.location.y - pa.location.y - _RIDE_PROBE[1]) > _RIDE_EXACT:
                 return None
         return at, [(r, p, g) for r, p, _, _, g in a]
 
@@ -12775,10 +12775,13 @@ def _coord(board: "Board", occ: Occupancy, v, axis: str, placed: tuple | None = 
 
 
 _RIDE_PROBE = (1.37, -0.73)
-# the facts of an `unplaced.pocket` finding that finding_text.pocket_note reads
-_POCKET_NOTE_KEYS = ("variant", "w_mm", "h_mm", "face", "tried", "scanned", "budget", "riders")
 """How far _ride_turn moves an item to see whether its riders move with it:
 off any grid a search walks, on both axes."""
+_RIDE_EXACT = 1e-5
+"""How closely a rider's offset must follow the probe for it to move with its host. Positions are rounded to 1e-6 mm,
+so the two probes' offsets can differ by one rounding step, which a 1e-6 tolerance refused by a float ulp."""
+# the facts of an `unplaced.pocket` finding that finding_text.pocket_note reads
+_POCKET_NOTE_KEYS = ("variant", "w_mm", "h_mm", "face", "tried", "scanned", "budget", "riders")
 
 
 @dataclass
