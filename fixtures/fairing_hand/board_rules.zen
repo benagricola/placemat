@@ -32,7 +32,7 @@
 #   0.0994 mm of 3313 prepreg; BASE_6L_NETCLASSES "50Ohm SE"): the clearance
 #   is the coplanar gap to the ground fill beside the line.
 load("@stdlib/board_config.zen", "BoardConfig", "Constraints", "Copper", "CopperLayer", "DEFAULT_NETCLASS", "DesignRules", "DielectricLayer",
-     "FR4_CORE", "Material", "NetClass", "Silkscreen", "Stackup")
+     "FR4_CORE", "Material", "NetClass", "Plane", "Silkscreen", "Stackup")
 load("@stdlib/units.zen", "Impedance")
 
 LAYERS = 6
@@ -100,5 +100,9 @@ CONFIG = BoardConfig(stackup = STACKUP, design_rules = DesignRules(
     constraints = Constraints(copper = Copper(minimum_annular_width = 0.05),
                               silkscreen = Silkscreen(minimum_item_clearance = 0.2)),
     netclasses = [CORE_DEFAULT_CLASS, USB_PAIR_CLASS, CC_CLASS, RF_50_CLASS],
-))
+),
+    # The core's planes, which every module drops to: ground on the component face and both outer inner layers,
+    # 3V3 on In3; In2 is the signal layer.
+    planes = [Plane(net = "GND", layers = ["F.Cu", "In1.Cu", "In4.Cu"]), Plane(net = "V3V3", layers = ["In3.Cu"])],
+)
 
