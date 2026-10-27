@@ -97,7 +97,8 @@ STACKUP = Stackup(
     ],
 )
 CONFIG = BoardConfig(stackup = STACKUP, design_rules = DesignRules(
-    constraints = Constraints(copper = Copper(minimum_annular_width = 0.05),
+    # the fab fills and caps vias in pads: a pad at least the via's size takes its via in it
+    constraints = Constraints(copper = Copper(minimum_annular_width = 0.05, vias_in_pads = True),
                               silkscreen = Silkscreen(minimum_item_clearance = 0.2)),
     netclasses = [CORE_DEFAULT_CLASS, USB_PAIR_CLASS, CC_CLASS, RF_50_CLASS],
 ),
