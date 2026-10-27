@@ -114,6 +114,7 @@ def _ringed(owner):
     return board, plan
 
 
+@needs_native
 def test_copper_of_a_lifted_owner_is_off_the_memo_board_and_back_on_when_it_returns(monkeypatch):
     # R2 owns the ring of tracks round P1's pad. Lifted, R2 takes its copper off the board as a verdict reads it, so P1
     # gets out; put back, the ring walls P1 again, though no shape of R2's own is near P1.

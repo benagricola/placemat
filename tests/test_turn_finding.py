@@ -15,6 +15,7 @@ from placemat.settings import Settings
 from placemat.values import Box, Face, Location
 from tests.fixtures import board_geometry, footprint, pad
 from tests.suggest_support import IMPORTS, script, suggestions_of
+from tests.conftest import needs_native
 
 
 def column(ref, inst, x, nets):
@@ -520,6 +521,7 @@ def test_outline_free_turn_exception_restores_scoring_domain_and_lifts(tmp_path,
     assert occ.__dict__['_congestion'] is grid and occ.__dict__['_congestion_pads'] is pads
 
 
+@needs_native
 def test_outline_free_turn_native_and_python_share_frozen_domain(tmp_path, monkeypatch):
     from placemat import prepared_escape
     body = BODY.replace('at=Near(Location(25, 25)), radius=3.0, rotations=(0, 180)',

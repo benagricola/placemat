@@ -12,6 +12,7 @@ from placemat.placer import scan
 from placemat.placement import Placement
 from placemat.settings import Settings
 from placemat.values import (Bearing, Cell, Cutout, Edge, Face, Location, Near, Part, Pin, Polar, Tangent, Turns)
+from tests.conftest import parity
 from tests.fixtures import board_geometry, footprint
 
 C = 26.5                                  # the disc's centre, both axes
@@ -404,6 +405,7 @@ def test_either_on_the_back_turns_a_declared_east_side_out():
     assert p2.distance(CENTRE) > p1.distance(CENTRE) + 3.0
 
 
+@parity
 def test_either_with_tangent_turns_native_and_python_agree(monkeypatch):
     if not placer.NATIVE_SWEEP:
         pytest.skip("no native sweep")

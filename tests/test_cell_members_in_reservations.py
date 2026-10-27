@@ -9,6 +9,7 @@ from placemat.occupancy import Occupancy
 from placemat.placement import Placement
 from placemat.values import Box, Face, Location
 from tests.fixtures import board_geometry, footprint
+from tests.conftest import needs_native
 
 AT = Placement(Location(14.0, 10.0), 0.0, Face.FRONT)      # the cell where it was read: its box runs 9..19
 
@@ -67,6 +68,7 @@ def test_every_member_named_admits_the_cell():
     (Box(12.5, 5, 30, 15), {"owners": ("C1",)}),
     (Box(12.5, 5, 30, 15), {"allow": ("C",)}),
 ], ids=["low-in-band", "tall-in-band", "named", "net"])
+@needs_native
 def test_the_native_sweep_refuses_the_same_spots(region, kw):
     pytest.importorskip("placemat_native")
     g, occ = _occ()
@@ -116,6 +118,7 @@ def test_a_cells_own_track_elsewhere_is_named_as_its_copper():
     assert why is not None and "its own copper" in str(why) and "L1" not in str(why), why
 
 
+@needs_native
 def test_the_sweep_counts_each_refused_member_as_its_own():
     """A band two members cross in turn as the cell slides: the sweep keeps a
     refusal (and a blocker) per member, each saying which, as legal() does."""

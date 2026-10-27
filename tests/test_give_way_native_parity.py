@@ -11,6 +11,7 @@ from placemat.copper import Track
 from placemat.geometry import via_ring
 from placemat.occupancy import Occupancy, Shape, hole_shape
 from placemat.values import Box, CopperLayer, Face, Location
+from tests.conftest import parity_cases
 from tests.fixtures import board_geometry, footprint
 
 pytestmark = pytest.mark.skipif(_geometry._native is None, reason="no native module")
@@ -18,6 +19,7 @@ pytestmark = pytest.mark.skipif(_geometry._native is None, reason="no native mod
 _F, _B = CopperLayer.F, CopperLayer.B
 _BOTH_FACES = frozenset([Face.FRONT, Face.BACK])
 _CASES = 1000
+_SPOTS = parity_cases(1000, 100)    # the whole-board fixture: the parity tier takes all 1000 spots
 
 
 def _pad(owner, x, y, w, h, net, layers, label="1"):
@@ -270,7 +272,7 @@ def test_resolutions_at_random_spots_on_the_whole_board_fixture_match(monkeypatc
     rnd = random.Random(20260930)
     kinds = {}
     judged = 0
-    for n in range(_CASES):
+    for n in range(_SPOTS):
         grp, step = rnd.choice(groups), rnd.choice(placed)
         item = occ.geometry.cells[step.item] if step.kind == "cell" else occ.geometry.footprint(step.item)
         at = Location(grp.centre[0] + rnd.uniform(-4, 4), grp.centre[1] + rnd.uniform(-4, 4))
@@ -288,4 +290,4 @@ def test_resolutions_at_random_spots_on_the_whole_board_fixture_match(monkeypatc
         kind = "gave way" if out[0] else "refused" if out[2] else "untouched"
         kinds[kind] = kinds.get(kind, 0) + 1
         judged += any(used)
-    assert kinds.get("gave way", 0) >= 50 and judged >= 100, (kinds, judged)
+    assert kinds.get("gave way", 0) >= _SPOTS // 20 and judged >= _SPOTS // 10, (kinds, judged)

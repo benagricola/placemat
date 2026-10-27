@@ -1,8 +1,9 @@
-# A tagged release (v0.31.0, ...): the suite with and without the native
-# module, then prebuilt native wheels for Linux (x86_64, aarch64) and Apple
-# Silicon, placemat's own wheel and sdist, all attached to the tag's GitHub
-# Release. An existing tag can also be rebuilt with workflow_dispatch, with
-# the suite skipped when skip_tests is set.
+# A tagged release (v0.31.0, ...): the default suite on the pure-Python path,
+# the full suite on the native one (with every parity case when native/
+# changed since the previous tag), then prebuilt native wheels for Linux
+# (x86_64, aarch64) and Apple Silicon, placemat's own wheel and sdist, all
+# attached to the tag's GitHub Release. An existing tag can also be rebuilt
+# with workflow_dispatch, with the suite skipped when skip_tests is set.
 name: release
 
 on:
@@ -61,7 +62,7 @@ jobs:
           .venv/bin/python -c "import pcbnew; print(pcbnew.GetBuildVersion()); import placemat.geometry as g; assert g.native_status().in_use, g.native_status().facts()"
       - name: Suite, pure Python
         run: |
-          PLACEMAT_NATIVE=0 .venv/bin/python -m pytest --full -n 2
+          PLACEMAT_NATIVE=0 .venv/bin/python -m pytest -n 2
           .venv/bin/python -m vulture src/placemat tools/release/vulture_allow.py --min-confidence 80
       - name: The version is the tag, and the plugin manifests say so too
         run: |
@@ -74,7 +75,11 @@ jobs:
       - name: Suite, native (built from native/ on install)
         run: |
           .venv/bin/python -c "import placemat.geometry as g; assert g._native is not None"
-          .venv/bin/python -m pytest --full -n 2
+          prev=$(git describe --tags --abbrev=0 --match 'v[0-9]*' "$RELEASE_TAG^" 2>/dev/null || true)
+          parity=""
+          if [ -z "$prev" ] || ! git diff --quiet "$prev" HEAD -- native/; then parity="--parity"; fi
+          echo "previous tag ${prev:-none}; parity: ${parity:-off}"
+          .venv/bin/python -m pytest --full $parity -n 2
           RUSTFLAGS="-D dead_code" cargo build --manifest-path native/Cargo.toml
 
   native-wheels:

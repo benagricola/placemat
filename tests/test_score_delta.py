@@ -5,6 +5,7 @@ import random
 import pytest
 
 from placemat.ratsnest import Anchor, mst, mst_change
+from tests.conftest import needs_native, parity_cases
 
 
 def _length(edges):
@@ -746,6 +747,7 @@ def test_whole_cell_lift_owns_copper_but_partial_member_move_does_not():
     assert search_near(occ) == before
 
 
+@needs_native
 @pytest.mark.slow
 def test_repository_module_and_core_non_escape_delta_parity(monkeypatch):
     """Actual module/core raw objective and complete prepared escape parity."""
@@ -886,7 +888,7 @@ def test_repository_module_and_core_non_escape_delta_parity(monkeypatch):
         print('FULL_PREPARED_COVERAGE', label, coverage, flush=True)
 
     with realboard():
-        for path in bench.boards()[:6]:
+        for path in bench.boards()[:parity_cases(6, 1)]:
             label, started = bench._name(path), perf_counter()
             print('FULL_PREPARED_START', label, flush=True)
             geometry = read_board(path)
@@ -1242,6 +1244,7 @@ def test_lazy_escape_oracle_refuses_changed_occupancy_before_setup(monkeypatch):
         _ = delta._escape_base
 
 
+@needs_native
 @pytest.mark.parametrize('moving_ref', ['U9', 'R9'])
 def test_netless_pad_obstacles_keep_escape_delta_native_and_whole_parity(moving_ref, monkeypatch):
     from dataclasses import replace

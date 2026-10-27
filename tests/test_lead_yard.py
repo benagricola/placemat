@@ -11,6 +11,7 @@ from placemat.placement import Placement
 from placemat.settings import Settings
 from placemat.values import Face, Location
 from tests.fixtures import board_geometry, footprint
+from tests.conftest import needs_native
 
 # the through-hole part: leads 1 and 2 at x 8.6 and 11.4 (1 x 1 mm), body 8..12
 LEADED = dict(w=4, h=2, nets=("A", "B"), through=True, fab=(8.0, 9.0, 12.0, 11.0))
@@ -75,6 +76,7 @@ def test_a_courtyard_envelope_refusal_names_the_pad_too():
     assert why is not None and re.search(r"R1 courtyard sits over the through-hole lead of U1 pad [12]", str(why)), why
 
 
+@needs_native
 def test_the_native_index_and_the_python_scan_agree_round_a_lead():
     pytest.importorskip("placemat_native")
     for placed, searched in (("J1", "C1"), ("C1", "J1")):

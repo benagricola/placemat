@@ -18,7 +18,7 @@ from placemat.occupancy import Occupancy, hole_shape
 from placemat.placement import Placement
 from placemat.settings import Settings
 from placemat.values import Box, CopperLayer, Face, Location
-from tests.conftest import needs_kicad, needs_native
+from tests.conftest import needs_kicad, needs_native, parity
 from tests.fixtures import board_geometry, footprint, pad, rect
 from tests.test_pad_on_pad_edge import _part, _tie
 
@@ -259,7 +259,7 @@ RINGSENSOR = "fixtures/fairing/modules/ringsensor/layout/layout.kicad_pcb"
 
 
 @needs_kicad
-@pytest.mark.parametrize("config", ["default", "physical", "solve"])
+@pytest.mark.parametrize("config", [pytest.param("default", marks=parity), "physical", pytest.param("solve", marks=parity)])
 def test_the_ringsensor_module_is_swept_natively_as_python_sweeps_it(config, monkeypatch, excused):
     """Every sweep of the module's resolve: a sample of its candidates judged natively and in Python one by one
     alike; and the scans and the plan the same with the native sweep on and off."""

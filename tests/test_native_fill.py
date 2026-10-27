@@ -10,6 +10,7 @@ native = pytest.importorskip("placemat_native")
 import placemat.checks as checks_module  # noqa: E402
 from placemat.checks import _Fill  # noqa: E402
 from tests.fixtures import rect  # noqa: E402
+from tests.conftest import needs_native
 
 STEP = 0.05
 
@@ -81,6 +82,7 @@ def test_native_fill_touching_matches_python_fill_touching(name, poly, entry, ex
             assert got == want, (name, tau, polys)
 
 
+@needs_native
 def test_native_fill_is_used_by_default():
     f = _Fill(rect(0, 0, 4, 4), STEP)
     assert f._native is not None

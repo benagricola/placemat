@@ -9,7 +9,7 @@ import pytest
 
 native = pytest.importorskip("placemat_native")
 
-from tests.conftest import needs_kicad, needs_native  # noqa: E402
+from tests.conftest import needs_kicad, needs_native, parity, parity_on  # noqa: E402
 
 pytestmark = [needs_native, needs_kicad]
 
@@ -26,7 +26,11 @@ def _both(occ, item, placement):
     return occ.escapes().closed(item, placement, 0), py.closed(item, placement, 0)
 
 
-@pytest.mark.parametrize("pcb", MODULES, ids=bench._name)
+KEPT = "mnb/MCU_RP2350B"      # the full run's one module; the parity tier takes all three
+
+
+@pytest.mark.parametrize("pcb", [pytest.param(p, id=bench._name(p), marks=() if bench._name(p) == KEPT else parity)
+                                 for p in MODULES])
 def test_closed_is_the_pythons_on_a_real_board(pcb):
     from placemat.kicad.read import read_board
     from placemat.placement import Placement
@@ -69,7 +73,7 @@ def test_native_surface_judge_matches_every_pad_of_three_modules(monkeypatch):
     assert hasattr(module, 'surface_lanes'), 'designated gate requires the native lane generator'
     assert len(MODULES) == 3
     with realboard():
-        for pcb in MODULES:
+        for pcb in (MODULES if parity_on() else [p for p in MODULES if bench._name(p) == KEPT]):
             g = read_board(pcb)
             plan = bench.ModuleBoard(g, {}, bench._planes(g), bench._size(g, True))().resolve()
             esc = judging(plan.occupancy)

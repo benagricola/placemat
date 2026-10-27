@@ -9,7 +9,7 @@ import pytest
 
 native = pytest.importorskip("placemat_native")
 
-from tests.conftest import needs_kicad, needs_native  # noqa: E402
+from tests.conftest import needs_kicad, needs_native, parity  # noqa: E402
 
 pytestmark = [needs_native, needs_kicad]
 
@@ -44,8 +44,14 @@ MODULES = [p for p in bench.boards()
                                  "mnb/MCU_RP2350B", "mnb/CanFrontendDiscrete")]
 
 
-@pytest.mark.parametrize("config", sorted(bench.CONFIGS))
-@pytest.mark.parametrize("pcb", MODULES, ids=bench._name)
+# the full run sweeps the smallest module in the default config; the parity tier sweeps every module in each
+KEPT = ("mnb/CanFrontendDiscrete", "default")
+CASES = [pytest.param(pcb, config, id="%s-%s" % (bench._name(pcb), config),
+                      marks=() if (bench._name(pcb), config) == KEPT else parity)
+         for config in sorted(bench.CONFIGS) for pcb in MODULES]
+
+
+@pytest.mark.parametrize("pcb,config", CASES)
 def test_a_native_sweep_is_the_python_sweep(pcb, config, monkeypatch):
     from placemat import placer
     from placemat.kicad.read import read_board

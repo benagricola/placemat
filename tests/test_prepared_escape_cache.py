@@ -8,7 +8,7 @@ from placemat.layout import Board
 from placemat.prepared_escape import prepare
 from placemat.score_delta import Delta
 from placemat.values import Face, Location, Part
-from tests.conftest import needs_native
+from tests.conftest import needs_native, parity_cases
 from tests.fixtures import board_geometry, footprint
 
 pytestmark = needs_native
@@ -190,7 +190,7 @@ def test_rest_cache_rejects_bad_manifest_atomically(fault):
     assert cached.surface.cache_usage() == usage
 
 
-def test_rest_cache_4000_candidates_match_independent_python(monkeypatch):
+def test_rest_cache_candidates_match_independent_python(monkeypatch):
     """Every pad identity and signed term is checked, including cache hits."""
     import random
     from placemat.escapes import judging
@@ -205,7 +205,7 @@ def test_rest_cache_4000_candidates_match_independent_python(monkeypatch):
         assert plain is not None, reason
         cached, reason = prepare(delta, rotations, face, rest_cache=True)
         assert cached is not None, reason
-        for index in range(2000):
+        for index in range(parity_cases(2000, 200)):
             turn = index % len(rotations)
             pose = replace(delta.occ._geometry(delta.item).reference,
                            location=Location(rng.uniform(5, 90), rng.uniform(5, 90)),

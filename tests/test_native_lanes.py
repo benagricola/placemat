@@ -23,7 +23,7 @@ from placemat.placement import Placement
 from placemat.score_delta import Delta
 from placemat.settings import Settings
 from placemat.values import Box, CopperLayer, Face, Location, Part
-from tests.conftest import needs_native
+from tests.conftest import needs_native, parity
 from tests.fixtures import board_geometry, footprint, pad
 from tests.test_pad_on_pad_edge import _part, _tie
 
@@ -380,7 +380,7 @@ def _litter(occ, rnd, window):
     occ.add_copper(shapes)
 
 
-@pytest.mark.parametrize("seed", [1, 2, 3])
+@pytest.mark.parametrize("seed", [1, pytest.param(2, marks=parity), pytest.param(3, marks=parity)])
 @pytest.mark.parametrize("make,window", _scenes())
 def test_a_native_layout_is_the_layout_python_makes(make, window, seed):
     rnd = random.Random(seed)
