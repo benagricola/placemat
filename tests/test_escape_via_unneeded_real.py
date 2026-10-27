@@ -54,7 +54,7 @@ def test_each_finding_names_its_via_on_the_component_face(found):
 def test_a_wall_of_another_nets_copper_round_the_chip_keeps_the_vias():
     """The same board with a ring of copper of another net round the chip, inside the frame: every lane is walled in
     within the module, so each via is needed."""
-    from placemat.escapes import Escapes
+    from placemat.escapes import Escapes, native_judge
     from placemat.kicad.read import read_board
     from placemat.occupancy import Occupancy, Shape
     from placemat.settings import Settings
@@ -69,4 +69,6 @@ def test_a_wall_of_another_nets_copper_round_the_chip_keeps_the_vias():
         ring.append(Shape("", "copper", frozenset([Face.FRONT]), frozenset([CopperLayer.F]), "WALL", poly, box))
     occ.add_copper(ring)
     pins = [("U1", n) for n in ("25", "26", "44", "45", "50")]
-    assert Escapes(occ, mirror=False).vias_unneeded(pins, occ.board_box) == []
+    esc = Escapes(occ, mirror=False)
+    esc.native_paths = native_judge()      # as the run's judgement asks (escapes.judging)
+    assert esc.vias_unneeded(pins, occ.board_box) == []

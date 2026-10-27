@@ -158,10 +158,9 @@ def _pin_row(pitch, width):
 
 
 def test_vias_on_neighbouring_pins_keep_clear_of_each_others_tails():
-    import itertools
     from placemat.geometry import poly_distance
     for pitch, width in ((0.4, 0.2), (0.5, 0.25), (0.65, 0.3)):
-        for order in itertools.permutations(range(5, 8), 3):
+        for order in ((5, 6, 7), (7, 6, 5), (6, 5, 7)):        # each end first, and the middle first
             b = Board(_pin_row(pitch, width), edge_margin=0.5)
             b.place(Part("u1"), at=Location(20, 21.5))
             for i in order:

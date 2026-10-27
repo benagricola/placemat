@@ -1083,7 +1083,7 @@ class Escapes:
             if not vias or self._runs_on(chain, ref, number, net):
                 continue
             own = [s for s in chain if s.kind != "through"]
-            if path_out(occ, ref, number, own=own, exact=True, via_exit=False, window=frame):
+            if path_out(occ, ref, number, own=own, exact=True, via_exit=False, window=frame, native=self._native_paths()):
                 out.append((ref, number, net, layers, vias))
         return out
 

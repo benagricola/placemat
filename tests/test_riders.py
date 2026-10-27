@@ -127,8 +127,11 @@ def test_a_rider_on_an_edge_part_slides_it_along_the_edge():
 def test_a_rider_that_fits_nowhere_fails_its_reference_and_is_named(seeded):
     """Off the board at every candidate: the reference finds no place, the
     finding names the rider and why, and neither is committed."""
-    small = dict(width=24.0, height=24.0)             # the whole board is searched: kept small
-    b = _board(**small) if seeded else Board(board_geometry(_fps(), **small), edge_margin=0.5)
+    # the whole board is searched, and every candidate is scored before the rider refuses it: a small board, a coarse step
+    small = dict(width=24.0, height=24.0)
+    coarse = Settings(place_step=1.0, place_pocket_step=1.0)
+    b = _board(settings=coarse, **small) if seeded else \
+        Board(board_geometry(_fps(), **small), edge_margin=0.5, settings=coarse)
     b.place(Part("u1"))
     _pin_c1(b, dy=-100.0)
     plan = b.resolve()

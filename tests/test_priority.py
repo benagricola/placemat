@@ -17,6 +17,8 @@ def make_board(**kw):
             footprint("J2", 60, 70, w=8, h=3, inst="j2", nets=("N1", "N3")),
             footprint("R1", 80, 80, w=2, h=1, inst="r1", nets=("N9", "GND")),
             footprint("R2", 80, 85, w=2, h=1, inst="r2", nets=("N9", "N30"))]
+    # the order and the notes are what is tested, not where the search lands: a coarse step keeps the cell's search short
+    kw.setdefault("settings", Settings(place_step=1.0))
     return Board(board_geometry(fps, cells=["mcu"], width=80, height=80), edge_margin=1.0, **kw)
 
 

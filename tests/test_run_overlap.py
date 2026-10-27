@@ -154,6 +154,7 @@ def test_in_sequence_nothing_runs_alongside(tmp_path, monkeypatch):
     """run.parallel false: the render starts only after the checks have finished."""
     from placemat import checks
     from placemat.kicad import write
+    _stand_in(tmp_path, monkeypatch, render="fail")      # the order is what is tested: a render that fails at once
     order = []
     real_checks, real_render = checks.run_checks, write.render_board
     monkeypatch.setattr(checks, "run_checks", lambda *a, **k: (order.append("checks"), real_checks(*a, **k))[1])

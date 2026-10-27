@@ -294,9 +294,10 @@ def test_native_and_python_sweeps_choose_the_same_spot_and_try_the_same_candidat
     if not placer.NATIVE_SWEEP:
         pytest.skip("no native sweep")
     results = []
+    coarse = Settings(place_step=0.5)       # the two sweeps agree at any step; the Python one is slow at the default
     for native in (True, False):
         monkeypatch.setattr(placer, "NATIVE_SWEEP", native)
-        b = _board(2)
+        b = _board(2, settings=coarse)
         for k in range(2):
             b.place(Cell("c%d" % k), at=Polar(BAND, None, about=CENTRE), rotations=Turns.TANGENT)
         plan = b.resolve()
