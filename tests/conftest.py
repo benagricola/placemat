@@ -4,6 +4,8 @@ from pathlib import Path
 
 import pytest
 
+from tests import impact
+
 # Files outside the repository are named by environment variables only; a test that needs one skips, saying which,
 # when it is unset.
 ECOSYSTEM_ENV = "MNB_ECOSYSTEM"     # the multi-board project whose committed Breakout board some tests read
@@ -99,6 +101,8 @@ def pytest_addoption(parser):
     parser.addoption("--full", action="store_true", help="run the slow tests too (tests/slow_tests.txt)")
     parser.addoption("--parity", action="store_true",
                      help="run every native-against-Python case too, not only each comparison's one case")
+    parser.addoption("--impact", metavar="REF", default=os.environ.get("PLACEMAT_IMPACT_REF") or None,
+                     help="with --full, run only the slow tests a change since REF reaches (tests/impact.py)")
 
 
 def _full(config) -> bool:
@@ -116,6 +120,10 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "parity: a further native-against-Python case; left out unless --parity")
     if config.getoption("--parity"):
         os.environ[PARITY_ENV] = "1"       # before collection and before xdist starts its workers
+    global _RECORDER
+    if os.environ.get(impact.RECORD_ENV) and _RECORDER is None:
+        _RECORDER = impact.Recorder()
+        _RECORDER.start()
 
 
 def pytest_collection_modifyitems(config, items):
@@ -136,6 +144,32 @@ def pytest_collection_modifyitems(config, items):
         config._placemat_slow_left_out = sum(1 for i in drop if i.get_closest_marker("slow") and not full)
         config._placemat_parity_left_out = len(drop) - config._placemat_slow_left_out
     config._placemat_parity_ids = {i.nodeid for i in items if i.get_closest_marker("parity")}
+    ref = config.getoption("--impact")
+    if full and ref:
+        slow_items = [i for i in items if i.get_closest_marker("slow")]
+        reached = impact.selected(ref, {i.nodeid for i in slow_items}, impact.load_map())
+        if reached is not None:
+            drop = [i for i in slow_items if i.nodeid not in reached]
+            if drop:
+                config.hook.pytest_deselected(items=drop)
+                gone = {id(i) for i in drop}
+                items[:] = [i for i in items if id(i) not in gone]
+        config._placemat_impact = (ref, len(slow_items), len(slow_items) if reached is None else len(slow_items) - len(drop))
+
+
+_RECORDER = None       # tests/impact.py's Recorder, in a run with PLACEMAT_IMPACT_RECORD set
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_protocol(item, nextitem):
+    recording = _RECORDER is not None and item.get_closest_marker("slow") is not None
+    if recording:
+        _RECORDER.begin(item.nodeid)
+    try:
+        yield
+    finally:
+        if recording:
+            _RECORDER.end()
 
 
 _TOOK: dict = {}       # node id -> seconds of setup and call, from every worker's reports
@@ -157,6 +191,8 @@ def _unlisted_slow(config) -> list:
 
 
 def pytest_sessionfinish(session, exitstatus):
+    if _RECORDER is not None and _RECORDER.entries:
+        _RECORDER.write(os.environ[impact.RECORD_ENV], os.environ.get("PYTEST_XDIST_WORKER", "main"))
     if exitstatus == 0 and any(d > SLOW_FAIL_S for d, _ in _unlisted_slow(session.config)):
         session.exitstatus = pytest.ExitCode.TESTS_FAILED
 
@@ -168,6 +204,11 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
     n = getattr(config, "_placemat_parity_left_out", 0)
     if n:
         terminalreporter.write_line("%d parity cases left out; `pytest --parity` runs them (when native/ changes)" % n)
+    got = getattr(config, "_placemat_impact", None)
+    if got:
+        ref, of, ran = got
+        terminalreporter.write_line("%d of %d slow tests run: those a change since %s reaches (tests/impact.py)"
+                                    % (ran, of, ref))
     missing = _unlisted_slow(config)
     if missing:
         terminalreporter.write_line("tests slower than %.0f s not in tests/slow_tests.txt (over %.0f s fails the run; "
