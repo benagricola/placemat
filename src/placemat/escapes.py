@@ -1799,8 +1799,29 @@ def path_out(occ, ref: str, number: str, depth: float | None = None, toward=None
     if hit is None:
         if len(_BOX_PATHS) >= _BOX_PATHS_MAX:
             _BOX_PATHS.clear()
-        hit = _BOX_PATHS[key] = _path_out_boxes(win, pad, cell, toward, walls, vias)
+        hit = _path_out_boxes_native(occ, mine + list(own), foes, holes, bans, delta, layers, win, track, via, toward)
+        if hit is None:
+            hit = _path_out_boxes(win, pad, cell, toward, walls, vias)
+        _BOX_PATHS[key] = hit
     return hit
+
+
+def _path_out_boxes_native(occ, start_shapes, foes, holes, bans, delta, layers, win, track, via, toward) -> bool | None:
+    """`_path_out_boxes` in Rust (`surface_box_path_out`), or None where it does not run: the native module off or
+    without it, a window over its cell limit, or a start shape it refuses (one off the window or the pad's layers),
+    which the Python search takes as it always has."""
+    from .geometry import _native
+    cell = occ.settings.place_escape_cell
+    if _native is None or not hasattr(_native, "surface_box_path_out") or not _native_fits(win, cell):
+        return None
+    try:
+        return _native.surface_box_path_out(
+            [_surface_shape(s) for s in start_shapes], [_surface_shape(s) for s in foes],
+            [_surface_shape(s, delta[id(s)]) for s in holes], _layer_bits(layers),
+            (win.left, win.top, win.right, win.bottom), track, via, None if toward is None else tuple(toward),
+            [_surface_shape(s, delta[id(s)]) for s in bans], cell)
+    except ValueError:
+        return None
 
 
 # The box search's answers by its inputs (`path_out`, exact off), and how many are kept before they are dropped.

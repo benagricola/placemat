@@ -159,6 +159,50 @@ def test_native_box_handoff_path_matches_python_with_holes_bans_and_layers(monke
     assert results == {False, True}
 
 
+def test_the_box_search_of_path_out_runs_natively_and_answers_as_python(monkeypatch):
+    from dataclasses import replace
+    from placemat import escapes, geometry
+    from placemat.escapes import path_out, search_near
+    from placemat.occupancy import ban_shape
+    from placemat.values import Location
+    from tests.fixtures import board_geometry
+    from tests.fixtures import placed as _placed
+    from tests.test_surface_escapes import _shape_board
+    module = geometry._native
+    if module is None or not hasattr(module, 'surface_box_path_out'):
+        pytest.skip('native boxed handoff path not built')
+    calls = []
+    real = module.surface_box_path_out
+
+    class Counted:
+        def __getattr__(self, name):
+            return getattr(module, name)
+
+        def surface_box_path_out(self, *a):
+            calls.append(1)
+            return real(*a)
+    results = set()
+    for seed in range(8):
+        fps = _shape_board(random.Random(1000 + seed))
+        fps[-1] = replace(fps[-1], npth=((Location(31, 30), 0.8),))
+        _, plan = _placed(board_geometry(fps, width=60, height=60))
+        occ = plan.occupancy
+        occ.copper.append(ban_shape('fixture-ban', ((29, 29), (31, 29), (31, 31), (29, 31)), None, ()))
+        near = search_near(occ)
+        for depth in (0.5, 2.3):
+            for toward in (None, (1, 0), (-1, 1)):
+                escapes._BOX_PATHS.clear()
+                monkeypatch.setattr(geometry, '_native', None)
+                expected = path_out(occ, 'P1', '1', depth, toward=toward, near=near)
+                escapes._BOX_PATHS.clear()
+                monkeypatch.setattr(geometry, '_native', Counted())
+                calls.clear()
+                assert path_out(occ, 'P1', '1', depth, toward=toward, near=near) == expected, (seed, depth, toward)
+                assert len(calls) == 1
+                results.add(expected)
+    assert results == {False, True}
+
+
 def test_native_box_handoff_path_refuses_unbounded_work_and_obeys_stop():
     import signal
     from placemat import geometry
